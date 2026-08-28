@@ -1568,7 +1568,7 @@ fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     #[cfg(target_os = "macos")]
     { ("open", vec!["--".into(), target.as_os_str().to_owned()]) }
     #[cfg(target_os = "linux")]
-    { ("xdg-open", vec![target.as_os_str().to_owned()]) }
+    { ("xdg-open", vec!["--".into(), target.as_os_str().to_owned()]) }
     #[cfg(target_os = "windows")]
     { ("explorer", vec![target.as_os_str().to_owned()]) }
 }
@@ -1594,17 +1594,45 @@ fn decode_file_url(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+fn reject_symlink(path: &Path) -> AppResult<()> {
+    let meta = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::Message("Review 目标不能是符号链接".into()));
+    }
+    Ok(())
+}
+
+fn confirm_unfollowed(path: &Path) -> AppResult<()> {
+    reject_symlink(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let lstat = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        let followed = std::fs::metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        if lstat.dev() != followed.dev() || lstat.ino() != followed.ino() {
+            return Err(AppError::Message("Review 目标不能是符号链接".into()));
+        }
+    }
+    Ok(())
+}
+
 fn validate_review_open_target(path: &str, workspace: Option<&Path>, hint: &str) -> AppResult<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed.contains("://") || trimmed.starts_with('-') { return Err(AppError::Message("Review 目标不安全".into())); }
     let root = trusted_workspace_for_hint(workspace, Some(hint)).map_err(AppError::Message)?;
-    let target = PathBuf::from(trimmed).canonicalize().map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    let requested = PathBuf::from(trimmed);
+    if has_parent_traversal(&requested) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    let unfollowed = if requested.is_absolute() { requested } else { root.join(requested) };
+    if is_blocked_path(&unfollowed) || !is_under(&unfollowed, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    confirm_unfollowed(&unfollowed)?;
+    let target = unfollowed.canonicalize().map_err(|_| AppError::Message("Review 目标不存在".into()))?;
     if is_blocked_path(&target) || !is_under(&target, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
-    let lower = target.to_string_lossy().to_lowercase();
-    if lower.split('/').any(|part| part.ends_with(".app")) || matches!(target.extension().and_then(|v| v.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")) { return Err(AppError::Message("Review 不允许打开应用或可执行文件".into())); }
+    confirm_unfollowed(&unfollowed)?;
+    let lower = unfollowed.to_string_lossy().to_lowercase();
+    if lower.split('/').any(|part| part.ends_with(".app")) || matches!(unfollowed.extension().and_then(|v| v.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")) { return Err(AppError::Message("Review 不允许打开应用或可执行文件".into())); }
     #[cfg(unix)]
-    if std::fs::metadata(&target).map(|m| { use std::os::unix::fs::PermissionsExt; m.permissions().mode() & 0o111 != 0 }).unwrap_or(false) { return Err(AppError::Message("Review 不允许打开可执行文件".into())); }
-    Ok(target)
+    if std::fs::symlink_metadata(&unfollowed).map(|m| { use std::os::unix::fs::PermissionsExt; m.permissions().mode() & 0o111 != 0 }).unwrap_or(false) { return Err(AppError::Message("Review 不允许打开可执行文件".into())); }
+    Ok(unfollowed)
 }
 
 #[tauri::command]
@@ -2515,6 +2543,24 @@ mod final_review_tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn validate_review_open_target_rejects_symlink_to_file_outside_workspace() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("grok-review-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let outside = root.parent().unwrap().join(format!("{}-outside.txt", root.file_name().unwrap().to_string_lossy()));
+        std::fs::write(&outside, b"secret").unwrap();
+        let link = root.join("escape.txt");
+        symlink(&outside, &link).unwrap();
+        let err = validate_review_open_target(link.to_str().unwrap(), Some(&root), root.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.to_string(), "Review 目标不能是符号链接");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&outside);
+    }
+
     #[test]
     fn text_preview_allows_workspace_files_but_rejects_canonical_escapes() {
         let root = Path::new("/workspace");
@@ -2607,7 +2653,7 @@ mod final_review_tests {
     #[cfg(target_os = "macos")]
     { assert_eq!(program, "open"); assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]); }
     #[cfg(target_os = "linux")]
-    { assert_eq!(program, "xdg-open"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
+    { assert_eq!(program, "xdg-open"); assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]); }
     #[cfg(target_os = "windows")]
     { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
 }
