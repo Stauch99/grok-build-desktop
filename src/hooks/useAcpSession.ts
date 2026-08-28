@@ -30,7 +30,10 @@ import { enqueue, type QueueState } from "../lib/prompt-queue";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
+import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
+
+let agentBoot: Promise<void> | null = null;
 
 export function sessionIdFromNewResult(result: unknown): string {
   const sid = String(asRecord(result).sessionId ?? "");
@@ -156,7 +159,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const runningSessionIdRef = useRef<string | null>(null);
   const readyRef = useRef(false);
   const busyRef = useRef(false);
-  const ensurePromise = useRef<Promise<void> | null>(null);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
   const echoedUser = useRef(false);
   const echoedSplitUser = useRef(false);
@@ -208,27 +210,45 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     });
   }
 
+  function applyWarmupFlags(ok: boolean) {
+    const flags = flagsAfterWarmup(ok);
+    readyRef.current = flags.ready;
+    setReady(flags.ready);
+    depsRef.current.setSawExit(flags.sawExit);
+  }
+
   async function ensureAgent(): Promise<void> {
     if (readyRef.current) return;
-    if (ensurePromise.current) return ensurePromise.current;
+    if (shouldAdoptInFlightBoot(!!agentBoot, readyRef.current) && agentBoot) {
+      setConnecting(true);
+      try {
+        await agentBoot;
+        applyWarmupFlags(true);
+      } catch (e) {
+        applyWarmupFlags(false);
+        throw e;
+      } finally {
+        setConnecting(false);
+      }
+      return;
+    }
     setConnecting(true);
-    ensurePromise.current = (async () => {
+    agentBoot = (async () => {
       await startAgent();
       await rpc("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       });
-      readyRef.current = true;
-      setReady(true);
-      depsRef.current.setSawExit(false);
+      applyWarmupFlags(true);
     })()
       .catch((e) => {
-        ensurePromise.current = null;
+        agentBoot = null;
+        applyWarmupFlags(false);
         throw e;
       })
       .finally(() => setConnecting(false));
-    return ensurePromise.current;
+    return agentBoot;
   }
 
   async function refreshUsage(id: string, dest: "main" | "split" = "main") {
@@ -311,13 +331,18 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         depsRef.current.setSplitBusy(false);
         setConnecting(false);
         pendingPrompt.current = null;
-        ensurePromise.current = null;
+        agentBoot = null;
       });
       if (cancelled) {
         a(); c(); exit();
         return;
       }
       offs.push(a, c, exit);
+      if (shouldStartWarmup(offs.length > 0, cancelled)) {
+        void ensureAgent().catch((e) => {
+          depsRef.current.showToast(String(e));
+        });
+      }
     })();
     return () => {
       cancelled = true;
