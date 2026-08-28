@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { IconGrokClose } from "../grok-icons";
 import { IconFinder } from "../icons";
-import { basename, groupArtifactsByFolder } from "../lib/text";
+import { nestPaths, type TreeNode } from "../lib/miller";
+import { basename } from "../lib/text";
 
 export type FilePanelArtifact = { path: string; kind?: string };
 export type FilePanelEntry = { name: string; path: string; kind: "file" | "dir" };
@@ -13,6 +15,19 @@ type Props = {
   onPreview?: (path: string) => void;
   onClose?: () => void;
 };
+
+function stripCwd(path: string, cwd?: string): string {
+  if (!cwd) return path;
+  const root = cwd.replace(/\/+$/, "");
+  if (path === root) return "";
+  if (path.startsWith(`${root}/`)) return path.slice(root.length + 1);
+  return path;
+}
+
+function joinCwd(path: string, cwd?: string): string {
+  if (!cwd || path.startsWith("/")) return path;
+  return `${cwd.replace(/\/+$/, "")}/${path}`;
+}
 
 function FileRow({
   path,
@@ -48,6 +63,75 @@ function FileRow({
   );
 }
 
+function TreeRows({
+  nodes,
+  depth,
+  dirPaths,
+  cwd,
+  collapsed,
+  onToggle,
+  onOpenPath,
+  onPreview,
+}: {
+  nodes: TreeNode[];
+  depth: number;
+  dirPaths: Set<string>;
+  cwd?: string;
+  collapsed: Set<string>;
+  onToggle: (path: string) => void;
+  onOpenPath: (path: string) => void;
+  onPreview?: (path: string) => void;
+}) {
+  return (
+    <>
+      {nodes.map((node) => {
+        const abs = joinCwd(node.path, cwd);
+        const nested = node.children && node.children.length > 0;
+        const isDir = nested || dirPaths.has(node.path);
+        const open = nested && !collapsed.has(node.path);
+        if (nested) {
+          return (
+            <div key={node.path} className="file-group">
+              <button
+                type="button"
+                className="file-folder"
+                style={{ paddingLeft: 2 + depth * 12, width: "100%", border: 0, background: "transparent", cursor: "pointer" }}
+                title={abs}
+                aria-expanded={open}
+                onClick={() => onToggle(node.path)}
+              >
+                {open ? "▾" : "▸"} {node.name}
+              </button>
+              {open ? (
+                <TreeRows
+                  nodes={node.children!}
+                  depth={depth + 1}
+                  dirPaths={dirPaths}
+                  cwd={cwd}
+                  collapsed={collapsed}
+                  onToggle={onToggle}
+                  onOpenPath={onOpenPath}
+                  onPreview={onPreview}
+                />
+              ) : null}
+            </div>
+          );
+        }
+        return (
+          <div key={node.path} style={depth ? { paddingLeft: depth * 12 } : undefined}>
+            <FileRow
+              path={abs}
+              name={node.name}
+              onOpenPath={onOpenPath}
+              onPreview={isDir ? undefined : onPreview}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function FilePanel({
   artifacts,
   cwd,
@@ -56,9 +140,25 @@ export function FilePanel({
   onPreview,
   onClose,
 }: Props) {
-  const groups = groupArtifactsByFolder(artifacts.map((a) => a.path));
-  const dirs = entries?.filter((e) => e.kind === "dir") ?? [];
-  const files = entries?.filter((e) => e.kind === "file") ?? [];
+  const artifactTree = nestPaths(artifacts.map((a) => stripCwd(a.path, cwd)).filter(Boolean));
+  const entryTree = entries
+    ? nestPaths(entries.map((e) => stripCwd(e.path, cwd)).filter(Boolean))
+    : [];
+  const dirPaths = new Set(
+    (entries ?? [])
+      .filter((e) => e.kind === "dir")
+      .map((e) => stripCwd(e.path, cwd))
+      .filter(Boolean),
+  );
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const onToggle = (path: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
 
   return (
     <div className="file-panel">
@@ -81,20 +181,16 @@ export function FilePanel({
 
       {artifacts.length > 0 ? (
         <div className="file-list">
-          {groups.map((g) => (
-            <div key={g.folder || g.files[0]?.path} className="file-group">
-              {g.folder ? <div className="file-folder">{g.folder}</div> : null}
-              {g.files.map((f) => (
-                <FileRow
-                  key={f.path}
-                  path={f.path}
-                  name={f.name}
-                  onOpenPath={onOpenPath}
-                  onPreview={onPreview}
-                />
-              ))}
-            </div>
-          ))}
+          <TreeRows
+            nodes={artifactTree}
+            depth={0}
+            dirPaths={dirPaths}
+            cwd={cwd}
+            collapsed={collapsed}
+            onToggle={onToggle}
+            onOpenPath={onOpenPath}
+            onPreview={onPreview}
+          />
         </div>
       ) : null}
 
@@ -102,23 +198,16 @@ export function FilePanel({
         <>
           <div className="file-folder">工作区</div>
           <div className="file-list">
-            {dirs.map((e) => (
-              <FileRow
-                key={e.path}
-                path={e.path}
-                name={e.name}
-                onOpenPath={onOpenPath}
-              />
-            ))}
-            {files.map((e) => (
-              <FileRow
-                key={e.path}
-                path={e.path}
-                name={e.name}
-                onOpenPath={onOpenPath}
-                onPreview={onPreview}
-              />
-            ))}
+            <TreeRows
+              nodes={entryTree}
+              depth={0}
+              dirPaths={dirPaths}
+              cwd={cwd}
+              collapsed={collapsed}
+              onToggle={onToggle}
+              onOpenPath={onOpenPath}
+              onPreview={onPreview}
+            />
           </div>
         </>
       ) : null}

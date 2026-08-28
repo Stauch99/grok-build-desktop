@@ -11,6 +11,10 @@ export type ChangesPanelProps = {
   onRefresh: () => void;
 };
 
+function previewTarget(change: GitChange): string {
+  return change.abs || change.path;
+}
+
 /**
  * Working-tree review list: every file the agent (or you) changed since HEAD,
  * with per-file line counts. This is the "what actually changed" surface —
@@ -50,34 +54,39 @@ export function ChangesPanel({
 
       {changes.length > 0 && (
         <div className="file-list">
-          {changes.map((c) => (
-            <div className="change-row" key={c.abs || c.path}>
-              <span className={`change-mark ${c.status}`} title={c.status}>
-                {statusMark(c.status)}
-              </span>
-              <button
-                type="button"
-                className="file-item"
-                title={c.path}
-                onClick={() => onPreview(c.abs)}
-              >
-                {c.path}
-              </button>
-              <span className="change-stat">
-                {c.added > 0 && <span className="stat-add">+{c.added}</span>}
-                {c.removed > 0 && <span className="stat-del">−{c.removed}</span>}
-              </span>
-              <button
-                type="button"
-                className="file-open"
-                title="在访达中打开"
-                aria-label="在访达中打开"
-                onClick={() => onReveal(c.abs)}
-              >
-                <IconFinder size={14} />
-              </button>
-            </div>
-          ))}
+          {changes.map((c) => {
+            const target = previewTarget(c);
+            const untracked = c.status === "untracked";
+            return (
+              <div className="change-row" key={c.abs || c.path}>
+                <span className={`change-mark ${c.status}`} title={c.status}>
+                  {statusMark(c.status)}
+                </span>
+                <button
+                  type="button"
+                  className="file-item"
+                  title={untracked ? `预览 ${c.path}` : c.path}
+                  aria-label={untracked ? `预览未跟踪文件 ${c.path}` : undefined}
+                  onClick={() => onPreview(target)}
+                >
+                  {c.path}
+                </button>
+                <span className="change-stat">
+                  {c.added > 0 && <span className="stat-add">+{c.added}</span>}
+                  {c.removed > 0 && <span className="stat-del">−{c.removed}</span>}
+                </span>
+                <button
+                  type="button"
+                  className="file-open"
+                  title="在访达中打开"
+                  aria-label="在访达中打开"
+                  onClick={() => onReveal(c.abs || c.path)}
+                >
+                  <IconFinder size={14} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
