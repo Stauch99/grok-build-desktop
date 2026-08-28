@@ -1,19 +1,13 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { MouseEventHandler } from "react";
-import { marked } from "marked";
-import { splitAssistantBlocks } from "../lib/markdown";
-import { linkifyLocalPaths, sanitizeHtml } from "../lib/text";
+import { renderMd, splitAssistantBlocks } from "../lib/markdown";
 import { MermaidBlock } from "../MermaidBlock";
-
-export function renderMd(text: string): string {
-  return linkifyLocalPaths(
-    sanitizeHtml(marked.parse(text, { async: false, gfm: true, breaks: true }) as string),
-  );
-}
 
 export type MarkdownProps = {
   text: string;
   dark: boolean;
   className?: string;
+  cwd?: string;
   onClick?: MouseEventHandler<HTMLDivElement>;
 };
 
@@ -22,7 +16,7 @@ export type MarkdownProps = {
  * README renders in the preview pane exactly as it would in the thread —
  * including mermaid diagrams and clickable local paths.
  */
-export function Markdown({ text, dark, className = "md", onClick }: MarkdownProps) {
+export function Markdown({ text, dark, className = "md", cwd = "", onClick }: MarkdownProps) {
   const blocks = splitAssistantBlocks(text);
   return (
     <div className={className} onClick={onClick}>
@@ -30,7 +24,10 @@ export function Markdown({ text, dark, className = "md", onClick }: MarkdownProp
         b.kind === "mermaid" ? (
           <MermaidBlock key={`mmd-${i}`} text={b.text} closed={b.closed} dark={dark} />
         ) : (
-          <div key={`md-${i}`} dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} />
+          <div
+            key={`md-${i}`}
+            dangerouslySetInnerHTML={{ __html: renderMd(b.text, cwd, convertFileSrc) }}
+          />
         ),
       )}
     </div>

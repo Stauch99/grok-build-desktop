@@ -1,7 +1,9 @@
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../lib/text";
-import { previewKind, relativeTo } from "../lib/preview";
-import { IconClose } from "../icons";
+import { previewErrorCopy, previewKind, relativeTo } from "../lib/preview";
+import { IconGrokClose } from "../grok-icons";
+import { IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconSave } from "../icons";
 import { Markdown } from "./Markdown";
 import { HtmlArtifactPreview } from "./HtmlArtifactPreview";
 
@@ -62,8 +64,9 @@ export function PreviewPane({
   if (!path) return null;
 
   const kind = previewKind(path);
+  const media = kind === "image" || kind === "video";
   const label = cwd ? relativeTo(path, cwd) : basename(path);
-  const loading = text === null && !error;
+  const loading = !media && text === null && !error;
 
   return (
     <aside
@@ -76,17 +79,19 @@ export function PreviewPane({
           {label}
         </span>
         <span className="preview-actions">
-          {kind === "markdown" && text !== null ? (
+          {kind === "markdown" && text !== null && !media ? (
             <button
               type="button"
               className="file-open"
               aria-pressed={raw}
+              title={raw ? "渲染" : "源码"}
+              aria-label={raw ? "渲染" : "源码"}
               onClick={() => setRaw((v) => !v)}
             >
-              {raw ? "渲染" : "源码"}
+              {raw ? <IconMarkdown size={14} /> : <IconCode size={14} />}
             </button>
           ) : null}
-          {text !== null ? (
+          {text !== null && !media ? (
             <button
               type="button"
               className="file-open"
@@ -94,20 +99,22 @@ export function PreviewPane({
               aria-label="复制全文"
               onClick={() => void navigator.clipboard.writeText(text)}
             >
-              复制
+              <IconCopy size={14} />
             </button>
           ) : null}
-          {text !== null && onSave ? (
+          {text !== null && onSave && !media ? (
             <button
               type="button"
               className="file-open"
               aria-pressed={editing}
+              title={editing ? "保存" : "编辑"}
+              aria-label={editing ? "保存" : "编辑"}
               onClick={() => {
                 if (editing) onSave(path, draft);
                 setEditing((v) => !v);
               }}
             >
-              {editing ? "保存" : "编辑"}
+              {editing ? <IconSave size={14} /> : <IconEdit size={14} />}
             </button>
           ) : null}
           {onReveal ? (
@@ -118,25 +125,33 @@ export function PreviewPane({
               aria-label="在访达中打开"
               onClick={() => onReveal(path)}
             >
-              访达
+              <IconFinder size={14} />
             </button>
           ) : null}
           {onClose ? (
             <button type="button" className="icon-btn" aria-label="关闭预览" title="关闭预览" onClick={onClose}>
-              <IconClose size={14} />
+              <IconGrokClose size={16} />
             </button>
           ) : null}
         </span>
       </header>
 
-      {truncated ? <p className="preview-note">文件较大，仅显示前 256KB</p> : null}
+      {truncated && !media ? <p className="preview-note">文件较大，仅显示前 256KB</p> : null}
 
-      {loading ? (
+      {media ? (
+        <div className="preview-body preview-media">
+          {kind === "video" ? (
+            <video src={convertFileSrc(path)} controls preload="metadata" playsInline />
+          ) : (
+            <img src={convertFileSrc(path)} alt={basename(path)} />
+          )}
+        </div>
+      ) : loading ? (
         <div className="preview-loading">
           <div className="spinner" />
         </div>
       ) : text === null ? (
-        <p className="preview-empty">{error || "无法预览，请用访达打开"}</p>
+        <p className="preview-empty">{error ? previewErrorCopy(error) : "无法预览，请用访达打开"}</p>
       ) : editing ? (
         <textarea
           className="preview-body preview-code"
@@ -150,7 +165,7 @@ export function PreviewPane({
         </div>
       ) : kind === "markdown" && !raw ? (
         <div className="preview-body md-scroll">
-          <Markdown text={text} dark={dark} onClick={onFollowLink} />
+          <Markdown text={text} dark={dark} cwd={cwd} onClick={onFollowLink} />
         </div>
       ) : (
         <pre className="preview-body preview-code">{text}</pre>

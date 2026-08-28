@@ -1,3 +1,5 @@
+import { mediaKind } from "./media";
+
 const TEXT_EXT = new Set([
   "md",
   "markdown",
@@ -24,7 +26,6 @@ const TEXT_EXT = new Set([
   "xml",
   "csv",
   "log",
-  "svg",
   "env",
   "gitignore",
   "dockerignore",
@@ -50,13 +51,24 @@ export function isMarkdown(path: string): boolean {
   return ext === "md" || ext === "markdown";
 }
 
-export type PreviewKind = "markdown" | "code" | "html" | "unsupported";
+export type PreviewKind = "markdown" | "code" | "html" | "image" | "video" | "unsupported";
 
 export function previewKind(path: string): PreviewKind {
+  const media = mediaKind(path);
+  if (media) return media;
   if (!isTextPreviewable(path)) return "unsupported";
   const ext = fileExt(path);
   if (ext === "html" || ext === "htm") return "html";
   return isMarkdown(path) ? "markdown" : "code";
+}
+
+/** Desktop invoke errors are English; the chrome is Chinese. */
+export function previewErrorCopy(err: unknown): string {
+  const raw = String(err ?? "").replace(/^Error:\s*/i, "").trim();
+  if (/path not allowed/i.test(raw)) return "无法预览这个文件";
+  if (/caller workspace does not match/i.test(raw)) return "工作区不一致，无法预览";
+  if (/trusted workspace is not set/i.test(raw)) return "还没有工作区，无法预览";
+  return raw || "无法预览这个文件";
 }
 
 /** Shorten an absolute path for the preview header. */

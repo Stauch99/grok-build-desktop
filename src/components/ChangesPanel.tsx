@@ -1,5 +1,6 @@
 import type { GitChange } from "../api";
 import { statusMark, totalChanges } from "../lib/git";
+import { IconFinder, IconRefresh } from "../icons";
 
 export type ChangesPanelProps = {
   changes: GitChange[];
@@ -42,8 +43,8 @@ export function ChangesPanel({
             </>
           )}
         </span>
-        <button type="button" className="file-open" onClick={onRefresh} title="重新读取">
-          刷新
+        <button type="button" className="file-open" onClick={onRefresh} title="重新读取" aria-label="重新读取">
+          <IconRefresh size={14} />
         </button>
       </div>
 
@@ -70,9 +71,10 @@ export function ChangesPanel({
                 type="button"
                 className="file-open"
                 title="在访达中打开"
+                aria-label="在访达中打开"
                 onClick={() => onReveal(c.abs)}
               >
-                访达
+                <IconFinder size={14} />
               </button>
             </div>
           ))}

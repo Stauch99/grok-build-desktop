@@ -86,7 +86,7 @@ import { filterCommands, parseRenameArgs, type CommandDef, type HubTab } from ".
 import { normalizeLocale, type Locale } from "./lib/i18n";
 import { t } from "./lib/i18n";
 import { mergeModelCatalog, modelsFromCache, parseModelsList } from "./lib/models";
-import { enabledMcpCount, parseInspect, type InspectReport } from "./lib/inspect";
+import { parseInspect, type InspectReport } from "./lib/inspect";
 import { formatSessionInfo, exportTranscript, lastAssistantText } from "./lib/session-local";
 import { firstHitIndex } from "./lib/search-highlight";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
@@ -111,7 +111,6 @@ import { fitLayout, loadWidth, maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
 import {
   busyComposerHint,
   paneComposerTakeover,
-  contextSummary,
   heroLayout,
   SIDEBAR_RAIL,
   situationAutoCollapse,
@@ -122,7 +121,6 @@ import { headerJobs } from "./lib/jobs-header";
 import { subagentCatalog } from "./lib/subagent-tree";
 import { goalFromPlan } from "./lib/goal-bar";
 import { turnStatsFromItems } from "./lib/usage-split";
-import { DetailsPanel } from "./components/DetailsColumn";
 import { GoalBar } from "./components/GoalBar";
 import { StatsLineView } from "./components/StatsLineView";
 import { MillerPicker } from "./components/MillerPicker";
@@ -165,7 +163,6 @@ import { Sidebar } from "./components/Sidebar";
 import { PendingRequestCard } from "./components/PendingRequestCard";
 import { FilePanel } from "./components/FilePanel";
 import { PreviewPane } from "./components/PreviewPane";
-import { ReviewHome } from "./components/ReviewHome";
 import { ReviewRail } from "./components/ReviewRail";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryDock } from "./components/MemoryDock";
@@ -185,15 +182,13 @@ import { EmptyState } from "./components/EmptyState";
 import { RewindDialog } from "./components/RewindDialog";
 import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "./lib/memory-dock";
 import { isTextPreviewable } from "./lib/preview";
+import { parseWeeklyUsage, type WeeklyUsage } from "./lib/weekly-usage";
 import { useReviewController } from "./hooks/useReviewController";
 import { useSessionHotkeys } from "./hooks/useSessionHotkeys";
 import { asRecord, basename, surfaceStderr } from "./lib/text";
-import {
-  IconCheck,
-  IconChevron,
-  IconClose,
-  IconPanel,
-} from "./icons";
+import { IconGrokClose, IconGrokMore, IconGrokSidebar } from "./grok-icons";
+import { IconChevron, IconGitFork } from "./icons";
+import { TodoMark } from "./components/TodoMark";
 
 const FALLBACK_MODELS = ["grok-4.6", "grok-4.5", "grok-build"];
 
@@ -241,6 +236,7 @@ export function App() {
   /** Main-pane session that owns `busy`; stays put when the user switches threads. */
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsage | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [mode, setMode] = useState<Mode>("agent");
@@ -336,8 +332,14 @@ export function App() {
     cwd,
     ownerKey: (sessionId || "") + "|" + cwd,
     disabled: !!split,
-    readTextFile,
-    openReviewPath,
+    readTextFile: async (path, allowRoot) => {
+      if (cwd) await setWorkspace(cwd, sessionId);
+      return readTextFile(path, allowRoot);
+    },
+    openReviewPath: async (path, allowRoot) => {
+      if (cwd) await setWorkspace(cwd, sessionId);
+      return openReviewPath(path, allowRoot);
+    },
     onError: (message) => { setToast(message); window.setTimeout(() => setToast(null), 2800); },
     isTextPreviewable,
     onOpened: notifyReviewOpened,
@@ -553,6 +555,11 @@ export function App() {
     }
     void listWorkspaceEntries(cwd).then(setWorkspaceEntries).catch(() => setWorkspaceEntries([]));
   }, [cwd]);
+
+  useEffect(() => {
+    if (!cwd) return;
+    void setWorkspace(cwd, sessionId).catch(() => {});
+  }, [cwd, sessionId]);
 
   useEffect(() => {
     if (!cwd || !git?.isRepo) {
@@ -823,8 +830,8 @@ export function App() {
     setBusy(true);
   }
 
-  function openMenu(kind: "header" | "row", id: string, el: HTMLElement) {
-    const pos = menuPosition(el);
+  function openMenu(kind: "header" | "row", id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) {
+    const pos = menuPosition(el, point);
     setMenu({ kind, id, ...pos });
   }
 
@@ -1060,9 +1067,12 @@ export function App() {
         }
         if (state.density === "compact" || state.density === "comfortable") setDensity(state.density);
         if (typeof state.hideToTray === "boolean") setHideToTray(state.hideToTray);
-        if (state.defaultRail === "tasks" || state.defaultRail === "changes" || state.defaultRail === "context") {
+        if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
           setDefaultRail(state.defaultRail);
           review.hydrateLegacy({ defaultTab: state.defaultRail });
+        } else if (state.defaultRail === "context") {
+          setDefaultRail("changes");
+          review.hydrateLegacy({ defaultTab: "changes" });
         }
         if (state.shortcuts && typeof state.shortcuts === "object") setShortcuts(state.shortcuts);
         setUnread(loadUnread(state.unread));
@@ -1146,6 +1156,30 @@ export function App() {
       .finally(() => setConnecting(false));
     return ensurePromise.current;
   }
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    let inflight = false;
+    const tick = async () => {
+      if (cancelled || inflight) return;
+      inflight = true;
+      try {
+        const raw = await rpc("_x.ai/billing", {}, { timeoutMs: 8000 });
+        if (!cancelled) setWeeklyUsage(parseWeeklyUsage(raw));
+      } catch {
+        /* keep the last snapshot; billing is best-effort */
+      } finally {
+        inflight = false;
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [ready]);
 
   async function selectProject(path: string) {
     const last = path === INBOX_PIN || (inboxCwd && sameCwd(path, inboxCwd)) ? INBOX_PIN : path;
@@ -2094,7 +2128,7 @@ export function App() {
         break;
       }
       case "context":
-        openReview("context");
+        openReview("plan");
         break;
       case "dashboard":
         setExtraPage("dashboard");
@@ -2206,12 +2240,6 @@ export function App() {
   const splitTakeover = paneComposerTakeover({ pane: "split", pendingPane: splitPermissionView.pane, pendingKind: splitPermissionView.kind, plan: false });
   const hero = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
   const turnFiles = lastTurnFiles(chat.items);
-  const ctxCounts = contextSummary({
-    mcp: inspect ? enabledMcpCount(inspect.mcpServers) : 0,
-    lsp: inspect?.lspServers.length ?? 0,
-    rules: rules.length,
-    sandboxOn: mode === "yolo",
-  });
   const terminalTools = bashTools(chat.items);
   const reviewTabs = deriveReviewTabs({ planCount: plan.length, fileCount: turnFiles.length, changeCount: changes.length, contextCount: (planFile ? 1 : 0) + rules.length, hasDetails: !!detailsTool, hasPreview: !!previewPath, bashCount: terminalTools.length });
   const reconciledReviewTab = reconcileReviewTab(reviewTab, reviewTabs, defaultRail);
@@ -2265,7 +2293,7 @@ export function App() {
         collapsedIds={collapsedIds}
         onToggleExpand={toggleExpand}
         onOpenSession={(s) => void resumeSession(s)}
-        onSessionMenu={(id, el) => openMenu("row", id, el)}
+        onSessionMenu={(id, el, point) => openMenu("row", id, el, point)}
         onNewChat={() => void startNewChat()}
         onAddProject={() => void addProject()}
         picking={picking}
@@ -2274,6 +2302,7 @@ export function App() {
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         signedIn={!!info?.authPresent}
+        weeklyUsage={weeklyUsage}
         onSettings={() => setSettingsOpen(true)}
         onExtensions={() => openHub()}
         onShortcuts={() => {
@@ -2373,7 +2402,7 @@ export function App() {
         <div className={split ? "pane" : "pane solo"}>
           <div className="pane-body">
           <div className="work-col">
-          <header className="workspace-head">
+          <header className="workspace-head" data-tauri-drag-region>
             <div className="title-wrap">
               <MenuSelect
                 variant="inline"
@@ -2420,6 +2449,10 @@ export function App() {
                   >
                     {currentTitle}
                   </button>
+                  <DiffSummary
+                    items={chat.items}
+                    onOpen={() => openReview("changed-file")}
+                  />
                   <button
                     type="button"
                     className="icon-btn"
@@ -2427,16 +2460,7 @@ export function App() {
                     aria-label="会话操作"
                     onClick={(e) => openMenu("header", sessionId, e.currentTarget)}
                   >
-                    <IconChevron />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost fork-btn"
-                    title="分叉会话"
-                    aria-label="分叉会话"
-                    onClick={() => void sendPrompt("/fork")}
-                  >
-                    分叉
+                    <IconGrokMore size={18} />
                   </button>
                 </>
               ) : (
@@ -2452,10 +2476,6 @@ export function App() {
                   onNewWorktree={() => void newWorktreeSession()}
                 />
               )}
-              <UsageRing
-                usage={usage ?? {}}
-                compactPercent={cli?.compactPercent ?? 85}
-              />
               {jobs.length > 0 && (
                 <div className="chip-wrap">
                   <button type="button" className="btn ghost" aria-expanded={jobsOpen} onClick={() => setJobsOpen((o) => !o)}>
@@ -2497,7 +2517,7 @@ export function App() {
                     persist(persistReviewOpen(next));
                   }}
                 >
-                  <IconPanel />
+                  <IconGrokSidebar size={18} mirror />
                 </button>
               )}
             </div>
@@ -2581,8 +2601,6 @@ export function App() {
             blocked={hero.blocked || loadingSession}
             takeover={takeover}
             busyHint={busyComposerHint(steerByDefault)}
-            agents={hero.hero ? agentRows : undefined}
-            onPickAgent={hero.hero ? (name) => void sendPrompt(`/config-agents ${name}`) : undefined}
             enterSends={enterSends}
             threadWidth={`${chatWidth}px`}
             commands={chat.commands}
@@ -2624,6 +2642,25 @@ export function App() {
               void setWorkspace(folder).catch((e) => showToast(String(e)));
             }}
             footer={<StatsLineView stats={turnStats} sessionTokens={usage?.used} />}
+            metaActions={
+              <>
+                {sessionId ? (
+                  <button
+                    type="button"
+                    className="icon-btn fork-btn"
+                    title="分叉会话"
+                    aria-label="分叉会话"
+                    onClick={() => void sendPrompt("/fork")}
+                  >
+                    <IconGitFork size={16} />
+                  </button>
+                ) : null}
+                <UsageRing
+                  usage={usage ?? {}}
+                  compactPercent={cli?.compactPercent ?? 85}
+                />
+              </>
+            }
           >
             <RunStatusRegion status={runStatus} />
             {goal ? <GoalBar goal={goal} /> : null}
@@ -2647,12 +2684,6 @@ export function App() {
                 }}
               />
             )}
-            <DiffSummary
-              items={chat.items}
-              onOpen={() => {
-                openReview("changed-file");
-              }}
-            />
             {subagentCards.map((s) =>
               s.status ? (
                 <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
@@ -2693,14 +2724,11 @@ export function App() {
                 onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
               />
               <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs} width={previewWidth}
-                onTab={review.setTab} onHome={() => review.setTab("home")} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
+                onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
                 {{
-                  home: <ReviewHome onOpen={(tab) => review.setTab(tab)} />,
-                  progress: plan.length > 0 ? <ul className="todo">{plan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><span className="box">{e.status === "completed" ? <IconCheck size={10} /> : e.status === "in_progress" ? "•" : ""}</span>{e.content}</li>)}</ul> : <p className="float-empty">本轮还没有进度。</p>,
+                  progress: plan.length > 0 ? <ul className="todo">{plan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} />{e.content}</li>)}</ul> : <p className="float-empty">本轮还没有进度。</p>,
                   files: turnFiles.length > 0 ? <FilePanel artifacts={turnFiles.map((path) => ({ path }))} cwd={cwd} onOpenPath={(p) => void review.revealPath(p)} onPreview={(p) => void openPreview(p)} /> : <p className="float-empty">本轮还没有文件。</p>,
                   changes: <div className="review-stack"><ChangesPanel changes={changes} isRepo={!!git?.isRepo} onPreview={(p) => void openPreview(p)} onReveal={(p) => void review.revealPath(p)} onRefresh={() => void refreshGit()} /><GitHistory commits={gitCommits} branches={gitBranchList} /></div>,
-                  context: <div className="ctx-counts" aria-label="上下文计数"><p>MCP {ctxCounts.mcp}</p><p>LSP {ctxCounts.lsp}</p><p>规则 {ctxCounts.rules}</p><p>沙盒 {ctxCounts.sandbox ? "始终批准" : "按许可"}</p><button type="button" className="btn ghost" onClick={() => setSettingsOpen(true)}>打开设置</button></div>,
-                  details: <DetailsPanel tool={detailsTool} onOpenPath={(p) => void openPreview(p)} />,
                   preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={cwd} dark={theme === "dark"} embedded onReveal={(p) => void review.revealPath(p)} onFollowLink={(e) => handleMdClick(e, cwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, cwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast("已保存"); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">选择文件后在此预览。</p>,
                   terminal: (
                     <div className="review-stack">
@@ -2724,7 +2752,7 @@ export function App() {
 
         {split && (
           <div className="pane" onFocusCapture={() => { focusedPermissionPaneRef.current = "main"; }}>
-            <header className="workspace-head">
+            <header className="workspace-head" data-tauri-drag-region>
               <div className="title-wrap">
                 <span className="crumb-cwd" title={split.cwd}>
                   {inboxCwd && sameCwd(split.cwd, inboxCwd) ? "无目录" : basename(split.cwd)}
@@ -2768,16 +2796,12 @@ export function App() {
                       aria-label="会话操作"
                       onClick={(e) => openMenu("header", split.id, e.currentTarget)}
                     >
-                      <IconChevron />
+                      <IconGrokMore size={18} />
                     </button>
                   </>
                 )}
               </div>
               <div className="head-actions">
-                <UsageRing
-                  usage={split.chat.usage ?? {}}
-                  compactPercent={cli?.compactPercent ?? 85}
-                />
                 <button
                   type="button"
                   className="icon-btn"
@@ -2789,7 +2813,7 @@ export function App() {
                     setSplitBusy(false);
                   }}
                 >
-                  <IconClose size={14} />
+                  <IconGrokClose size={16} />
                 </button>
               </div>
             </header>
@@ -2863,6 +2887,12 @@ export function App() {
               onReorderQueued={(from, to) => setSplitQueue((q) => reorderQueue(q, from, to))}
               onOverflow={showToast}
               footer={<StatsLineView stats={splitTurnStats} sessionTokens={split.chat.usage?.used} />}
+              metaActions={
+                <UsageRing
+                  usage={split.chat.usage ?? {}}
+                  compactPercent={cli?.compactPercent ?? 85}
+                />
+              }
             >
               {splitBusy && (
                 <WaitPill
@@ -2980,7 +3010,7 @@ export function App() {
             <div className="settings-head">
               <h2 id="settings-title">设置</h2>
               <button type="button" className="icon-btn" aria-label="关闭" title="关闭" onClick={() => setSettingsOpen(false)}>
-                <IconClose size={14} />
+                <IconGrokClose size={16} />
               </button>
             </div>
             <SettingsPanel
@@ -3070,6 +3100,8 @@ export function App() {
         onClose={() => setExtraPage(null)}
         onSlash={(cmd) => {
           setExtraPage(null);
+          const name = cmd.trim().split(/\s/)[0];
+          if (name === "/config-agents") return;
           void sendPrompt(cmd);
         }}
         onOpenPath={(p) => {

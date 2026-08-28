@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClock, thoughtDuration, turnSeparatorLabel, usageTone } from "./time";
+import { formatClock, thoughtDuration, thoughtLineLabel, turnSeparatorLabel, usageTone } from "./time";
 
 describe("formatClock", () => {
   it("shows only the time on the same calendar day", () => {
@@ -26,6 +26,21 @@ describe("thoughtDuration", () => {
   it("uses formatElapsed once the thought ran long enough", () => {
     expect(thoughtDuration(0, 12_000)).toBe("12秒");
     expect(thoughtDuration(0, 65_000)).toBe("1分5秒");
+  });
+});
+
+describe("thoughtLineLabel", () => {
+  it("says 思考中 while the thought is still live", () => {
+    expect(thoughtLineLabel(0, 12_000, true)).toBe("思考中");
+  });
+
+  it("prefixes 思考了 when a duration is visible", () => {
+    expect(thoughtLineLabel(0, 65_000)).toBe("思考了 1分5秒");
+  });
+
+  it("falls back to 思考 for a blink", () => {
+    expect(thoughtLineLabel(1000, 1400)).toBe("思考");
+    expect(thoughtLineLabel()).toBe("思考");
   });
 });
 

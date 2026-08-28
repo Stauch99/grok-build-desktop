@@ -1,4 +1,5 @@
-import { IconClose } from "../icons";
+import { IconGrokClose } from "../grok-icons";
+import { IconFinder } from "../icons";
 import { basename, groupArtifactsByFolder } from "../lib/text";
 
 export type FilePanelArtifact = { path: string; kind?: string };
@@ -38,9 +39,10 @@ function FileRow({
         type="button"
         className="file-open"
         title="在访达中打开"
+        aria-label="在访达中打开"
         onClick={() => onOpenPath(path)}
       >
-        访达
+        <IconFinder size={14} />
       </button>
     </div>
   );
@@ -68,7 +70,7 @@ export function FilePanel({
           title="关闭"
           onClick={onClose}
         >
-          <IconClose size={14} />
+          <IconGrokClose size={16} />
         </button>
       ) : null}
       {cwd ? (

@@ -12,6 +12,7 @@ import {
   assistantCopyReady,
   workRunLabel,
   workRunMeta,
+  trailingWorkStartedAt,
 } from "./chat";
 
 function upd(sessionUpdate: string, extra: Record<string, unknown> = {}) {
@@ -244,6 +245,32 @@ describe("liveWorkStatus", () => {
   it("falls back to thinking then working", () => {
     expect(liveWorkStatus([{ kind: "thought", id: "t", text: "…" }])).toBe("思考中");
     expect(liveWorkStatus([{ kind: "user", id: "u", text: "hi" }])).toBe("工作中");
+  });
+});
+
+describe("trailingWorkStartedAt", () => {
+  it("uses the earliest at after the last user turn", () => {
+    expect(
+      trailingWorkStartedAt([
+        { kind: "user", id: "u", text: "go", at: 1 },
+        { kind: "thought", id: "t", text: "hmm", at: 10 },
+        { kind: "tool", id: "k", title: "read", status: "in_progress", at: 40 },
+      ]),
+    ).toBe(10);
+  });
+
+  it("counts a streaming assistant after the user", () => {
+    expect(
+      trailingWorkStartedAt([
+        { kind: "user", id: "u", text: "go", at: 1 },
+        { kind: "assistant", id: "a", text: "…", at: 8 },
+      ]),
+    ).toBe(8);
+  });
+
+  it("is undefined when the trailing items have no clock", () => {
+    expect(trailingWorkStartedAt([{ kind: "tool", id: "k", title: "read", status: "pending" }])).toBeUndefined();
+    expect(trailingWorkStartedAt([{ kind: "user", id: "u", text: "hi", at: 1 }])).toBeUndefined();
   });
 });
 

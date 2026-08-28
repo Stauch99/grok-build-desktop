@@ -1,20 +1,22 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import { IconClose } from "../icons";
-import type { ReviewTab, ReviewTabState } from "../lib/review-rail";
+import { IconGrokClose } from "../grok-icons";
+import { REVIEW_SUBTABS, type ReviewTab, type ReviewTabState } from "../lib/review-rail";
 
 export type ReviewRailProps = {
   activeTab: ReviewTab;
   tabs: ReviewTabState[];
   width: number;
   onTab: (tab: ReviewTab) => void;
-  onHome: () => void;
   onClose: () => void;
   children: Partial<Record<ReviewTab, ReactNode>>;
 };
 
-export function ReviewRail({ activeTab, tabs, width, onTab, onHome, onClose, children }: ReviewRailProps) {
+export function ReviewRail({ activeTab, tabs, width, onTab, onClose, children }: ReviewRailProps) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const listTabs = tabs.filter((tab) => tab.id !== "home");
+  const lastReview = useRef<ReviewTab>("changes");
+  if (REVIEW_SUBTABS.has(activeTab)) lastReview.current = activeTab;
+  const reviewPane = activeTab !== "preview";
+  const listTabs = tabs.filter((tab) => REVIEW_SUBTABS.has(tab.id));
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -33,15 +35,19 @@ export function ReviewRail({ activeTab, tabs, width, onTab, onHome, onClose, chi
   return (
     <aside className="review-rail" style={{ width, flexBasis: width }} aria-label="审阅" role="region">
       <header className="review-head">
-        {activeTab !== "home" ? (
-          <button type="button" className="icon-btn" onClick={onHome} aria-label="返回入口">返回</button>
-        ) : null}
-        <strong>{activeTab === "home" ? "审阅" : tabs.find((t) => t.id === activeTab)?.label ?? "审阅"}</strong>
+        <div className="review-panes" role="tablist" aria-label="右侧栏">
+          <button type="button" role="tab" aria-selected={reviewPane} onClick={() => selectTab(lastReview.current)}>
+            审阅
+          </button>
+          <button type="button" role="tab" aria-selected={!reviewPane} onClick={() => selectTab("preview")}>
+            预览
+          </button>
+        </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭审阅" title="关闭审阅">
-          <IconClose size={14} />
+          <IconGrokClose size={16} />
         </button>
       </header>
-      {activeTab !== "home" ? (
+      {reviewPane ? (
         <div className="review-tabs" role="tablist" aria-label="审阅内容">
           {listTabs.map((tab, index) => (
             <button key={tab.id} ref={(node) => { tabRefs.current[index] = node; }} type="button" role="tab"

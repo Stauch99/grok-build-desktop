@@ -1,6 +1,7 @@
 import type { GitStatus } from "../api";
 import { branchLabel } from "../lib/git";
-import { IconBranch, IconPlus } from "../icons";
+import { IconGrokPlus } from "../grok-icons";
+import { IconBranch } from "../icons";
 
 export type GitBarProps = {
   status: GitStatus | null;
@@ -38,7 +39,7 @@ export function GitBar({ status, onOpenChanges, onNewWorktree, busy }: GitBarPro
         disabled={busy}
         title="在隔离的 worktree 里新开一个会话"
       >
-        <IconPlus size={12} />
+        <IconGrokPlus size={14} />
         worktree
       </button>
     </div>

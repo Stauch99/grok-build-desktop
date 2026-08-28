@@ -7,7 +7,6 @@ export type AgentEntry = {
 export type AgentsPageProps = {
   agents: AgentEntry[];
   onOpen: (path: string) => void;
-  onSlash?: (cmd: string) => void;
 };
 
 function AgentList({
@@ -41,9 +40,9 @@ function AgentList({
 }
 
 /**
- * ~/.grok/agents and personas. Management stays on the CLI slash command.
+ * ~/.grok/agents and personas. Files open in the editor; this sheet is the manager.
  */
-export function AgentsPage({ agents, onOpen, onSlash }: AgentsPageProps) {
+export function AgentsPage({ agents, onOpen }: AgentsPageProps) {
   const agentRows = agents.filter((a) => a.kind === "agent");
   const personaRows = agents.filter((a) => a.kind === "persona");
   const empty = agentRows.length === 0 && personaRows.length === 0;
@@ -53,13 +52,7 @@ export function AgentsPage({ agents, onOpen, onSlash }: AgentsPageProps) {
       {empty ? <p className="float-empty">还没有代理或人格。</p> : null}
       <AgentList title="代理" items={agentRows} onOpen={onOpen} />
       <AgentList title="人格" items={personaRows} onOpen={onOpen} />
-      {onSlash ? (
-        <div className="set-actions">
-          <button type="button" className="btn ghost" onClick={() => onSlash("/config-agents")}>
-            用 /config-agents 管理
-          </button>
-        </div>
-      ) : null}
+      <p className="hub-meta">文件在 ~/.grok/agents 和 ~/.grok/personas。点名称可打开。</p>
     </div>
   );
 }

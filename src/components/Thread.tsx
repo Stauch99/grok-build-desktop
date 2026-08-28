@@ -10,8 +10,7 @@ import { openPath } from "../api";
 import {
   assistantCopyReady,
   groupWorkRuns,
-  workRunLabel,
-  workRunMeta,
+  trailingWorkStartedAt,
   type ChatItem,
   type ChatState,
 } from "../lib/chat";
@@ -23,13 +22,16 @@ import {
 } from "../lib/time";
 import { diffStatLabel } from "../lib/tool-render";
 import { resolveOpenTarget } from "../lib/text";
-import { IconCheck, IconChevron, IconClose, IconCopy } from "../icons";
+import { IconChevron, IconListDetails, IconStop } from "../icons";
+import { IconGrokCopy } from "../grok-icons";
 import { DotMatrix } from "./DotMatrix";
+import { TodoMark } from "./TodoMark";
 import { Markdown } from "./Markdown";
 import { ToolResult } from "./ToolResult";
 import { TrajectoryView } from "./TrajectoryView";
 import { trajectoryRows } from "../lib/trajectory";
 import { UserTurn } from "./UserTurn";
+import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -106,8 +108,8 @@ export function WaitPill({
         </span>
       ) : null}
       <span className="wait-time">{elapsed}</span>
-      <button type="button" className="wait-stop" onClick={onStop}>
-        停止
+      <button type="button" className="wait-stop" onClick={onStop} title="停止" aria-label="停止">
+        <IconStop size={16} />
       </button>
     </div>
   );
@@ -163,7 +165,6 @@ export function ChatRow({
   onResendUser,
   rewindFor,
   onForkTurn,
-  onInspectTool,
   onPreviewPath,
   highlightQuery,
 }: {
@@ -217,6 +218,7 @@ export function ChatRow({
         <Markdown
           text={item.text}
           dark={dark}
+          cwd={cwd}
           onClick={(e) => handleMdClick(e, cwd, onPreviewPath)}
         />
         {showCopy ? (
@@ -227,8 +229,7 @@ export function ChatRow({
               aria-label="复制"
               title="复制"
             >
-              <IconCopy size={14} />
-              复制
+              <IconGrokCopy />
             </button>
           </div>
         ) : null}
@@ -269,13 +270,6 @@ export function ChatRow({
   const toolLabel = `${item.title || item.toolKind || "工具调用"}${stat ? ` ${stat}` : ""}`;
   return (
     <Fold label={toolLabel} meta={item.status}>
-      <button
-        type="button"
-        className="tool-inspect"
-        onClick={() => onInspectTool?.(item)}
-      >
-        在详情打开
-      </button>
       <ToolResult
         title={item.title}
         toolKind={item.toolKind}
@@ -320,7 +314,7 @@ export type ThreadColumnProps = {
   onOpenTurnFile?: (path: string) => void;
 };
 
-/** The conversation as a document, plus the tick-mark table of contents. */
+/** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
 export function ThreadColumn({
   paneId,
   chat,
@@ -357,9 +351,24 @@ export function ThreadColumn({
     left: number;
     text: string;
   } | null>(null);
+  const [, setLiveTick] = useState(0);
   const blocks = groupWorkRuns(chat.items);
   let userCount = 0;
   const copyFor = (id: string) => assistantCopyReady(chat.items, id, busy);
+  const lastBlock = blocks[blocks.length - 1];
+  const lastWorkVisible =
+    lastBlock?.kind === "work" &&
+    (showThinking ? lastBlock.items : lastBlock.items.filter((i) => i.kind !== "thought"))
+      .length > 0;
+  const liveInTimeline = busy && lastWorkVisible;
+  const liveStartedAt = trailingWorkStartedAt(chat.items);
+  const liveRow = busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
+
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => setLiveTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [busy]);
 
   useEffect(() => {
     if (!jumpId) return;
@@ -427,23 +436,15 @@ export function ThreadColumn({
                 <div className="plan-card-head">
                   <strong>计划</strong>
                   {onOpenPlan ? (
-                    <button type="button" className="file-open" onClick={onOpenPlan}>
-                      查看步骤
+                    <button type="button" className="file-open" onClick={onOpenPlan} title="查看步骤" aria-label="查看步骤">
+                      <IconListDetails size={14} />
                     </button>
                   ) : null}
                 </div>
                 <ul className="todo">
                   {plan.map((e, i) => (
                     <li key={`${e.content}-${i}`} className={e.status || "pending"}>
-                      <span className="box">
-                        {e.status === "completed" ? (
-                          <IconCheck size={10} />
-                        ) : e.status === "in_progress" ? (
-                          "•"
-                        ) : (
-                          ""
-                        )}
-                      </span>
+                      <TodoMark status={e.status} />
                       {e.content}
                     </li>
                   ))}
@@ -456,26 +457,16 @@ export function ThreadColumn({
                   ? block.items
                   : block.items.filter((i) => i.kind !== "thought");
                 if (visible.length === 0) return null;
+                const runBusy = liveInTimeline && lastBlock?.kind === "work" && lastBlock.id === block.id;
                 return (
                   <div className="work-cluster" key={block.id}>
-                    <Fold label={workRunLabel(visible)} meta={workRunMeta(visible)}>
-                      {visible.map((item) => (
-                        <ChatRow
-                          key={item.id}
-                          item={item}
-                          dark={dark}
-                          paneId={paneId}
-                          cwd={cwd}
-                          sessionModel={sessionModel}
-                          showCopy={copyFor(item.id)}
-                          onResendUser={onResendUser}
-                          rewindFor={rewindFor}
-                          onForkTurn={onForkTurn}
-                          onInspectTool={onInspectTool}
-                          onPreviewPath={onPreviewPath}
-                        />
-                      ))}
-                    </Fold>
+                    <WorkTimeline
+                      items={visible}
+                      busy={runBusy}
+                      cwd={cwd}
+                      live={runBusy ? liveRow : null}
+                      onInspectTool={onInspectTool}
+                    />
                   </div>
                 );
               }
@@ -521,16 +512,7 @@ export function ThreadColumn({
                 />
               );
             })}
-            {busy && (
-              <button
-                type="button"
-                className="spark"
-                aria-label="停止"
-                onClick={onCancel}
-              >
-                <IconClose size={14} />
-              </button>
-            )}
+            {busy && !liveInTimeline ? liveRow : null}
           </>
         )}
         </div>

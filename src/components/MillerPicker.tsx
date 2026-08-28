@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listWorkspaceEntries, type WorkspaceEntry } from "../api";
 import { millerPath, millerPush, millerRoot, type MillerColumn } from "../lib/miller";
+import { IconClose } from "../icons";
 
 export type MillerPickerProps = {
   root: string;
@@ -24,8 +25,8 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
       <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label="选择工作区">
         <header className="settings-head">
           <strong>选择工作区</strong>
-          <button type="button" className="btn ghost" onClick={onClose} aria-label="关闭">
-            关闭
+          <button type="button" className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
+            <IconClose size={16} />
           </button>
         </header>
         <div className="settings-body">

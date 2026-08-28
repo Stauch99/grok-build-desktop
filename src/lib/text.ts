@@ -110,7 +110,7 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
 
 /** Extensions worth turning into a clickable, previewable file reference. */
 const LINKABLE_EXT =
-  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp";
+  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp|png|jpg|jpeg|gif|webp|bmp|ico|tif|tiff|heic|avif|mp4|webm|mov|m4v|ogv";
 
 const ABSOLUTE_PATH = /(^|[\s(])(\/(?:Users|home|tmp|var|opt)\/[^\s<)'"]+|~\/[^\s<)'"]+)/g;
 

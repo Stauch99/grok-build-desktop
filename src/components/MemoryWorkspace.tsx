@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { openPath, readTextFile, writeAllowedText } from "../api";
+import { IconEdit } from "../icons";
 import { MemoryEditor } from "./MemoryEditor";
 
 export type MemoryWorkspaceProps = {
@@ -83,8 +84,8 @@ function DocRow({
           <strong>{heading}</strong>
         </button>
         <div className="hub-row-side">
-          <button type="button" className="btn ghost" onClick={() => void beginEdit()}>
-            编辑
+          <button type="button" className="file-open" onClick={() => void beginEdit()} title="编辑" aria-label="编辑">
+            <IconEdit size={14} />
           </button>
         </div>
       </div>

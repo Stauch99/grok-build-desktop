@@ -1,3 +1,4 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../lib/text";
 
 export type ImagineGalleryProps = {
@@ -30,10 +31,10 @@ export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: Imagin
         </p>
       ) : null}
       {showVideo ? (
-        <div className="file-list">
+        <div className="gallery-grid">
           {paths.map((path) => (
-            <button key={path} type="button" className="file-item" title={path} onClick={() => onOpen(path)}>
-              {basename(path)}
+            <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
+              <video src={convertFileSrc(path)} muted preload="metadata" playsInline />
             </button>
           ))}
         </div>
@@ -41,7 +42,7 @@ export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: Imagin
         <div className="gallery-grid">
           {paths.map((path) => (
             <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
-              <img src={path.startsWith("file:") ? path : `file://${path}`} alt={basename(path)} />
+              <img src={convertFileSrc(path)} alt={basename(path)} />
             </button>
           ))}
         </div>

@@ -152,12 +152,12 @@ fn resolve_scoped_target(raw: &Path, root: &Path) -> AppResult<PathBuf> {
             for part in missing.iter().rev() { canon.push(part); }
             break canon;
         }
-        let name = cursor.file_name().ok_or_else(|| AppError::Message("path not allowed".into()))?;
+        let name = cursor.file_name().ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
         missing.push(name.to_os_string());
-        cursor = cursor.parent().ok_or_else(|| AppError::Message("path not allowed".into()))?;
+        cursor = cursor.parent().ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
     };
     if !is_under(&resolved, &root) || is_blocked_path(&resolved) {
-        return Err(AppError::Message("path not allowed".into()));
+        return Err(AppError::Message("不能写入这个路径".into()));
     }
     Ok(resolved)
 }
@@ -249,10 +249,10 @@ fn scoped_write_target(raw: &Path, trusted: Option<&Path>) -> AppResult<PathBuf>
     } else if let Some(root) = grok.as_ref() {
         resolve_scoped_target(raw, root)?
     } else {
-        return Err(AppError::Message("path not allowed".into()));
+        return Err(AppError::Message("不能写入这个路径".into()));
     };
     if !allow_write(&canon, trusted) {
-        return Err(AppError::Message("path not allowed".into()));
+        return Err(AppError::Message("不能写入这个路径".into()));
     }
     Ok(canon)
 }
@@ -881,6 +881,143 @@ pub async fn read_usage_history() -> AppResult<Value> {
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+const TOKEN_TURNS_MAX: usize = 4000;
+
+fn json_u64(value: Option<&Value>) -> u64 {
+    let Some(v) = value else {
+        return 0;
+    };
+    if let Some(n) = v.as_u64() {
+        return n;
+    }
+    if let Some(n) = v.as_i64() {
+        return n.max(0) as u64;
+    }
+    v.as_f64().map(|n| n.max(0.0) as u64).unwrap_or(0)
+}
+
+fn decode_session_cwd(encoded: &str) -> String {
+    let bytes = encoded.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+pub(crate) fn token_turn_from_record(value: &Value, cwd: &str) -> Option<Value> {
+    let params = value.get("params").unwrap_or(value);
+    let update = params.get("update").unwrap_or(params);
+    if update.get("sessionUpdate").and_then(|v| v.as_str()) != Some("turn_completed") {
+        return None;
+    }
+    let usage = update.get("usage")?;
+    let input = json_u64(usage.get("inputTokens").or_else(|| usage.get("input_tokens")));
+    let output = json_u64(usage.get("outputTokens").or_else(|| usage.get("output_tokens")));
+    let cache_read = json_u64(
+        usage
+            .get("cachedReadTokens")
+            .or_else(|| usage.get("cache_read_input_tokens"))
+            .or_else(|| usage.get("cacheReadInputTokens")),
+    );
+    let cache_create = json_u64(
+        usage
+            .get("cacheCreationTokens")
+            .or_else(|| usage.get("cache_creation_input_tokens")),
+    );
+    let total = json_u64(usage.get("totalTokens").or_else(|| usage.get("total_tokens")));
+    if input == 0 && output == 0 && cache_read == 0 && total == 0 {
+        return None;
+    }
+    let model = usage
+        .get("modelUsage")
+        .and_then(|v| v.as_object())
+        .and_then(|map| map.keys().next())
+        .cloned()
+        .unwrap_or_default();
+    let at = params
+        .get("_meta")
+        .and_then(|m| m.get("agentTimestampMs"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            value.get("timestamp").and_then(|v| v.as_f64()).map(|ts| {
+                if ts > 100_000_000_000.0 {
+                    ts as u64
+                } else {
+                    (ts * 1000.0) as u64
+                }
+            })
+        })
+        .unwrap_or(0);
+    Some(json!({
+        "at": at,
+        "cwd": cwd,
+        "model": model,
+        "input": input,
+        "output": output,
+        "cacheRead": cache_read,
+        "cacheCreate": cache_create,
+        "total": if total > 0 { total } else { input.saturating_add(output) },
+        "modelCalls": json_u64(usage.get("modelCalls")),
+        "costTicks": json_u64(usage.get("costUsdTicks").or_else(|| usage.get("total_cost_usd_ticks"))),
+    }))
+}
+
+#[tauri::command]
+pub async fn read_token_turns() -> AppResult<Value> {
+    tokio::task::spawn_blocking(|| {
+        let root = grok_home().join("sessions");
+        if !root.is_dir() {
+            return Ok(json!([]));
+        }
+        let mut out = Vec::new();
+        for entry in WalkDir::new(&root).max_depth(4).into_iter().flatten() {
+            if entry.file_name() != "updates.jsonl" {
+                continue;
+            }
+            let cwd = entry
+                .path()
+                .parent()
+                .and_then(|session| session.parent())
+                .and_then(|folder| folder.file_name())
+                .and_then(|name| name.to_str())
+                .map(decode_session_cwd)
+                .unwrap_or_default();
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            for line in text.lines() {
+                if !line.contains("turn_completed") {
+                    continue;
+                }
+                let Ok(value) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if let Some(row) = token_turn_from_record(&value, &cwd) {
+                    out.push(row);
+                }
+            }
+        }
+        out.sort_by(|a, b| {
+            let at = |v: &Value| v.get("at").and_then(|n| n.as_u64()).unwrap_or(0);
+            at(b).cmp(&at(a))
+        });
+        out.truncate(TOKEN_TURNS_MAX);
+        Ok(json!(out))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;
@@ -891,6 +1028,41 @@ mod security_tests {
         let path = std::env::temp_dir().join(format!("grok-webui-{label}-{}-{id}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn token_turn_reads_acp_turn_completed_usage() {
+        let raw = json!({
+            "timestamp": 1_787_550_033,
+            "params": {
+                "update": {
+                    "sessionUpdate": "turn_completed",
+                    "usage": {
+                        "inputTokens": 1000,
+                        "outputTokens": 40,
+                        "totalTokens": 1040,
+                        "cachedReadTokens": 800,
+                        "cacheCreationTokens": 0,
+                        "modelCalls": 3,
+                        "costUsdTicks": 126890500,
+                        "modelUsage": { "grok-4.6-build": { "inputTokens": 1000 } }
+                    }
+                }
+            }
+        });
+        let row = super::token_turn_from_record(&raw, "/work").unwrap();
+        assert_eq!(row["input"], 1000);
+        assert_eq!(row["output"], 40);
+        assert_eq!(row["cacheRead"], 800);
+        assert_eq!(row["model"], "grok-4.6-build");
+        assert_eq!(row["cwd"], "/work");
+        assert_eq!(row["at"].as_u64(), Some(1_787_550_033_000));
+        assert_eq!(row["costTicks"], 126890500);
+    }
+
+    #[test]
+    fn decode_session_cwd_unescapes_percent_path() {
+        assert_eq!(super::decode_session_cwd("%2FUsers%2Ffoxie%2Fwork"), "/Users/foxie/work");
     }
 
     #[test]

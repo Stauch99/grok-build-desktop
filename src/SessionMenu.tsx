@@ -72,10 +72,35 @@ export function SessionMenu({
   );
 }
 
-export function menuPosition(el: HTMLElement): { top: number; left: number } {
+export function menuPosition(el: HTMLElement, point?: { clientX: number; clientY: number }): { top: number; left: number } {
+  const width = 210;
+  if (point) {
+    return {
+      left: Math.min(window.innerWidth - width - 8, Math.max(8, point.clientX)),
+      top: Math.min(window.innerHeight - 320, Math.max(8, point.clientY)),
+    };
+  }
   const r = el.getBoundingClientRect();
   return {
-    left: Math.min(window.innerWidth - 210, Math.max(8, r.left)),
+    left: Math.min(window.innerWidth - width, Math.max(8, r.left)),
     top: Math.min(window.innerHeight - 320, r.bottom + 4),
   };
+}
+
+export function ProjectMenu({
+  top,
+  left,
+  pinned,
+  onPin,
+}: {
+  top: number;
+  left: number;
+  pinned: boolean;
+  onPin: () => void;
+}) {
+  return (
+    <div className="menu" style={{ top, left }} role="menu">
+      <button type="button" onClick={onPin}>{pinned ? "取消置顶" : "置顶"}</button>
+    </div>
+  );
 }

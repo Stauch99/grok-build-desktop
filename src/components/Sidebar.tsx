@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import type { SessionSearchHit, SessionSummary } from "../api";
-import { IconChevron, IconFolder, IconFolderOpen, IconPlus, IconSearch } from "../icons";
+import { ProjectMenu, menuPosition } from "../SessionMenu";
+import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
+import { IconClose, IconFolder, IconFolderOpen, IconFolderPlus } from "../icons";
 import { nestByParent } from "../lib/projects";
 import type { SessionStatus } from "../lib/session-status";
 import {
@@ -11,6 +14,7 @@ import {
 import { AccountMenu } from "./AccountMenu";
 import { SessionBranch } from "./SessionBranch";
 import { SidebarListMenu } from "./SidebarListMenu";
+import type { WeeklyUsage } from "../lib/weekly-usage";
 
 export type SidebarProps = {
   sections: SidebarSection[];
@@ -30,7 +34,7 @@ export type SidebarProps = {
   collapsedIds: Set<string>;
   onToggleExpand: (id: string, currentlyOpen: boolean) => void;
   onOpenSession: (s: SessionSummary) => void;
-  onSessionMenu: (id: string, el: HTMLElement) => void;
+  onSessionMenu: (id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) => void;
   onNewChat: () => void;
   onAddProject: () => void;
   picking: boolean;
@@ -39,6 +43,7 @@ export type SidebarProps = {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   signedIn: boolean;
+  weeklyUsage?: WeeklyUsage | null;
   onSettings: () => void;
   onExtensions: () => void;
   onShortcuts: () => void;
@@ -84,6 +89,7 @@ export function Sidebar({
   collapsed = false,
   onToggleCollapsed,
   signedIn,
+  weeklyUsage = null,
   onSettings,
   onExtensions,
   onShortcuts,
@@ -92,6 +98,34 @@ export function Sidebar({
   showTokens,
   showStatus,
 }: SidebarProps) {
+  const [projectMenu, setProjectMenu] = useState<{
+    path: string;
+    pinned: boolean;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!projectMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (e.target instanceof Element && (e.target.closest(".menu") || e.target.closest("[data-menu-trigger]"))) return;
+      setProjectMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProjectMenu(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [projectMenu]);
+
+  function openProjectMenu(path: string, pinned: boolean, el: HTMLElement, point?: { clientX: number; clientY: number }) {
+    setProjectMenu({ path, pinned, ...menuPosition(el, point) });
+  }
+
   const branchProps = {
     sessionId,
     splitId,
@@ -100,7 +134,10 @@ export function Sidebar({
     collapsedIds,
     onToggleExpand,
     onOpen: onOpenSession,
-    onMenu: onSessionMenu,
+    onMenu: (id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) => {
+      setProjectMenu(null);
+      onSessionMenu(id, el, point);
+    },
     statusFor,
     showStatus,
     showTokens,
@@ -109,35 +146,58 @@ export function Sidebar({
   return (
     <aside className={`sidebar${collapsed ? " rail" : ""}`} style={{ width }}>
       <div className="side-traffic" data-tauri-drag-region>
-        <div className="side-actions">
+        {collapsed ? null : (
+          <div className="side-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="搜索"
+              title="搜索"
+              onClick={onSearch}
+            >
+              <IconGrokSearch size={18} />
+            </button>
+            {onToggleCollapsed ? (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="折叠侧栏"
+                title="折叠侧栏"
+                onClick={onToggleCollapsed}
+              >
+                <IconGrokSidebar size={18} />
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {collapsed ? (
+        <div className="rail-stack">
           {onToggleCollapsed ? (
             <button
               type="button"
               className="icon-btn"
-              aria-label={collapsed ? "展开侧栏" : "折叠侧栏"}
-              title={collapsed ? "展开侧栏" : "折叠侧栏"}
+              aria-label="展开侧栏"
+              title="展开侧栏"
               onClick={onToggleCollapsed}
             >
-              <IconChevron size={14} />
+              <IconGrokSidebar size={18} />
             </button>
           ) : null}
+          <button type="button" className="icon-btn" aria-label="搜索" title="搜索" onClick={onSearch}>
+            <IconGrokSearch size={18} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="新对话" title="新对话" onClick={onNewChat}>
+            <IconGrokPlus size={18} />
+          </button>
         </div>
-      </div>
-
-      {collapsed ? (
-        <button type="button" className="icon-btn rail-new" aria-label="新对话" title="新对话" onClick={onNewChat}>
-          <IconPlus size={16} />
-        </button>
       ) : null}
 
       <div className="side-content">
         <button type="button" className="new-task new-chat" onClick={onNewChat}>
-          <IconPlus size={16} />
+          <IconGrokPlus size={18} />
           新对话
-        </button>
-        <button type="button" className="new-task new-chat" onClick={onSearch}>
-          <IconSearch size={16} />
-          搜索
         </button>
       </div>
 
@@ -146,7 +206,7 @@ export function Sidebar({
           <div className="section-label ws-hits">
             搜索结果
             <button type="button" className="icon-btn" onClick={onClearHits} aria-label="清除搜索结果" title="清除">
-              清除
+              <IconClose size={16} />
             </button>
           </div>
           {searchHits.map((hit) => (
@@ -164,12 +224,24 @@ export function Sidebar({
 
       <div className="section-label ws-head">
         工作区
-        <SidebarListMenu
-          prefs={prefs}
-          onPrefs={onPrefs}
-          onCollapseAll={onCollapseAll}
-          onMarkAllRead={onMarkAllRead}
-        />
+        <span className="ws-head-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title={picking ? "选择文件夹…" : "添加项目"}
+            aria-label={picking ? "选择文件夹…" : "添加项目"}
+            disabled={picking}
+            onClick={onAddProject}
+          >
+            <IconFolderPlus size={14} />
+          </button>
+          <SidebarListMenu
+            prefs={prefs}
+            onPrefs={onPrefs}
+            onCollapseAll={onCollapseAll}
+            onMarkAllRead={onMarkAllRead}
+          />
+        </span>
       </div>
 
       <div className="session-list">
@@ -191,6 +263,11 @@ export function Sidebar({
                     className="project-head"
                     aria-expanded={open}
                     onClick={() => onToggleProject(path)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openProjectMenu(path, pinned, e.currentTarget, { clientX: e.clientX, clientY: e.clientY });
+                    }}
                   >
                     <span className="folder-glyph" aria-hidden>
                       {open ? <IconFolderOpen size={16} /> : <IconFolder size={16} />}
@@ -201,13 +278,16 @@ export function Sidebar({
                   </button>
                   <button
                     type="button"
-                    className="icon-btn pin-project"
-                    aria-label={pinned ? "取消置顶" : "置顶项目"}
-                    title={pinned ? "取消置顶" : "置顶项目"}
-                    aria-pressed={pinned}
-                    onClick={() => onPinProject(path)}
+                    className="more"
+                    data-menu-trigger
+                    aria-label="项目操作"
+                    title="项目操作"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openProjectMenu(path, pinned, e.currentTarget);
+                    }}
                   >
-                    {pinned ? "★" : "☆"}
+                    <IconGrokMore size={16} />
                   </button>
                 </div>
                 {open ? (
@@ -220,6 +300,7 @@ export function Sidebar({
                         rowKind={rowKind}
                         rowMeta={meta}
                         {...branchProps}
+                        hideProjectSubtitle
                       />
                     ))}
                   </div>
@@ -247,25 +328,25 @@ export function Sidebar({
         })}
       </div>
 
-      <div className="side-add">
-        <button
-          type="button"
-          className="icon-btn"
-          title={picking ? "选择文件夹…" : "添加项目"}
-          aria-label={picking ? "选择文件夹…" : "添加项目"}
-          disabled={picking}
-          onClick={onAddProject}
-        >
-          <IconPlus size={14} />
-        </button>
-      </div>
-
       <AccountMenu
         signedIn={signedIn}
+        weeklyUsage={weeklyUsage}
+        compact={collapsed}
         onSettings={onSettings}
         onExtensions={onExtensions}
         onShortcuts={onShortcuts}
       />
+      {projectMenu ? (
+        <ProjectMenu
+          top={projectMenu.top}
+          left={projectMenu.left}
+          pinned={projectMenu.pinned}
+          onPin={() => {
+            onPinProject(projectMenu.path);
+            setProjectMenu(null);
+          }}
+        />
+      ) : null}
     </aside>
   );
 }

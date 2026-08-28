@@ -1,5 +1,6 @@
 import type { SessionSummary } from "../api";
-import { IconChat, IconChevron, IconMore } from "../icons";
+import { IconGrokMore } from "../grok-icons";
+import { IconChat, IconChevron } from "../icons";
 import { countDescendants, displayTitle, type SessionNode } from "../lib/projects";
 import { shouldAutoExpand } from "../lib/session-chrome";
 import { statusLabel, type SessionStatus } from "../lib/session-status";
@@ -35,7 +36,7 @@ function SessionLeading({
   if (showChat) {
     return (
       <>
-        <IconChat size={12} className="sess-chat" />
+        <IconChat size={16} className="sess-chat" />
         {showStatusDot ? (
           <span className={`sess-dot ${status}`} title={label} aria-label={label} role="img" />
         ) : null}
@@ -61,7 +62,7 @@ export type SessionBranchProps = {
   collapsedIds: Set<string>;
   onToggleExpand: (id: string, currentlyOpen: boolean) => void;
   onOpen: (s: SessionSummary) => void;
-  onMenu: (id: string, el: HTMLElement) => void;
+  onMenu: (id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) => void;
   statusFor?: (id: string) => SessionStatus;
   subtitle?: string;
   token?: number;
@@ -70,6 +71,8 @@ export type SessionBranchProps = {
   showTokens?: boolean;
   projectPinned?: boolean;
   rowMeta?: Map<string, SidebarRow>;
+  /** Project grouping already shows the folder name in the section header. */
+  hideProjectSubtitle?: boolean;
 };
 
 export function SessionBranch({
@@ -92,6 +95,7 @@ export function SessionBranch({
   showTokens = false,
   projectPinned,
   rowMeta,
+  hideProjectSubtitle = false,
 }: SessionBranchProps) {
   const s = node.session;
   const meta = rowMeta?.get(s.id);
@@ -108,19 +112,29 @@ export function SessionBranch({
     !collapsedIds.has(s.id) &&
     (expandedIds.has(s.id) || shouldAutoExpand(s.id, sessionId, descendantIds));
   const descCount = hasKids ? countDescendants(node) : 0;
-  const leading =
-    showStatus && (status === "working" || status !== "idle" || rowKind === "inbox") ? (
-      <span className="sess-leading">
+  const leading = (
+    <span className="sess-leading">
+      {showStatus && (status === "working" || status !== "idle" || rowKind === "inbox") ? (
         <SessionLeading status={status} rowKind={rowKind} label={label} />
-      </span>
-    ) : null;
-  const labeledSubtitle = rowSubtitle ? (pinned ? `★ ${rowSubtitle}` : rowSubtitle) : undefined;
+      ) : null}
+    </span>
+  );
+  const labeledSubtitle = hideProjectSubtitle
+    ? undefined
+    : rowSubtitle
+      ? (pinned ? `★ ${rowSubtitle}` : rowSubtitle)
+      : undefined;
   const subLine = [labeledSubtitle, rowWorktree].filter(Boolean).join(" · ");
 
   return (
     <>
       <div
         className={`session${depth ? " child" : ""} ${s.id === sessionId ? "active" : ""}${s.id === splitId ? " split-open" : ""}`}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onMenu(s.id, e.currentTarget, { clientX: e.clientX, clientY: e.clientY });
+        }}
       >
         {hasKids ? (
           <button
@@ -133,7 +147,7 @@ export function SessionBranch({
               onToggleExpand(s.id, expanded);
             }}
           >
-            <IconChevron size={9} />
+            <IconChevron size={14} />
           </button>
         ) : null}
         <button type="button" className="title" onClick={() => onOpen(s)}>
@@ -147,12 +161,7 @@ export function SessionBranch({
           <span className="sess-token">{formatTokenCount(rowToken)}</span>
         ) : null}
         {hasKids ? (
-          <span
-            className="count"
-            style={{ fontSize: 11, color: "var(--faint)", minWidth: 12, textAlign: "right" }}
-          >
-            {descCount}
-          </span>
+          <span className="count">{descCount}</span>
         ) : null}
         <button
           type="button"
@@ -164,7 +173,7 @@ export function SessionBranch({
             onMenu(s.id, e.currentTarget);
           }}
         >
-          <IconMore />
+          <IconGrokMore size={16} />
         </button>
       </div>
       {hasKids && expanded ? (
@@ -188,6 +197,7 @@ export function SessionBranch({
               showTokens={showTokens}
               projectPinned={projectPinned}
               rowMeta={rowMeta}
+              hideProjectSubtitle={hideProjectSubtitle}
             />
           ))}
         </div>

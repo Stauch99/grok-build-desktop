@@ -8,6 +8,7 @@ import {
   maxFor,
   PREVIEW,
   SIDEBAR,
+  WINDOW_MIN,
   WORK_MIN,
 } from "./layout";
 
@@ -84,8 +85,7 @@ describe("fitLayout", () => {
 
 describe("window minimum invariant", () => {
   it("fits all three columns inside the smallest allowed window", () => {
-    // tauri.conf.json minWidth is 880; leave room for the two 5px dividers.
-    expect(SIDEBAR.min + PREVIEW.min + WORK_MIN + 10).toBeLessThanOrEqual(880);
+    expect(SIDEBAR.min + PREVIEW.min + WORK_MIN + 10).toBeLessThanOrEqual(WINDOW_MIN.width);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat";
-import { bashTools, classifyTool, diffStatLabel, previewLines } from "./tool-render";
+import { bashTools, classifyTool, diffStatLabel, previewLines, toolLineCopy } from "./tool-render";
 
 it("lists bash-classified tools", () => {
   const items: ChatItem[] = [
@@ -43,6 +43,28 @@ describe("diffStatLabel", () => {
   it("counts added and removed lines", () => {
     expect(diffStatLabel({ oldText: "a\nb\n", newText: "a\nc\nd\n" })).toBe("+2 −1");
     expect(diffStatLabel({ oldText: null, newText: "a\nb\n" })).toBe("+2");
+  });
+});
+
+describe("toolLineCopy", () => {
+  it("uses a Chinese verb and strips a redundant title prefix", () => {
+    expect(toolLineCopy("Read src/App.tsx", "read")).toEqual({
+      verb: "读取",
+      detail: "src/App.tsx",
+    });
+    expect(toolLineCopy("Bash: ls -la", "execute")).toEqual({
+      verb: "运行命令",
+      detail: "ls -la",
+    });
+    expect(toolLineCopy("Edit src/lib/chat.ts")).toEqual({
+      verb: "编辑",
+      detail: "src/lib/chat.ts",
+    });
+  });
+
+  it("keeps the title as detail when nothing is left after the prefix", () => {
+    expect(toolLineCopy("Search", "search")).toEqual({ verb: "搜索", detail: "Search" });
+    expect(toolLineCopy("Custom tool")).toEqual({ verb: "调用", detail: "Custom tool" });
   });
 });
 

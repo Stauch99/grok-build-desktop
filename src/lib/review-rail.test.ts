@@ -1,33 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { REVIEW_TABS, deriveReviewTabs, initialReviewState, persistReviewOpen, reconcileReviewTab, reviewPersistsOpen, reviewReducer, reviewTabForAction, reviewTabFromLegacy } from "./review-rail";
+import { REVIEW_TABS, deriveReviewTabs, initialReviewState, persistReviewOpen, reconcileReviewTab, reviewLandingTab, reviewPersistsOpen, reviewReducer, reviewTabForAction, reviewTabFromLegacy } from "./review-rail";
 
 describe("review rail model", () => {
-  it("defines home and terminal plus the six content tabs", () => {
+  it("defines review subtabs plus a peer preview pane", () => {
     expect(REVIEW_TABS.map((tab) => tab.id)).toEqual([
-      "home", "progress", "files", "changes", "context", "details", "preview", "terminal",
+      "progress", "files", "changes", "terminal", "preview",
     ]);
   });
 
-  it("opens the layout toggle onto home unless the last tab was a landing tile", () => {
+  it("opens the layout toggle onto the last content tab, not home", () => {
     const fromProgress = reviewReducer({ ...initialReviewState, tab: "progress" }, { type: "toggle" });
     expect(fromProgress.open).toBe(true);
-    expect(fromProgress.tab).toBe("home");
+    expect(fromProgress.tab).toBe("progress");
+    const fromHome = reviewReducer({ ...initialReviewState, open: false, tab: "home" }, { type: "toggle", defaultTab: "tasks" });
+    expect(fromHome.tab).toBe("progress");
     const fromChanges = reviewReducer({ ...initialReviewState, open: false, tab: "changes" }, { type: "toggle" });
     expect(fromChanges.tab).toBe("changes");
   });
 
-  it("keeps home and terminal available", () => {
+  it("keeps files, preview, and terminal available even when empty", () => {
     const tabs = deriveReviewTabs({
       planCount: 0, fileCount: 0, changeCount: 0, contextCount: 0,
       hasDetails: false, hasPreview: false, bashCount: 2,
     });
-    expect(tabs.find((t) => t.id === "home")).toEqual({ id: "home", label: "首页", available: true, count: 0 });
+    expect(tabs.find((t) => t.id === "home")).toBeUndefined();
+    expect(tabs.find((t) => t.id === "context")).toBeUndefined();
+    expect(tabs.find((t) => t.id === "details")).toBeUndefined();
+    expect(tabs.find((t) => t.id === "files")?.available).toBe(true);
+    expect(tabs.find((t) => t.id === "preview")?.available).toBe(true);
     expect(tabs.find((t) => t.id === "terminal")).toEqual({ id: "terminal", label: "终端", available: true, count: 2 });
   });
 
+  it("maps a leftover home tab to the settings default", () => {
+    expect(reviewLandingTab("home", "changes")).toBe("changes");
+    expect(reviewLandingTab("home", "tasks")).toBe("progress");
+    expect(reviewLandingTab("preview")).toBe("preview");
+  });
+
   it.each([
-    ["plan", "progress"], ["changed-file", "changes"], ["tool-detail", "details"],
-    ["preview-path", "preview"], ["turn-file", "files"], ["context", "context"],
+    ["plan", "progress"], ["changed-file", "changes"], ["tool-detail", "changes"],
+    ["preview-path", "preview"], ["turn-file", "files"], ["context", "progress"],
   ] as const)("routes %s openings to %s", (action, tab) => {
     expect(reviewTabForAction(action)).toBe(tab);
   });
@@ -35,15 +47,14 @@ describe("review rail model", () => {
   it("derives availability and counts from current review data", () => {
     const tabs = deriveReviewTabs({ planCount: 3, fileCount: 2, changeCount: 4, contextCount: 5, hasDetails: false, hasPreview: true, bashCount: 0 });
     expect(tabs.map(({ id, available, count }) => ({ id, available, count }))).toEqual([
-      { id: "home", available: true, count: 0 },
       { id: "progress", available: true, count: 3 }, { id: "files", available: true, count: 2 },
-      { id: "changes", available: true, count: 4 }, { id: "context", available: true, count: 5 },
-      { id: "details", available: false, count: 0 }, { id: "preview", available: true, count: 1 },
+      { id: "changes", available: true, count: 4 },
       { id: "terminal", available: true, count: 0 },
+      { id: "preview", available: true, count: 1 },
     ]);
   });
 
-  it.each([["tasks", "progress"], ["changes", "changes"], ["context", "context"], [undefined, "progress"]] as const)("maps legacy default %s to %s", (legacy, tab) => {
+  it.each([["tasks", "progress"], ["changes", "changes"], ["context", "progress"], [undefined, "progress"]] as const)("maps legacy default %s to %s", (legacy, tab) => {
     expect(reviewTabFromLegacy(legacy)).toBe(tab);
   });
 
@@ -85,7 +96,8 @@ describe("review rail model", () => {
 
   it("reconciles unavailable tabs deterministically", () => {
     const tabs = deriveReviewTabs({ planCount: 0, fileCount: 0, changeCount: 0, contextCount: 0, hasDetails: false, hasPreview: false, bashCount: 0 });
-    expect(reconcileReviewTab("preview", tabs, "context")).toBe("context");
+    expect(reconcileReviewTab("home", tabs, "context")).toBe("progress");
+    expect(reconcileReviewTab("details", tabs, "context")).toBe("progress");
     expect(reconcileReviewTab("changes", tabs, "context")).toBe("changes");
     expect(reconcileReviewTab("preview", [{ id: "files", label: "文件", available: true, count: 1 }], "tasks")).toBe("files");
   });

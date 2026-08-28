@@ -3,6 +3,24 @@ import type { ChatItem } from "./chat";
 
 export type ToolClass = "bash" | "read" | "edit" | "search" | "write" | "other";
 
+export const TOOL_VERB: Record<ToolClass, string> = {
+  bash: "运行命令",
+  read: "读取",
+  edit: "编辑",
+  search: "搜索",
+  write: "写入",
+  other: "调用",
+};
+
+const TITLE_PREFIX: Record<ToolClass, RegExp> = {
+  bash: /^(?:bash|shell|terminal|exec(?:ute)?|command|运行命令)\s*[:：]?\s*/i,
+  read: /^(?:read|cat|读取)\s*[:：]?\s*/i,
+  edit: /^(?:edit|str_replace|replace|patch|编辑)\s*[:：]?\s*/i,
+  search: /^(?:search|grep|glob|find|rg|搜索|explored?)\s*[:：]?\s*/i,
+  write: /^(?:write|create_file|写入)\s*[:：]?\s*/i,
+  other: /^(?:tool|call|调用)\s*[:：]?\s*/i,
+};
+
 /** Map ACP tool title/kind to a compact UI class label. */
 export function classifyTool(title: string, toolKind?: string): ToolClass {
   const kind = (toolKind ?? "").toLowerCase().trim();
@@ -35,6 +53,18 @@ export function classifyTool(title: string, toolKind?: string): ToolClass {
     return "write";
   }
   return "other";
+}
+
+export function toolDetailFromTitle(title: string, kind: ToolClass): string {
+  const t = title.trim();
+  const stripped = t.replace(TITLE_PREFIX[kind], "").trim();
+  return stripped || t;
+}
+
+/** One-line timeline copy: muted verb + fainter detail. */
+export function toolLineCopy(title: string, toolKind?: string): { verb: string; detail: string } {
+  const kind = classifyTool(title, toolKind);
+  return { verb: TOOL_VERB[kind], detail: toolDetailFromTitle(title, kind) };
 }
 
 export function bashTools(items: ChatItem[]): Extract<ChatItem, { kind: "tool" }>[] {

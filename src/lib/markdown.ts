@@ -1,3 +1,7 @@
+import { marked } from "marked";
+import { rewriteLocalMediaHtml } from "./media";
+import { linkifyLocalPaths, sanitizeHtml } from "./text";
+
 export type AssistantBlock =
   | { kind: "md"; text: string }
   | { kind: "mermaid"; text: string; closed: boolean };
@@ -37,3 +41,11 @@ export function splitAssistantBlocks(src: string): AssistantBlock[] {
   flushMd();
   return out.length ? out : [{ kind: "md", text: src }];
 }
+
+export function renderMd(text: string, cwd = "", toSrc?: (path: string) => string): string {
+  const html = linkifyLocalPaths(
+    sanitizeHtml(marked.parse(text, { async: false, gfm: true, breaks: true }) as string),
+  );
+  return toSrc ? rewriteLocalMediaHtml(html, cwd, toSrc) : html;
+}
+

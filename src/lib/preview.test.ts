@@ -3,6 +3,7 @@ import {
   fileExt,
   isMarkdown,
   isTextPreviewable,
+  previewErrorCopy,
   previewKind,
   relativeTo,
 } from "./preview";
@@ -50,11 +51,21 @@ describe("isMarkdown", () => {
 });
 
 describe("previewKind", () => {
-  it("renders markdown, shows code as source, hands off the rest", () => {
+  it("renders markdown, shows code as source, and previews media inline", () => {
     expect(previewKind("a/b.md")).toBe("markdown");
     expect(previewKind("a/b.ts")).toBe("code");
     expect(previewKind("a/b.html")).toBe("html");
-    expect(previewKind("a/b.png")).toBe("unsupported");
+    expect(previewKind("a/b.png")).toBe("image");
+    expect(previewKind("a/b.mp4")).toBe("video");
+    expect(previewKind("a/b.svg")).toBe("image");
+    expect(previewKind("a/b.zip")).toBe("unsupported");
+  });
+});
+
+describe("previewErrorCopy", () => {
+  it("turns the desktop path guard into Chinese", () => {
+    expect(previewErrorCopy("path not allowed")).toBe("无法预览这个文件");
+    expect(previewErrorCopy("Error: caller workspace does not match trusted workspace")).toMatch(/工作区/);
   });
 });
 

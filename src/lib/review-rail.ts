@@ -3,21 +3,26 @@ export type ReviewOpenAction = "plan" | "turn-file" | "changed-file" | "context"
 export type LegacyReviewTab = "tasks" | "changes" | "context";
 
 export const REVIEW_TABS: ReadonlyArray<{ id: ReviewTab; label: string }> = [
-  { id: "home", label: "首页" },
   { id: "progress", label: "进度" },
   { id: "files", label: "文件" },
   { id: "changes", label: "改动" },
-  { id: "context", label: "上下文" },
-  { id: "details", label: "详情" },
-  { id: "preview", label: "预览" },
   { id: "terminal", label: "终端" },
+  { id: "preview", label: "预览" },
 ];
 
-export const RESTORE_ON_TOGGLE: ReadonlySet<ReviewTab> = new Set(["home", "changes", "files", "preview", "terminal"]);
+export const REVIEW_SUBTABS: ReadonlySet<ReviewTab> = new Set(["progress", "files", "changes", "terminal"]);
+
+export const RESTORE_ON_TOGGLE: ReadonlySet<ReviewTab> = new Set(["changes", "files", "preview", "terminal", "progress"]);
+
+/** Layout toggle lands on the last content tab, never the 2×2 home grid. */
+export function reviewLandingTab(tab: ReviewTab, defaultTab?: LegacyReviewTab): ReviewTab {
+  if (tab !== "home" && RESTORE_ON_TOGGLE.has(tab)) return tab;
+  return reviewTabFromLegacy(defaultTab);
+}
 
 const ACTION_TAB: Record<ReviewOpenAction, ReviewTab> = {
   plan: "progress", "turn-file": "files", "changed-file": "changes",
-  context: "context", "tool-detail": "details", "preview-path": "preview",
+  context: "progress", "tool-detail": "changes", "preview-path": "preview",
 };
 
 export function reviewTabForAction(action: ReviewOpenAction): ReviewTab { return ACTION_TAB[action]; }
@@ -31,7 +36,7 @@ export function reviewPersistsOpen(action: ReviewAction["type"]): boolean {
 }
 
 export function reviewTabFromLegacy(tab?: LegacyReviewTab): ReviewTab {
-  if (tab === "changes" || tab === "context") return tab;
+  if (tab === "changes") return tab;
   return "progress";
 }
 
@@ -52,11 +57,12 @@ export function deriveReviewTabs(data: ReviewData): ReviewTabState[] {
     ...tab,
     count: counts[tab.id],
     available:
-      tab.id === "home" ||
       tab.id === "terminal" ||
-      counts[tab.id] > 0 ||
-      tab.id === "context" ||
-      tab.id === "changes",
+      tab.id === "files" ||
+      tab.id === "preview" ||
+      tab.id === "changes" ||
+      tab.id === "progress" ||
+      counts[tab.id] > 0,
   }));
 }
 
@@ -87,7 +93,7 @@ export type ReviewState = {
 };
 export const initialReviewState: ReviewState = {
   open: false,
-  tab: "home",
+  tab: "changes",
   detailsTool: null,
   preview: { path: null, text: null, truncated: false, error: null, requestId: 0 },
 };
@@ -122,7 +128,7 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
     case "toggle":
       return state.open
         ? { ...state, open: false }
-        : { ...state, open: true, tab: RESTORE_ON_TOGGLE.has(state.tab) ? state.tab : "home" };
+        : { ...state, open: true, tab: reviewLandingTab(state.tab, action.defaultTab) };
     case "tab": return { ...state, tab: action.tab };
     case "hydrate-legacy": {
       const open = action.open ?? state.open;
@@ -130,10 +136,10 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
       return {
         ...state,
         open,
-        tab: open && !RESTORE_ON_TOGGLE.has(tab) ? "home" : tab,
+        tab: reviewLandingTab(tab, action.defaultTab),
       };
     }
-    case "details": return { ...state, open: true, tab: "details", detailsTool: action.tool };
+    case "details": return { ...state, open: true, detailsTool: action.tool };
     case "preview-start": return {
       ...state,
       open: true,

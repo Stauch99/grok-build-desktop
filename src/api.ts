@@ -261,6 +261,19 @@ export const listAgentsDir = () =>
 export const workspaceMtime = (cwd: string) => invoke<number>("workspace_mtime", { cwd });
 export const readUsageHistory = () =>
   invoke<{ at: number; used: number; size: number }[]>("read_usage_history");
+export type TokenTurnRow = {
+  at: number;
+  cwd: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreate: number;
+  total: number;
+  modelCalls: number;
+  costTicks: number;
+};
+export const readTokenTurns = () => invoke<TokenTurnRow[]>("read_token_turns");
 
 export type GrokCliLog = { stream: "stdout" | "stderr"; line: string };
 export const onGrokCliLog = (handler: (row: GrokCliLog) => void): Promise<UnlistenFn> =>

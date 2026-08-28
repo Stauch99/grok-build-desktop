@@ -7,12 +7,12 @@ export type StatsLineViewProps = {
 
 export function StatsLineView({ stats, sessionTokens }: StatsLineViewProps) {
   return (
-    <p className="composer-meta">
+    <span className="composer-meta">
       {formatStatsFooter({
         ttftMs: stats?.ttftMs,
         toksPerSec: stats?.toksPerSec,
         sessionTokens,
       })}
-    </p>
+    </span>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { formatMemoryLabel, selectRecent, type MemoryChange } from "../lib/memory-dock";
 
 type Props = {
@@ -6,11 +7,23 @@ type Props = {
   onDismiss: () => void;
 };
 
+const HOLD_MS = 3000;
+const FADE_MS = 400;
+
 export function MemoryDock({ changes, onOpen, onDismiss }: Props) {
   const recent = selectRecent(changes, Date.now());
-  if (recent.length === 0) return null;
+  const first = recent[0];
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
 
-  const first = recent[0]!;
+  useEffect(() => {
+    if (!first) return;
+    const id = window.setTimeout(() => dismissRef.current(), HOLD_MS + FADE_MS);
+    return () => window.clearTimeout(id);
+  }, [first?.path, first?.mtime]);
+
+  if (!first) return null;
+
   return (
     <div className="memory-dock">
       <span>项目记忆已更新</span>

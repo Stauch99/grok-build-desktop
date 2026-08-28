@@ -31,6 +31,8 @@ import {
   type SkillScope,
 } from "../lib/inspect";
 import { t, type Locale } from "../lib/i18n";
+import { IconGrokClose } from "../grok-icons";
+import { IconFinder, IconRefresh } from "../icons";
 import { hubEmptyKind } from "../lib/hub-empty";
 import { HOOK_TEMPLATES } from "../lib/hook-templates";
 import { marketplaceJsonHelp } from "../lib/copy-help";
@@ -286,7 +288,7 @@ export function ExtensionsHub({
         <div className="settings-head">
           <h2 id="hub-title">{t(locale, "hub.title")}</h2>
           <button type="button" className="icon-btn" aria-label="关闭" onClick={onClose}>
-            ×
+            <IconGrokClose size={16} />
           </button>
         </div>
         <div className="hub-chrome">
@@ -316,8 +318,8 @@ export function ExtensionsHub({
             placeholder="搜索"
             aria-label="搜索扩展"
           />
-          <button type="button" className="btn ghost" onClick={() => void load()} disabled={busy}>
-            刷新
+          <button type="button" className="icon-btn" onClick={() => void load()} disabled={busy} title="刷新" aria-label="刷新">
+            <IconRefresh size={16} />
           </button>
         </div>
         {report && report.projectTrusted === false && cwd ? (
@@ -592,8 +594,8 @@ function SkillsTab({
         <div className="hub-compose">
           <p className="hub-meta">{preview.path}</p>
           <pre className="hub-preview">{preview.text.slice(0, 8000)}</pre>
-          <button type="button" className="btn ghost" onClick={() => void openPath(preview.path)}>
-            在访达打开
+          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} title="在访达打开" aria-label="在访达打开">
+            <IconFinder size={14} />
           </button>
         </div>
       )}

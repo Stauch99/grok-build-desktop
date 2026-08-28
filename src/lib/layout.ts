@@ -1,16 +1,19 @@
 /**
  * Column sizing for the three-column shell.
  *
- * Invariant worth keeping: `SIDEBAR.min + PREVIEW.min + WORK_MIN` (840) must
- * stay below the window's `minWidth` in tauri.conf.json (880), so even the
- * smallest allowed window can show all three columns without overflowing.
+ * `SIDEBAR.min + PREVIEW.min + WORK_MIN + 10` (dividers) must stay at or
+ * below `WINDOW_MIN.width`, so the smallest allowed window can show all
+ * three columns without overflowing.
  */
 export type Bounds = { min: number; max: number; initial: number };
 
 export const SIDEBAR: Bounds = { min: 200, max: 420, initial: 248 };
 export const PREVIEW: Bounds = { min: 280, max: 720, initial: 420 };
 /** The conversation column never shrinks past this, whatever the neighbours want. */
-export const WORK_MIN = 360;
+export const WORK_MIN = 420;
+
+/** Native window floor. Keep in sync with `src-tauri/tauri.conf.json`. */
+export const WINDOW_MIN = { width: 1024, height: 720 } as const;
 
 export function clamp(px: number, min: number, max: number): number {
   if (!Number.isFinite(px)) return min;

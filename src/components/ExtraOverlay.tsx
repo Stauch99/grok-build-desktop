@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { IconGrokClose } from "../grok-icons";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
 import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
 import { ImagineGallery } from "./ImagineGallery";
@@ -62,6 +64,15 @@ export function ExtraOverlay({
   onUsageDays,
   subagents,
 }: ExtraOverlayProps) {
+  useEffect(() => {
+    if (!page) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [page, onClose]);
+
   if (!page) return null;
 
   return (
@@ -70,8 +81,8 @@ export function ExtraOverlay({
       <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={TITLES[page]}>
         <header className="settings-head">
           <strong>{TITLES[page]}</strong>
-          <button type="button" className="btn ghost" onClick={onClose} aria-label="关闭">
-            关闭
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭" title="关闭">
+            <IconGrokClose size={16} />
           </button>
         </header>
         <div className="settings-body">
@@ -85,7 +96,7 @@ export function ExtraOverlay({
             />
           ) : null}
           {page === "dashboard" ? <DashboardPanel sessions={dashboard} onOpen={onOpenSession} /> : null}
-          {page === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} onSlash={onSlash} /> : null}
+          {page === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} /> : null}
           {page === "memory" ? (
             <MemoryWorkspace
               memoryPath={memoryPath}

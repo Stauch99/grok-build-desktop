@@ -116,6 +116,12 @@ describe("linkifyLocalPaths", () => {
     expect(linkifyLocalPaths("<p>see src/App.tsx.bak</p>")).not.toContain("file-link");
   });
 
+  it("linkifies a cited image so it can be previewed inline", () => {
+    const html = linkifyLocalPaths("<p>见图 /Users/foxie/out/cover.png</p>");
+    expect(html).toContain('href="/Users/foxie/out/cover.png"');
+    expect(linkifyLocalPaths("<p>改了 assets/hero.webp</p>")).toContain('href="assets/hero.webp"');
+  });
+
   it("does not linkify inside an existing tag attribute", () => {
     const html = linkifyLocalPaths('<a href="src/App.tsx">src/App.tsx</a>');
     expect(html.match(/class="file-link"/g) ?? []).toHaveLength(1);

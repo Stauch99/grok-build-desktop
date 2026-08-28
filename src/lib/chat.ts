@@ -114,6 +114,17 @@ export function liveWorkStatus(items: ChatItem[]): string {
   return "工作中";
 }
 
+/** Start of the current turn (after the last user message), for “工作了 …”. */
+export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
+  let start: number | undefined;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "user") break;
+    if (it.at != null) start = it.at;
+  }
+  return start;
+}
+
 /**
  * Copy sits under an assistant bubble. Hide it while that turn is still
  * streaming — otherwise the button wedges itself between later chunks.

@@ -8,6 +8,7 @@ import {
   type ReviewOpenAction,
   type ReviewTab,
 } from "../lib/review-rail";
+import { previewErrorCopy, previewKind } from "../lib/preview";
 
 export type ReviewControllerDependencies = {
   cwd: string;
@@ -79,17 +80,23 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     const resolvedPath = resolveReviewPath(path, deps.cwd);
     const error = validateReviewFallbackTarget(resolvedPath, deps.cwd);
     if (error) { deps.onError(error); return; }
-    try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(String(reason)); }
+    try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
   }, [deps.cwd, deps.onError, deps.openReviewPath]);
 
   const openPreview = useCallback(async (path: string) => {
     if (deps.disabled) return;
     const resolvedPath = resolveReviewPath(path, deps.cwd);
+    const kind = previewKind(resolvedPath);
+    if (kind === "image" || kind === "video") {
+      dispatch({ type: "preview-start", path: resolvedPath, requestId: ++requestId.current });
+      deps.onOpened?.();
+      return;
+    }
     if (!deps.isTextPreviewable(resolvedPath)) {
       dispatch({ type: "preview-invalidate", requestId: ++requestId.current });
       const error = validateReviewFallbackTarget(resolvedPath, deps.cwd);
       if (error) { deps.onError(error); return; }
-      try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(String(reason)); }
+      try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
       return;
     }
     const id = ++requestId.current;
@@ -102,7 +109,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
       dispatch({ type: "preview-success", requestId: id, path: row.path, text: row.text, truncated: row.truncated });
     } catch (error) {
       if (ownerKey.current !== requestOwner) return;
-      dispatch({ type: "preview-error", requestId: id, error: String(error) });
+      dispatch({ type: "preview-error", requestId: id, error: previewErrorCopy(error) });
     }
   }, [deps.cwd, deps.disabled, deps.isTextPreviewable, deps.onError, deps.onOpened, deps.openReviewPath, deps.ownerKey, deps.readTextFile]);
 

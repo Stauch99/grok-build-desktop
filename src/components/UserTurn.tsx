@@ -1,5 +1,8 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState, type MouseEventHandler } from "react";
-import { IconCopy, IconEdit, IconResend, IconUndo } from "../icons";
+import { IconGrokCopy, IconGrokEdit, IconGrokRegenerate } from "../grok-icons";
+import { IconGitFork, IconUndo } from "../icons";
+import { rewriteLocalMediaHtml } from "../lib/media";
 import { escapeText, linkifyLocalPaths } from "../lib/text";
 
 export type UserTurnProps = {
@@ -83,7 +86,11 @@ export function UserTurn({
         className="md"
         onClick={onClick}
         dangerouslySetInnerHTML={{
-          __html: linkifyLocalPaths(escapeText(text).replace(/\n/g, "<br/>")),
+          __html: rewriteLocalMediaHtml(
+            linkifyLocalPaths(escapeText(text).replace(/\n/g, "<br/>")),
+            cwd,
+            convertFileSrc,
+          ),
         }}
       />
       {showMeta ? (
@@ -94,12 +101,10 @@ export function UserTurn({
       ) : null}
       <div className="msg-actions">
         <button type="button" onClick={onCopy} aria-label="复制" title="复制">
-          <IconCopy size={14} />
-          复制
+          <IconGrokCopy />
         </button>
         <button type="button" onClick={onResend} aria-label="重发" title="重发">
-          <IconResend size={14} />
-          重发
+          <IconGrokRegenerate />
         </button>
         {onEditResend ? (
           <button
@@ -111,8 +116,7 @@ export function UserTurn({
               setEditing(true);
             }}
           >
-            <IconEdit size={14} />
-            编辑后重发
+            <IconGrokEdit />
           </button>
         ) : null}
         {onRewind ? (
@@ -123,12 +127,11 @@ export function UserTurn({
             onClick={onRewind}
           >
             <IconUndo size={14} />
-            回到这里
           </button>
         ) : null}
         {onFork ? (
           <button type="button" title="从此处分叉" aria-label="从此处分叉" onClick={onFork}>
-            从此处分叉
+            <IconGitFork size={16} />
           </button>
         ) : null}
       </div>

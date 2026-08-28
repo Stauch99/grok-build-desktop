@@ -15,15 +15,35 @@
         "title": "Grok Build",
         "width": 1280,
         "height": 840,
-        "minWidth": 880,
-        "minHeight": 600,
+        "minWidth": 1024,
+        "minHeight": 720,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": { "x": 14, "y": 16 }
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            "$HOME/**",
+            "$TEMP/**",
+            "/tmp/**",
+            "/private/tmp/**",
+            "/var/folders/**",
+            "/private/var/folders/**"
+          ],
+          "deny": [
+            "$HOME/.ssh/**",
+            "$HOME/.gnupg/**",
+            "$HOME/.aws/**",
+            "$HOME/.grok/auth.json"
+          ],
+          "requireLiteralLeadingDot": false
+        }
+      }
     }
   },
   "bundle": {

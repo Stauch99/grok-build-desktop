@@ -10,7 +10,8 @@ import {
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachStrip } from "./AttachStrip";
-import { IconChevron, IconCheck, IconPlus, IconUp } from "../icons";
+import { IconGrokPlus } from "../grok-icons";
+import { IconChevron, IconCheck, IconUp } from "../icons";
 import {
   addAttachments,
   ATTACHMENT_CAP,
@@ -88,14 +89,14 @@ export type ComposerProps = {
   /** Hide the input while a permission / question / plan card covers it. */
   takeover?: "permission" | "question" | "plan" | "bar";
   busyHint?: string;
-  agents?: { name: string; kind: string }[];
-  onPickAgent?: (name: string) => void;
 
   /** Rendered above the input: permission card, wait pill, memory dock. */
   children?: React.ReactNode;
 
   /** Quiet caption under the input box, outside `.composer`. */
   footer?: React.ReactNode;
+  /** Fork / context-use chips on the same row as the folder and TTFT. */
+  metaActions?: React.ReactNode;
 
   /** Called when a drop would exceed the attachment cap. */
   onOverflow?: (msg: string) => void;
@@ -152,10 +153,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onEditQueued,
     takeover = "bar",
     busyHint,
-    agents,
-    onPickAgent,
     children,
     footer,
+    metaActions,
     onOverflow,
     workspaceLabel,
     workspaceOptions,
@@ -551,21 +551,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       ) : null}
 
-      {agents && agents.length > 0 && onPickAgent ? (
-        <div className="hero-agents" aria-label="代理">
-          {agents.slice(0, 8).map((a) => (
-            <button
-              key={a.name}
-              type="button"
-              className="btn ghost"
-              onClick={() => onPickAgent(a.name)}
-            >
-              {a.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
       {fileDragOver && (
         <div className="drop-overlay" aria-hidden>
           松开以添加文件
@@ -688,44 +673,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       {takeover === "bar" ? (
       <div className="composer">
         <AttachStrip items={attachments} onRemove={removeAttachment} />
-        {workspaceOptions ? (
-          <div className="composer-chips">
-            <div className="chip-wrap">
-              <button
-                type="button"
-                className="cwd-chip"
-                aria-haspopup="listbox"
-                aria-expanded={wsOpen}
-                onClick={() => {
-                  setModeOpen(false);
-                  setEffortOpen(false);
-                  setModelOpen(false);
-                  setWsOpen((o) => !o);
-                }}
-              >
-                {workspaceLabel}
-                <IconChevron size={12} />
-              </button>
-              {wsOpen ? (
-                <div className="chip-menu" role="listbox">
-                  {workspaceOptions.map((o) => (
-                    <button
-                      key={o.path}
-                      type="button"
-                      onClick={() => {
-                        onWorkspace?.(o.path);
-                        setWsOpen(false);
-                      }}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <span className="cwd-chip local-chip">本机</span>
-          </div>
-        ) : null}
         <textarea
           ref={taRef}
           value={value}
@@ -743,7 +690,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               title="命令（/）"
               aria-label="命令（/）"
             >
-              <IconPlus size={18} />
+              <IconGrokPlus size={18} />
             </button>
             {onManageSkills ? (
               <button
@@ -920,10 +867,55 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       </div>
       ) : null}
+      {workspaceOptions || metaActions || footer ? (
+        <div className="composer-meta-row">
+          <div className="composer-meta-left">
+            {workspaceOptions ? (
+              <div className="chip-wrap">
+                <button
+                  type="button"
+                  className="cwd-chip"
+                  aria-haspopup="listbox"
+                  aria-expanded={wsOpen}
+                  title={workspaceLabel || undefined}
+                  onClick={() => {
+                    setModeOpen(false);
+                    setEffortOpen(false);
+                    setModelOpen(false);
+                    setWsOpen((o) => !o);
+                  }}
+                >
+                  <span className="cwd-chip-label">{workspaceLabel}</span>
+                  <IconChevron size={12} />
+                </button>
+                {wsOpen ? (
+                  <div className="chip-menu" role="listbox">
+                    {workspaceOptions.map((o) => (
+                      <button
+                        key={o.path}
+                        type="button"
+                        onClick={() => {
+                          onWorkspace?.(o.path);
+                          setWsOpen(false);
+                        }}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="composer-meta-right">
+            {metaActions}
+            {footer}
+          </div>
+        </div>
+      ) : null}
       {busy && busyHint ? (
         <p className="composer-busy-hint" role="status">{busyHint}</p>
       ) : null}
-      {footer}
     </div>
   );
 });

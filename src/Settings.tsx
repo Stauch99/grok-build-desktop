@@ -16,13 +16,14 @@ import { stateAuthorityExplanation } from "./lib/state-authority";
 import { settingRowVisible } from "./lib/settings-search";
 import { ShortcutsTable } from "./components/ShortcutsTable";
 import { ManagedConfigView } from "./components/ManagedConfigView";
+import { UsageStats } from "./components/UsageStats";
 import { DEFAULT_SHORTCUTS } from "./lib/shortcuts-table";
 import type { HubTab } from "./lib/commands";
 import type { InspectReport } from "./lib/inspect";
 import { enabledMcpCount } from "./lib/inspect";
-import { IconSearch } from "./icons";
+import { IconGrokSearch } from "./grok-icons";
 
-type TabId = "overview" | "appearance" | "chat" | "extensions" | "about";
+type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
 
 type Props = {
   theme: "light" | "dark";
@@ -152,6 +153,7 @@ export function SettingsPanel({
     { id: "appearance", label: t(locale, "settings.appearance") },
     { id: "chat", label: t(locale, "settings.chat") },
     { id: "extensions", label: t(locale, "settings.extensions") },
+    { id: "usage", label: t(locale, "settings.usage") },
     { id: "about", label: t(locale, "settings.about") },
   ];
   const skillCount = inspect?.skills.length ?? 0;
@@ -208,6 +210,8 @@ export function SettingsPanel({
 
   const extensionsHub = show("扩展中心", "技能、MCP、插件、市场和 Hooks 在扩展中心管理。");
 
+  const usageHas = show("用量", "token tokens 消耗 缓存 请求 成本 命中 统计");
+
   const aboutCli = show("CLI", info?.grokVersion || "未检测到 CLI");
   const aboutLogin = show("登录", "未登录，请在终端运行 grok login");
   const aboutConfig = show("config.toml") && !!cli?.configPath;
@@ -224,7 +228,7 @@ export function SettingsPanel({
       <div className="settings-layout">
         <nav className="settings-nav" aria-label={t(locale, "settings.title")}>
           <div className="search-field">
-            <IconSearch size={14} className="search-icon" />
+            <IconGrokSearch size={16} className="search-icon" />
             <input
               type="search"
               className="search"
@@ -446,7 +450,6 @@ export function SettingsPanel({
                           options={[
                             { value: "tasks", label: "进度" },
                             { value: "changes", label: "改动" },
-                            { value: "context", label: "上下文" },
                           ]}
                           onChange={(v) => onDefaultRail?.(v as "tasks" | "changes" | "context")}
                         />
@@ -660,6 +663,13 @@ export function SettingsPanel({
                   </div>
                 </div>
               ) : null}
+            </section>
+          )}
+
+          {tab === "usage" && (
+            <section className="set-block">
+              <h3>{t(locale, "settings.usage")}</h3>
+              {searching && !usageHas ? emptyCopy : <UsageStats />}
             </section>
           )}
 

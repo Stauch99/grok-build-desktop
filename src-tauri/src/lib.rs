@@ -16,7 +16,7 @@ use cli_bridge::{
     create_skill, git_branches, git_log, hide_window, list_agents_dir, list_file_tree,
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
-    read_usage_history, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
+    read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
     trust_folder, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
 };
 
@@ -160,12 +160,39 @@ fn resolve_with_existing_ancestor(requested: &Path) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+fn same_dir(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+        }
+    }
+    false
+}
+
 pub(crate) fn trusted_workspace_for_hint(workspace: Option<&Path>, hint: Option<&str>) -> Result<PathBuf, String> {
     let root = workspace.ok_or_else(|| "trusted workspace is not set".to_string())?.canonicalize().map_err(|e| e.to_string())?;
     if root == Path::new("/") || is_blocked_path(&root) { return Err("trusted workspace is invalid".into()); }
     if let Some(raw) = hint.filter(|value| !value.trim().is_empty()) {
         let hinted = PathBuf::from(raw).canonicalize().map_err(|e| e.to_string())?;
-        if hinted != root { return Err("caller workspace does not match trusted workspace".into()); }
+        if hinted == Path::new("/") || is_blocked_path(&hinted) {
+            return Err("caller workspace does not match trusted workspace".into());
+        }
+        if let Ok(home) = dirs_home().canonicalize() {
+            if hinted == home {
+                return Err("caller workspace does not match trusted workspace".into());
+            }
+        }
+        // Same folder (including macOS firmlink aliases), a worktree inside the
+        // trusted root, or a parent git root while the trusted path is a session
+        // worktree. Never expand the returned capability past `root`.
+        if !(same_dir(&hinted, &root) || is_under(&hinted, &root) || is_under(&root, &hinted)) {
+            return Err("caller workspace does not match trusted workspace".into());
+        }
     }
     Ok(root)
 }
@@ -401,6 +428,7 @@ async fn doctor() -> DoctorInfo {
 
 #[tauri::command]
 async fn set_workspace(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     cwd: String,
     session_id: Option<String>,
@@ -414,7 +442,8 @@ async fn set_workspace(
     if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
         state.workspaces.lock().await.insert(sid, path.clone());
     }
-    *state.workspace.lock().await = Some(path);
+    *state.workspace.lock().await = Some(path.clone());
+    let _ = app.asset_protocol_scope().allow_directory(&path, true);
     Ok(())
 }
 
@@ -1084,7 +1113,40 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
 }
 
 pub(crate) fn is_under(child: &Path, parent: &Path) -> bool {
-    child == parent || child.starts_with(parent)
+    if child == parent || child.starts_with(parent) || same_dir(child, parent) {
+        return true;
+    }
+    let mut cursor = child;
+    while let Some(next) = cursor.parent() {
+        if same_dir(next, parent) {
+            return true;
+        }
+        cursor = next;
+    }
+    false
+}
+
+fn git_dir_ancestor(dir: &Path) -> Option<PathBuf> {
+    let mut cursor = dir;
+    loop {
+        if cursor.join(".git").exists() {
+            return Some(cursor.to_path_buf());
+        }
+        match cursor.parent() {
+            Some(parent) if parent != cursor && parent != Path::new("/") => cursor = parent,
+            _ => return None,
+        }
+    }
+}
+
+fn is_transient_path(canon: &Path) -> bool {
+    let temp = std::env::temp_dir();
+    if is_under(canon, &temp) {
+        return true;
+    }
+    ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
+        .iter()
+        .any(|root| is_under(canon, Path::new(root)))
 }
 
 fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: bool) -> bool {
@@ -1107,8 +1169,22 @@ fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: b
             return true;
         }
     }
-    if let Some(root) = allow_root {
-        if is_under(canon, root) {
+    let Some(root) = allow_root else {
+        return false;
+    };
+    if is_under(canon, root) {
+        return true;
+    }
+    if let Some(git) = git_dir_ancestor(root) {
+        if is_under(canon, &git) {
+            return true;
+        }
+    }
+    if is_transient_path(canon) {
+        return true;
+    }
+    if let Ok(home) = dirs_home().canonicalize() {
+        if is_under(canon, &home) {
             return true;
         }
     }
@@ -1148,7 +1224,7 @@ async fn read_text_file(
         let allow = trusted_desktop_root(workspace.as_deref(), allow_root.as_deref())
             .map_err(AppError::Message)?;
         if !allow_text_read(&canon, allow.as_deref()) {
-            return Err(AppError::Message("path not allowed".into()));
+            return Err(AppError::Message("无法预览这个文件".into()));
         }
         let meta = std::fs::metadata(&canon).map_err(|e| AppError::Message(e.to_string()))?;
         if !meta.is_file() {
@@ -1791,7 +1867,7 @@ pub(crate) async fn git_repo_root(cwd: &str) -> Option<PathBuf> {
     if root.is_empty() {
         None
     } else {
-        Some(PathBuf::from(root))
+        PathBuf::from(root).canonicalize().ok().or_else(|| Some(PathBuf::from(root)))
     }
 }
 
@@ -2213,6 +2289,22 @@ pub fn run() {
             if let Err(e) = build_tray(&app.handle().clone()) {
                 eprintln!("tray init failed: {e}");
             }
+            let scope = app.asset_protocol_scope();
+            let _ = scope.allow_directory(&grok_home(), true);
+            let _ = scope.allow_directory(&std::env::temp_dir(), true);
+            if let Some(window) = app.get_webview_window("main") {
+                let min = tauri::LogicalSize::new(1024.0, 720.0);
+                let _ = window.set_min_size(Some(min));
+                if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+                    let logical = size.to_logical::<f64>(scale);
+                    if logical.width < min.width || logical.height < min.height {
+                        let _ = window.set_size(tauri::LogicalSize::new(
+                            logical.width.max(min.width),
+                            logical.height.max(min.height),
+                        ));
+                    }
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -2286,7 +2378,8 @@ pub fn run() {
             write_hook_file,
             list_agents_dir,
             workspace_mtime,
-            read_usage_history
+            read_usage_history,
+            read_token_turns
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2374,12 +2467,46 @@ mod final_review_tests {
     }
 
     #[test]
+    fn text_preview_allows_cited_home_temp_and_git_ancestor_files() {
+        let home = dirs_home().canonicalize().unwrap_or_else(|_| dirs_home());
+        let tmp = std::env::temp_dir();
+        let root = acp_path_root();
+        let nested = root.join("apps").join("web");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(allow_text_read_candidate(&root.join("pkg/a.ts"), Some(&nested), true));
+        assert!(allow_text_read_candidate(&home.join("Downloads/cover.md"), Some(&nested), true));
+        assert!(allow_text_read_candidate(&tmp.join("shot.png"), Some(&nested), true));
+        assert!(!allow_text_read_candidate(&home.join("Downloads/cover.md"), None, true));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn caller_root_must_match_the_trusted_workspace() {
         let root = acp_path_root();
         assert!(trusted_workspace_for_hint(Some(&root), Some(root.to_str().unwrap())).is_ok());
         assert!(trusted_workspace_for_hint(Some(&root), Some("/")).is_err());
         assert!(trusted_workspace_for_hint(None, Some(root.to_str().unwrap())).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn caller_hint_may_be_nested_in_or_a_parent_of_the_trusted_workspace() {
+        let root = acp_path_root();
+        let nested = root.join(".worktrees").join("session");
+        std::fs::create_dir_all(&nested).unwrap();
+        let sibling = root.parent().unwrap().join(format!("{}-sibling", root.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&sibling);
+        std::fs::create_dir_all(&sibling).unwrap();
+
+        let nested_hint = nested.to_str().unwrap();
+        let root_hint = root.to_str().unwrap();
+        assert_eq!(trusted_workspace_for_hint(Some(&root), Some(nested_hint)).unwrap(), root);
+        assert_eq!(trusted_workspace_for_hint(Some(&nested), Some(root_hint)).unwrap(), nested.canonicalize().unwrap());
+        assert!(trusted_workspace_for_hint(Some(&root), Some(sibling.to_str().unwrap())).is_err());
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(sibling);
     }
 
     #[test]
