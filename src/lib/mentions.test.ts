@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMentionLifecycle, filterMentions, mentionRequestIsCurrent } from "./mentions";
+import { createMentionLifecycle, filterMentions, mentionMenuVisible, mentionRequestIsCurrent } from "./mentions";
 
 describe("filterMentions", () => {
   it("expands 本次改动 into one @path per change", () => {
@@ -55,5 +55,21 @@ describe("mention request identity", () => {
       query: "",
       visible: false,
     });
+  });
+});
+
+describe("mentionMenuVisible", () => {
+  it("opens on a trailing @ token without a newline", () => {
+    expect(mentionMenuVisible("@src")).toBe(true);
+    expect(mentionMenuVisible("see @App")).toBe(true);
+    expect(mentionMenuVisible("hello\n@file")).toBe(true);
+  });
+
+  it("stays closed for slash input, missing @, or a newline after @", () => {
+    expect(mentionMenuVisible("")).toBe(false);
+    expect(mentionMenuVisible("hello")).toBe(false);
+    expect(mentionMenuVisible("/compact")).toBe(false);
+    expect(mentionMenuVisible("/foo @bar")).toBe(false);
+    expect(mentionMenuVisible("@src\nmore")).toBe(false);
   });
 });

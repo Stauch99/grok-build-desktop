@@ -10,8 +10,12 @@ import {
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AttachStrip } from "./AttachStrip";
+import { ComposerChips } from "./ComposerChips";
+import { MentionMenu } from "./MentionMenu";
+import { QueueStrip } from "./QueueStrip";
+import { SlashMenu } from "./SlashMenu";
 import { IconGrokPlus } from "../grok-icons";
-import { IconChevron, IconCheck, IconUp } from "../icons";
+import { IconChevron, IconUp } from "../icons";
 import {
   addAttachments,
   ATTACHMENT_CAP,
@@ -24,12 +28,11 @@ import {
 } from "../lib/attachments";
 import { statAttachment } from "../api";
 import { filterCommands, type CommandDef } from "../lib/commands";
-import { commandGroup } from "../lib/slash-groups";
-import { EFFORT_OPTIONS, effortLabel, normalizeEffort, type Effort } from "../lib/effort";
-import { MODE_OPTIONS, modeLabel, modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
+import { type Effort } from "../lib/effort";
+import { modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
 import type { SlashCommand } from "../lib/chat";
-import { filterMentions, mentionRequestIsCurrent, type MentionHit } from "../lib/mentions";
-import { queueLabel, type QueueState } from "../lib/prompt-queue";
+import { filterMentions, mentionMenuVisible, mentionRequestIsCurrent, type MentionHit } from "../lib/mentions";
+import { type QueueState } from "../lib/prompt-queue";
 
 export type ComposerHandle = {
   focus: () => void;
@@ -165,8 +168,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 ) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const dragFromRef = useRef<number | null>(null);
-  const queueDraggedRef = useRef(false);
   const fileDragDepthRef = useRef(0);
   const html5DropRef = useRef(false);
   const mentionGenerationRef = useRef(0);
@@ -181,14 +182,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [slashHits, setSlashHits] = useState<CommandDef[]>([]);
   const [mentionOn, setMentionOn] = useState(false);
   const [mentions, setMentions] = useState<MentionHit[]>([]);
+  const [mentionActive, setMentionActive] = useState(0);
   const [modeOpen, setModeOpen] = useState(false);
   const [modeArmed, setModeArmed] = useState<Mode | null>(null);
-  const [editQueuedId, setEditQueuedId] = useState<number | null>(null);
-  const [editQueuedText, setEditQueuedText] = useState("");
   const [effortOpen, setEffortOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
-  const effortValue = normalizeEffort(effort);
 
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
@@ -335,14 +334,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       return;
     }
     setSlashOn(false);
-    const at = next.lastIndexOf("@");
-    if (at >= 0 && cwd && !next.slice(at + 1).includes("\n")) {
+    if (cwd && mentionMenuVisible(next)) {
+      const at = next.lastIndexOf("@");
       const q = next.slice(at + 1).split(/\s/)[0];
       const generation = ++mentionGenerationRef.current;
       const requestOwner = mentionOwnerRef.current;
       mentionQueryRef.current = q;
       mentionVisibleRef.current = true;
       setMentionOn(true);
+      setMentionActive(0);
       try {
         const files = await listFiles(q);
         if (!mentionRequestIsCurrent({ requestGeneration: generation, currentGeneration: mentionGenerationRef.current, requestQuery: q, currentQuery: mentionQueryRef.current, visible: mentionVisibleRef.current, requestOwner, currentOwner: mentionOwnerRef.current })) return;
@@ -485,12 +485,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     dispatchSend(onSend);
   }
 
-  function mentionGroupHint(group: MentionHit["group"]): string | undefined {
-    if (group === "dir") return "文件夹";
-    if (group === "change") return "改动";
-    return undefined;
-  }
-
   function selectMention(hit: MentionHit) {
     const at = value.lastIndexOf("@");
     onChange(`${value.slice(0, at)}${hit.insert} `);
@@ -511,10 +505,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         ? `排队（${altKbd}）`
         : undefined;
 
-  const label = queueLabel(queue);
   const canSend = (!!value.trim() || attachments.length > 0) && !blocked;
-  const differs = !!sessionModel && sessionModel !== model;
-  const options = Array.from(new Set([model, ...modelOptions])).filter(Boolean);
 
   return (
     <div
@@ -557,118 +548,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       )}
 
-      {queue.items.length > 0 && (
-        <div className="queue-strip" aria-label="排队中的消息">
-          <span className="queue-count">{label}</span>
-          {queue.items.map((q, i) => (
-            editQueuedId === q.id ? (
-              <input
-                key={q.id}
-                className="queue-edit"
-                value={editQueuedText}
-                aria-label="编辑排队消息"
-                autoFocus
-                onChange={(e) => setEditQueuedText(e.target.value)}
-                onBlur={() => {
-                  onEditQueued?.(q.id, editQueuedText);
-                  setEditQueuedId(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    onEditQueued?.(q.id, editQueuedText);
-                    setEditQueuedId(null);
-                  }
-                  if (e.key === "Escape") setEditQueuedId(null);
-                }}
-              />
-            ) : (
-            <button
-              key={q.id}
-              type="button"
-              className="queue-item"
-              aria-label={`排队：${q.text}`}
-              title={onReorderQueued ? "拖动排序，双击编辑，点 × 移出" : "双击编辑，点 × 移出"}
-              draggable={!!onReorderQueued}
-              onDragStart={(e) => {
-                if (!onReorderQueued) return;
-                queueDraggedRef.current = false;
-                dragFromRef.current = i;
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", String(i));
-              }}
-              onDragOver={(e) => {
-                if (!onReorderQueued) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={(e) => {
-                if (!onReorderQueued) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const from =
-                  dragFromRef.current ?? Number.parseInt(e.dataTransfer.getData("text/plain"), 10);
-                if (Number.isNaN(from) || from === i) return;
-                queueDraggedRef.current = true;
-                onReorderQueued(from, i);
-                dragFromRef.current = null;
-              }}
-              onDragEnd={() => {
-                dragFromRef.current = null;
-              }}
-              onDoubleClick={() => {
-                setEditQueuedId(q.id);
-                setEditQueuedText(q.text);
-              }}
-              onClick={(e) => {
-                if (queueDraggedRef.current) {
-                  queueDraggedRef.current = false;
-                  return;
-                }
-                const t = e.target;
-                if (t instanceof HTMLElement && t.classList.contains("queue-x")) {
-                  onRemoveQueued(q.id);
-                }
-              }}
-            >
-              <span className="queue-text">{q.text}</span>
-              <span className="queue-x" aria-label="移出队列">
-                ×
-              </span>
-            </button>
-            )
-          ))}
-        </div>
-      )}
+      <QueueStrip
+        queue={queue}
+        onRemove={onRemoveQueued}
+        onReorder={onReorderQueued}
+        onEdit={onEditQueued}
+      />
 
-      {slashOn && slashHits.length > 0 && (
-        <div className="mention" role="listbox" aria-label="斜杠命令">
-          {slashHits.map((c) => {
-            const group = commandGroup(c);
-            return (
-              <button key={c.name} type="button" onClick={() => runSlash(c)}>
-                <strong>{c.name}</strong>
-                <span className="mention-hint">{c.hint}</span>
-                <span className={`slash-badge slash-badge-${group}`}>{group}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <SlashMenu open={slashOn} items={slashHits} active={0} onPick={runSlash} />
 
-      {mentionOn && mentions.length > 0 && (
-        <div className="mention" role="listbox" aria-label="提及">
-          {mentions.slice(0, 12).map((hit) => {
-            const hint = mentionGroupHint(hit.group);
-            return (
-              <button key={hit.id} type="button" onClick={() => selectMention(hit)}>
-                {hit.label}
-                {hint ? <span className="mention-hint">{hint}</span> : null}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <MentionMenu
+        open={mentionOn}
+        items={mentions}
+        active={mentionActive}
+        onPick={selectMention}
+        onHover={setMentionActive}
+      />
 
       {takeover === "bar" ? (
       <div className="composer">
@@ -703,139 +598,56 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             ) : null}
           </div>
           <div className="right">
-            <div className="chip-wrap">
-              <button
-                type="button"
-                className={`mode-chip${mode === "yolo" ? " yolo" : ""}`}
-                aria-label="切换模式（Shift+Tab）"
-                title="切换模式（Shift+Tab）"
-                aria-expanded={modeOpen}
-                onClick={() => {
-                  setEffortOpen(false);
-                  setModelOpen(false);
-                  setWsOpen(false);
-                  setModeOpen((o) => !o);
-                }}
-              >
-                {modeLabel(mode)} <kbd className="chip-kbd">⇧Tab</kbd> <IconChevron size={11} />
-              </button>
-              {modeOpen && (
-                <div className="chip-menu mode-menu" role="menu">
-                  {MODE_OPTIONS.map((o) => (
-                    <button
-                      key={o.id}
-                      type="button"
-                      className={o.id === "yolo" ? "yolo" : undefined}
-                      onClick={() => {
-                        setModeOpen(false);
-                        if (modeNeedsConfirm(mode, o.id)) {
-                          setModeArmed(o.id);
-                          return;
-                        }
-                        onMode(o.id);
-                      }}
-                    >
-                      <span className="mode-row">
-                        <span>{o.label}</span>
-                        <span>{o.id === mode ? <IconCheck size={12} /> : null}</span>
-                      </span>
-                      <span className="hint">{o.hint}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="chip-wrap">
-              <button
-                type="button"
-                className={`model-chip${differs ? " differs" : ""}`}
-                aria-label="切换默认模型"
-                aria-expanded={modelOpen}
-                title={
-                  differs
-                    ? `本会话运行在 ${sessionModel}，默认模型是 ${model}`
-                    : "默认模型"
-                }
-                onClick={() => {
-                  setModeOpen(false);
-                  setEffortOpen(false);
-                  setWsOpen(false);
-                  setModelOpen((o) => !o);
-                }}
-              >
-                {sessionModel || model} <IconChevron size={11} />
-              </button>
-              {modelOpen && (
-                <div className="chip-menu model-menu" role="menu">
-                  {options.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => {
-                        setModelOpen(false);
-                        (onSessionModel ?? onModel)(m);
-                      }}
-                    >
-                      <span className="mode-row">
-                        <span>{m}</span>
-                        <span>{m === model ? <IconCheck size={12} /> : null}</span>
-                      </span>
-                    </button>
-                  ))}
-                  <div className="sep" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setModelOpen(false);
-                      onOpenSettings();
-                    }}
-                  >
-                    在设置中管理…
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="chip-wrap">
-              <button
-                type="button"
-                className="effort-chip"
-                aria-label="推理力度"
-                title="推理力度（写入默认设置）"
-                aria-expanded={effortOpen}
-                disabled={!effortReady}
-                onClick={() => {
-                  if (!effortReady) return;
-                  setModeOpen(false);
-                  setModelOpen(false);
-                  setWsOpen(false);
-                  setEffortOpen((o) => !o);
-                }}
-              >
-                {effortLabel(effortValue)} <IconChevron size={11} />
-              </button>
-              {effortOpen && effortReady && (
-                <div className="chip-menu effort-menu menu-hint-menu" role="menu">
-                  {EFFORT_OPTIONS.map((o) => (
-                    <button
-                      key={o.id}
-                      type="button"
-                      onClick={() => {
-                        setEffortOpen(false);
-                        onEffort(o.id);
-                      }}
-                    >
-                      <span className="menu-hint-label">{o.label}</span>
-                      <span className="menu-hint-text">{o.hint}</span>
-                      <span className="menu-hint-check" aria-hidden>
-                        {o.id === effortValue ? <IconCheck size={14} /> : null}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ComposerChips
+              mode={mode}
+              onMode={(next) => {
+                setModeOpen(false);
+                onMode(next);
+              }}
+              modeOpen={modeOpen}
+              onToggleMode={() => {
+                setEffortOpen(false);
+                setModelOpen(false);
+                setWsOpen(false);
+                setModeOpen((o) => !o);
+              }}
+              onArmMode={(next) => {
+                setModeOpen(false);
+                setModeArmed(next);
+              }}
+              effort={effort}
+              onEffort={(next) => {
+                setEffortOpen(false);
+                onEffort(next);
+              }}
+              effortReady={effortReady}
+              effortOpen={effortOpen}
+              onToggleEffort={() => {
+                if (!effortReady) return;
+                setModeOpen(false);
+                setModelOpen(false);
+                setWsOpen(false);
+                setEffortOpen((o) => !o);
+              }}
+              model={model}
+              sessionModel={sessionModel}
+              modelOptions={modelOptions}
+              modelOpen={modelOpen}
+              onToggleModel={() => {
+                setModeOpen(false);
+                setEffortOpen(false);
+                setWsOpen(false);
+                setModelOpen((o) => !o);
+              }}
+              onPickModel={(m) => {
+                setModelOpen(false);
+                (onSessionModel ?? onModel)(m);
+              }}
+              onOpenSettings={() => {
+                setModelOpen(false);
+                onOpenSettings();
+              }}
+            />
 
             {busy && onAlt && altLabel && (
               <button

@@ -78,6 +78,13 @@ export function filterMentions(input: {
   return hits;
 }
 
+/** True when the prompt should offer @-mentions (slash input wins). */
+export function mentionMenuVisible(query: string): boolean {
+  if (query.startsWith("/")) return false;
+  const at = query.lastIndexOf("@");
+  return at >= 0 && !query.slice(at + 1).includes("\n");
+}
+
 export function mentionRequestIsCurrent(input: { requestGeneration: number; currentGeneration: number; requestQuery: string; currentQuery: string; visible: boolean; requestOwner: string; currentOwner: string }): boolean {
   return input.visible && input.requestGeneration === input.currentGeneration && input.requestQuery === input.currentQuery && input.requestOwner === input.currentOwner;
 }
