@@ -98,6 +98,23 @@ pub(crate) fn grok_home() -> PathBuf {
         .unwrap_or_else(|_| dirs_home().join(".grok"))
 }
 
+pub(crate) fn grok_asset_root() -> PathBuf {
+    grok_home().join("sessions")
+}
+
+#[cfg(test)]
+mod grok_asset_tests {
+    use super::*;
+
+    #[test]
+    fn grok_asset_root_is_sessions_not_whole_grok_home() {
+        let root = grok_asset_root();
+        assert_eq!(root.file_name().unwrap(), "sessions");
+        assert_eq!(root, grok_home().join("sessions"));
+        assert_ne!(root, grok_home());
+    }
+}
+
 pub(crate) fn dirs_home() -> PathBuf {
     std::env::var("HOME")
         .map(PathBuf::from)
@@ -2290,7 +2307,7 @@ pub fn run() {
                 eprintln!("tray init failed: {e}");
             }
             let scope = app.asset_protocol_scope();
-            let _ = scope.allow_directory(&grok_home(), true);
+            let _ = scope.allow_directory(&grok_asset_root(), true);
             let _ = scope.allow_directory(&std::env::temp_dir(), true);
             if let Some(window) = app.get_webview_window("main") {
                 let min = tauri::LogicalSize::new(1024.0, 720.0);

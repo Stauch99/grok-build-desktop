@@ -93,6 +93,7 @@ export function ExtraOverlay({
               onOpen={onOpenPath}
               onSlash={onSlash}
               mode={page === "imagine-video" ? "video" : "image"}
+              cwd={cwd}
             />
           ) : null}
           {page === "dashboard" ? <DashboardPanel sessions={dashboard} onOpen={onOpenSession} /> : null}
