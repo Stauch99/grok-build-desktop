@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { TextFilePreview } from "../api";
 import {
   initialReviewState,
@@ -50,6 +50,11 @@ export type ReviewController = {
   closePreviewTab: (path: string) => void;
 };
 
+export function replaceAbortController(prev: AbortController | null): AbortController {
+  prev?.abort();
+  return new AbortController();
+}
+
 export function reviewOwnerKey(sessionId: string | null, cwd: string): string {
   return (sessionId || "") + "|" + cwd;
 }
@@ -76,14 +81,18 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
   const [previewTabs, setPreviewTabs] = useState<PreviewTab[]>([]);
   const requestId = useRef(0);
   const ownerKey = useRef(deps.ownerKey);
+  const abortRef = useRef<AbortController | null>(null);
   const previewCache = useRef(new Map<string, PreviewCacheEntry>());
   ownerKey.current = deps.ownerKey;
 
   useEffect(() => {
+    abortRef.current = replaceAbortController(abortRef.current);
+    const ac = abortRef.current;
     requestId.current += 1;
     dispatch({ type: "owner-change", requestId: requestId.current, disabled: deps.disabled });
     setPreviewTabs([]);
     previewCache.current.clear();
+    return () => ac.abort();
   }, [deps.ownerKey, deps.disabled]);
 
   const openReview = useCallback((action: ReviewOpenAction) => {
@@ -125,13 +134,14 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
       dispatch({ type: "preview-success", requestId: id, path: resolvedPath, text: cached.text, truncated: false });
     }
     deps.onOpened?.();
+    const signal = abortRef.current?.signal;
     try {
       const row = await deps.readTextFile(resolvedPath, deps.cwd || null);
-      if (ownerKey.current !== requestOwner) return;
+      if (signal?.aborted || ownerKey.current !== requestOwner) return;
       putPreviewCache(previewCache.current, row.path, row.text);
       dispatch({ type: "preview-success", requestId: id, path: row.path, text: row.text, truncated: row.truncated });
     } catch (error) {
-      if (ownerKey.current !== requestOwner) return;
+      if (signal?.aborted || ownerKey.current !== requestOwner) return;
       if (cached) return;
       dispatch({ type: "preview-error", requestId: id, error: previewErrorCopy(error) });
     }
@@ -163,6 +173,8 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     dispatch({ type: "preview-start", path: "", requestId: ++requestId.current });
   }, [previewTabs, state.preview.path]);
 
+  const previewTabsMemo = useMemo(() => previewTabs, [previewTabs]);
+
   return {
     open: state.open,
     tab: state.tab,
@@ -185,7 +197,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
       putPreviewCache(previewCache.current, path, text);
       dispatch({ type: "preview-text", path, requestId: id, text });
     },
-    previewTabs,
+    previewTabs: previewTabsMemo,
     selectPreviewTab,
     closePreviewTab,
   };

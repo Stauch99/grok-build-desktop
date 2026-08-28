@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SIDEBAR_LIST } from "../lib/sidebar-list";
-import { buildWebuiState, type WebuiSnapshot } from "./useWebuiPersist";
+import { buildWebuiState, WEBUI_PERSIST_MS, type WebuiSnapshot } from "./useWebuiPersist";
 
 const base: WebuiSnapshot = {
   projects: ["/a"],
@@ -43,5 +43,11 @@ describe("buildWebuiState", () => {
 
   it("keeps filePanelOpen from the snapshot when the partial omits it", () => {
     expect(buildWebuiState({ ...base, filePanelOpen: true }, { unread: { s1: "done" } }).filePanelOpen).toBe(true);
+  });
+});
+
+describe("webui persist throttle", () => {
+  it("debounces writes at 500 ms", () => {
+    expect(WEBUI_PERSIST_MS).toBe(500);
   });
 });
