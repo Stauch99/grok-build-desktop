@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { MouseEventHandler } from "react";
+import { memo, type MouseEventHandler } from "react";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
+import { memoizeMarkdown } from "../lib/markdown-cache";
 import { renderMd, splitAssistantBlocks } from "../lib/markdown";
 import { MermaidBlock } from "../MermaidBlock";
 
@@ -10,6 +11,8 @@ export type MarkdownProps = {
   className?: string;
   cwd?: string;
   onClick?: MouseEventHandler<HTMLDivElement>;
+  /** Skip the LRU cache while this turn is still streaming. */
+  live?: boolean;
 };
 
 /**
@@ -17,10 +20,19 @@ export type MarkdownProps = {
  * README renders in the preview pane exactly as it would in the thread —
  * including mermaid diagrams and clickable local paths.
  */
-export function Markdown({ text, dark, className = "md", cwd = "", onClick }: MarkdownProps) {
+export const Markdown = memo(function Markdown({
+  text,
+  dark,
+  className = "md",
+  cwd = "",
+  onClick,
+  live = false,
+}: MarkdownProps) {
   const blocks = splitAssistantBlocks(text);
   const roots = assetRoots(cwd, "");
   const toSrc = (path: string) => safeFileSrc(path, roots, convertFileSrc) ?? "";
+  const htmlFor = (md: string) =>
+    live ? renderMd(md, cwd, toSrc) : memoizeMarkdown(md, cwd, toSrc);
   return (
     <div className={className} onClick={onClick}>
       {blocks.map((b, i) =>
@@ -29,10 +41,10 @@ export function Markdown({ text, dark, className = "md", cwd = "", onClick }: Ma
         ) : (
           <div
             key={`md-${i}`}
-            dangerouslySetInnerHTML={{ __html: renderMd(b.text, cwd, toSrc) }}
+            dangerouslySetInnerHTML={{ __html: htmlFor(b.text) }}
           />
         ),
       )}
     </div>
   );
-}
+});

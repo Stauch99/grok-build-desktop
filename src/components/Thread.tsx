@@ -1,11 +1,14 @@
 import {
   Fragment,
+  memo,
   useEffect,
+  useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
+import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "react-window";
 import { openPath } from "../api";
 import {
   assistantCopyReady,
@@ -13,6 +16,7 @@ import {
   trailingWorkStartedAt,
   type ChatItem,
   type ChatState,
+  type ThreadBlock,
 } from "../lib/chat";
 import {
   formatClock,
@@ -155,7 +159,7 @@ export function Fold({
   );
 }
 
-export function ChatRow({
+export const ChatRow = memo(function ChatRow({
   item,
   dark,
   paneId = "main",
@@ -219,6 +223,7 @@ export function ChatRow({
           text={item.text}
           dark={dark}
           cwd={cwd}
+          live={!showCopy}
           onClick={(e) => handleMdClick(e, cwd, onPreviewPath)}
         />
         {showCopy ? (
@@ -279,6 +284,144 @@ export function ChatRow({
         onOpenPath={openPathAbs}
       />
     </Fold>
+  );
+});
+
+const VIRTUALIZE_AFTER = 80;
+const LIST_OVERSCAN = 8;
+
+type ThreadRowCtx = {
+  paneId: string;
+  dark: boolean;
+  cwd: string;
+  showThinking: boolean;
+  sessionModel?: string | null;
+  blocks: ThreadBlock[];
+  lastWorkId: string | null;
+  liveInTimeline: boolean;
+  liveRow: ReactNode;
+  busy: boolean;
+  items: ChatItem[];
+  onResendUser?: (text: string) => void;
+  rewindFor?: (itemId: string) => (() => void) | undefined;
+  onForkTurn?: (itemId: string) => void;
+  onInspectTool?: (item: Extract<ChatItem, { kind: "tool" }>) => void;
+  onPreviewPath?: (path: string) => void;
+  highlightQuery?: string;
+};
+
+function userTurnsBefore(blocks: ThreadBlock[], index: number): number {
+  let n = 0;
+  for (let i = 0; i < index; i++) {
+    const b = blocks[i];
+    if (b.kind === "item" && b.item.kind === "user") n += 1;
+  }
+  return n;
+}
+
+function threadRowKey(index: number, data: ThreadRowCtx): string {
+  const block = data.blocks[index];
+  return block.kind === "work" ? block.id : block.item.id;
+}
+
+function ThreadBlockView({
+  block,
+  index,
+  ctx,
+}: {
+  block: ThreadBlock;
+  index: number;
+  ctx: ThreadRowCtx;
+}) {
+  const {
+    paneId,
+    dark,
+    cwd,
+    showThinking,
+    sessionModel,
+    lastWorkId,
+    liveInTimeline,
+    liveRow,
+    items,
+    busy,
+    onResendUser,
+    rewindFor,
+    onForkTurn,
+    onInspectTool,
+    onPreviewPath,
+    highlightQuery,
+  } = ctx;
+  const copyFor = (id: string) => assistantCopyReady(items, id, busy);
+  if (block.kind === "work") {
+    const visible = showThinking
+      ? block.items
+      : block.items.filter((i) => i.kind !== "thought");
+    if (visible.length === 0) return null;
+    const runBusy = liveInTimeline && lastWorkId === block.id;
+    return (
+      <div className="work-cluster">
+        <WorkTimeline
+          items={visible}
+          busy={runBusy}
+          cwd={cwd}
+          live={runBusy ? liveRow : null}
+          onInspectTool={onInspectTool}
+        />
+      </div>
+    );
+  }
+  const item = block.item;
+  if (item.kind === "thought" && !showThinking) return null;
+  if (item.kind === "user") {
+    const userCount = userTurnsBefore(ctx.blocks, index) + 1;
+    const turn = item.turn ?? userCount - 1;
+    return (
+      <Fragment>
+        <div className="turn-sep">{turnSeparatorLabel(turn, item.at)}</div>
+        <ChatRow
+          item={item}
+          dark={dark}
+          paneId={paneId}
+          cwd={cwd}
+          sessionModel={sessionModel}
+          showCopy={copyFor(item.id)}
+          onResendUser={onResendUser}
+          rewindFor={rewindFor}
+          onForkTurn={onForkTurn}
+          onInspectTool={onInspectTool}
+          onPreviewPath={onPreviewPath}
+          highlightQuery={highlightQuery}
+        />
+      </Fragment>
+    );
+  }
+  return (
+    <ChatRow
+      item={item}
+      dark={dark}
+      paneId={paneId}
+      cwd={cwd}
+      sessionModel={sessionModel}
+      showCopy={copyFor(item.id)}
+      onResendUser={onResendUser}
+      rewindFor={rewindFor}
+      onForkTurn={onForkTurn}
+      onInspectTool={onInspectTool}
+      onPreviewPath={onPreviewPath}
+    />
+  );
+}
+
+function VirtualThreadRow({
+  index,
+  style,
+  ariaAttributes,
+  ...ctx
+}: RowComponentProps<ThreadRowCtx>) {
+  return (
+    <div style={style} {...ariaAttributes}>
+      <ThreadBlockView block={ctx.blocks[index]} index={index} ctx={ctx} />
+    </div>
   );
 }
 
@@ -352,9 +495,10 @@ export function ThreadColumn({
     text: string;
   } | null>(null);
   const [, setLiveTick] = useState(0);
-  const blocks = groupWorkRuns(chat.items);
-  let userCount = 0;
-  const copyFor = (id: string) => assistantCopyReady(chat.items, id, busy);
+  const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
+  const virtualize = blocks.length > VIRTUALIZE_AFTER;
+  const listRef = useListRef(null);
+  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 72 });
   const lastBlock = blocks[blocks.length - 1];
   const lastWorkVisible =
     lastBlock?.kind === "work" &&
@@ -363,6 +507,48 @@ export function ThreadColumn({
   const liveInTimeline = busy && lastWorkVisible;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
   const liveRow = busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
+  const lastWorkId = lastBlock?.kind === "work" ? lastBlock.id : null;
+  const rowCtx = useMemo(
+    (): ThreadRowCtx => ({
+      paneId,
+      dark,
+      cwd,
+      showThinking,
+      sessionModel,
+      blocks,
+      lastWorkId,
+      liveInTimeline,
+      liveRow,
+      busy,
+      items: chat.items,
+      onResendUser,
+      rewindFor,
+      onForkTurn,
+      onInspectTool,
+      onPreviewPath,
+      highlightQuery,
+    }),
+    [
+      paneId,
+      dark,
+      cwd,
+      showThinking,
+      sessionModel,
+      blocks,
+      lastWorkId,
+      liveInTimeline,
+      liveRow,
+      busy,
+      chat.items,
+      onResendUser,
+      rewindFor,
+      onForkTurn,
+      onInspectTool,
+      onPreviewPath,
+      highlightQuery,
+    ],
+  );
+  const listActive = virtualize && threadView === "chat" && !empty;
 
   useEffect(() => {
     if (!busy) return;
@@ -372,16 +558,25 @@ export function ThreadColumn({
 
   useEffect(() => {
     if (!jumpId) return;
+    if (listActive) {
+      const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === jumpId);
+      if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "center", behavior: "smooth" });
+      return;
+    }
     const el = chatRef.current?.querySelector(`#turn-${paneId}-${jumpId}, #msg-${paneId}-${jumpId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     el?.classList.add("search-hit");
     const t = window.setTimeout(() => el?.classList.remove("search-hit"), 2400);
     return () => window.clearTimeout(t);
-  }, [jumpId, paneId, chatRef]);
+  }, [jumpId, paneId, chatRef, listActive, blocks, listRef]);
 
   return (
     <>
-    <div className="chat" ref={chatRef} onScroll={(e) => onScroll(e.currentTarget)}>
+    <div
+      className={`chat${listActive ? " virtualized" : ""}`}
+      ref={chatRef}
+      onScroll={listActive ? undefined : (e) => onScroll(e.currentTarget)}
+    >
       <div
         className="thread"
         style={{ ["--thread" as string]: `${chatWidth}px` }}
@@ -410,12 +605,15 @@ export function ThreadColumn({
               </div>
             ) : null}
             {threadView === "trajectory" ? (
+              <div className="pane-in" key="trajectory">
               <TrajectoryView rows={trajectoryRows(chat.items)} onJump={(id) => {
                 const el = chatRef.current?.querySelector(`#turn-${paneId}-${id}, #msg-${paneId}-${id}`);
                 el?.scrollIntoView({ behavior: "smooth", block: "center" });
               }} />
-            ) : null}
-            {threadView !== "trajectory" && urlChips.length > 0 && (
+              </div>
+            ) : (
+              <div className="pane-in" key="chat">
+            {urlChips.length > 0 && (
               <div className="url-row">
                 {urlChips.map((u) => (
                   <button
@@ -431,7 +629,7 @@ export function ThreadColumn({
                 ))}
               </div>
             )}
-            {threadView !== "trajectory" && plan.length > 0 && (
+            {plan.length > 0 && (
               <div className="plan-card">
                 <div className="plan-card-head">
                   <strong>计划</strong>
@@ -451,68 +649,31 @@ export function ThreadColumn({
                 </ul>
               </div>
             )}
-            {threadView !== "trajectory" && blocks.map((block) => {
-              if (block.kind === "work") {
-                const visible = showThinking
-                  ? block.items
-                  : block.items.filter((i) => i.kind !== "thought");
-                if (visible.length === 0) return null;
-                const runBusy = liveInTimeline && lastBlock?.kind === "work" && lastBlock.id === block.id;
-                return (
-                  <div className="work-cluster" key={block.id}>
-                    <WorkTimeline
-                      items={visible}
-                      busy={runBusy}
-                      cwd={cwd}
-                      live={runBusy ? liveRow : null}
-                      onInspectTool={onInspectTool}
-                    />
-                  </div>
-                );
-              }
-              const item = block.item;
-              if (item.kind === "thought" && !showThinking) return null;
-              if (item.kind === "user") {
-                userCount += 1;
-                const turn = item.turn ?? userCount - 1;
-                return (
-                  <Fragment key={item.id}>
-                    <div className="turn-sep">{turnSeparatorLabel(turn, item.at)}</div>
-                    <ChatRow
-                      item={item}
-                      dark={dark}
-                      paneId={paneId}
-                      cwd={cwd}
-                      sessionModel={sessionModel}
-                      showCopy={copyFor(item.id)}
-                      onResendUser={onResendUser}
-                      rewindFor={rewindFor}
-                      onForkTurn={onForkTurn}
-                      onInspectTool={onInspectTool}
-                      onPreviewPath={onPreviewPath}
-                      highlightQuery={highlightQuery}
-                    />
-                  </Fragment>
-                );
-              }
-              return (
-                <ChatRow
-                  key={item.id}
-                  item={item}
-                  dark={dark}
-                  paneId={paneId}
-                  cwd={cwd}
-                  sessionModel={sessionModel}
-                  showCopy={copyFor(item.id)}
-                  onResendUser={onResendUser}
-                  rewindFor={rewindFor}
-                  onForkTurn={onForkTurn}
-                  onInspectTool={onInspectTool}
-                  onPreviewPath={onPreviewPath}
+            {virtualize ? (
+              <List
+                className="thread-list"
+                listRef={listRef}
+                rowComponent={VirtualThreadRow}
+                rowCount={blocks.length}
+                rowHeight={rowHeight}
+                rowProps={rowCtx}
+                rowKey={threadRowKey}
+                overscanCount={LIST_OVERSCAN}
+                onScroll={(e) => onScroll(e.currentTarget)}
+              />
+            ) : (
+              blocks.map((block, index) => (
+                <ThreadBlockView
+                  key={threadRowKey(index, rowCtx)}
+                  block={block}
+                  index={index}
+                  ctx={rowCtx}
                 />
-              );
-            })}
+              ))
+            )}
             {busy && !liveInTimeline ? liveRow : null}
+              </div>
+            )}
           </>
         )}
         </div>
@@ -550,6 +711,13 @@ export function ThreadColumn({
                 }}
                 onBlur={() => setTocHover(null)}
                 onClick={() => {
+                  if (listActive) {
+                    const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === u.id);
+                    if (idx >= 0) {
+                      listRef.current?.scrollToRow({ index: idx, align: "start", behavior: "smooth" });
+                    }
+                    return;
+                  }
                   chatRef.current
                     ?.querySelector(`#turn-${paneId}-${u.id}`)
                     ?.scrollIntoView({ behavior: "smooth", block: "start" });

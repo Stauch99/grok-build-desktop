@@ -42,7 +42,9 @@ export function splitAssistantBlocks(src: string): AssistantBlock[] {
   return out.length ? out : [{ kind: "md", text: src }];
 }
 
-export function renderMd(text: string, cwd = "", toSrc?: (path: string) => string): string {
+export type MarkdownToSrc = (path: string) => string;
+
+export function renderMd(text: string, cwd = "", toSrc?: MarkdownToSrc): string {
   const html = linkifyLocalPaths(
     sanitizeHtml(marked.parse(text, { async: false, gfm: true, breaks: true }) as string),
   );
