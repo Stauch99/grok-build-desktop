@@ -41,6 +41,19 @@ describe("displayTitle / setTitleOverride", () => {
     expect(displayTitle(s, { a: " 手改 " })).toBe("手改");
     expect(displayTitle({ id: "x", title: "" }, {})).toBe("未命名会话");
   });
+  it("falls back to first 40 chars of preview when title is empty", () => {
+    const long = "这是一段很长的首条用户消息用来做会话预览标题超过四十个字就会被截断";
+    expect(displayTitle({ id: "s1", title: "" }, {}, { s1: long })).toBe(long.slice(0, 40));
+    expect(displayTitle({ id: "s1", title: "  " }, {}, { s1: "  简短预览  " })).toBe("简短预览");
+  });
+  it("does not use preview when override or generated title exists", () => {
+    expect(displayTitle({ id: "s1", title: "生成名" }, {}, { s1: "预览" })).toBe("生成名");
+    expect(displayTitle({ id: "s1", title: "" }, { s1: "手改" }, { s1: "预览" })).toBe("手改");
+  });
+  it("falls back to 未命名会话 when preview is missing or blank", () => {
+    expect(displayTitle({ id: "s1", title: "" }, {}, { s1: "   " })).toBe("未命名会话");
+    expect(displayTitle({ id: "s1", title: "" }, {}, {})).toBe("未命名会话");
+  });
   it("clears override on empty", () => {
     expect(setTitleOverride({ a: "手改" }, "a", "  ")).toEqual({});
   });

@@ -406,3 +406,19 @@
 .session .more {
   margin-top: 0;
 }
+
+.session-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 8px;
+  flex: none;
+}
+.session-batch .btn {
+  font-size: var(--ui-small);
+  padding: 2px 8px;
+}
+.session-list.is-batching .session:hover {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+}

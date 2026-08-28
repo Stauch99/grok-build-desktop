@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSearchHit, SessionSummary } from "../api";
 import { ProjectMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
@@ -52,6 +52,12 @@ export type SidebarProps = {
   showTokens: boolean;
   showStatus: boolean;
   showWorktree: boolean;
+  /** First-user-message preview map for untitled sessions. */
+  preview?: Record<string, string>;
+  onStartRename?: (id: string) => void;
+  onDeleteSessions?: (ids: string[]) => void;
+  onMarkReadSessions?: (ids: string[]) => void;
+  onArchiveSessions?: (ids: string[]) => void;
 };
 
 function rowMetaMap(rows: SidebarRow[]): Map<string, SidebarRow> {
@@ -97,6 +103,11 @@ export function Sidebar({
   onMarkAllRead,
   showTokens,
   showStatus,
+  preview,
+  onStartRename,
+  onDeleteSessions,
+  onMarkReadSessions,
+  onArchiveSessions,
 }: SidebarProps) {
   const [projectMenu, setProjectMenu] = useState<{
     path: string;
@@ -104,6 +115,10 @@ export function Sidebar({
     top: number;
     left: number;
   } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const anchorId = useRef<string | null>(null);
+  const modsRef = useRef({ shift: false, meta: false });
+  const lastClickedId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!projectMenu) return;
@@ -126,14 +141,75 @@ export function Sidebar({
     setProjectMenu({ path, pinned, ...menuPosition(el, point) });
   }
 
+  const orderedIds = useMemo(
+    () => sections.flatMap((section) => section.rows.map((row) => row.session.id)),
+    [sections],
+  );
+
+  const displayTitles = useMemo(() => {
+    if (!preview) return titles;
+    const next = { ...titles };
+    for (const section of sections) {
+      for (const row of section.rows) {
+        const s = row.session;
+        if (titles[s.id]?.trim() || s.title.trim()) continue;
+        const clip = preview[s.id]?.replace(/\s+/g, " ").trim().slice(0, 40);
+        if (clip) next[s.id] = clip;
+      }
+    }
+    return next;
+  }, [titles, preview, sections]);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      modsRef.current = { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey };
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, []);
+
+  function applySelection(id: string) {
+    const { shift, meta } = modsRef.current;
+    if (shift && anchorId.current) {
+      const a = orderedIds.indexOf(anchorId.current);
+      const b = orderedIds.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelectedIds(orderedIds.slice(lo, hi + 1));
+        return;
+      }
+    }
+    if (meta) {
+      setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+      anchorId.current = id;
+      return;
+    }
+    setSelectedIds([id]);
+    anchorId.current = id;
+  }
+
+  function clearSelection() {
+    setSelectedIds([]);
+    anchorId.current = null;
+  }
+
   const branchProps = {
     sessionId,
     splitId,
-    titles,
+    titles: displayTitles,
     expandedIds,
     collapsedIds,
     onToggleExpand,
-    onOpen: onOpenSession,
+    onOpen: (s: SessionSummary) => {
+      lastClickedId.current = s.id;
+      const { shift, meta } = modsRef.current;
+      if (shift || meta) {
+        applySelection(s.id);
+        return;
+      }
+      clearSelection();
+      onOpenSession(s);
+    },
     onMenu: (id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) => {
       setProjectMenu(null);
       onSessionMenu(id, el, point);
@@ -244,7 +320,58 @@ export function Sidebar({
         </span>
       </div>
 
-      <div className="session-list">
+      {selectedIds.length > 0 ? (
+        <div className="session-batch" role="toolbar" aria-label="批量操作">
+          <span className="hint">已选 {selectedIds.length}</span>
+          <button
+            type="button"
+            className="btn"
+            disabled={!onMarkReadSessions}
+            onClick={() => {
+              onMarkReadSessions?.(selectedIds);
+              clearSelection();
+            }}
+          >
+            标为已读
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={!onArchiveSessions}
+            onClick={() => {
+              onArchiveSessions?.(selectedIds);
+              clearSelection();
+            }}
+          >
+            归档
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={!onDeleteSessions}
+            onClick={() => {
+              onDeleteSessions?.(selectedIds);
+              clearSelection();
+            }}
+          >
+            删除
+          </button>
+          <button type="button" className="icon-btn" onClick={clearSelection} aria-label="取消选择">
+            取消
+          </button>
+        </div>
+      ) : null}
+
+      <div
+        className={`session-list${selectedIds.length ? " is-batching" : ""}`}
+        onDoubleClick={(e) => {
+          const target = e.target;
+          if (!(target instanceof Element)) return;
+          if (!target.closest(".sess-title, .session .title")) return;
+          const id = lastClickedId.current;
+          if (id) onStartRename?.(id);
+        }}
+      >
         {sections.length === 0 ? (
           <p className="footnote">没有符合筛选的会话</p>
         ) : null}
