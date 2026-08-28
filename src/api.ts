@@ -182,6 +182,7 @@ export const listProjectRules = (cwd: string) =>
 export const loadWebuiState = () => invoke<WebuiState>("load_webui_state");
 export const saveWebuiState = (state: WebuiState) => invoke<void>("save_webui_state", { state });
 export const listProjectRoots = () => invoke<string[]>("list_project_roots");
+export const pathIsDir = (path: string) => invoke<boolean>("path_is_dir", { path });
 export const deleteSession = (sessionId: string) => invoke<void>("delete_session", { sessionId });
 export const ensureInbox = (path?: string | null) =>
   invoke<string>("ensure_inbox", { path: path ?? null });

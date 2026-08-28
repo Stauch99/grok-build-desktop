@@ -684,7 +684,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function onDraftChange(value: string) {
     const d = depsRef.current;
     d.setDraft(value);
-    if (!sessionIdRef.current) return;
     const next = writeDraft(d.sessionDrafts, sessionIdRef.current, value);
     d.setSessionDrafts(next);
     d.persist({ drafts: next });

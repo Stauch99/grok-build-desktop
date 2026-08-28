@@ -526,6 +526,7 @@ return (
                   busy={worktreeBusy}
                   onOpenChanges={() => openReview("changed-file")}
                   onNewWorktree={() => void newWorktreeSession()}
+                  onCommitted={() => void refreshGit()}
                 />
               )}
               {jobs.length > 0 && (

@@ -1674,6 +1674,34 @@ async fn search_session_text(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+/// True when `explorer` would treat `target` as a switch (`/select`, `/e`) rather than a path.
+fn explorer_slash_switch(target: &str) -> bool {
+    let t = target.trim();
+    if t.starts_with("//") {
+        return false;
+    }
+    let Some(rest) = t.strip_prefix('/') else {
+        return false;
+    };
+    rest.as_bytes().get(1) != Some(&b':')
+}
+
+fn open_path_arg_rejected(trimmed: &str) -> bool {
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return true;
+    }
+    cfg!(target_os = "windows") && explorer_slash_switch(trimmed)
+}
+
+#[tauri::command]
+fn path_is_dir(path: String) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return false;
+    }
+    std::path::Path::new(trimmed).is_dir()
+}
+
 fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     #[cfg(target_os = "macos")]
     { ("open", vec!["--".into(), target.as_os_str().to_owned()]) }
@@ -1758,7 +1786,7 @@ async fn open_review_path(state: State<'_, Arc<AppState>>, path: String, allow_r
 #[tauri::command]
 async fn open_path(path: String) -> AppResult<()> {
     let trimmed = path.trim();
-    if trimmed.is_empty() || trimmed.starts_with('-') {
+    if open_path_arg_rejected(trimmed) {
         return Err(AppError::Message("invalid path".into()));
     }
     let target = if trimmed.starts_with("file://") {
@@ -1770,6 +1798,9 @@ async fn open_path(path: String) -> AppResult<()> {
     } else {
         trimmed.to_string()
     };
+    if !target.starts_with("http://") && !target.starts_with("https://") && open_path_arg_rejected(&target) {
+        return Err(AppError::Message("invalid path".into()));
+    }
     let (program, args) = open_command(Path::new(&target));
     let status = Command::new(program).args(args)
         .status()
@@ -2543,6 +2574,7 @@ pub fn run() {
             read_text_file,
             list_memory_changes,
             open_path,
+            path_is_dir,
             open_review_path,
             git_status,
             git_changes,
@@ -2774,6 +2806,28 @@ mod final_review_tests {
     { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
 }
 
+    #[test]
+    fn explorer_slash_switch_rejects_select_and_allows_drive() {
+        assert!(explorer_slash_switch("/select,C:\\Windows"));
+        assert!(explorer_slash_switch("/e,C:\\"));
+        assert!(!explorer_slash_switch("/C:/Users/me"));
+        assert!(!explorer_slash_switch("//server/share"));
+        assert!(!explorer_slash_switch("C:\\Users\\me"));
+        assert!(!explorer_slash_switch("-evil"));
+    }
+
+    #[test]
+    fn open_path_arg_rejects_dash_everywhere() {
+        assert!(open_path_arg_rejected(""));
+        assert!(open_path_arg_rejected("-help"));
+        #[cfg(not(windows))]
+        assert!(!open_path_arg_rejected("/tmp/ok"));
+        #[cfg(windows)]
+        {
+            assert!(open_path_arg_rejected("/select,C:\\Windows"));
+            assert!(!open_path_arg_rejected("C:\\Users\\me"));
+        }
+    }
 }
 
 #[cfg(test)]

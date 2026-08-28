@@ -7,6 +7,7 @@ import {
   gitCreateWorktree,
   gitStatus,
   listProjectRoots,
+  pathIsDir,
   listSessions,
   listMemoryChanges,
   listWorkspaceEntries,
@@ -87,7 +88,7 @@ import {
   type SessionStatus,
   type UnreadMap,
 } from "../lib/session-status";
-import { displayTitle, mergeProjectPaths, setTitleOverride } from "../lib/projects";
+import { displayTitle, keepExistingDirs, mergeProjectPaths, setTitleOverride } from "../lib/projects";
 import {
   DEFAULT_SIDEBAR_LIST,
   INBOX_PIN,
@@ -846,7 +847,15 @@ export function useAppModel() {
           if (cliState.yolo) setMode("yolo");
         }
         const merged = mergeProjectPaths(state.projects ?? [], roots);
-        setProjects(merged);
+        const live = new Set<string>();
+        await Promise.all(
+          merged.map(async (p) => {
+            if (await pathIsDir(p).catch(() => false)) live.add(p);
+          }),
+        );
+        const kept = keepExistingDirs(merged, (p) => live.has(p));
+        setProjects(kept);
+        if (kept.length < merged.length) persist({ projects: kept });
         if (state.theme === "dark" || state.theme === "light") setTheme(state.theme);
         if (typeof state.chatWidth === "number" && state.chatWidth >= 480 && state.chatWidth <= 1100) {
           setChatWidth(state.chatWidth);
@@ -893,7 +902,7 @@ export function useAppModel() {
         const pinnedRaw = Array.isArray(state.pinnedProjects)
           ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
           : [];
-        setPinnedProjects(prunePinnedProjects(pinnedRaw, merged));
+        setPinnedProjects(prunePinnedProjects(pinnedRaw, kept));
         const inbox = await ensureInbox(state.inboxCwd ?? null);
         setInboxCwd(inbox);
         const all = await listSessions(null).catch(() => [] as SessionSummary[]);
@@ -901,7 +910,7 @@ export function useAppModel() {
         setSessions(all.filter((s) => !sameCwd(s.cwd, inbox)));
         const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
         setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
-        const initial = merged[0] || inbox;
+        const initial = kept[0] || inbox;
         if (initial) setCwd(initial);
         void refreshInspect(initial || inbox);
         void refreshModels();
