@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { clampIndex, filterPalette, paletteSubmit, type PaletteItem } from "../lib/palette";
+import { loadLocalPaletteFrecency, recordLocalPaletteUse, type FrecencyMap } from "../lib/frecency";
+import { filterPalette, paletteKey, type PaletteItem } from "../lib/palette";
 
 export type CommandPaletteProps = {
   items: PaletteItem[];
@@ -15,10 +16,16 @@ export type CommandPaletteProps = {
 export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
+  const [frecency, setFrecency] = useState<FrecencyMap>(loadLocalPaletteFrecency);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const hits = useMemo(() => filterPalette(items, query), [items, query]);
+  const hits = useMemo(() => filterPalette(items, query, 40, frecency), [items, query, frecency]);
+
+  function execute(id: string) {
+    setFrecency(recordLocalPaletteUse(id));
+    onPick(id);
+  }
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -47,27 +54,13 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
           aria-label="搜索命令"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              onClose();
-              return;
-            }
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIndex((i) => clampIndex(i + 1, hits.length));
-              return;
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIndex((i) => clampIndex(i - 1, hits.length));
-              return;
-            }
-            if (e.key === "Enter") {
-              e.preventDefault();
-              const result = paletteSubmit(query, hits, index);
-              if (result.kind === "pick") onPick(result.id);
-              if (result.kind === "search") onSearch(result.query);
-            }
+            if (e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
+            e.preventDefault();
+            const next = paletteKey({ index, hits, query }, e.key);
+            if (next.index !== index) setIndex(next.index);
+            if (next.action === "close") onClose();
+            if (next.action === "pick" && next.id) execute(next.id);
+            if (next.action === "search" && next.search) onSearch(next.search);
           }}
         />
         <div className="palette-list" ref={listRef} role="listbox">
@@ -85,7 +78,7 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
                   data-row={i}
                   className={`palette-row${i === index ? " on" : ""}`}
                   onMouseEnter={() => setIndex(i)}
-                  onClick={() => onPick(hit.id)}
+                  onClick={() => execute(hit.id)}
                 >
                   <span className="palette-label">{hit.label}</span>
                   {hit.hint && <span className="palette-hint">{hit.hint}</span>}

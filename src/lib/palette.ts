@@ -1,3 +1,4 @@
+import { frecencyScore, type FrecencyMap } from "./frecency";
 import { basename } from "./text";
 import { displayTitle } from "./projects";
 
@@ -118,6 +119,8 @@ export function filterPalette(
   items: PaletteItem[],
   query: string,
   limit = 40,
+  frecency?: FrecencyMap,
+  now = Date.now(),
 ): PaletteItem[] {
   const scored: { item: PaletteItem; score: number; order: number }[] = [];
   items.forEach((item, order) => {
@@ -127,6 +130,11 @@ export function filterPalette(
   });
   const q = query.trim();
   scored.sort((a, b) => {
+    if (frecency) {
+      const fa = frecencyScore(frecency[a.item.id]?.uses ?? 0, frecency[a.item.id]?.lastAt ?? 0, now);
+      const fb = frecencyScore(frecency[b.item.id]?.uses ?? 0, frecency[b.item.id]?.lastAt ?? 0, now);
+      if (fb !== fa) return fb - fa;
+    }
     if (!q) {
       const g = GROUP_ORDER.indexOf(a.item.group) - GROUP_ORDER.indexOf(b.item.group);
       if (g !== 0) return g;
@@ -136,6 +144,35 @@ export function filterPalette(
     return a.order - b.order;
   });
   return scored.slice(0, limit).map((s) => s.item);
+}
+
+export type PaletteKeyState = {
+  index: number;
+  hits: PaletteItem[];
+  query: string;
+};
+
+export type PaletteKeyNext = PaletteKeyState & {
+  action: "none" | "close" | "pick" | "search";
+  id?: string;
+  search?: string;
+};
+
+export function paletteKey(state: PaletteKeyState, key: string): PaletteKeyNext {
+  if (key === "Escape") return { ...state, action: "close" };
+  if (key === "ArrowDown") {
+    return { ...state, index: clampIndex(state.index + 1, state.hits.length), action: "none" };
+  }
+  if (key === "ArrowUp") {
+    return { ...state, index: clampIndex(state.index - 1, state.hits.length), action: "none" };
+  }
+  if (key === "Enter") {
+    const result = paletteSubmit(state.query, state.hits, state.index);
+    if (result.kind === "pick") return { ...state, action: "pick", id: result.id };
+    if (result.kind === "search") return { ...state, action: "search", search: result.query };
+    return { ...state, action: "none" };
+  }
+  return { ...state, action: "none" };
 }
 
 export function paletteSubmit(
