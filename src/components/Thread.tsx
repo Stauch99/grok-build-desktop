@@ -4,6 +4,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -41,6 +42,7 @@ import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
 import { SessionOutline } from "./SessionOutline";
 import { shouldShowSummary, summarizeThread } from "../lib/session-summary";
 import { exportSessionFile, parseSessionImport, viewOnlyItems } from "../lib/session-io";
+import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -510,6 +512,8 @@ export function ThreadColumn({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [, setLiveTick] = useState(0);
+  const liveClock = useRef({ announced: "", lastAt: 0 });
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
   const virtualize = blocks.length > VIRTUALIZE_AFTER;
   const listRef = useListRef(null);
@@ -570,6 +574,20 @@ export function ThreadColumn({
     const id = window.setInterval(() => setLiveTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [busy]);
+
+  useEffect(() => {
+    const latest = latestAssistantText(chat.items);
+    const apply = (flush: boolean) => {
+      const next = publishLiveText(liveClock.current, latest, Date.now(), { flush });
+      if (next === liveClock.current) return;
+      liveClock.current = next;
+      setLiveAnnouncement(next.announced);
+    };
+    apply(!busy);
+    if (!busy) return;
+    const id = window.setInterval(() => apply(false), LIVE_REGION_MS);
+    return () => window.clearInterval(id);
+  }, [chat.items, busy]);
 
   useLayoutEffect(() => {
     if (!listActive) return;
@@ -640,6 +658,9 @@ export function ThreadColumn({
 
   return (
     <>
+    <div className="sr-only" aria-live="polite" aria-atomic="true">
+      {liveAnnouncement}
+    </div>
     <div
       className={`chat${listActive ? " virtualized" : ""}`}
       ref={listActive ? undefined : chatRef}
