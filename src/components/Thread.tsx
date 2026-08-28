@@ -590,7 +590,8 @@ export function ThreadColumn({
     const el = chatRef.current?.querySelector(`#turn-${hitId}, #msg-${hitId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     return applySearchHit(chatRef.current, hitId);
-  }, [jumpId, paneId, chatRef, listActive, blocks, listRef]);
+    // Read blocks from this render. Listing them re-flashes while jumpId stays set.
+  }, [jumpId, listActive, paneId, chatRef]);
 
   return (
     <>
