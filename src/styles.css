@@ -53,9 +53,29 @@ button:disabled { opacity: 0.35; cursor: default; }
   height: 8px;
   border-radius: 50%;
   background: var(--faint);
+  transition: opacity 160ms, background-color 160ms;
 }
 .status-dot.on { background: var(--ok); }
 .status-dot.wait { background: var(--warn); }
+.conn-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-color: var(--bg-alt);
+  opacity: 0.72;
+  transition: opacity 160ms, background-color 160ms;
+}
+.conn-chip.connecting {
+  opacity: 0.88;
+  background-color: var(--warn);
+  color: var(--text);
+}
+.conn-chip.ready {
+  opacity: 1;
+  background-color: var(--ok);
+  color: #fff;
+}
 
 .sidebar, .workspace {
   min-width: 0;
@@ -2343,7 +2363,13 @@ textarea.hub-preview {
   font-size: var(--ui-smaller);
 }
 .run-status-region strong { color: var(--text); font-weight: 600; }
-.run-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.run-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: opacity 160ms, background-color 160ms;
+}
 .run-status-region.running .run-status-dot { background: var(--accent); }
 .run-status-region.permission .run-status-dot,
 .run-status-region.question .run-status-dot,

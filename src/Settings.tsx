@@ -16,6 +16,7 @@ import { stateAuthorityExplanation } from "./lib/state-authority";
 import { settingRowVisible } from "./lib/settings-search";
 import { ShortcutsTable } from "./components/ShortcutsTable";
 import { ManagedConfigView } from "./components/ManagedConfigView";
+import { AppModal } from "./components/AppModal";
 import { UsageStats } from "./components/UsageStats";
 import { DEFAULT_SHORTCUTS } from "./lib/shortcuts-table";
 import type { HubTab } from "./lib/commands";
@@ -116,6 +117,12 @@ export function SettingsPanel({
   const [note, setNote] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
   const [settingsQuery, setSettingsQuery] = useState("");
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    run: () => void;
+  } | null>(null);
 
   useEffect(() => {
     if (focusSection !== "shortcuts") return;
@@ -288,7 +295,11 @@ export function SettingsPanel({
                           <div className="set-row">
                             <label>Agent</label>
                             <p>
-                              {agentReady ? "已连接" : agentConnecting ? "连接中" : agentDisconnected ? "已断开" : "未连接"}
+                              <span
+                                className={`conn-chip${agentReady ? " ready" : agentConnecting ? " connecting" : ""}`}
+                              >
+                                {agentReady ? "已连接" : agentConnecting ? "连接中" : agentDisconnected ? "已断开" : "未连接"}
+                              </span>
                             </p>
                           </div>
                         ) : null}
@@ -612,7 +623,13 @@ export function SettingsPanel({
                               ]}
                               onChange={(next) => {
                                 if ((next === "always-approve" || next === "auto") && cli?.permissionMode === "ask") {
-                                  if (!window.confirm("切到始终批准 / 全权限会跳过逐条许可。确定？")) return;
+                                  setConfirm({
+                                    title: "许可模式",
+                                    body: "切到始终批准 / 全权限会跳过逐条许可。确定？",
+                                    confirmLabel: "确定",
+                                    run: () => void patch({ permissionMode: next }),
+                                  });
+                                  return;
                                 }
                                 void patch({ permissionMode: next });
                               }}
@@ -625,7 +642,15 @@ export function SettingsPanel({
                         <div className="set-row">
                           <label>始终批准</label>
                           <button type="button" className={`toggle ${cli?.yolo ? "on" : ""}`} onClick={() => {
-                            if (!cli?.yolo && !window.confirm("始终批准会跳过许可卡。确定？")) return;
+                            if (!cli?.yolo) {
+                              setConfirm({
+                                title: "始终批准",
+                                body: "始终批准会跳过许可卡。确定？",
+                                confirmLabel: "确定",
+                                run: () => void patch({ yolo: true }),
+                              });
+                              return;
+                            }
                             void patch({ yolo: !cli?.yolo });
                           }}>
                             <i />
@@ -718,6 +743,18 @@ export function SettingsPanel({
       </div>
 
       {note && <p className="set-note">{busy ? "写入中…" : note}</p>}
+      <AppModal
+        open={!!confirm}
+        title={confirm?.title ?? ""}
+        body={confirm?.body ?? ""}
+        confirmLabel={confirm?.confirmLabel ?? "确定"}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const run = confirm?.run;
+          setConfirm(null);
+          run?.();
+        }}
+      />
     </div>
   );
 }

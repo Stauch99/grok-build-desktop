@@ -15,6 +15,7 @@ import {
   type TokenTurn,
   type TurnFilter,
 } from "../lib/token-usage";
+import { sparklinePoints, splitCostByModel } from "../lib/usage-split";
 
 type DaysKey = "7" | "30" | "all";
 
@@ -91,6 +92,16 @@ export function UsageStats() {
   const visible = useMemo(() => filterTurns(turns, filter), [turns, days, model, cwd]);
   const sum = useMemo(() => summarizeTurns(visible), [visible]);
   const hit = cacheHitRate(sum);
+  const usageHistory = useMemo(
+    () => visible.map((row) => ({ at: row.at, used: row.total })),
+    [visible],
+  );
+  const spark = sparklinePoints(usageHistory, 240, 36);
+  const costByModel = useMemo(
+    () => splitCostByModel(visible.map((row) => ({ model: row.model, cost: row.costTicks }))),
+    [visible],
+  );
+  const costRows = Object.entries(costByModel).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="usage-stats">
@@ -178,6 +189,25 @@ export function UsageStats() {
               <span style={{ width: `${Math.min(100, hit ?? 0)}%` }} />
             </div>
           </div>
+
+          {spark ? (
+            <div className="usage-hit" role="img" aria-label="用量时间序列">
+              <svg width="100%" height="36" viewBox="0 0 240 36" preserveAspectRatio="none">
+                <polyline fill="none" stroke="currentColor" strokeWidth="1.6" points={spark} />
+              </svg>
+            </div>
+          ) : null}
+
+          {costRows.length > 0 ? (
+            <dl className="usage-side">
+              {costRows.map(([id, ticks]) => (
+                <div key={id}>
+                  <dt>{id}</dt>
+                  <dd className="usage-cost">{formatUsdFromTicks(ticks)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
         </article>
       ) : null}
     </div>

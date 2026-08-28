@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   formatStatsFooter,
   parseUsageSplit,
+  sparklinePoints,
+  splitCostByModel,
   statsLine,
   turnStatsFromItems,
   usageBreakdownLines,
@@ -104,5 +106,48 @@ describe("usageTrend", () => {
     );
     expect(pts).toHaveLength(1);
     expect(pts[0]?.used).toBe(2);
+  });
+});
+
+describe("splitCostByModel", () => {
+  it("sums cost ticks by model", () => {
+    expect(
+      splitCostByModel([
+        { model: "grok-4.6", cost: 10 },
+        { model: "grok-4.5", cost: 3 },
+        { model: "grok-4.6", cost: 2 },
+      ]),
+    ).toEqual({ "grok-4.6": 12, "grok-4.5": 3 });
+  });
+
+  it("buckets missing or blank models as unknown", () => {
+    expect(splitCostByModel([{ cost: 4 }, { model: "  ", cost: 1 }, { model: "grok-4.6", cost: 5 }])).toEqual({
+      unknown: 5,
+      "grok-4.6": 5,
+    });
+  });
+
+  it("returns an empty record for no ticks", () => {
+    expect(splitCostByModel([])).toEqual({});
+  });
+});
+
+describe("sparklinePoints", () => {
+  it("maps usageHistory into an svg polyline in time order", () => {
+    expect(
+      sparklinePoints(
+        [
+          { at: 30, used: 100 },
+          { at: 10, used: 0 },
+          { at: 20, used: 50 },
+        ],
+        100,
+        20,
+      ),
+    ).toBe("0,20 50,10 100,0");
+  });
+
+  it("is empty when there is no history", () => {
+    expect(sparklinePoints([], 100, 20)).toBe("");
   });
 });
