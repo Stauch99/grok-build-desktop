@@ -1,4 +1,5 @@
 import { derivePermissionView, type PermissionPane, type PermissionViewInput } from "./permission-view";
+import { asRecord } from "./text";
 
 export type QueuedPermission = {
   rpcId: number | string;
@@ -27,4 +28,29 @@ export function selectShortcutPermission(queue: QueuedPermission[], context: Per
   const selected = selectPanePermissions(queue, context);
   if (focusedPane && selected[focusedPane]) return selected[focusedPane];
   return selected.main ?? selected.split;
+}
+
+export type AcpPermissionMessage = {
+  method?: string;
+  id?: number | string;
+  params?: unknown;
+};
+
+export function permissionFromAcpRequest(msg: AcpPermissionMessage, now = Date.now()): QueuedPermission | null {
+  if (msg.method !== "session/request_permission" || msg.id === undefined) return null;
+  const params = asRecord(msg.params);
+  const tool = asRecord(params.toolCall);
+  const options = (Array.isArray(params.options) ? params.options : [])
+    .map((o) => asRecord(o))
+    .filter((o) => typeof o.optionId === "string" && typeof o.name === "string")
+    .map((o) => ({ optionId: String(o.optionId), name: String(o.name), kind: String(o.kind ?? "") }));
+  return {
+    rpcId: msg.id,
+    title: String(tool.title || "需要许可"),
+    toolKind: String(tool.kind ?? tool.toolKind ?? ""),
+    options,
+    sessionId: typeof params.sessionId === "string" ? params.sessionId : null,
+    receivedAt: now,
+    timedOut: false,
+  };
 }

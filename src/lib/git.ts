@@ -54,3 +54,8 @@ export function worktreeName(title: string, now = Date.now()): string {
 export function isClean(status: GitStatus | null): boolean {
   return !!status?.isRepo && status.dirty === 0;
 }
+
+/** First mtime sample is a baseline; later ticks refresh only when the value changes. */
+export function workspaceMtimeChanged(prev: number, next: number): boolean {
+  return Boolean(prev && next && next !== prev);
+}

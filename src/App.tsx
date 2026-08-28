@@ -13,12 +13,7 @@ import {
   listWorkspaceEntries,
   loadWebuiState,
   moveSessionToCwd,
-  nextRpcId,
   notify,
-  onAcpMessage,
-  onAcpRequest,
-  onAcpStderr,
-  onAgentExit,
   onWindowFocus,
   openInTerminal,
   openPath,
@@ -28,8 +23,6 @@ import {
   pickDirectory,
   readPlan,
   listProjectRules,
-  readSessionUpdates,
-  readSessionUsage,
   readTextFile,
   type PlanFile,
   type RuleFile,
@@ -39,14 +32,10 @@ import {
   setBadge,
   setTrayStatus,
   setWorkspace,
-  startAgent,
   readCliSettings,
   windowFocused,
   type CliSettings,
   type DoctorInfo,
-  type GitChange,
-  type GitStatus,
-  type JsonRpc,
   type SessionSearchHit,
   type SessionSummary,
   type WebuiState,
@@ -59,23 +48,16 @@ import {
   onTrayOpenLast,
   writeAllowedText,
   trustFolder,
-  workspaceMtime,
-  gitLog,
-  gitBranches,
   listImagineArtifacts,
   listAgentsDir,
   readManagedConfig,
   readUsageHistory,
   runGrokStream,
-  type GitCommit,
 } from "./api";
 import {
-  applyChatUpdate,
   emptyChat,
   formatElapsed,
-  hydrateFromUpdates,
   liveWorkStatus,
-  shouldKeepSessionUpdate,
   type ChatItem,
   type ChatState,
 } from "./lib/chat";
@@ -91,12 +73,10 @@ import { formatSessionInfo, exportTranscript, lastAssistantText } from "./lib/se
 import { firstHitIndex } from "./lib/search-highlight";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { bindingFor, matchBinding } from "./lib/shortcuts-table";
-import { isEditableShortcutTarget } from "./lib/shortcut-target";
 import { subagentStatusFromTool } from "./lib/subagent";
 import { modeLabel, slashForMode } from "./lib/mode";
 import { describePlan, planRevert, previewRevert } from "./lib/checkpoint";
 import { worktreeName } from "./lib/git";
-import type { PaletteItem } from "./lib/palette";
 import {
   dequeue,
   editQueued,
@@ -130,7 +110,7 @@ import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "./lib/r
 import { bashTools } from "./lib/tool-render";
 import { deriveRunStatus } from "./lib/run-status";
 import { derivePermissionView, type PermissionPane } from "./lib/permission-view";
-import { enqueuePermission, markPermissionTimedOut, removePermission, selectPanePermissions, selectShortcutPermission, type QueuedPermission } from "./lib/permission-queue";
+import { selectPanePermissions } from "./lib/permission-queue";
 import { selectPaneMentionSource, type PaneMentionData } from "./lib/pane-mentions";
 import {
   attentionCount,
@@ -149,13 +129,11 @@ import {
   INBOX_PIN,
   buildSidebarSections,
   loadSidebarList,
-  projectForSession,
   prunePinnedProjects,
   pruneSessionTokens,
-  resolveLastWorkspace,
 } from "./lib/sidebar-list";
-import { getDraft, loadDrafts, setDraft as writeDraft } from "./lib/session-drafts";
-import { allowForSession, findAlwaysOption, parseToolName, pickAllowOption, shouldSkipPermission } from "./lib/permission-allow";
+import { loadDrafts, setDraft as writeDraft } from "./lib/session-drafts";
+import { allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
 import { menuPosition, SessionMenu, type SessionMenuState } from "./SessionMenu";
 import { SettingsPanel } from "./Settings";
 import { ExtensionsHub } from "./components/ExtensionsHub";
@@ -185,7 +163,11 @@ import { isTextPreviewable } from "./lib/preview";
 import { parseWeeklyUsage, type WeeklyUsage } from "./lib/weekly-usage";
 import { useReviewController } from "./hooks/useReviewController";
 import { useSessionHotkeys } from "./hooks/useSessionHotkeys";
-import { asRecord, basename, surfaceStderr } from "./lib/text";
+import { useAcpSession } from "./hooks/useAcpSession";
+import { useGitWatcher } from "./hooks/useGitWatcher";
+import { usePermissionQueue } from "./hooks/usePermissionQueue";
+import { useCommandPalette } from "./hooks/useCommandPalette";
+import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokMore, IconGrokSidebar } from "./grok-icons";
 import { IconChevron, IconGitFork } from "./icons";
 import { TodoMark } from "./components/TodoMark";
@@ -207,8 +189,6 @@ export function App() {
   const [inspect, setInspect] = useState<InspectReport | null>(null);
   const [modelCatalog, setModelCatalog] = useState<string[]>(FALLBACK_MODELS);
   const [extraPage, setExtraPage] = useState<ExtraPage | null>(null);
-  const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
-  const [gitBranchList, setGitBranchList] = useState<string[]>([]);
   const [imagineImages, setImagineImages] = useState<string[]>([]);
   const [imagineVideos, setImagineVideos] = useState<string[]>([]);
   const [agentRows, setAgentRows] = useState<{ name: string; path: string; kind: "agent" | "persona" }[]>([]);
@@ -229,16 +209,8 @@ export function App() {
   const [projects, setProjects] = useState<string[]>([]);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [chat, setChat] = useState<ChatState>(emptyChat);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  /** Main-pane session that owns `busy`; stays put when the user switches threads. */
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
   const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsage | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [loadingSession, setLoadingSession] = useState(false);
   const [mode, setMode] = useState<Mode>("agent");
   const [model, setModel] = useState("grok-4.6");
   const [showThinking, setShowThinking] = useState(true);
@@ -246,7 +218,6 @@ export function App() {
   const [info, setInfo] = useState<DoctorInfo | null>(null);
   const [cli, setCli] = useState<CliSettings | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [permissions, setPermissions] = useState<QueuedPermission[]>([]);
   const [atBottom, setAtBottom] = useState(true);
   const [split, setSplit] = useState<{ id: string; cwd: string; chat: ChatState } | null>(null);
   const [splitDraft, setSplitDraft] = useState("");
@@ -282,9 +253,6 @@ export function App() {
   const memoryBaseline = useRef<Record<string, number> | null>(null);
   const [searchHits, setSearchHits] = useState<SessionSearchHit[] | null>(null);
   const [mruOpen, setMruOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [git, setGit] = useState<GitStatus | null>(null);
-  const [changes, setChanges] = useState<GitChange[]>([]);
   const [planFile, setPlanFile] = useState<PlanFile | null>(null);
   const [rules, setRules] = useState<RuleFile[]>([]);
   const [rewindTarget, setRewindTarget] = useState<number | null>(null);
@@ -308,24 +276,83 @@ export function App() {
   const splitBusyStartRef = useRef<number | null>(null);
   const currentTitleRef = useRef("会话");
   const lastActivityRef = useRef(Date.now());
-  const busyRef = useRef(false);
   const queueRef = useRef<QueueState>(emptyQueue());
   const splitQueueRef = useRef<QueueState>(emptyQueue());
-  const sessionIdRef = useRef<string | null>(null);
-  const runningSessionIdRef = useRef<string | null>(null);
-  const readyRef = useRef(false);
-  const ensurePromise = useRef<Promise<void> | null>(null);
-  const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
-  const echoedUser = useRef(false);
-  const echoedSplitUser = useRef(false);
-  const loadGen = useRef(0);
-  const ignoreReplay = useRef(false);
-  const ignoreSplitReplay = useRef(false);
-  const pendingPrompt = useRef<"main" | "split" | null>(null);
-  const pendingDest = useRef(new Map<number, "main" | "split">());
   const persistTimer = useRef<number | null>(null);
+  const persistRef = useRef<(partial: WebuiState) => void>(() => {});
+  const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
+  const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
   const notifyReviewOpened = useCallback(() => persistReviewOpened.current(), []);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 2800);
+  };
+
+  const acp = useAcpSession({
+    cwd,
+    inboxCwd,
+    projects,
+    lastWorkspace,
+    mode,
+    sessionDrafts,
+    titles,
+    split,
+    persist: (partial) => persistRef.current(partial),
+    showToast,
+    setCwd,
+    setInboxCwd,
+    setDraft,
+    setSettingsOpen,
+    setLastWorkspace,
+    setAtBottom,
+    setOpenProjects,
+    setCollapsedIds,
+    setExpandedIds,
+    setUnread,
+    setSplit,
+    setSplitDraft,
+    setSplitBusy,
+    setSplitAtBottom,
+    onOpenSplit: () => {
+      setMenu(null);
+      reviewCloseRef.current();
+      persistRef.current(persistReviewOpen(false));
+    },
+    onSessionsNeedRefresh: (inbox) => refreshSessionsRef.current(inbox),
+    setSawExit,
+    lastActivityRef,
+  });
+  const {
+    sessionId,
+    sessionIdRef,
+    chat,
+    setChat,
+    busy,
+    setBusy,
+    ready,
+    connecting,
+    loadingSession,
+    runningSessionId,
+    setRunningSessionId,
+    runningSessionIdRef,
+    readyRef,
+    echoedUser,
+    echoedSplitUser,
+    pendingPrompt,
+    rpc,
+    ensureAgent,
+    adoptSession,
+    beginMainRun,
+    createAcpSession,
+    startInboxSession,
+    startNewChat,
+    startSession,
+    resumeSession,
+    openSplit,
+    sendSlashToAgent,
+  } = acp;
 
   const mainPaneBusy = busy && !!sessionId && sessionId === runningSessionId;
   const review = useReviewController({
@@ -348,11 +375,7 @@ export function App() {
   const reviewTab = review.tab;
   const detailsTool = review.detailsTool;
   const { path: previewPath, text: previewText, truncated: previewTruncated, error: previewError } = review.preview;
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 2800);
-  };
+  reviewCloseRef.current = () => review.close();
 
   const persist = useCallback((partial: WebuiState) => {
     const next: WebuiState = {
@@ -390,26 +413,29 @@ export function App() {
       void saveWebuiState(next);
     }, 200);
   }, [projects, theme, mode, chatWidth, titles, inboxCwd, chatFontSize, pinned, archived, sessionDrafts, enterSends, autoArchiveDays, reviewOpen, steerByDefault, unread, sidebarWidth, previewWidth, locale, themeFamily, density, hideToTray, defaultRail, shortcuts, lastWorkspace, pinnedProjects, sessionTokens, sidebarList]);
+  persistRef.current = persist;
   persistReviewOpened.current = () => persist(persistReviewOpen(true));
 
-  const refreshGit = useCallback(
-    async (dir = cwd) => {
-      if (!dir) {
-        setGit(null);
-        setChanges([]);
-        return;
-      }
-      try {
-        const status = await gitStatus(dir);
-        setGit(status);
-        setChanges(status.isRepo ? await gitChanges(dir) : []);
-      } catch {
-        setGit(null);
-        setChanges([]);
-      }
+  const { git, changes, commits: gitCommits, branches: gitBranchList, refresh: refreshGit } = useGitWatcher({
+    cwd,
+    historyKey: reviewTab,
+    onWorkspaceTouched: (dir) => {
+      void listWorkspaceEntries(dir).then(setWorkspaceEntries).catch(() => {});
     },
-    [cwd],
-  );
+  });
+
+  const { permissions, answerPermission, cancelPermission } = usePermissionQueue({
+    allowedTools,
+    sessionId,
+    runningSessionId,
+    splitId: split?.id ?? null,
+    busy,
+    splitBusy,
+    focusedPaneRef: focusedPermissionPaneRef,
+    focusedRef,
+    currentTitleRef,
+    onTimeoutNotice: () => showToast(permissionTimeoutNotice()),
+  });
 
   const refreshInspect = useCallback(async (dir = cwd) => {
     try {
@@ -509,28 +535,6 @@ export function App() {
   }, [inboxSessions, sessions]);
 
   useEffect(() => {
-    const timers = permissions.filter((r) => !r.timedOut).map((r) => window.setTimeout(() => { setPermissions((q) => markPermissionTimedOut(q, r)); void answerPermission(r, ""); showToast(permissionTimeoutNotice()); }, Math.max(0, 90_000 - (Date.now() - r.receivedAt))));
-    return () => timers.forEach(window.clearTimeout);
-  }, [permissions]);
-
-  useEffect(() => {
-    if (!cwd) return;
-    let last = 0;
-    const tick = () => {
-      void workspaceMtime(cwd).then((n) => {
-        if (last && n && n !== last) {
-          void refreshGit();
-          void listWorkspaceEntries(cwd).then(setWorkspaceEntries).catch(() => {});
-        }
-        last = n;
-      }).catch(() => {});
-    };
-    tick();
-    const id = window.setInterval(tick, 4000);
-    return () => window.clearInterval(id);
-  }, [cwd, refreshGit]);
-
-  useEffect(() => {
     const sc = split?.cwd; if (!sc) { setSplitMentionData(null); return; }
     let cancelled = false; setSplitMentionData(null);
     void Promise.all([listWorkspaceEntries(sc), gitStatus(sc).then((status) => status.isRepo ? gitChanges(sc) : []).catch(() => [])]).then(([entries, cs]) => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: entries.filter((e) => e.kind === "dir").map((e) => e.name), changes: cs.map((c) => c.path) }); }).catch(() => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: [], changes: [] }); });
@@ -560,16 +564,6 @@ export function App() {
     if (!cwd) return;
     void setWorkspace(cwd, sessionId).catch(() => {});
   }, [cwd, sessionId]);
-
-  useEffect(() => {
-    if (!cwd || !git?.isRepo) {
-      setGitCommits([]);
-      setGitBranchList([]);
-      return;
-    }
-    void gitLog(cwd).then(setGitCommits).catch(() => setGitCommits([]));
-    void gitBranches(cwd).then(setGitBranchList).catch(() => setGitBranchList([]));
-  }, [cwd, git?.isRepo, reviewTab]);
 
   function openReview(action: Parameters<typeof review.openReview>[0]) {
     review.openReview(action);
@@ -717,10 +711,6 @@ export function App() {
   }, [focused]);
 
   useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
-
-  useEffect(() => {
     const onResize = () => setWinWidth(window.innerWidth);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -776,21 +766,6 @@ export function App() {
     void setTrayStatus(trayStatus(busy || splitBusy, permissions.length)).catch(() => {});
   }, [busy, splitBusy, permissions.length]);
 
-  // Command palette. Cmd+K must win even while the composer has focus.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
-      e.preventDefault();
-      setPaletteOpen((o) => !o);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  useEffect(() => {
-    void refreshGit(cwd);
-  }, [cwd, refreshGit]);
-
   useEffect(() => {
     if (!editingTitleId) return;
     titleInputRef.current?.focus();
@@ -818,17 +793,6 @@ export function App() {
       window.removeEventListener("keydown", onKey);
     };
   }, [menu, movePick]);
-
-  function adoptSession(id: string | null) {
-    sessionIdRef.current = id;
-    setSessionId(id);
-  }
-
-  function beginMainRun(sid: string) {
-    runningSessionIdRef.current = sid;
-    setRunningSessionId(sid);
-    setBusy(true);
-  }
 
   function openMenu(kind: "header" | "row", id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) {
     const pos = menuPosition(el, point);
@@ -908,116 +872,6 @@ export function App() {
     persist({ titles: next });
     setMenu(null);
   }
-
-  async function refreshUsage(id: string, dest: "main" | "split" = "main") {
-    try {
-      const usage = await readSessionUsage(id);
-      if (!usage) return;
-      if (dest === "split") {
-        setSplit((prev) => (prev && prev.id === id ? { ...prev, chat: { ...prev.chat, usage } } : prev));
-        return;
-      }
-      if (sessionIdRef.current === id) {
-        setChat((prev) => ({ ...prev, usage }));
-      }
-    } catch {
-      /* signals.json is best-effort */
-    }
-  }
-
-  function handleRpcMessage(msg: JsonRpc) {
-    if (msg.id !== undefined && (msg.result !== undefined || msg.error)) {
-      const id = Number(msg.id);
-      const waiter = pendingRpc.current.get(id);
-      if (waiter) {
-        pendingRpc.current.delete(id);
-        if (msg.error) waiter.reject(new Error(msg.error.message || "rpc error"));
-        else waiter.resolve(msg.result);
-      }
-      if (msg.result && typeof msg.result === "object" && msg.result !== null && "stopReason" in msg.result) {
-        const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
-        pendingDest.current.delete(id);
-        if (dest === "split") setSplitBusy(false);
-        else setBusy(false);
-        pendingPrompt.current = null;
-      }
-    }
-    if (msg.method === "session/update" || msg.method === "_x.ai/session/update") {
-      const params = asRecord(msg.params);
-      const sid = typeof params.sessionId === "string" ? params.sessionId : null;
-      const splitId = split?.id ?? null;
-      const forSplit = !!(splitId && sid && sid === splitId);
-      if (!forSplit && !shouldKeepSessionUpdate(sessionIdRef.current, sid)) return;
-      if (ignoreReplay.current && !forSplit) return;
-      if (forSplit && ignoreSplitReplay.current) return;
-      const update = asRecord(params.update);
-      const kind = String(update.sessionUpdate ?? "");
-      if (kind === "turn_completed" || kind === "auto_compact_started" || kind === "auto_compact_completed") {
-        const id = sid || (forSplit ? splitId : sessionIdRef.current);
-        if (id) void refreshUsage(id, forSplit ? "split" : "main");
-      }
-      if (forSplit) {
-        setSplit((prev) => prev ? { ...prev, chat: applyChatUpdate(prev.chat, params, { skipUser: echoedSplitUser.current }) } : prev);
-        return;
-      }
-      setChat((prev) => applyChatUpdate(prev, params, { skipUser: echoedUser.current }));
-    }
-  }
-  const handleRef = useRef(handleRpcMessage);
-  handleRef.current = handleRpcMessage;
-
-  useEffect(() => {
-    let cancelled = false;
-    const offs: Array<() => void> = [];
-    void (async () => {
-      const a = await onAcpMessage((m) => handleRef.current(m));
-      const b = await onAcpRequest((msg) => {
-        if (msg.method !== "session/request_permission" || msg.id === undefined) return;
-        const params = asRecord(msg.params);
-        const tool = asRecord(params.toolCall);
-        const options = (Array.isArray(params.options) ? params.options : [])
-          .map((o) => asRecord(o))
-          .filter((o) => typeof o.optionId === "string" && typeof o.name === "string")
-          .map((o) => ({ optionId: String(o.optionId), name: String(o.name), kind: String(o.kind ?? "") }));
-        setPermissions((queue) => enqueuePermission(queue, {
-          rpcId: msg.id!,
-          title: String(tool.title || "需要许可"),
-          toolKind: String(tool.kind ?? tool.toolKind ?? ""),
-          options,
-          sessionId: typeof params.sessionId === "string" ? params.sessionId : null,
-          receivedAt: Date.now(), timedOut: false,
-        }));
-      });
-      const c = await onAcpStderr((line) => {
-        const msg = surfaceStderr(line);
-        if (msg) showToast(msg);
-      });
-      const d = await onAgentExit(() => {
-        // Dying mid-turn is the one case that must not read as "finished".
-        if (busyRef.current && runningSessionIdRef.current) {
-          const id = runningSessionIdRef.current;
-          setUnread((prev) => markUnread(prev, id, "error"));
-        }
-        readyRef.current = false;
-        setReady(false);
-        setSawExit(true);
-        setBusy(false);
-        setSplitBusy(false);
-        setConnecting(false);
-        pendingPrompt.current = null;
-        ensurePromise.current = null;
-      });
-      if (cancelled) {
-        a(); b(); c(); d();
-        return;
-      }
-      offs.push(a, b, c, d);
-    })();
-    return () => {
-      cancelled = true;
-      offs.forEach((fn) => fn());
-    };
-  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -1107,56 +961,6 @@ export function App() {
     })();
   }, []);
 
-  async function rpc(
-    method: string,
-    params: unknown,
-    opts?: { timeoutMs?: number; dest?: "main" | "split" },
-  ): Promise<unknown> {
-    const id = await nextRpcId();
-    if (opts?.dest) pendingDest.current.set(id, opts.dest);
-    const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
-    return new Promise((resolve, reject) => {
-      pendingRpc.current.set(id, { resolve, reject });
-      void sendRaw({ jsonrpc: "2.0", id, method, params }).catch((e) => {
-        pendingRpc.current.delete(id);
-        pendingDest.current.delete(id);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      });
-      if (timeoutMs > 0) {
-        window.setTimeout(() => {
-          if (pendingRpc.current.has(id)) {
-            pendingRpc.current.delete(id);
-            pendingDest.current.delete(id);
-            reject(new Error(`${method} 超时`));
-          }
-        }, timeoutMs);
-      }
-    });
-  }
-
-  async function ensureAgent(): Promise<void> {
-    if (readyRef.current) return;
-    if (ensurePromise.current) return ensurePromise.current;
-    setConnecting(true);
-    ensurePromise.current = (async () => {
-      await startAgent();
-      await rpc("initialize", {
-        protocolVersion: 1,
-        clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
-        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
-      });
-      readyRef.current = true;
-      setReady(true);
-      setSawExit(false);
-    })()
-      .catch((e) => {
-        ensurePromise.current = null;
-        throw e;
-      })
-      .finally(() => setConnecting(false));
-    return ensurePromise.current;
-  }
-
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -1228,6 +1032,7 @@ export function App() {
       setInboxSessions([]);
     }
   }
+  refreshSessionsRef.current = refreshAllSessions;
 
   async function refreshInbox(path = inboxCwd) {
     await refreshAllSessions(path);
@@ -1247,159 +1052,6 @@ export function App() {
     }
     try {
       await setWorkspace(path);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  async function createAcpSession(work: string): Promise<string> {
-    const meta: Record<string, unknown> = {};
-    if (mode === "yolo") meta.yoloMode = true;
-    const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }));
-    const sid = String(result.sessionId ?? "");
-    if (!sid) throw new Error("session/new 没有返回 sessionId");
-    adoptSession(sid);
-    await setWorkspace(work || ".", sid);
-    window.setTimeout(() => void refreshAllSessions(), 500);
-    return sid;
-  }
-
-  async function startInboxSession() {
-    try {
-      const inbox = await ensureInbox(inboxCwd || null);
-      setInboxCwd(inbox);
-      persist({ inboxCwd: inbox });
-      setCwd(inbox);
-      setChat(emptyChat());
-      setDraft("");
-      echoedUser.current = false;
-      await ensureAgent();
-      await setWorkspace(inbox);
-      await createAcpSession(inbox);
-      setSettingsOpen(false);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  async function startNewChat() {
-    const work = resolveLastWorkspace(lastWorkspace, projects, inboxCwd);
-    if (!work || (inboxCwd && sameCwd(work, inboxCwd))) {
-      await startInboxSession();
-      return;
-    }
-    await startSession(work);
-  }
-
-  async function startSession(workDir?: string) {
-    const work = workDir || cwd;
-    if (!work || (inboxCwd && sameCwd(work, inboxCwd))) {
-      showToast("先在输入栏选一个项目目录");
-      return;
-    }
-    if (work !== cwd) setCwd(work);
-    setChat(emptyChat());
-    setDraft("");
-    echoedUser.current = false;
-    try {
-      await ensureAgent();
-      await setWorkspace(work);
-      await createAcpSession(work);
-      setSettingsOpen(false);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  async function resumeSession(s: SessionSummary) {
-    if (split?.id === s.id) {
-      setSplit(null);
-      setSplitDraft("");
-      setSplitBusy(false);
-    }
-    const last = s.cwd === INBOX_PIN || (inboxCwd && sameCwd(s.cwd, inboxCwd)) ? INBOX_PIN : s.cwd;
-    setLastWorkspace(last);
-    persist({ lastWorkspace: last });
-    const token = ++loadGen.current;
-    if (s.cwd !== cwd) setCwd(s.cwd);
-    setOpenProjects((m) => ({ ...m, [projectForSession(s.cwd, projects, inboxCwd).path]: true }));
-    adoptSession(s.id);
-    setDraft(getDraft(sessionDrafts, s.id));
-    if (s.parentSessionId) {
-      const pid = s.parentSessionId;
-      setCollapsedIds((prev) => {
-        const n = new Set(prev);
-        n.delete(pid);
-        return n;
-      });
-      setExpandedIds((prev) => new Set(prev).add(pid));
-    }
-    echoedUser.current = false;
-    setAtBottom(true);
-    setLoadingSession(true);
-    setSettingsOpen(false);
-    lastActivityRef.current = Date.now();
-    setUnread((prev) => {
-      const next = clearUnread(prev, s.id);
-      if (next !== prev) persist({ unread: next });
-      return next;
-    });
-    try {
-      const rows = await readSessionUpdates(s.id);
-      if (token !== loadGen.current) return;
-      const next = hydrateFromUpdates(rows);
-      setChat(next);
-      void refreshUsage(s.id);
-      setLoadingSession(false);
-      ignoreReplay.current = true;
-      try {
-        await ensureAgent();
-        await setWorkspace(s.cwd, s.id);
-        try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
-        } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
-        }
-      } finally {
-        ignoreReplay.current = false;
-      }
-    } catch (e) {
-      if (token !== loadGen.current) return;
-      showToast(String(e));
-    } finally {
-      if (token === loadGen.current) setLoadingSession(false);
-    }
-  }
-
-  async function openSplit(s: SessionSummary) {
-    if (s.id === sessionIdRef.current) {
-      showToast("已在当前窗口");
-      return;
-    }
-    setMenu(null);
-    review.close();
-    persist(persistReviewOpen(false));
-    setSplitDraft("");
-    setSplitBusy(false);
-    setSplitAtBottom(true);
-    echoedSplitUser.current = false;
-    try {
-      const rows = await readSessionUpdates(s.id);
-      const next = hydrateFromUpdates(rows);
-      setSplit({ id: s.id, cwd: s.cwd, chat: next });
-      void refreshUsage(s.id, "split");
-      ignoreSplitReplay.current = true;
-      try {
-        await ensureAgent();
-        await setWorkspace(s.cwd, s.id);
-        try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
-        } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
-        }
-      } finally {
-        ignoreSplitReplay.current = false;
-      }
     } catch (e) {
       showToast(String(e));
     }
@@ -1427,29 +1079,6 @@ export function App() {
     } catch (e) {
       showToast(String(e));
     }
-  }
-
-  async function sendSlashToAgent(text: string, dest: "main" | "split" = "main") {
-    await ensureAgent();
-    if (dest === "split") {
-      const sid = split?.id;
-      if (!sid) return;
-      setSplitBusy(true);
-      await rpc(
-        "session/prompt",
-        { sessionId: sid, prompt: [{ type: "text", text }] },
-        { dest: "split" },
-      );
-      return;
-    }
-    let sid = sessionIdRef.current;
-    if (!sid) sid = await createAcpSession(cwd || inboxCwd || ".");
-    beginMainRun(sid);
-    await rpc(
-      "session/prompt",
-      { sessionId: sid, prompt: [{ type: "text", text }] },
-      { dest: "main" },
-    );
   }
 
   /**
@@ -1805,22 +1434,9 @@ export function App() {
     try {
       if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } });
       const selected = panePermissions[target];
-      if (selected) { await sendRaw({ jsonrpc: "2.0", id: selected.rpcId, result: { outcome: { outcome: "cancelled" } } }); setPermissions((q) => removePermission(q, selected)); }
+      if (selected) await cancelPermission(selected);
     } finally { if (target === "split") setSplitBusy(false); else setBusy(false); }
   }
-  async function answerPermission(request: QueuedPermission, optionId: string) {
-    try { await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }); }
-    finally { setPermissions((q) => removePermission(q, request)); }
-  }
-  useEffect(() => {
-    for (const request of permissions) { const sid = request.sessionId || sessionId; const tool = parseToolName(request.title, request.toolKind); if (!shouldSkipPermission(allowedTools, sid, tool)) continue; const pick = findAlwaysOption(request.options) ?? pickAllowOption(request.options); if (pick) void answerPermission(request, pick); }
-  }, [permissions, allowedTools, sessionId]);
-  useEffect(() => { const request = permissions[permissions.length - 1]; if (!request || !shouldNotify({ reason: "permission", focused: focusedRef.current })) return; const { title, body } = notifyText("permission", currentTitleRef.current, request.title); void notify(title, body); }, [permissions.length]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (isEditableShortcutTarget(e.target as Element | null)) return; const request = selectShortcutPermission(permissions, permissionContext, focusedPermissionPaneRef.current); if (!request) return; const n = Number(e.key); if (n >= 1 && n <= request.options.length) { e.preventDefault(); void answerPermission(request, request.options[n - 1].optionId); } };
-    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  }, [permissions, sessionId, runningSessionId, split?.id, busy, splitBusy]);
-
   function onDraftChange(value: string) {
     setDraft(value);
     if (!sessionId) return;
@@ -1961,6 +1577,112 @@ export function App() {
     [inboxSessions, sessions],
   );
 
+  const palette = useCommandPalette({
+    sources: {
+      sessions: allSessions,
+      projects,
+      commands: chat.commands,
+      titles,
+      cwd,
+      isRepo: !!git?.isRepo,
+    },
+    onAction: (action) => {
+      if (action.kind === "session") {
+        const s = allSessions.find((x) => x.id === action.id);
+        if (s) void resumeSession(s);
+        return;
+      }
+      if (action.kind === "project") {
+        void selectProject(action.path);
+        return;
+      }
+      if (action.kind === "slash") {
+        const cmd = filterCommands(action.name, chat.commands).find((c) => c.name === action.name);
+        if (cmd) void runSlash(cmd);
+        else composerRef.current?.setText(`${action.name} `);
+        return;
+      }
+      switch (action.act) {
+        case "new-chat":
+          void startNewChat();
+          break;
+        case "new-session":
+          void startSession();
+          break;
+        case "settings":
+          openSettings();
+          break;
+        case "hub-skills":
+          openHub("skills");
+          break;
+        case "hub-mcp":
+          openHub("mcp");
+          break;
+        case "hub-plugins":
+          openHub("plugins");
+          break;
+        case "hub-hooks":
+          openHub("hooks");
+          break;
+        case "hub-market":
+          openHub("marketplace");
+          break;
+        case "fork":
+          void sendPrompt("/fork");
+          break;
+        case "export": {
+          const text = exportTranscript(chat.items);
+          void navigator.clipboard.writeText(text).then(() => showToast("已复制导出会话"));
+          break;
+        }
+        case "theme": {
+          const next = theme === "light" ? "dark" : "light";
+          setTheme(next);
+          persist({ theme: next });
+          break;
+        }
+        case "panel": {
+          const next = !reviewOpen;
+          review.toggle(defaultRail);
+          persist(persistReviewOpen(next));
+          break;
+        }
+        case "context":
+          openReview("plan");
+          break;
+        case "dashboard":
+          setExtraPage("dashboard");
+          break;
+        case "imagine":
+          setExtraPage("imagine");
+          void listImagineArtifacts(cwd || null).then((paths) => {
+            setImagineImages(paths.filter((p) => !/\.(mp4|webm)$/i.test(p)));
+            setImagineVideos(paths.filter((p) => /\.(mp4|webm)$/i.test(p)));
+          }).catch(() => {});
+          break;
+        case "agents":
+          setExtraPage("agents");
+          void listAgentsDir().then(setAgentRows).catch(() => {});
+          break;
+        case "memory":
+          setExtraPage("memory");
+          break;
+        case "usage":
+          setExtraPage("usage");
+          break;
+        case "add-project":
+          void addProject();
+          break;
+        case "worktree":
+          void newWorktreeSession();
+          break;
+        case "finder":
+          if (cwd) void openPath(cwd);
+          break;
+      }
+    },
+  });
+
   const busyIds = useMemo(() => {
     const ids: string[] = [];
     if (busy && runningSessionId) ids.push(runningSessionId);
@@ -1998,7 +1720,7 @@ export function App() {
   );
 
   useSessionHotkeys({
-    enabled: !settingsOpen && !menu && !paletteOpen,
+    enabled: !settingsOpen && !menu && !palette.open,
     sessionIds: visibleHotkeySessions,
     onOpenIndex: (i) => {
       const id = visibleHotkeySessions[i];
@@ -2019,148 +1741,6 @@ export function App() {
       return next;
     });
   }, [allSessions, persist]);
-
-  const paletteItems = useMemo<PaletteItem[]>(() => {
-    const out: PaletteItem[] = [
-      { id: "act:new-chat", label: "新对话", group: "操作", hint: "不绑目录" },
-      { id: "act:new-session", label: "在当前项目新开会话", group: "操作" },
-      { id: "act:settings", label: "打开设置", group: "操作" },
-      { id: "act:hub-skills", label: "扩展中心 · 技能", group: "操作", hint: "/skills" },
-      { id: "act:hub-mcp", label: "扩展中心 · MCP", group: "操作", hint: "/mcps" },
-      { id: "act:hub-plugins", label: "扩展中心 · 插件", group: "操作", hint: "/plugins" },
-      { id: "act:hub-hooks", label: "扩展中心 · Hooks", group: "操作", hint: "/hooks" },
-      { id: "act:hub-market", label: "扩展中心 · 市场", group: "操作", hint: "/marketplace" },
-      { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
-      { id: "act:export", label: "导出会话", group: "操作", hint: "/export" },
-      { id: "act:theme", label: "切换浅色 / 深色", group: "操作" },
-      { id: "act:panel", label: "审阅", group: "操作" },
-      { id: "act:context", label: "计划与规则", group: "操作" },
-      { id: "act:dashboard", label: "会话总览", group: "操作" },
-      { id: "act:imagine", label: "图片", group: "操作" },
-      { id: "act:agents", label: "代理", group: "操作" },
-      { id: "act:memory", label: "记忆", group: "操作" },
-      { id: "act:usage", label: "用量", group: "操作" },
-      { id: "act:add-project", label: "添加项目…", group: "操作" },
-    ];
-    if (git?.isRepo) {
-      out.push({ id: "act:worktree", label: "在新 worktree 里开会话", group: "操作" });
-    }
-    if (cwd) out.push({ id: "act:finder", label: "在访达中打开工作目录", group: "操作" });
-    for (const s of allSessions.slice(0, 60)) {
-      out.push({
-        id: `session:${s.id}`,
-        label: displayTitle(s, titles),
-        hint: basename(s.cwd),
-        group: "会话",
-      });
-    }
-    for (const p of projects) {
-      out.push({ id: `project:${p}`, label: basename(p), hint: p, group: "项目" });
-    }
-    for (const c of chat.commands) {
-      out.push({ id: `slash:${c.name}`, label: c.name, hint: c.hint, group: "命令" });
-    }
-    return out;
-  }, [allSessions, projects, chat.commands, titles, cwd, git?.isRepo]);
-
-  function runPaletteItem(id: string) {
-    setPaletteOpen(false);
-    const [kind, ...rest] = id.split(":");
-    const arg = rest.join(":");
-    if (kind === "session") {
-      const s = allSessions.find((x) => x.id === arg);
-      if (s) void resumeSession(s);
-      return;
-    }
-    if (kind === "project") {
-      void selectProject(arg);
-      return;
-    }
-    if (kind === "slash") {
-      const cmd = filterCommands(arg, chat.commands).find((c) => c.name === arg);
-      if (cmd) void runSlash(cmd);
-      else composerRef.current?.setText(`${arg} `);
-      return;
-    }
-    switch (arg) {
-      case "new-chat":
-        void startNewChat();
-        break;
-      case "new-session":
-        void startSession();
-        break;
-      case "settings":
-        openSettings();
-        break;
-      case "hub-skills":
-        openHub("skills");
-        break;
-      case "hub-mcp":
-        openHub("mcp");
-        break;
-      case "hub-plugins":
-        openHub("plugins");
-        break;
-      case "hub-hooks":
-        openHub("hooks");
-        break;
-      case "hub-market":
-        openHub("marketplace");
-        break;
-      case "fork":
-        void sendPrompt("/fork");
-        break;
-      case "export": {
-        const text = exportTranscript(chat.items);
-        void navigator.clipboard.writeText(text).then(() => showToast("已复制导出会话"));
-        break;
-      }
-      case "theme": {
-        const next = theme === "light" ? "dark" : "light";
-        setTheme(next);
-        persist({ theme: next });
-        break;
-      }
-      case "panel": {
-        const next = !reviewOpen;
-        review.toggle(defaultRail);
-        persist(persistReviewOpen(next));
-        break;
-      }
-      case "context":
-        openReview("plan");
-        break;
-      case "dashboard":
-        setExtraPage("dashboard");
-        break;
-      case "imagine":
-        setExtraPage("imagine");
-        void listImagineArtifacts(cwd || null).then((paths) => {
-          setImagineImages(paths.filter((p) => !/\.(mp4|webm)$/i.test(p)));
-          setImagineVideos(paths.filter((p) => /\.(mp4|webm)$/i.test(p)));
-        }).catch(() => {});
-        break;
-      case "agents":
-        setExtraPage("agents");
-        void listAgentsDir().then(setAgentRows).catch(() => {});
-        break;
-      case "memory":
-        setExtraPage("memory");
-        break;
-      case "usage":
-        setExtraPage("usage");
-        break;
-      case "add-project":
-        void addProject();
-        break;
-      case "worktree":
-        void newWorktreeSession();
-        break;
-      case "finder":
-        if (cwd) void openPath(cwd);
-        break;
-    }
-  }
 
   /**
    * Only offer a rewind where the turn actually produced file edits. Indexed
@@ -2269,7 +1849,7 @@ export function App() {
           setSidebarList(next);
           persist({ sidebarList: next });
         }}
-        onSearch={() => setPaletteOpen(true)}
+        onSearch={() => palette.setOpen(true)}
         searchHits={searchHits}
         onOpenHit={(id) => {
           const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
@@ -2298,7 +1878,6 @@ export function App() {
         onAddProject={() => void addProject()}
         picking={picking}
         statusFor={statusFor}
-        width={sidebarCollapsed ? SIDEBAR_RAIL : sidebarWidth}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         signedIn={!!info?.authPresent}
@@ -2723,7 +2302,7 @@ export function App() {
                 max={maxFor(PREVIEW, winWidth, sidebarWidth)} resetTo={PREVIEW.initial} direction={-1}
                 onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
               />
-              <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs} width={previewWidth}
+              <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
                 onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
                 {{
                   progress: plan.length > 0 ? <ul className="todo">{plan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} />{e.content}</li>)}</ul> : <p className="float-empty">本轮还没有进度。</p>,
@@ -3175,16 +2754,16 @@ export function App() {
           }}
         />
       )}
-      {paletteOpen && (
+      {palette.open && (
         <CommandPalette
-          items={paletteItems}
-          onPick={runPaletteItem}
+          items={palette.items}
+          onPick={palette.run}
           onSearch={(query) => {
             void searchSessionText(query)
               .then((hits) => {
                 setSearchHits(hits);
                 setSearchJump(query);
-                setPaletteOpen(false);
+                palette.setOpen(false);
                 if (hits.length === 1) {
                   const s = allSessions.find((x) => x.id === hits[0].sessionId);
                   if (s) void resumeSession(s);
@@ -3194,7 +2773,7 @@ export function App() {
                 showToast(String(e));
               });
           }}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => palette.setOpen(false)}
         />
       )}
       {millerOpen && (inboxCwd || cwd) && (

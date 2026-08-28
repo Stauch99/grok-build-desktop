@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitChange, GitStatus } from "../api";
-import { branchLabel, isClean, statusMark, totalChanges, worktreeName } from "./git";
+import { branchLabel, isClean, statusMark, totalChanges, worktreeName, workspaceMtimeChanged } from "./git";
 
 const change = (over: Partial<GitChange> = {}): GitChange => ({
   path: "src/App.tsx",
@@ -81,6 +81,18 @@ describe("worktreeName", () => {
 
   it("caps the length", () => {
     expect(worktreeName("a".repeat(80)).length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("workspaceMtimeChanged", () => {
+  it("ignores the first sample and equal ticks", () => {
+    expect(workspaceMtimeChanged(0, 10)).toBe(false);
+    expect(workspaceMtimeChanged(10, 10)).toBe(false);
+    expect(workspaceMtimeChanged(10, 0)).toBe(false);
+  });
+
+  it("fires when a later sample differs", () => {
+    expect(workspaceMtimeChanged(10, 11)).toBe(true);
   });
 });
 

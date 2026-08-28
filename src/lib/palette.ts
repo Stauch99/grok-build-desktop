@@ -1,3 +1,6 @@
+import { basename } from "./text";
+import { displayTitle } from "./projects";
+
 export type PaletteGroup = "操作" | "会话" | "项目" | "命令";
 
 export type PaletteItem = {
@@ -6,6 +9,81 @@ export type PaletteItem = {
   hint?: string;
   group: PaletteGroup;
 };
+
+export type PaletteSession = { id: string; cwd: string; title: string };
+export type PaletteCommand = { name: string; hint?: string };
+
+export type PaletteSources = {
+  sessions: PaletteSession[];
+  projects: string[];
+  commands: PaletteCommand[];
+  titles: Record<string, string>;
+  cwd: string;
+  isRepo: boolean;
+};
+
+export type PaletteAction =
+  | { kind: "session"; id: string }
+  | { kind: "project"; path: string }
+  | { kind: "slash"; name: string }
+  | { kind: "act"; act: string };
+
+const CORE_ACTIONS: PaletteItem[] = [
+  { id: "act:new-chat", label: "新对话", group: "操作", hint: "不绑目录" },
+  { id: "act:new-session", label: "在当前项目新开会话", group: "操作" },
+  { id: "act:settings", label: "打开设置", group: "操作" },
+  { id: "act:hub-skills", label: "扩展中心 · 技能", group: "操作", hint: "/skills" },
+  { id: "act:hub-mcp", label: "扩展中心 · MCP", group: "操作", hint: "/mcps" },
+  { id: "act:hub-plugins", label: "扩展中心 · 插件", group: "操作", hint: "/plugins" },
+  { id: "act:hub-hooks", label: "扩展中心 · Hooks", group: "操作", hint: "/hooks" },
+  { id: "act:hub-market", label: "扩展中心 · 市场", group: "操作", hint: "/marketplace" },
+  { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
+  { id: "act:export", label: "导出会话", group: "操作", hint: "/export" },
+  { id: "act:theme", label: "切换浅色 / 深色", group: "操作" },
+  { id: "act:panel", label: "审阅", group: "操作" },
+  { id: "act:context", label: "计划与规则", group: "操作" },
+  { id: "act:dashboard", label: "会话总览", group: "操作" },
+  { id: "act:imagine", label: "图片", group: "操作" },
+  { id: "act:agents", label: "代理", group: "操作" },
+  { id: "act:memory", label: "记忆", group: "操作" },
+  { id: "act:usage", label: "用量", group: "操作" },
+  { id: "act:add-project", label: "添加项目…", group: "操作" },
+];
+
+export function buildPaletteItems(source: PaletteSources): PaletteItem[] {
+  const out: PaletteItem[] = [...CORE_ACTIONS];
+  if (source.isRepo) {
+    out.push({ id: "act:worktree", label: "在新 worktree 里开会话", group: "操作" });
+  }
+  if (source.cwd) out.push({ id: "act:finder", label: "在访达中打开工作目录", group: "操作" });
+  for (const s of source.sessions.slice(0, 60)) {
+    out.push({
+      id: `session:${s.id}`,
+      label: displayTitle(s, source.titles),
+      hint: basename(s.cwd),
+      group: "会话",
+    });
+  }
+  for (const p of source.projects) {
+    out.push({ id: `project:${p}`, label: basename(p), hint: p, group: "项目" });
+  }
+  for (const c of source.commands) {
+    out.push({ id: `slash:${c.name}`, label: c.name, hint: c.hint, group: "命令" });
+  }
+  return out;
+}
+
+/** Parse a palette row id (`act:new-chat`, `session:…`) into a typed action. */
+export function parsePaletteAction(id: string): PaletteAction | null {
+  const [kind, ...rest] = id.split(":");
+  const arg = rest.join(":");
+  if (!kind || !arg) return null;
+  if (kind === "session") return { kind: "session", id: arg };
+  if (kind === "project") return { kind: "project", path: arg };
+  if (kind === "slash") return { kind: "slash", name: arg };
+  if (kind === "act") return { kind: "act", act: arg };
+  return null;
+}
 
 const GROUP_ORDER: PaletteGroup[] = ["操作", "会话", "项目", "命令"];
 
