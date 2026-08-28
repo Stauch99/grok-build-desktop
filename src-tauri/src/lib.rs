@@ -765,55 +765,142 @@ async fn read_session_usage(session_id: String) -> AppResult<Option<SessionUsage
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+const SESSION_UPDATES_TAIL_MAX: u64 = 4 * 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionUpdates {
+    rows: Vec<Value>,
+    next_byte: u64,
+    truncated: bool,
+}
+
+fn empty_session_updates() -> SessionUpdates {
+    SessionUpdates {
+        rows: vec![],
+        next_byte: 0,
+        truncated: false,
+    }
+}
+
+fn parse_update_line(line: &str) -> Option<Value> {
+    let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
+    // Records store `timestamp` in seconds, but very large values are already ms.
+    let ts_ms = value
+        .get("timestamp")
+        .and_then(|v| v.as_f64())
+        .map(|ts| if ts > 100_000_000_000.0 { ts } else { ts * 1000.0 })
+        .map(|ms| ms as u64);
+    let mut params = value.get("params").cloned().unwrap_or(value);
+    if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
+        obj.insert("_ts".into(), json!(ms));
+    }
+    let kind = params
+        .get("update")
+        .and_then(|u| u.get("sessionUpdate"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if matches!(
+        kind,
+        "user_message_chunk"
+            | "agent_message_chunk"
+            | "agent_thought_chunk"
+            | "tool_call"
+            | "tool_call_update"
+            | "plan"
+            | "usage_update"
+            | "auto_compact_started"
+            | "auto_compact_completed"
+            | "turn_completed"
+    ) {
+        Some(params)
+    } else {
+        None
+    }
+}
+
+fn read_updates_jsonl(path: &Path, after_byte: Option<u64>) -> AppResult<SessionUpdates> {
+    read_updates_jsonl_limited(path, after_byte, SESSION_UPDATES_TAIL_MAX)
+}
+
+fn read_updates_jsonl_limited(
+    path: &Path,
+    after_byte: Option<u64>,
+    tail_max: u64,
+) -> AppResult<SessionUpdates> {
+    use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+    let io = |e: std::io::Error| AppError::Message(e.to_string());
+    let mut file = std::fs::File::open(path).map_err(io)?;
+    let file_len = file.metadata().map_err(io)?.len();
+    let (start, truncated) = match after_byte {
+        Some(n) if n > 0 => (n.min(file_len), false),
+        _ if file_len > tail_max => (file_len.saturating_sub(tail_max), true),
+        _ => (0, false),
+    };
+    file.seek(SeekFrom::Start(start)).map_err(io)?;
+    let mut pos = start;
+    if truncated && start > 0 {
+        let aligned = {
+            file.seek(SeekFrom::Start(start - 1)).map_err(io)?;
+            let mut prev = [0u8; 1];
+            file.read_exact(&mut prev).map_err(io)?;
+            prev[0] == b'\n'
+        };
+        if !aligned {
+            loop {
+                let mut b = [0u8; 1];
+                let n = file.read(&mut b).map_err(io)?;
+                if n == 0 {
+                    break;
+                }
+                pos += 1;
+                if b[0] == b'\n' {
+                    break;
+                }
+            }
+        }
+    }
+    let mut reader = BufReader::new(file);
+    let mut buf = Vec::new();
+    let mut rows = Vec::new();
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf).map_err(io)?;
+        if n == 0 {
+            break;
+        }
+        if buf.last() != Some(&b'\n') {
+            break;
+        }
+        pos += n as u64;
+        let Ok(line) = std::str::from_utf8(&buf) else {
+            continue;
+        };
+        if let Some(row) = parse_update_line(line) {
+            rows.push(row);
+        }
+    }
+    Ok(SessionUpdates {
+        rows,
+        next_byte: pos,
+        truncated,
+    })
+}
+
 #[tauri::command]
-async fn read_session_updates(session_id: String) -> AppResult<Vec<Value>> {
+async fn read_session_updates(
+    session_id: String,
+    after_byte: Option<u64>,
+) -> AppResult<SessionUpdates> {
     tokio::task::spawn_blocking(move || {
         let Some(dir) = find_session_dir(&session_id) else {
-            return Ok(vec![]);
+            return Ok(empty_session_updates());
         };
         let path = dir.join("updates.jsonl");
         if !path.is_file() {
-            return Ok(vec![]);
+            return Ok(empty_session_updates());
         }
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| AppError::Message(e.to_string()))?;
-        let mut out = Vec::new();
-        for line in text.lines() {
-            let Ok(value) = serde_json::from_str::<Value>(line) else {
-                continue;
-            };
-            // Records store `timestamp` in seconds, but very large values are already ms.
-            let ts_ms = value
-                .get("timestamp")
-                .and_then(|v| v.as_f64())
-                .map(|ts| if ts > 100_000_000_000.0 { ts } else { ts * 1000.0 })
-                .map(|ms| ms as u64);
-            let mut params = value.get("params").cloned().unwrap_or(value);
-            if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
-                obj.insert("_ts".into(), json!(ms));
-            }
-            let kind = params
-                .get("update")
-                .and_then(|u| u.get("sessionUpdate"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if matches!(
-                kind,
-                "user_message_chunk"
-                    | "agent_message_chunk"
-                    | "agent_thought_chunk"
-                    | "tool_call"
-                    | "tool_call_update"
-                    | "plan"
-                    | "usage_update"
-                    | "auto_compact_started"
-                    | "auto_compact_completed"
-                    | "turn_completed"
-            ) {
-                out.push(params);
-            }
-        }
-        Ok(out)
+        read_updates_jsonl(&path, after_byte)
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -2713,5 +2800,73 @@ mod config_write_tests {
         let state = AppState::default();
         let _guard = state.config_write.lock().await;
         assert!(state.config_write.try_lock().is_err());
+    }
+}
+
+#[cfg(test)]
+mod session_updates_tests {
+    use super::*;
+
+    fn sample_line(kind: &str, text: &str) -> String {
+        format!(
+            r#"{{"params":{{"update":{{"sessionUpdate":"{kind}","content":{{"text":"{text}"}}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn read_updates_jsonl_seeks_after_first_line_and_returns_remaining_rows() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-session-updates-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("updates.jsonl");
+
+        let line1 = sample_line("user_message_chunk", "a");
+        let line2 = sample_line("agent_message_chunk", "b");
+        let line3 = sample_line("agent_thought_chunk", "c");
+        let body = format!("{line1}\n{line2}\n{line3}\n");
+        std::fs::write(&path, &body).unwrap();
+        let first_off = line1.len() as u64 + 1;
+
+        let all = read_updates_jsonl(&path, None).unwrap();
+        assert_eq!(all.rows.len(), 3);
+        assert_eq!(all.next_byte, body.len() as u64);
+        assert!(!all.truncated);
+
+        let rest = read_updates_jsonl(&path, Some(first_off)).unwrap();
+        assert_eq!(rest.rows.len(), 2);
+        assert_eq!(rest.next_byte, body.len() as u64);
+        assert!(!rest.truncated);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn first_load_reads_tail_and_sets_truncated_when_prefix_skipped() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-session-updates-tail-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("updates.jsonl");
+
+        let line1 = sample_line("user_message_chunk", "old");
+        let line2 = sample_line("agent_message_chunk", "mid");
+        let line3 = sample_line("agent_thought_chunk", "new");
+        let body = format!("{line1}\n{line2}\n{line3}\n");
+        std::fs::write(&path, &body).unwrap();
+        let tail_max = (line2.len() + 1 + line3.len() + 1) as u64;
+
+        let page = read_updates_jsonl_limited(&path, None, tail_max).unwrap();
+        assert!(page.truncated);
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(page.next_byte, body.len() as u64);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

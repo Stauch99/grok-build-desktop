@@ -151,8 +151,16 @@ export type MemoryChangeRow = { path: string; mtime: number };
 export const listMemoryChanges = () => invoke<MemoryChangeRow[]>("list_memory_changes");
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const openReviewPath = (path: string, allowRoot: string) => invoke<void>("open_review_path", { path, allowRoot });
-export const readSessionUpdates = (sessionId: string) =>
-  invoke<AcpRecord[]>("read_session_updates", { sessionId });
+export type SessionUpdates = {
+  rows: AcpRecord[];
+  nextByte: number;
+  truncated: boolean;
+};
+export const readSessionUpdates = (sessionId: string, afterByte?: number | null) =>
+  invoke<SessionUpdates>("read_session_updates", {
+    sessionId,
+    afterByte: afterByte ?? null,
+  });
 export type SessionUsage = { used: number; size: number };
 export const readSessionUsage = (sessionId: string) =>
   invoke<SessionUsage | null>("read_session_usage", { sessionId });

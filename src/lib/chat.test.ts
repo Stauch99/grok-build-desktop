@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  afterByteFor,
   applyChatUpdate,
+  applySessionPage,
   emptyChat,
   groupWorkRuns,
   hydrateFromUpdates,
@@ -179,6 +181,44 @@ describe("hydrateFromUpdates", () => {
       upd("agent_message_chunk", { content: { text: "x" } }),
     ]);
     expect(s.items[0]).toMatchObject({ kind: "assistant", text: "x" });
+  });
+
+  it("continues from prev.nextId when rows are a suffix", () => {
+    const first = hydrateFromUpdates([
+      upd("user_message_chunk", { content: { text: "hi" } }),
+    ]);
+    expect(first.nextId).toBeGreaterThan(1);
+    const next = hydrateFromUpdates(
+      [upd("agent_message_chunk", { content: { text: "yo" } })],
+      first,
+    );
+    expect(next.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    expect(next.items[0]).toMatchObject({ text: "hi" });
+    expect(next.items[1]).toMatchObject({ text: "yo" });
+    expect(next.nextId).toBeGreaterThan(first.nextId);
+    expect(next.items[1].id).not.toBe(first.items[0].id);
+  });
+});
+
+describe("session update cursor", () => {
+  it("keeps nextByte per session and hydrates a suffix onto the cached chat", () => {
+    const cursors = new Map();
+    expect(afterByteFor(cursors, "s1")).toBeUndefined();
+    const first = applySessionPage(cursors, "s1", {
+      rows: [upd("user_message_chunk", { content: { text: "hi" } })],
+      nextByte: 40,
+      truncated: false,
+    });
+    expect(afterByteFor(cursors, "s1")).toBe(40);
+    expect(first.items).toHaveLength(1);
+    const second = applySessionPage(cursors, "s1", {
+      rows: [upd("agent_message_chunk", { content: { text: "yo" } })],
+      nextByte: 80,
+      truncated: false,
+    });
+    expect(afterByteFor(cursors, "s2")).toBeUndefined();
+    expect(afterByteFor(cursors, "s1")).toBe(80);
+    expect(second.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
   });
 });
 

@@ -15,11 +15,13 @@ import {
   type WebuiState,
 } from "../api";
 import {
+  afterByteFor,
   applyChatUpdate,
+  applySessionPage,
   emptyChat,
-  hydrateFromUpdates,
   shouldKeepSessionUpdate,
   type ChatState,
+  type SessionUpdateCursor,
 } from "../lib/chat";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
@@ -163,6 +165,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const ignoreSplitReplay = useRef(false);
   const pendingPrompt = useRef<"main" | "split" | null>(null);
   const pendingDest = useRef(new Map<number, "main" | "split">());
+  const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
   const depsRef = useRef(deps);
   depsRef.current = deps;
   busyRef.current = busy;
@@ -418,9 +421,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return next;
     });
     try {
-      const rows = await readSessionUpdates(s.id);
+      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
       if (token !== loadGen.current) return;
-      const next = hydrateFromUpdates(rows);
+      const next = applySessionPage(updateCursors.current, s.id, page);
       setChat(next);
       void refreshUsage(s.id);
       setLoadingSession(false);
@@ -456,8 +459,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     d.setSplitAtBottom(true);
     echoedSplitUser.current = false;
     try {
-      const rows = await readSessionUpdates(s.id);
-      const next = hydrateFromUpdates(rows);
+      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
+      const next = applySessionPage(updateCursors.current, s.id, page);
       d.setSplit({ id: s.id, cwd: s.cwd, chat: next });
       void refreshUsage(s.id, "split");
       ignoreSplitReplay.current = true;

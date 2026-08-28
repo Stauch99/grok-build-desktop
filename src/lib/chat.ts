@@ -392,8 +392,8 @@ export function latestPlan(state: ChatState): PlanEntry[] {
   return state.plan;
 }
 
-export function hydrateFromUpdates(rows: unknown[]): ChatState {
-  let state = emptyChat();
+export function hydrateFromUpdates(rows: unknown[], prev?: ChatState): ChatState {
+  let state = prev ?? emptyChat();
   for (const row of rows) {
     const rec = parseAcpRecord(row);
     if (!rec) continue;
@@ -401,6 +401,35 @@ export function hydrateFromUpdates(rows: unknown[]): ChatState {
     state = applyChatUpdate(state, params);
   }
   return state;
+}
+
+export type SessionUpdatePage = {
+  rows: unknown[];
+  nextByte: number;
+  truncated: boolean;
+};
+
+export type SessionUpdateCursor = {
+  nextByte: number;
+  chat: ChatState;
+};
+
+export function afterByteFor(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+): number | undefined {
+  return cursors.get(sessionId)?.nextByte;
+}
+
+export function applySessionPage(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+  page: SessionUpdatePage,
+): ChatState {
+  const prev = cursors.get(sessionId)?.chat;
+  const chat = hydrateFromUpdates(page.rows, prev);
+  cursors.set(sessionId, { nextByte: page.nextByte, chat });
+  return chat;
 }
 
 export function shouldKeepSessionUpdate(
