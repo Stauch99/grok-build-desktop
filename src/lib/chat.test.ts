@@ -67,6 +67,20 @@ describe("applyChatUpdate", () => {
     expect(s.items[0]).toMatchObject({ kind: "tool", id: "c1", status: "completed", title: "Read file" });
   });
 
+  it("does not drop streamed text on turn_completed usage", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("agent_message_chunk", { content: { text: "Hello" } }));
+    s = applyChatUpdate(s, upd("agent_message_chunk", { content: { text: " world" } }));
+    s = applyChatUpdate(
+      s,
+      upd("turn_completed", {
+        usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+      }),
+    );
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "assistant", text: "Hello world" });
+  });
+
   it("builds a readable tool label from rawInput", () => {
     expect(toolLabel({ title: "read_file", rawInput: { target_file: "/a.ts" } })).toBe("read_file");
     expect(toolLabel({ kind: "read", rawInput: { path: "/a.ts" } })).toBe("read /a.ts");

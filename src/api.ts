@@ -6,6 +6,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import type { AcpRecord } from "./lib/acp-events";
 
 export type SessionSummary = {
   id: string;
@@ -151,7 +152,7 @@ export const listMemoryChanges = () => invoke<MemoryChangeRow[]>("list_memory_ch
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const openReviewPath = (path: string, allowRoot: string) => invoke<void>("open_review_path", { path, allowRoot });
 export const readSessionUpdates = (sessionId: string) =>
-  invoke<unknown[]>("read_session_updates", { sessionId });
+  invoke<AcpRecord[]>("read_session_updates", { sessionId });
 export type SessionUsage = { used: number; size: number };
 export const readSessionUsage = (sessionId: string) =>
   invoke<SessionUsage | null>("read_session_usage", { sessionId });

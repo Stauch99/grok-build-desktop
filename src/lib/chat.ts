@@ -1,3 +1,4 @@
+import { parseAcpRecord } from "./acp-events";
 import { asRecord, textFromContent } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
 
@@ -256,121 +257,119 @@ export function applyChatUpdate(
     return `${prefix}-${nextId}`;
   };
 
-  if (kind === "user_message_chunk") {
-    if (opts.skipUser) return state;
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
-    const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
-    if (last?.kind === "user") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_message_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "assistant") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_thought_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "thought") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "thought", id: nid("t"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "tool_call" || kind === "tool_call_update") {
-    const id = String(update.toolCallId ?? nid("tool"));
-    const { detail, diff } = extractToolBits(update);
-    const items = [...state.items];
-    const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
-    if (idx >= 0) {
-      const cur = items[idx];
-      if (cur.kind === "tool") {
-        items[idx] = {
-          ...cur,
-          title: toolLabel(update, cur.title),
-          toolKind: String(update.kind ?? cur.toolKind ?? ""),
-          status: asStatus(update.status, cur.status),
-          detail: detail ?? cur.detail,
-          diff: diff ?? cur.diff,
-          until: at,
-        };
+  switch (kind) {
+    case "user_message_chunk": {
+      if (opts.skipUser) return state;
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
+      const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
+      if (last?.kind === "user") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
       }
-    } else {
-      items.push({
-        kind: "tool",
-        id,
-        title: toolLabel(update),
-        toolKind: String(update.kind ?? ""),
-        status: asStatus(update.status, "pending"),
-        detail,
-        diff,
-        at,
-        until: at,
-      });
+      return { ...state, items, nextId };
     }
-    const artifacts = mergeArtifacts(state.artifacts, update, diff);
-    return { ...state, items, nextId, artifacts };
-  }
-
-  if (kind === "plan") {
-    const entries = Array.isArray(update.entries)
-      ? (update.entries as PlanEntry[])
-      : [];
-    return { ...state, nextId, plan: entries };
-  }
-
-  if (kind === "available_commands") {
-    const raw = Array.isArray(update.commands) ? update.commands : [];
-    const commands = raw.map((c) => {
-      const rec = asRecord(c);
-      return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
-    }).filter((c) => c.name);
-    return { ...state, nextId, commands };
-  }
-
-  const usage = usageFromUpdate(update, state.usage);
-  if (usage) {
-    if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
-      const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
-      const items = [
-        ...state.items,
-        {
-          kind: "compact" as const,
-          id: nid("compact"),
-          phase,
-          used: usage.used,
-          size: usage.size,
+    case "agent_message_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "assistant") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
+      }
+      return { ...state, items, nextId };
+    }
+    case "agent_thought_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "thought") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "thought", id: nid("t"), text, at, until: at });
+      }
+      return { ...state, items, nextId };
+    }
+    case "tool_call":
+    case "tool_call_update": {
+      const id = String(update.toolCallId ?? nid("tool"));
+      const { detail, diff } = extractToolBits(update);
+      const items = [...state.items];
+      const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
+      if (idx >= 0) {
+        const cur = items[idx];
+        if (cur.kind === "tool") {
+          items[idx] = {
+            ...cur,
+            title: toolLabel(update, cur.title),
+            toolKind: String(update.kind ?? cur.toolKind ?? ""),
+            status: asStatus(update.status, cur.status),
+            detail: detail ?? cur.detail,
+            diff: diff ?? cur.diff,
+            until: at,
+          };
+        }
+      } else {
+        items.push({
+          kind: "tool",
+          id,
+          title: toolLabel(update),
+          toolKind: String(update.kind ?? ""),
+          status: asStatus(update.status, "pending"),
+          detail,
+          diff,
           at,
           until: at,
-        },
-      ];
-      return { ...state, items, nextId, usage };
+        });
+      }
+      const artifacts = mergeArtifacts(state.artifacts, update, diff);
+      return { ...state, items, nextId, artifacts };
     }
-    return { ...state, nextId, usage };
+    case "plan": {
+      const entries = Array.isArray(update.entries)
+        ? (update.entries as PlanEntry[])
+        : [];
+      return { ...state, nextId, plan: entries };
+    }
+    case "available_commands": {
+      const raw = Array.isArray(update.commands) ? update.commands : [];
+      const commands = raw.map((c) => {
+        const rec = asRecord(c);
+        return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
+      }).filter((c) => c.name);
+      return { ...state, nextId, commands };
+    }
+    default: {
+      const usage = usageFromUpdate(update, state.usage);
+      if (usage) {
+        if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
+          const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
+          const items = [
+            ...state.items,
+            {
+              kind: "compact" as const,
+              id: nid("compact"),
+              phase,
+              used: usage.used,
+              size: usage.size,
+              at,
+              until: at,
+            },
+          ];
+          return { ...state, items, nextId, usage };
+        }
+        return { ...state, nextId, usage };
+      }
+      return state;
+    }
   }
-
-  return state;
 }
 
 function mergeArtifacts(prev: Artifact[], update: Record<string, unknown>, diff?: DiffBlock): Artifact[] {
@@ -396,7 +395,8 @@ export function latestPlan(state: ChatState): PlanEntry[] {
 export function hydrateFromUpdates(rows: unknown[]): ChatState {
   let state = emptyChat();
   for (const row of rows) {
-    const rec = asRecord(row);
+    const rec = parseAcpRecord(row);
+    if (!rec) continue;
     const params = rec.params ? asRecord(rec.params) : rec;
     state = applyChatUpdate(state, params);
   }
