@@ -1,6 +1,7 @@
 use crate::{
     config_path, dirs_home, ensure_table, find_session_dir, git_stdout, grok_home, guard_repo_cwd,
-    is_blocked_path, is_under, resolve_grok, AppError, AppResult, AppState,
+    is_blocked_path, is_under, reject_oversized_config_text, resolve_grok, AppError, AppResult,
+    AppState,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -196,9 +197,8 @@ pub async fn read_config_text(state: State<'_, Arc<AppState>>, scope: String, cw
 
 #[tauri::command]
 pub async fn write_config_text(state: State<'_, Arc<AppState>>, scope: String, text: String, cwd: Option<String>) -> AppResult<()> {
-    if text.len() > 2 * 1024 * 1024 {
-        return Err(AppError::Message("配置太大".into()));
-    }
+    reject_oversized_config_text(&text)?;
+    let _guard = state.config_write.lock().await;
     let path = if scope == "project" {
         project_config_path(cwd.as_deref(), state.workspace.lock().await.as_deref())
             .ok_or_else(|| AppError::Message("没有项目配置路径".into()))?

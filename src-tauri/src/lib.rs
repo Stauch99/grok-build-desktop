@@ -21,6 +21,19 @@ use cli_bridge::{
 };
 
 const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
+
+const ALLOWED_CLI_PATCH_KEYS: &[&str] = &[
+    "model",
+    "effort",
+    "permissionMode",
+    "yolo",
+    "showThinking",
+    "telemetry",
+    "memory",
+    "compactPercent",
+    "mcp",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AppError {
@@ -51,6 +64,7 @@ pub(crate) struct AppState {
     workspaces: Mutex<HashMap<String, PathBuf>>,
     pub(crate) hide_on_close: Mutex<bool>,
     pub(crate) notify_target: Mutex<Option<String>>,
+    pub(crate) config_write: Mutex<()>,
 }
 
 impl Default for AppState {
@@ -63,6 +77,7 @@ impl Default for AppState {
             workspaces: Mutex::new(HashMap::new()),
             hide_on_close: Mutex::new(true),
             notify_target: Mutex::new(None),
+            config_write: Mutex::new(()),
         }
     }
 }
@@ -1733,8 +1748,69 @@ pub(crate) fn ensure_table<'a>(doc: &'a mut toml_edit::DocumentMut, key: &str) -
     doc[key].as_table_mut().expect("table")
 }
 
+pub(crate) fn reject_oversized_config_text(text: &str) -> AppResult<()> {
+    if text.len() > CONFIG_TEXT_MAX {
+        return Err(AppError::Message("配置太大".into()));
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_cli_patch(doc: &mut toml_edit::DocumentMut, patch: &Value) -> AppResult<()> {
+    let obj = patch
+        .as_object()
+        .ok_or_else(|| AppError::Message("不支持的设置字段".into()))?;
+    for key in obj.keys() {
+        if !ALLOWED_CLI_PATCH_KEYS.contains(&key.as_str()) {
+            return Err(AppError::Message("不支持的设置字段".into()));
+        }
+    }
+    if let Some(v) = patch.get("model").and_then(|v| v.as_str()) {
+        ensure_table(doc, "models")["default"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("effort").and_then(|v| v.as_str()) {
+        ensure_table(doc, "models")["default_reasoning_effort"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("permissionMode").and_then(|v| v.as_str()) {
+        ensure_table(doc, "ui")["permission_mode"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("yolo").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "ui")["yolo"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("showThinking").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "ui")["show_thinking_blocks"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("telemetry").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "features")["telemetry"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("memory").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "memory")["enabled"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("compactPercent").and_then(|v| v.as_i64()) {
+        ensure_table(doc, "session")["auto_compact_threshold_percent"] =
+            toml_edit::value(v.clamp(50, 95));
+    }
+    if let Some(arr) = patch.get("mcp").and_then(|v| v.as_array()) {
+        for item in arr {
+            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let enabled = item.get("enabled").and_then(|v| v.as_bool());
+            if name.is_empty() || enabled.is_none() {
+                continue;
+            }
+            if let Some(tbl) = doc["mcp_servers"].as_table_mut() {
+                if let Some(server) = tbl.get_mut(name) {
+                    if let Some(inner) = server.as_table_like_mut() {
+                        inner.insert("enabled", toml_edit::value(enabled.unwrap()));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
-async fn patch_cli_settings(patch: Value) -> AppResult<Value> {
+async fn patch_cli_settings(state: State<'_, Arc<AppState>>, patch: Value) -> AppResult<Value> {
+    let _guard = state.config_write.lock().await;
     tokio::task::spawn_blocking(move || {
         let path = config_path();
         let text = if path.is_file() {
@@ -1742,52 +1818,15 @@ async fn patch_cli_settings(patch: Value) -> AppResult<Value> {
         } else {
             String::new()
         };
+        reject_oversized_config_text(&text)?;
         let mut doc = text.parse::<toml_edit::DocumentMut>().unwrap_or_default();
-        if let Some(v) = patch.get("model").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "models")["default"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("effort").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "models")["default_reasoning_effort"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("permissionMode").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "ui")["permission_mode"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("yolo").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "ui")["yolo"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("showThinking").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "ui")["show_thinking_blocks"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("telemetry").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "features")["telemetry"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("memory").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "memory")["enabled"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("compactPercent").and_then(|v| v.as_i64()) {
-            ensure_table(&mut doc, "session")["auto_compact_threshold_percent"] =
-                toml_edit::value(v.clamp(50, 95));
-        }
-        if let Some(arr) = patch.get("mcp").and_then(|v| v.as_array()) {
-            for item in arr {
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let enabled = item.get("enabled").and_then(|v| v.as_bool());
-                if name.is_empty() || enabled.is_none() {
-                    continue;
-                }
-                if let Some(tbl) = doc["mcp_servers"].as_table_mut() {
-                    if let Some(server) = tbl.get_mut(name) {
-                        if let Some(inner) = server.as_table_like_mut() {
-                            inner.insert("enabled", toml_edit::value(enabled.unwrap()));
-                        }
-                    }
-                }
-            }
-        }
+        apply_cli_patch(&mut doc, &patch)?;
+        let out = doc.to_string();
+        reject_oversized_config_text(&out)?;
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        std::fs::write(&path, doc.to_string()).map_err(|e| AppError::Message(e.to_string()))?;
+        std::fs::write(&path, out).map_err(|e| AppError::Message(e.to_string()))?;
         Ok(json!({ "ok": true }))
     })
     .await
@@ -2573,4 +2612,57 @@ mod final_review_tests {
     { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
 }
 
+}
+
+#[cfg(test)]
+mod config_write_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn config_text_max_is_512_kib() {
+        assert_eq!(CONFIG_TEXT_MAX, 512 * 1024);
+        assert_eq!(CONFIG_TEXT_MAX, 524288);
+    }
+
+    #[test]
+    fn config_text_at_cap_is_accepted() {
+        let text = "a".repeat(CONFIG_TEXT_MAX);
+        assert!(reject_oversized_config_text(&text).is_ok());
+    }
+
+    #[test]
+    fn config_text_over_cap_is_rejected() {
+        let text = "a".repeat(524289);
+        let err = reject_oversized_config_text(&text).unwrap_err();
+        assert_eq!(err.to_string(), "配置太大");
+    }
+
+    #[test]
+    fn apply_cli_patch_rejects_proto_key() {
+        let mut doc = toml_edit::DocumentMut::new();
+        let err = apply_cli_patch(&mut doc, &json!({ "__proto__": "x" })).unwrap_err();
+        assert_eq!(err.to_string(), "不支持的设置字段");
+    }
+
+    #[test]
+    fn apply_cli_patch_rejects_unknown_key() {
+        let mut doc = toml_edit::DocumentMut::new();
+        let err = apply_cli_patch(&mut doc, &json!({ "unknown": true })).unwrap_err();
+        assert_eq!(err.to_string(), "不支持的设置字段");
+    }
+
+    #[test]
+    fn apply_cli_patch_applies_model() {
+        let mut doc = toml_edit::DocumentMut::new();
+        apply_cli_patch(&mut doc, &json!({ "model": "grok-4" })).unwrap();
+        assert_eq!(doc["models"]["default"].as_str(), Some("grok-4"));
+    }
+
+    #[tokio::test]
+    async fn config_write_lock_is_exclusive() {
+        let state = AppState::default();
+        let _guard = state.config_write.lock().await;
+        assert!(state.config_write.try_lock().is_err());
+    }
 }
