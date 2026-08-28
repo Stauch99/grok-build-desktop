@@ -11,7 +11,7 @@ import {
 } from "react";
 import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "react-window";
 import { openPath } from "../api";
-import { applySearchHit } from "../lib/search-hit";
+import { applySearchHit, waitForSelector } from "../lib/search-hit";
 import {
   assistantCopyReady,
   groupWorkRuns,
@@ -574,13 +574,16 @@ export function ThreadColumn({
     const hitId = `${paneId}-${jumpId}`;
     if (listActive) {
       const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === jumpId);
-      if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "center", behavior: "smooth" });
+      if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "center", behavior: "instant" });
+      const root = listRef.current?.element ?? chatRef.current;
+      let cancelled = false;
       let clear = () => {};
-      const t = window.setTimeout(() => {
-        clear = applySearchHit(listRef.current?.element ?? chatRef.current, hitId);
-      }, 0);
+      void waitForSelector(root, `#turn-${hitId}, #msg-${hitId}`, 500).then((node) => {
+        if (cancelled || !node) return;
+        clear = applySearchHit(root, hitId);
+      });
       return () => {
-        window.clearTimeout(t);
+        cancelled = true;
         clear();
       };
     }
