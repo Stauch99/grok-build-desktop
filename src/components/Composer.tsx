@@ -26,12 +26,22 @@ import {
   resolveAttachPath,
   type Attachment,
 } from "../lib/attachments";
-import { statAttachment } from "../api";
+import { readTextFile, statAttachment } from "../api";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { type Effort } from "../lib/effort";
 import { modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
 import type { SlashCommand } from "../lib/chat";
-import { filterMentions, mentionMenuVisible, mentionRequestIsCurrent, type MentionHit } from "../lib/mentions";
+import {
+  applyMentionPickIfCurrent,
+  beginMentionPick,
+  canAttachMentionContent,
+  filterMentions,
+  mentionMenuVisible,
+  mentionPath,
+  mentionRequestIsCurrent,
+  resolveMentionReadPath,
+  type MentionHit,
+} from "../lib/mentions";
 import { type QueueState } from "../lib/prompt-queue";
 
 export type ComposerHandle = {
@@ -62,6 +72,8 @@ export type ComposerProps = {
 
   cwd: string;
   listFiles: (query: string) => Promise<string[]>;
+  /** Optional file reader for “附带内容”. Falls back to `readTextFile`. */
+  readFile?: (path: string) => Promise<string>;
   /** Relative folder paths offered in @-mentions. */
   mentionDirs?: string[];
   /** Git working-tree relative paths for @-mentions and "本次改动". */
@@ -136,6 +148,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onRunSlash,
     cwd,
     listFiles,
+    readFile,
     mentionDirs,
     mentionChanges,
     mode,
@@ -183,6 +196,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [mentionOn, setMentionOn] = useState(false);
   const [mentions, setMentions] = useState<MentionHit[]>([]);
   const [mentionActive, setMentionActive] = useState(0);
+  const [includeContent, setIncludeContent] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [modeArmed, setModeArmed] = useState<Mode | null>(null);
   const [effortOpen, setEffortOpen] = useState(false);
@@ -485,12 +499,33 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     dispatchSend(onSend);
   }
 
-  function selectMention(hit: MentionHit) {
-    const at = value.lastIndexOf("@");
-    onChange(`${value.slice(0, at)}${hit.insert} `);
-    mentionVisibleRef.current = false;
-    mentionGenerationRef.current += 1;
+  async function selectMention(hit: MentionHit) {
+    const pick = beginMentionPick({ generation: mentionGenerationRef.current, value });
+    mentionGenerationRef.current = pick.generation;
+    mentionVisibleRef.current = pick.visible;
     setMentionOn(false);
+
+    let content: string | undefined;
+    if (includeContent && canAttachMentionContent(hit)) {
+      const path = mentionPath(hit);
+      try {
+        content = readFile
+          ? await readFile(path)
+          : (await readTextFile(resolveMentionReadPath(cwd, path), cwd || null)).text;
+      } catch {
+        content = undefined;
+      }
+    }
+
+    const next = applyMentionPickIfCurrent({
+      pick,
+      currentGeneration: mentionGenerationRef.current,
+      hit,
+      includeContent,
+      content,
+    });
+    if (next == null) return;
+    onChange(next);
     taRef.current?.focus();
   }
 
@@ -561,8 +596,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         open={mentionOn}
         items={mentions}
         active={mentionActive}
-        onPick={selectMention}
+        onPick={(hit) => void selectMention(hit)}
         onHover={setMentionActive}
+        includeContent={includeContent}
+        onIncludeContent={setIncludeContent}
       />
 
       {takeover === "bar" ? (

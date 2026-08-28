@@ -3,6 +3,7 @@ import {
   buildPaletteItems,
   clampIndex,
   filterPalette,
+  paletteKey,
   parsePaletteAction,
   paletteSubmit,
   scoreItem,
@@ -163,6 +164,59 @@ describe("parsePaletteAction", () => {
   it("returns null for an unknown prefix", () => {
     expect(parsePaletteAction("nope:x")).toBeNull();
     expect(parsePaletteAction("")).toBeNull();
+  });
+});
+
+const DAY = 86_400_000;
+
+describe("filterPalette frecency", () => {
+  it("ranks a used item above an unused peer before text score", () => {
+    const items = [
+      item({ id: "cold", label: "alpha" }),
+      item({ id: "hot", label: "beta" }),
+    ];
+    const now = DAY;
+    const out = filterPalette(items, "", 40, { hot: { uses: 4, lastAt: now } }, now);
+    expect(out.map((i) => i.id)).toEqual(["hot", "cold"]);
+  });
+
+  it("breaks a text-score tie with frecency", () => {
+    const items = [
+      item({ id: "a", label: "plan a" }),
+      item({ id: "b", label: "plan b" }),
+    ];
+    const now = 1_000;
+    expect(filterPalette(items, "plan", 40, { b: { uses: 2, lastAt: now } }, now).map((i) => i.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("paletteKey", () => {
+  const state = { index: 1, hits: ITEMS, query: "x" };
+
+  it("moves the highlight with arrows and wraps", () => {
+    expect(paletteKey(state, "ArrowDown").index).toBe(2);
+    expect(paletteKey({ ...state, index: ITEMS.length - 1 }, "ArrowDown").index).toBe(0);
+    expect(paletteKey(state, "ArrowUp").index).toBe(0);
+    expect(paletteKey({ ...state, index: 0 }, "ArrowUp").index).toBe(ITEMS.length - 1);
+  });
+
+  it("executes the highlighted hit on Enter", () => {
+    expect(paletteKey(state, "Enter")).toMatchObject({ action: "pick", id: ITEMS[1].id, index: 1 });
+  });
+
+  it("searches on Enter when nothing is highlighted and the query is long enough", () => {
+    expect(paletteKey({ index: 0, hits: [], query: "ab" }, "Enter")).toMatchObject({
+      action: "search",
+      search: "ab",
+    });
+  });
+
+  it("closes on Escape", () => {
+    expect(paletteKey(state, "Escape")).toMatchObject({ action: "close", index: 1 });
+  });
+
+  it("ignores other keys", () => {
+    expect(paletteKey(state, "a")).toMatchObject({ action: "none", index: 1 });
   });
 });
 
