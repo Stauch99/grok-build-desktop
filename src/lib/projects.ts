@@ -19,6 +19,22 @@ export function mergeProjectPaths(saved: string[], discovered: string[]): string
   return out.sort((a, b) => basename(a).localeCompare(basename(b), "zh"));
 }
 
+/** Drop saved project paths whose directory no longer exists. */
+export function keepExistingDirs(
+  paths: string[],
+  isDir: (path: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of paths) {
+    const n = p.replace(/\/+$/, "");
+    if (!n || seen.has(n) || !isDir(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
 export type SessionNode = {
   session: SessionSummary;
   children: SessionNode[];

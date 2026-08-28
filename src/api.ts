@@ -238,6 +238,17 @@ export type GitCommit = { hash: string; subject: string; date: string };
 export const gitLog = (cwd: string) => invoke<GitCommit[]>("git_log", { cwd });
 export const gitBranches = (cwd: string) => invoke<string[]>("git_branches", { cwd });
 
+export type GitCommandResult = { ok: boolean; code: number; stderr: string };
+export const gitCommit = (cwd: string, message: string) =>
+  invoke<GitCommandResult>("git_commit", { cwd, message });
+
+export type GitBlame = { ok: boolean; text: string; stderr: string };
+export const gitBlame = (cwd: string, path: string, line: number) =>
+  invoke<GitBlame>("git_blame", { cwd, path, line });
+
+export const gitStatusUntracked = (cwd: string) =>
+  invoke<string[]>("git_status_untracked", { cwd });
+
 export type FileTreeNode = { name: string; path: string; kind: "file" | "dir" };
 export const listFileTree = (cwd: string, query?: string) =>
   invoke<FileTreeNode[]>("list_file_tree", { cwd, query: query ?? null });
