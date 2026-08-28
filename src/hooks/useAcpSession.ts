@@ -21,10 +21,12 @@ import {
   shouldKeepSessionUpdate,
   type ChatState,
 } from "../lib/chat";
+import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
 import type { Mode } from "../lib/mode";
+import { enqueue, type QueueState } from "../lib/prompt-queue";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
-import { getDraft } from "../lib/session-drafts";
+import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { asRecord, surfaceStderr } from "../lib/text";
 
@@ -48,6 +50,14 @@ export function sessionUpdateDest(
   if (splitSessionId && updateSessionId && updateSessionId === splitSessionId) return "split";
   if (!shouldKeepSessionUpdate(currentSessionId, updateSessionId)) return "drop";
   return "main";
+}
+
+export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, at: number): ChatState {
+  return {
+    ...chat,
+    items: [...chat.items, { kind: "user", id: `${idPrefix}-${chat.nextId}`, text, at }],
+    nextId: chat.nextId + 1,
+  };
 }
 
 export type AcpSplitState = { id: string; cwd: string; chat: ChatState };
@@ -81,6 +91,15 @@ export type AcpSessionDeps = {
   onSessionsNeedRefresh: (inbox?: string) => Promise<void>;
   setSawExit: (value: boolean) => void;
   lastActivityRef: React.MutableRefObject<number>;
+  splitBusy: boolean;
+  steerByDefault: boolean;
+  setSessionDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  queueRef: React.MutableRefObject<QueueState>;
+  splitQueueRef: React.MutableRefObject<QueueState>;
+  setQueue: React.Dispatch<React.SetStateAction<QueueState>>;
+  setSplitQueue: React.Dispatch<React.SetStateAction<QueueState>>;
+  onLocalSlash: (cmd: CommandDef, rest: string, dest: "main" | "split") => Promise<void>;
+  onCancelPermission: (target: "main" | "split") => Promise<void>;
 };
 
 export type AcpSession = {
@@ -113,6 +132,13 @@ export type AcpSession = {
   openSplit: (s: SessionSummary) => Promise<void>;
   sendSlashToAgent: (text: string, dest?: "main" | "split") => Promise<void>;
   refreshUsage: (id: string, dest?: "main" | "split") => Promise<void>;
+  sendPrompt: (text: string, dest?: "main" | "split") => Promise<void>;
+  steerPrompt: (text: string, dest?: "main" | "split") => Promise<void>;
+  queuePrompt: (text: string, dest?: "main" | "split") => void;
+  submitPrompt: (text: string, dest?: "main" | "split") => void;
+  altSubmit: (text: string, dest?: "main" | "split") => void;
+  cancelTurn: (target?: "main" | "split") => Promise<void>;
+  onDraftChange: (value: string) => void;
 };
 
 export function useAcpSession(deps: AcpSessionDeps): AcpSession {
@@ -474,6 +500,168 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     );
   }
 
+  /**
+   * Inject a message into the turn that is already running. The agent decides
+   * when to read it; the tool call in flight is not cancelled. If the CLI
+   * refuses a second prompt on a live session we fall back to the queue rather
+   * than losing the message.
+   */
+  async function steerPrompt(text: string, dest: "main" | "split" = "main") {
+    const d = depsRef.current;
+    const sid = dest === "split" ? d.split?.id : sessionIdRef.current;
+    if (!sid) {
+      queuePrompt(text, dest);
+      return;
+    }
+    const at = Date.now();
+    if (dest === "split") {
+      echoedSplitUser.current = true;
+      d.setSplit((prev) => (prev ? { ...prev, chat: withEchoedUser(prev.chat, text, "u-steer", at) } : prev));
+      d.setSplitDraft("");
+    } else {
+      echoedUser.current = true;
+      setChat((prev) => withEchoedUser(prev, text, "u-steer", at));
+      d.setDraft("");
+    }
+    try {
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest });
+    } catch (e) {
+      d.showToast(`改向失败，已改为排队：${String(e)}`);
+      queuePrompt(text, dest);
+    }
+  }
+
+  function queuePrompt(text: string, dest: "main" | "split" = "main") {
+    const d = depsRef.current;
+    if (dest === "split") {
+      const next = enqueue(d.splitQueueRef.current, text);
+      if (next === d.splitQueueRef.current) {
+        d.showToast("队列已满，等这一轮结束");
+        return;
+      }
+      d.splitQueueRef.current = next;
+      d.setSplitQueue(next);
+      d.setSplitDraft("");
+      return;
+    }
+    const next = enqueue(d.queueRef.current, text);
+    if (next === d.queueRef.current) {
+      d.showToast("队列已满，等这一轮结束");
+      return;
+    }
+    d.queueRef.current = next;
+    d.setQueue(next);
+    d.setDraft("");
+    if (sessionIdRef.current) {
+      const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
+      d.setSessionDrafts(drafts);
+      d.persist({ drafts });
+    }
+  }
+
+  function submitPrompt(text: string, dest: "main" | "split" = "main") {
+    const d = depsRef.current;
+    if (!text.trim()) return;
+    const paneBusy = dest === "split" ? d.splitBusy : (busy && !!sessionIdRef.current && sessionIdRef.current === runningSessionIdRef.current);
+    if (!paneBusy) {
+      void sendPrompt(text, dest);
+      return;
+    }
+    if (d.steerByDefault) void steerPrompt(text, dest);
+    else queuePrompt(text, dest);
+  }
+
+  function altSubmit(text: string, dest: "main" | "split" = "main") {
+    if (!text.trim()) return;
+    if (depsRef.current.steerByDefault) queuePrompt(text, dest);
+    else void steerPrompt(text, dest);
+  }
+
+  async function sendPrompt(text: string, dest: "main" | "split" = "main") {
+    const d = depsRef.current;
+    const toSplit = dest === "split";
+    if (!text.trim() || loadingSession) return;
+    if (toSplit ? d.splitBusy : busy) return;
+    if (!toSplit && text.startsWith("/")) {
+      const name = text.split(/\s/)[0];
+      const found = filterCommands(name, chat.commands).find((c) => c.name === name);
+      if (found?.local) {
+        d.setDraft("");
+        return d.onLocalSlash(found, text.slice(name.length).trimStart(), "main");
+      }
+    }
+    if (toSplit && text.startsWith("/")) {
+      const name = text.split(/\s/)[0];
+      const found = filterCommands(name, d.split?.chat.commands ?? []).find((c) => c.name === name);
+      if (found?.local) {
+        d.setSplitDraft("");
+        return d.onLocalSlash(found, text.slice(name.length).trimStart(), "split");
+      }
+    }
+    if (toSplit) {
+      const sid = d.split?.id;
+      if (!sid) return;
+      const at = Date.now();
+      d.setSplit((prev) => (prev ? { ...prev, chat: withEchoedUser(prev.chat, text, "u-local", at) } : prev));
+      d.setSplitDraft("");
+      d.setSplitBusy(true);
+      d.setSplitAtBottom(true);
+      echoedSplitUser.current = true;
+      pendingPrompt.current = "split";
+      try {
+        await ensureAgent();
+        if (d.split?.cwd) await setWorkspace(d.split.cwd, sid);
+        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "split" });
+      } catch (e) {
+        d.setSplitBusy(false);
+        d.showToast(String(e));
+      }
+      return;
+    }
+    echoedUser.current = true;
+    setChat((prev) => withEchoedUser(prev, text, "u-local", Date.now()));
+    d.setDraft("");
+    if (sessionIdRef.current) {
+      const nextDrafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
+      d.setSessionDrafts(nextDrafts);
+      d.persist({ drafts: nextDrafts });
+    }
+    d.setAtBottom(true);
+    pendingPrompt.current = "main";
+    try {
+      await ensureAgent();
+      let sid = sessionIdRef.current;
+      if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
+      beginMainRun(sid);
+      if (d.cwd) await setWorkspace(d.cwd, sid);
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "main" });
+    } catch (e) {
+      setBusy(false);
+      d.showToast(String(e));
+    }
+  }
+
+  async function cancelTurn(target: "main" | "split" = "main") {
+    const d = depsRef.current;
+    const sid = target === "split" ? d.split?.id : runningSessionIdRef.current;
+    try {
+      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } });
+      await d.onCancelPermission(target);
+    } finally {
+      if (target === "split") d.setSplitBusy(false);
+      else setBusy(false);
+    }
+  }
+
+  function onDraftChange(value: string) {
+    const d = depsRef.current;
+    d.setDraft(value);
+    if (!sessionIdRef.current) return;
+    const next = writeDraft(d.sessionDrafts, sessionIdRef.current, value);
+    d.setSessionDrafts(next);
+    d.persist({ drafts: next });
+  }
+
   return {
     sessionId,
     sessionIdRef,
@@ -504,5 +692,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     openSplit,
     sendSlashToAgent,
     refreshUsage,
+    sendPrompt,
+    steerPrompt,
+    queuePrompt,
+    submitPrompt,
+    altSubmit,
+    cancelTurn,
+    onDraftChange,
   };
 }

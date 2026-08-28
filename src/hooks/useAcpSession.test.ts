@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { emptyChat } from "../lib/chat";
 import {
   isPromptStopResult,
   sessionIdFromNewResult,
   sessionUpdateDest,
+  withEchoedUser,
 } from "./useAcpSession";
 
 describe("sessionIdFromNewResult", () => {
@@ -36,5 +38,15 @@ describe("sessionUpdateDest", () => {
   it("keeps updates for the current session or unknown ids", () => {
     expect(sessionUpdateDest("main", "split", "main")).toBe("main");
     expect(sessionUpdateDest(null, null, "x")).toBe("main");
+  });
+});
+
+describe("withEchoedUser", () => {
+  it("appends a local user item without mutating the previous chat", () => {
+    const prev = emptyChat();
+    const next = withEchoedUser(prev, "hello", "u-local", 42);
+    expect(prev.items).toHaveLength(0);
+    expect(next.items).toEqual([{ kind: "user", id: "u-local-1", text: "hello", at: 42 }]);
+    expect(next.nextId).toBe(prev.nextId + 1);
   });
 });

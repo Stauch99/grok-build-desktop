@@ -1,140 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  deleteSession,
   doctor,
-  ensureInbox,
-  gitChanges,
-  gitCreateWorktree,
-  gitStatus,
   listProjectFiles,
-  listProjectRoots,
-  listSessions,
-  listMemoryChanges,
-  listWorkspaceEntries,
-  loadWebuiState,
-  moveSessionToCwd,
-  notify,
-  onWindowFocus,
   openInTerminal,
   openPath,
   searchSessionText,
-  openReviewPath,
-  patchCliSettings,
-  pickDirectory,
-  readPlan,
-  listProjectRules,
-  readTextFile,
-  type PlanFile,
-  type RuleFile,
-  restoreTextFile,
-  saveWebuiState,
-  sendRaw,
-  setBadge,
-  setTrayStatus,
   setWorkspace,
-  readCliSettings,
-  windowFocused,
-  type CliSettings,
-  type DoctorInfo,
-  type SessionSearchHit,
-  type SessionSummary,
-  type WebuiState,
-  type WorkspaceEntry,
-  inspectBrief,
-  listModelsText,
-  readModelsCache,
-  setHideOnClose,
-  onNotifyOpen,
-  onTrayOpenLast,
   writeAllowedText,
   trustFolder,
-  listImagineArtifacts,
-  listAgentsDir,
-  readManagedConfig,
-  readUsageHistory,
   runGrokStream,
 } from "./api";
-import {
-  emptyChat,
-  formatElapsed,
-  liveWorkStatus,
-  type ChatItem,
-  type ChatState,
-} from "./lib/chat";
-import type { Mode } from "./lib/mode";
-import { normalizeEffort, type Effort } from "./lib/effort";
-import { canMoveInboxSession, sameCwd } from "./lib/inbox";
-import { filterCommands, parseRenameArgs, type CommandDef, type HubTab } from "./lib/commands";
-import { normalizeLocale, type Locale } from "./lib/i18n";
+import { formatElapsed, liveWorkStatus } from "./lib/chat";
+import { sameCwd } from "./lib/inbox";
 import { t } from "./lib/i18n";
-import { mergeModelCatalog, modelsFromCache, parseModelsList } from "./lib/models";
-import { parseInspect, type InspectReport } from "./lib/inspect";
-import { formatSessionInfo, exportTranscript, lastAssistantText } from "./lib/session-local";
-import { firstHitIndex } from "./lib/search-highlight";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
-import { bindingFor, matchBinding } from "./lib/shortcuts-table";
-import { subagentStatusFromTool } from "./lib/subagent";
-import { modeLabel, slashForMode } from "./lib/mode";
-import { describePlan, planRevert, previewRevert } from "./lib/checkpoint";
-import { worktreeName } from "./lib/git";
-import {
-  dequeue,
-  editQueued,
-  emptyQueue,
-  enqueue,
-  removeQueued,
-  reorderQueue,
-  type QueueState,
-} from "./lib/prompt-queue";
-import { badgeCount, notifyText, shouldNotify, trayStatus } from "./lib/notify";
-import { fitLayout, loadWidth, maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
-import {
-  busyComposerHint,
-  paneComposerTakeover,
-  heroLayout,
-  SIDEBAR_RAIL,
-  situationAutoCollapse,
-} from "./lib/shell-ia";
-import { agentHealth, GROK_LOGIN_CMD } from "./lib/agent-health";
-import { forkAtSlash, lastTurnFiles } from "./lib/turn-files";
-import { headerJobs } from "./lib/jobs-header";
-import { subagentCatalog } from "./lib/subagent-tree";
-import { goalFromPlan } from "./lib/goal-bar";
-import { turnStatsFromItems } from "./lib/usage-split";
+import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
+import { maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
+import { busyComposerHint, SIDEBAR_RAIL } from "./lib/shell-ia";
+import { GROK_LOGIN_CMD } from "./lib/agent-health";
+import { forkAtSlash } from "./lib/turn-files";
 import { GoalBar } from "./components/GoalBar";
 import { StatsLineView } from "./components/StatsLineView";
 import { MillerPicker } from "./components/MillerPicker";
 import { Resizer } from "./components/Resizer";
-import { activityKey, stallNote } from "./lib/stall";
-import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "./lib/review-rail";
-import { bashTools } from "./lib/tool-render";
-import { deriveRunStatus } from "./lib/run-status";
-import { derivePermissionView, type PermissionPane } from "./lib/permission-view";
-import { selectPanePermissions } from "./lib/permission-queue";
-import { selectPaneMentionSource, type PaneMentionData } from "./lib/pane-mentions";
-import {
-  attentionCount,
-  clearUnread,
-  deriveStatus,
-  loadUnread,
-  markUnread,
-  pruneUnread,
-  type SessionStatus,
-  type UnreadMap,
-} from "./lib/session-status";
-import { displayTitle, mergeProjectPaths, setTitleOverride } from "./lib/projects";
+import { persistReviewOpen } from "./lib/review-rail";
+import { displayTitle } from "./lib/projects";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
-import {
-  DEFAULT_SIDEBAR_LIST,
-  INBOX_PIN,
-  buildSidebarSections,
-  loadSidebarList,
-  prunePinnedProjects,
-  pruneSessionTokens,
-} from "./lib/sidebar-list";
-import { loadDrafts, setDraft as writeDraft } from "./lib/session-drafts";
+import { INBOX_PIN } from "./lib/sidebar-list";
 import { allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
-import { menuPosition, SessionMenu, type SessionMenuState } from "./SessionMenu";
+import { SessionMenu } from "./SessionMenu";
 import { SettingsPanel } from "./Settings";
 import { ExtensionsHub } from "./components/ExtensionsHub";
 import { Sidebar } from "./components/Sidebar";
@@ -150,1691 +43,266 @@ import { GitHistory } from "./components/GitHistory";
 import { DiffSummary } from "./components/DiffSummary";
 import { PlanCompleteCard } from "./components/PlanCompleteCard";
 import { SubagentCard } from "./components/SubagentCard";
-import { ExtraOverlay, type ExtraPage } from "./components/ExtraOverlay";
+import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
-import { Composer, type ComposerHandle } from "./components/Composer";
+import { Composer } from "./components/Composer";
 import { CommandPalette } from "./components/CommandPalette";
 import { ChangesPanel } from "./components/ChangesPanel";
 import { GitBar } from "./components/GitBar";
 import { EmptyState } from "./components/EmptyState";
 import { RewindDialog } from "./components/RewindDialog";
-import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "./lib/memory-dock";
-import { isTextPreviewable } from "./lib/preview";
-import { parseWeeklyUsage, type WeeklyUsage } from "./lib/weekly-usage";
-import { useReviewController } from "./hooks/useReviewController";
-import { useSessionHotkeys } from "./hooks/useSessionHotkeys";
-import { useAcpSession } from "./hooks/useAcpSession";
-import { useGitWatcher } from "./hooks/useGitWatcher";
-import { usePermissionQueue } from "./hooks/usePermissionQueue";
-import { useCommandPalette } from "./hooks/useCommandPalette";
+import { snapshotMtimes } from "./lib/memory-dock";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokMore, IconGrokSidebar } from "./grok-icons";
 import { IconChevron, IconGitFork } from "./icons";
 import { TodoMark } from "./components/TodoMark";
-
-const FALLBACK_MODELS = ["grok-4.6", "grok-4.5", "grok-build"];
-
+import { useAppModel } from "./hooks/useAppModel";
 
 export function App() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [hubOpen, setHubOpen] = useState(false);
-  const [hubTab, setHubTab] = useState<HubTab>("skills");
-  const [locale, setLocale] = useState<Locale>("zh");
-  const [themeFamily, setThemeFamily] = useState<"default" | "paper" | "ink">("default");
-  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
-  const [hideToTray, setHideToTray] = useState(true);
-  const [defaultRail, setDefaultRail] = useState<"tasks" | "changes" | "context">("tasks");
-  const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
-  const [inspect, setInspect] = useState<InspectReport | null>(null);
-  const [modelCatalog, setModelCatalog] = useState<string[]>(FALLBACK_MODELS);
-  const [extraPage, setExtraPage] = useState<ExtraPage | null>(null);
-  const [imagineImages, setImagineImages] = useState<string[]>([]);
-  const [imagineVideos, setImagineVideos] = useState<string[]>([]);
-  const [agentRows, setAgentRows] = useState<{ name: string; path: string; kind: "agent" | "persona" }[]>([]);
-  const [managed, setManaged] = useState<{ path: string; text: string; exists: boolean } | null>(null);
-  const [usageHistory, setUsageHistory] = useState<{ at: number; used: number; size: number }[]>([]);
-  const [usageDays, setUsageDays] = useState<7 | 30>(7);
-  const [jumpTurnId, setJumpTurnId] = useState<string | null>(null);
-  const [doctorNote, setDoctorNote] = useState<string | null>(null);
-  const [sawExit, setSawExit] = useState(false);
-  const [threadView, setThreadView] = useState<"chat" | "trajectory">("chat");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [millerOpen, setMillerOpen] = useState(false);
-  const [jobsOpen, setJobsOpen] = useState(false);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const [searchJump, setSearchJump] = useState("");
-  const [chatFontSize, setChatFontSize] = useState(17);
-  const [cwd, setCwd] = useState("");
-  const [projects, setProjects] = useState<string[]>([]);
-  const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [draft, setDraft] = useState("");
-  const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsage | null>(null);
-  const [mode, setMode] = useState<Mode>("agent");
-  const [model, setModel] = useState("grok-4.6");
-  const [showThinking, setShowThinking] = useState(true);
-  const [chatWidth, setChatWidth] = useState(680);
-  const [info, setInfo] = useState<DoctorInfo | null>(null);
-  const [cli, setCli] = useState<CliSettings | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [atBottom, setAtBottom] = useState(true);
-  const [split, setSplit] = useState<{ id: string; cwd: string; chat: ChatState } | null>(null);
-  const [splitDraft, setSplitDraft] = useState("");
-  const [splitBusy, setSplitBusy] = useState(false);
-  const [splitAtBottom, setSplitAtBottom] = useState(true);
-  const [, setMainBusyAt] = useState<number | null>(null);
-  const [splitBusyAt, setSplitBusyAt] = useState<number | null>(null);
-  const [clock, setClock] = useState(0);
-  const [picking, setPicking] = useState(false);
-  const [titles, setTitles] = useState<Record<string, string>>({});
-  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [menu, setMenu] = useState<SessionMenuState | null>(null);
-  const [inboxCwd, setInboxCwd] = useState("");
-  const [inboxSessions, setInboxSessions] = useState<SessionSummary[]>([]);
-  const [movePick, setMovePick] = useState<{ id: string; top: number; left: number } | null>(null);
-  const [pinned, setPinned] = useState<string[]>([]);
-  const [archived, setArchived] = useState<string[]>([]);
-  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
-  const [enterSends, setEnterSends] = useState(true);
-  const [autoArchiveDays, setAutoArchiveDays] = useState(0);
-  const [lastWorkspace, setLastWorkspace] = useState("");
-  const [sidebarList, setSidebarList] = useState(DEFAULT_SIDEBAR_LIST);
-  const [pinnedProjects, setPinnedProjects] = useState<string[]>([]);
-  const [sessionTokens, setSessionTokens] = useState<Record<string, number>>({});
-  const [settingsFocus, setSettingsFocus] = useState<"shortcuts" | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
-  const [allowedTools, setAllowedTools] = useState<Set<string>>(() => new Set());
-  const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
-  const [splitMentionData, setSplitMentionData] = useState<PaneMentionData | null>(null);
-  const [memoryChanges, setMemoryChanges] = useState<MemoryChange[]>([]);
-  const memoryBaseline = useRef<Record<string, number> | null>(null);
-  const [searchHits, setSearchHits] = useState<SessionSearchHit[] | null>(null);
-  const [mruOpen, setMruOpen] = useState(false);
-  const [planFile, setPlanFile] = useState<PlanFile | null>(null);
-  const [rules, setRules] = useState<RuleFile[]>([]);
-  const [rewindTarget, setRewindTarget] = useState<number | null>(null);
-  const [worktreeBusy, setWorktreeBusy] = useState(false);
-  const [queue, setQueue] = useState<QueueState>(emptyQueue);
-  const [splitQueue, setSplitQueue] = useState<QueueState>(emptyQueue);
-  const [focused, setFocused] = useState(true);
-  const [steerByDefault, setSteerByDefault] = useState(false);
-  const [unread, setUnread] = useState<UnreadMap>({});
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
-  const [previewWidth, setPreviewWidth] = useState(PREVIEW.initial);
-  const [winWidth, setWinWidth] = useState(() => window.innerWidth);
-  const chatEl = useRef<HTMLDivElement>(null);
-  const splitChatEl = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<ComposerHandle>(null);
-  const splitComposerRef = useRef<ComposerHandle>(null);
-  const focusedPermissionPaneRef = useRef<PermissionPane | null>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const focusedRef = useRef(true);
-  const busyStartRef = useRef<number | null>(null);
-  const splitBusyStartRef = useRef<number | null>(null);
-  const currentTitleRef = useRef("会话");
-  const lastActivityRef = useRef(Date.now());
-  const queueRef = useRef<QueueState>(emptyQueue());
-  const splitQueueRef = useRef<QueueState>(emptyQueue());
-  const persistTimer = useRef<number | null>(null);
-  const persistRef = useRef<(partial: WebuiState) => void>(() => {});
-  const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
-  const reviewCloseRef = useRef(() => {});
-  const persistReviewOpened = useRef(() => {});
-  const notifyReviewOpened = useCallback(() => persistReviewOpened.current(), []);
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 2800);
-  };
-
-  const acp = useAcpSession({
-    cwd,
-    inboxCwd,
-    projects,
-    lastWorkspace,
-    mode,
-    sessionDrafts,
-    titles,
-    split,
-    persist: (partial) => persistRef.current(partial),
-    showToast,
-    setCwd,
-    setInboxCwd,
-    setDraft,
-    setSettingsOpen,
-    setLastWorkspace,
-    setAtBottom,
-    setOpenProjects,
-    setCollapsedIds,
-    setExpandedIds,
-    setUnread,
-    setSplit,
-    setSplitDraft,
-    setSplitBusy,
-    setSplitAtBottom,
-    onOpenSplit: () => {
-      setMenu(null);
-      reviewCloseRef.current();
-      persistRef.current(persistReviewOpen(false));
-    },
-    onSessionsNeedRefresh: (inbox) => refreshSessionsRef.current(inbox),
-    setSawExit,
-    lastActivityRef,
-  });
   const {
+    theme,
+    setTheme,
+    settingsOpen,
+    setSettingsOpen,
+    hubOpen,
+    setHubOpen,
+    hubTab,
+    setHubTab,
+    locale,
+    setLocale,
+    themeFamily,
+    setThemeFamily,
+    density,
+    setDensity,
+    hideToTray,
+    setHideToTray,
+    defaultRail,
+    setDefaultRail,
+    shortcuts,
+    setShortcuts,
+    inspect,
+    modelCatalog,
+    extraPage,
+    setExtraPage,
+    imagineImages,
+    imagineVideos,
+    agentRows,
+    managed,
+    usageHistory,
+    usageDays,
+    setUsageDays,
+    jumpTurnId,
+    doctorNote,
+    setDoctorNote,
+    threadView,
+    setThreadView,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    millerOpen,
+    setMillerOpen,
+    jobsOpen,
+    setJobsOpen,
+    catalogOpen,
+    setCatalogOpen,
+    searchJump,
+    setSearchJump,
+    chatFontSize,
+    setChatFontSize,
+    cwd,
+    setCwd,
+    projects,
+    openProjects,
+    setOpenProjects,
+    sessions,
+    draft,
+    weeklyUsage,
+    mode,
+    setMode,
+    model,
+    setModel,
+    showThinking,
+    setShowThinking,
+    chatWidth,
+    setChatWidth,
+    info,
+    setInfo,
+    cli,
+    setCli,
+    toast,
+    atBottom,
+    setAtBottom,
+    split,
+    setSplit,
+    splitDraft,
+    setSplitDraft,
+    splitBusy,
+    setSplitBusy,
+    splitAtBottom,
+    setSplitAtBottom,
+    splitBusyAt,
+    clock,
+    picking,
+    titles,
+    editingTitleId,
+    titleDraft,
+    setTitleDraft,
+    menu,
+    setMenu,
+    inboxCwd,
+    setInboxCwd,
+    inboxSessions,
+    movePick,
+    setMovePick,
+    pinned,
+    setPinned,
+    archived,
+    setArchived,
+    enterSends,
+    setEnterSends,
+    autoArchiveDays,
+    setAutoArchiveDays,
+    setLastWorkspace,
+    sidebarList,
+    setSidebarList,
+    pinnedProjects,
+    setPinnedProjects,
+    settingsFocus,
+    setSettingsFocus,
+    expandedIds,
+    collapsedIds,
+    setCollapsedIds,
+    setAllowedTools,
+    workspaceEntries,
+    memoryChanges,
+    setMemoryChanges,
+    memoryBaseline,
+    searchHits,
+    setSearchHits,
+    mruOpen,
+    setMruOpen,
+    rewindTarget,
+    setRewindTarget,
+    worktreeBusy,
+    queue,
+    setQueue,
+    splitQueue,
+    setSplitQueue,
+    steerByDefault,
+    setSteerByDefault,
+    setUnread,
+    sidebarWidth,
+    setSidebarWidth,
+    previewWidth,
+    setPreviewWidth,
+    winWidth,
+    chatEl,
+    splitChatEl,
+    composerRef,
+    splitComposerRef,
+    focusedPermissionPaneRef,
+    titleInputRef,
+    showToast,
     sessionId,
     sessionIdRef,
     chat,
-    setChat,
-    busy,
-    setBusy,
     ready,
     connecting,
     loadingSession,
-    runningSessionId,
-    setRunningSessionId,
-    runningSessionIdRef,
-    readyRef,
-    echoedUser,
-    echoedSplitUser,
-    pendingPrompt,
-    rpc,
     ensureAgent,
-    adoptSession,
-    beginMainRun,
-    createAcpSession,
     startInboxSession,
     startNewChat,
     startSession,
     resumeSession,
     openSplit,
-    sendSlashToAgent,
-  } = acp;
-
-  const mainPaneBusy = busy && !!sessionId && sessionId === runningSessionId;
-  const review = useReviewController({
-    cwd,
-    ownerKey: (sessionId || "") + "|" + cwd,
-    disabled: !!split,
-    readTextFile: async (path, allowRoot) => {
-      if (cwd) await setWorkspace(cwd, sessionId);
-      return readTextFile(path, allowRoot);
-    },
-    openReviewPath: async (path, allowRoot) => {
-      if (cwd) await setWorkspace(cwd, sessionId);
-      return openReviewPath(path, allowRoot);
-    },
-    onError: (message) => { setToast(message); window.setTimeout(() => setToast(null), 2800); },
-    isTextPreviewable,
-    onOpened: notifyReviewOpened,
-  });
-  const reviewOpen = review.open;
-  const reviewTab = review.tab;
-  const detailsTool = review.detailsTool;
-  const { path: previewPath, text: previewText, truncated: previewTruncated, error: previewError } = review.preview;
-  reviewCloseRef.current = () => review.close();
-
-  const persist = useCallback((partial: WebuiState) => {
-    const next: WebuiState = {
-      projects,
-      theme,
-      mode,
-      chatWidth,
-      titles,
-      inboxCwd,
-      chatFontSize,
-      pinned,
-      archived,
-      drafts: sessionDrafts,
-      enterSends,
-      autoArchiveDays,
-      filePanelOpen: reviewOpen,
-      steerByDefault,
-      unread,
-      sidebarWidth,
-      previewWidth,
-      locale,
-      themeFamily,
-      density,
-      hideToTray,
-      defaultRail,
-      shortcuts,
-      lastWorkspace,
-      pinnedProjects,
-      sessionTokens,
-      sidebarList,
-      ...partial,
-    };
-    if (persistTimer.current) window.clearTimeout(persistTimer.current);
-    persistTimer.current = window.setTimeout(() => {
-      void saveWebuiState(next);
-    }, 200);
-  }, [projects, theme, mode, chatWidth, titles, inboxCwd, chatFontSize, pinned, archived, sessionDrafts, enterSends, autoArchiveDays, reviewOpen, steerByDefault, unread, sidebarWidth, previewWidth, locale, themeFamily, density, hideToTray, defaultRail, shortcuts, lastWorkspace, pinnedProjects, sessionTokens, sidebarList]);
-  persistRef.current = persist;
-  persistReviewOpened.current = () => persist(persistReviewOpen(true));
-
-  const { git, changes, commits: gitCommits, branches: gitBranchList, refresh: refreshGit } = useGitWatcher({
-    cwd,
-    historyKey: reviewTab,
-    onWorkspaceTouched: (dir) => {
-      void listWorkspaceEntries(dir).then(setWorkspaceEntries).catch(() => {});
-    },
-  });
-
-  const { permissions, answerPermission, cancelPermission } = usePermissionQueue({
-    allowedTools,
-    sessionId,
-    runningSessionId,
-    splitId: split?.id ?? null,
-    busy,
-    splitBusy,
-    focusedPaneRef: focusedPermissionPaneRef,
-    focusedRef,
-    currentTitleRef,
-    onTimeoutNotice: () => showToast(permissionTimeoutNotice()),
-  });
-
-  const refreshInspect = useCallback(async (dir = cwd) => {
-    try {
-      const raw = await inspectBrief(dir || null);
-      setInspect(parseInspect(raw));
-    } catch {
-      /* inspect is best-effort */
-    }
-  }, [cwd]);
-
-  const refreshModels = useCallback(async () => {
-    try {
-      const [text, cache] = await Promise.all([listModelsText(), readModelsCache()]);
-      setModelCatalog(mergeModelCatalog(parseModelsList(text), modelsFromCache(cache), FALLBACK_MODELS));
-    } catch {
-      setModelCatalog(FALLBACK_MODELS);
-    }
-  }, []);
-
-  function openHub(tab: HubTab = "skills") {
-    setHubTab(tab);
-    setHubOpen(true);
-    setSettingsOpen(false);
-  }
-
-  useEffect(() => {
-    if (!sessionId) {
-      setPlanFile(null);
-      return;
-    }
-    let cancelled = false;
-    void readPlan(sessionId)
-      .then((file) => {
-        if (!cancelled) setPlanFile(file);
-      })
-      .catch(() => {
-        if (!cancelled) setPlanFile(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, chat.plan, reviewTab, reviewOpen]);
-
-  useEffect(() => {
-    if (!cwd) {
-      setRules([]);
-      return;
-    }
-    let cancelled = false;
-    void listProjectRules(cwd)
-      .then((rows) => {
-        if (!cancelled) setRules(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setRules([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, reviewTab, reviewOpen]);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.dataset.themeFamily = themeFamily;
-    document.documentElement.dataset.density = density;
-  }, [theme, themeFamily, density]);
-
-  useEffect(() => {
-    void setHideOnClose(hideToTray).catch(() => {});
-  }, [hideToTray]);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    void onTrayOpenLast(() => {
-      const last = sessionIdRef.current
-        ? [...inboxSessions, ...sessions].find((s) => s.id === sessionIdRef.current)
-        : [...inboxSessions, ...sessions][0];
-      if (last) void resumeSession(last);
-    }).then((fn) => {
-      off = fn;
-    });
-    return () => off?.();
-  }, [inboxSessions, sessions]);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    void onNotifyOpen((sid) => {
-      const s = [...inboxSessions, ...sessions].find((x) => x.id === sid);
-      if (s) void resumeSession(s);
-      window.setTimeout(() => {
-        document.querySelector<HTMLElement>(".permission")?.focus();
-      }, 200);
-    }).then((fn) => {
-      off = fn;
-    });
-    return () => off?.();
-  }, [inboxSessions, sessions]);
-
-  useEffect(() => {
-    const sc = split?.cwd; if (!sc) { setSplitMentionData(null); return; }
-    let cancelled = false; setSplitMentionData(null);
-    void Promise.all([listWorkspaceEntries(sc), gitStatus(sc).then((status) => status.isRepo ? gitChanges(sc) : []).catch(() => [])]).then(([entries, cs]) => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: entries.filter((e) => e.kind === "dir").map((e) => e.name), changes: cs.map((c) => c.path) }); }).catch(() => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: [], changes: [] }); });
-    return () => { cancelled = true; };
-  }, [split?.cwd]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (matchBinding(bindingFor(shortcuts, "hub"), e)) {
-        e.preventDefault();
-        openHub("skills");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts]);
-
-  useEffect(() => {
-    if (!cwd) {
-      setWorkspaceEntries([]);
-      return;
-    }
-    void listWorkspaceEntries(cwd).then(setWorkspaceEntries).catch(() => setWorkspaceEntries([]));
-  }, [cwd]);
-
-  useEffect(() => {
-    if (!cwd) return;
-    void setWorkspace(cwd, sessionId).catch(() => {});
-  }, [cwd, sessionId]);
-
-  function openReview(action: Parameters<typeof review.openReview>[0]) {
-    review.openReview(action);
-    if (action === "changed-file") void refreshGit();
-  }
-
-  const openPreview = review.openPreview;
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const rows = await listMemoryChanges();
-        if (cancelled) return;
-        if (!memoryBaseline.current) {
-          memoryBaseline.current = snapshotMtimes(rows);
-          setMemoryChanges([]);
-          return;
-        }
-        setMemoryChanges(detectMemoryUpdates(rows, memoryBaseline.current, Date.now()));
-      } catch {
-        /* ignore */
-      }
-    };
-    void poll();
-    const id = window.setInterval(() => void poll(), 20_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSettingsOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [settingsOpen]);
-
-  useEffect(() => {
-    if (!atBottom) return;
-    chatEl.current?.scrollTo({ top: chatEl.current.scrollHeight });
-  }, [chat.items, mainPaneBusy, atBottom]);
-
-  useEffect(() => {
-    if (!split || !splitAtBottom) return;
-    splitChatEl.current?.scrollTo({ top: splitChatEl.current.scrollHeight });
-  }, [split?.chat.items, splitBusy, splitAtBottom, split]);
-
-  useEffect(() => {
-    if (busy) {
-      // Keep the original start time if this re-ran for an unrelated dep.
-      if (busyStartRef.current === null) busyStartRef.current = Date.now();
-      setMainBusyAt((t) => t ?? Date.now());
-      return;
-    }
-    const started = busyStartRef.current;
-    const finishedId = runningSessionIdRef.current;
-    busyStartRef.current = null;
-    setMainBusyAt(null);
-    runningSessionIdRef.current = null;
-    setRunningSessionId(null);
-    if (started === null) return;
-
-    const elapsedMs = Date.now() - started;
-    void refreshGit();
-    // The badge is the durable signal; the notification is best-effort on top.
-    if (!focusedRef.current && finishedId) {
-      const id = finishedId;
-      setUnread((prev) => {
-        const next = markUnread(prev, id, "done");
-        if (next !== prev) persist({ unread: next });
-        return next;
-      });
-    }
-    if (shouldNotify({ reason: "turn-done", focused: focusedRef.current, elapsedMs })) {
-      const { title, body } = notifyText(
-        "turn-done",
-        currentTitleRef.current,
-        formatElapsed(elapsedMs),
-      );
-      void notify(title, body);
-    }
-    // A queued prompt only goes out once the agent is actually free again.
-    const { next, rest } = dequeue(queueRef.current);
-    if (next) {
-      setQueue(rest);
-      queueRef.current = rest;
-      void sendPrompt(next.text);
-    }
-  }, [busy, refreshGit]);
-
-  useEffect(() => {
-    if (splitBusy) {
-      if (splitBusyStartRef.current === null) splitBusyStartRef.current = Date.now();
-      setSplitBusyAt((t) => t ?? Date.now());
-      return;
-    }
-    const started = splitBusyStartRef.current;
-    splitBusyStartRef.current = null;
-    setSplitBusyAt(null);
-    if (started === null) return;
-    const { next, rest } = dequeue(splitQueueRef.current);
-    if (next) {
-      setSplitQueue(rest);
-      splitQueueRef.current = rest;
-      void sendPrompt(next.text, "split");
-    }
-  }, [splitBusy]);
-
-  useEffect(() => {
-    if (!busy && !splitBusy) return;
-    const id = window.setInterval(() => setClock((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [busy, splitBusy]);
-
-
-  // Any new token, tool update or status flip counts as the turn being alive.
-  const activity = useMemo(() => {
-    const last = chat.items[chat.items.length - 1];
-    const lastLen = last && "text" in last ? last.text.length : 0;
-    const tools = chat.items
-      .filter((i): i is Extract<ChatItem, { kind: "tool" }> => i.kind === "tool")
-      .map((i) => i.status)
-      .join(",");
-    return activityKey(chat.items.length, lastLen, tools);
-  }, [chat.items]);
-
-  useEffect(() => {
-    lastActivityRef.current = Date.now();
-  }, [activity]);
-
-  useEffect(() => {
-    queueRef.current = queue;
-  }, [queue]);
-
-  useEffect(() => {
-    splitQueueRef.current = splitQueue;
-  }, [splitQueue]);
-
-  useEffect(() => {
-    focusedRef.current = focused;
-  }, [focused]);
-
-  useEffect(() => {
-    const onResize = () => setWinWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // Shrinking the window must never squeeze the conversation column away.
-  useEffect(() => {
-    const open = reviewOpen && !split;
-    const fit = fitLayout(sidebarWidth, previewWidth, winWidth, open);
-    if (fit.sidebar !== sidebarWidth) setSidebarWidth(fit.sidebar);
-    if (fit.preview !== previewWidth) setPreviewWidth(fit.preview);
-  }, [winWidth, reviewOpen, split, sidebarWidth, previewWidth]);
-
-  useEffect(() => {
-    if (situationAutoCollapse(winWidth)) {
-      review.close();
-      persist(persistReviewOpen(false));
-      setSidebarCollapsed(true);
-    }
-  }, [winWidth]);
-
-  // Window focus drives every notification decision, so track it once here.
-  useEffect(() => {
-    let off: (() => void) | null = null;
-    void windowFocused().then(setFocused);
-    void onWindowFocus((next) => {
-      setFocused(next);
-      // Coming back clears only the session you are actually looking at.
-      const id = sessionIdRef.current;
-      if (!next || !id) return;
-      setUnread((prev) => {
-        const cleared = clearUnread(prev, id);
-        if (cleared !== prev) persist({ unread: cleared });
-        return cleared;
-      });
-    }).then((fn) => {
-      off = fn;
-    });
-    return () => off?.();
-  }, []);
-
-  const doneUnread = useMemo(
-    () => Object.values(unread).filter((k) => k === "done").length,
-    [unread],
-  );
-  const awaitingId = permissions[0] ? permissions[0].sessionId || runningSessionId || sessionId : null;
-
-  useEffect(() => {
-    void setBadge(badgeCount(attentionCount(unread, awaitingId), doneUnread));
-  }, [unread, awaitingId, doneUnread]);
-
-  useEffect(() => {
-    void setTrayStatus(trayStatus(busy || splitBusy, permissions.length)).catch(() => {});
-  }, [busy, splitBusy, permissions.length]);
-
-  useEffect(() => {
-    if (!editingTitleId) return;
-    titleInputRef.current?.focus();
-    titleInputRef.current?.select();
-  }, [editingTitleId]);
-
-  useEffect(() => {
-    if (!menu && !movePick) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target;
-      if (t instanceof Element && (t.closest(".menu") || t.closest("[data-menu-trigger]"))) return;
-      setMenu(null);
-      setMovePick(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setMenu(null);
-        setMovePick(null);
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [menu, movePick]);
-
-  function openMenu(kind: "header" | "row", id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) {
-    const pos = menuPosition(el, point);
-    setMenu({ kind, id, ...pos });
-  }
-
-  function beginEditTitle(id?: string | null) {
-    const sid = id || sessionIdRef.current;
-    if (!sid) return;
-    const s = sessions.find((x) => x.id === sid) ?? inboxSessions.find((x) => x.id === sid);
-    setMenu(null);
-    setTitleDraft(s ? displayTitle(s, titles) : "");
-    setEditingTitleId(sid);
-  }
-
-  function cancelEditTitle() {
-    setEditingTitleId(null);
-    setTitleDraft("");
-  }
-
-  function commitTitle(raw: string) {
-    const id = editingTitleId;
-    if (!id) {
-      cancelEditTitle();
-      return;
-    }
-    const t = raw.trim();
-    if (t === "--auto") {
-      cancelEditTitle();
-      showToast("不能把 --auto 当作标题");
-      return;
-    }
-    if (!t) {
-      cancelEditTitle();
-      return;
-    }
-    const next = setTitleOverride(titles, id, t);
-    setTitles(next);
-    persist({ titles: next });
-    setEditingTitleId(null);
-  }
-
-  async function moveInboxToProject(sessionId: string, dest: string) {
-    if (!inboxCwd) return;
-    const err = canMoveInboxSession(
-      inboxSessions.find((s) => s.id === sessionId)?.cwd || inboxCwd,
-      dest,
-      inboxCwd,
-    );
-    if (err) {
-      showToast(err);
-      return;
-    }
-    if (!window.confirm("工作目录将改为该项目，agent 随后能读改仓库。独立对话不会搬回来。")) return;
-    setMovePick(null);
-    try {
-      if (runningSessionIdRef.current === sessionId && busy) {
-        await cancelTurn();
-      }
-      if (sessionIdRef.current === sessionId) {
-        adoptSession(null);
-        setChat(emptyChat());
-      }
-      const row = await moveSessionToCwd(sessionId, dest, inboxCwd);
-      await refreshInbox();
-      await selectProject(dest);
-      await resumeSession(row);
-      showToast("已移入项目");
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  function restoreGenerated(id: string) {
-    const next = setTitleOverride(titles, id, "");
-    setTitles(next);
-    persist({ titles: next });
-    setMenu(null);
-  }
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [doc, state, roots, cliState] = await Promise.all([
-          doctor(),
-          loadWebuiState().catch(() => ({}) as WebuiState),
-          listProjectRoots().catch(() => [] as string[]),
-          readCliSettings().catch(() => null),
-        ]);
-        setInfo(doc);
-        if (cliState) {
-          setCli(cliState);
-          if (cliState.model) setModel(cliState.model);
-          setShowThinking(cliState.showThinking);
-          if (cliState.yolo) setMode("yolo");
-        }
-        const merged = mergeProjectPaths(state.projects ?? [], roots);
-        setProjects(merged);
-        if (state.theme === "dark" || state.theme === "light") setTheme(state.theme);
-        if (typeof state.chatWidth === "number" && state.chatWidth >= 480 && state.chatWidth <= 1100) {
-          setChatWidth(state.chatWidth);
-        }
-        if (state.mode) setMode(state.mode);
-        if (typeof state.chatFontSize === "number" && state.chatFontSize >= 14 && state.chatFontSize <= 20) {
-          setChatFontSize(state.chatFontSize);
-        }
-        if (state.titles && typeof state.titles === "object") {
-          const next: Record<string, string> = {};
-          for (const [id, title] of Object.entries(state.titles)) {
-            if (typeof title === "string" && title.trim()) next[id] = title.trim().slice(0, 80);
-          }
-          setTitles(next);
-        }
-        if (Array.isArray(state.pinned)) setPinned(state.pinned.filter((id) => typeof id === "string"));
-        if (Array.isArray(state.archived)) setArchived(state.archived.filter((id) => typeof id === "string"));
-        setSessionDrafts(loadDrafts(state.drafts));
-        if (typeof state.enterSends === "boolean") setEnterSends(state.enterSends);
-        if (typeof state.autoArchiveDays === "number") setAutoArchiveDays(state.autoArchiveDays);
-        if (typeof state.filePanelOpen === "boolean") {
-          review.hydrateLegacy({ open: state.filePanelOpen });
-        }
-        if (typeof state.steerByDefault === "boolean") setSteerByDefault(state.steerByDefault);
-        setLocale(normalizeLocale(state.locale));
-        if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
-          setThemeFamily(state.themeFamily);
-        }
-        if (state.density === "compact" || state.density === "comfortable") setDensity(state.density);
-        if (typeof state.hideToTray === "boolean") setHideToTray(state.hideToTray);
-        if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
-          setDefaultRail(state.defaultRail);
-          review.hydrateLegacy({ defaultTab: state.defaultRail });
-        } else if (state.defaultRail === "context") {
-          setDefaultRail("changes");
-          review.hydrateLegacy({ defaultTab: "changes" });
-        }
-        if (state.shortcuts && typeof state.shortcuts === "object") setShortcuts(state.shortcuts);
-        setUnread(loadUnread(state.unread));
-        setSidebarWidth(loadWidth(state.sidebarWidth, SIDEBAR));
-        setPreviewWidth(loadWidth(state.previewWidth, PREVIEW));
-        setSidebarList(loadSidebarList(state.sidebarList));
-        setLastWorkspace(typeof state.lastWorkspace === "string" ? state.lastWorkspace : "");
-        const pinnedRaw = Array.isArray(state.pinnedProjects)
-          ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
-          : [];
-        setPinnedProjects(prunePinnedProjects(pinnedRaw, merged));
-        const inbox = await ensureInbox(state.inboxCwd ?? null);
-        setInboxCwd(inbox);
-        const all = await listSessions(null).catch(() => [] as SessionSummary[]);
-        setInboxSessions(all.filter((s) => sameCwd(s.cwd, inbox)));
-        setSessions(all.filter((s) => !sameCwd(s.cwd, inbox)));
-        const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
-        setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
-        const initial = merged[0] || inbox;
-        if (initial) setCwd(initial);
-        void refreshInspect(initial || inbox);
-        void refreshModels();
-        void readManagedConfig().then(setManaged).catch(() => {});
-        void readUsageHistory().then(setUsageHistory).catch(() => {});
-        void listAgentsDir().then(setAgentRows).catch(() => {});
-        if (doc.grokPath) {
-          void ensureAgent().catch((e) => showToast(String(e)));
-        }
-      } catch (e) {
-        showToast(String(e));
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
-    let inflight = false;
-    const tick = async () => {
-      if (cancelled || inflight) return;
-      inflight = true;
-      try {
-        const raw = await rpc("_x.ai/billing", {}, { timeoutMs: 8000 });
-        if (!cancelled) setWeeklyUsage(parseWeeklyUsage(raw));
-      } catch {
-        /* keep the last snapshot; billing is best-effort */
-      } finally {
-        inflight = false;
-      }
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), 10_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [ready]);
-
-  async function selectProject(path: string) {
-    const last = path === INBOX_PIN || (inboxCwd && sameCwd(path, inboxCwd)) ? INBOX_PIN : path;
-    setLastWorkspace(last);
-    persist({ lastWorkspace: last });
-    setCwd(path);
-    setOpenProjects((m) => ({ ...m, [path]: true }));
-    if (current && !sameCwd(current.cwd, path)) {
-      adoptSession(null);
-      setChat(emptyChat());
-    }
-    try {
-      await setWorkspace(path);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  async function addProject() {
-    if (picking) return;
-    setPicking(true);
-    try {
-      const dir = await pickDirectory();
-      if (!dir) return;
-      if (dir === "/" || dir === info?.grokHome || dir === (info?.grokHome ? undefined : "")) {
-        showToast("请选择具体项目目录，不要选系统根目录");
-        return;
-      }
-      const next = mergeProjectPaths([...projects, dir], []);
-      setProjects(next);
-      persist({ projects: next });
-      await selectProject(dir);
-    } catch (e) {
-      showToast(String(e));
-    } finally {
-      setPicking(false);
-    }
-  }
-
-  async function refreshAllSessions(inbox = inboxCwd) {
-    try {
-      const all = await listSessions(null);
-      setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
-      setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
-    } catch {
-      setInboxSessions([]);
-    }
-  }
-  refreshSessionsRef.current = refreshAllSessions;
-
-  async function refreshInbox(path = inboxCwd) {
-    await refreshAllSessions(path);
-  }
-
-  async function switchWorkdir(path: string) {
-    const bound = current && inboxCwd ? !sameCwd(current.cwd, inboxCwd) : !!(current && current.cwd);
-    const hasTurn = chat.items.some((i) => i.kind === "user" || i.kind === "assistant");
-    if (bound && hasTurn) {
-      showToast("项目内对话开始后不能再换目录");
-      return;
-    }
-    setCwd(path);
-    if (current && !sameCwd(current.cwd, path)) {
-      adoptSession(null);
-      setChat(emptyChat());
-    }
-    try {
-      await setWorkspace(path);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  async function removeSession(s: SessionSummary) {
-    if (!window.confirm(`删除会话「${displayTitle(s, titles)}」？`)) return;
-    try {
-      await deleteSession(s.id);
-      const next = setTitleOverride(titles, s.id, "");
-      setTitles(next);
-      persist({ titles: next });
-      setMenu(null);
-      if (editingTitleId === s.id) setEditingTitleId(null);
-      if (sessionId === s.id) {
-        adoptSession(null);
-        setChat(emptyChat());
-      }
-      if (split?.id === s.id) {
-        setSplit(null);
-        setSplitDraft("");
-        setSplitBusy(false);
-      }
-      await refreshAllSessions();
-    } catch (e) {
-      showToast(String(e));
-    }
-  }
-
-  /**
-   * Mode is a CLI-level default, but the slash that applies it belongs to one
-   * session — so the pane that asked for the change is the pane that gets it.
-   */
-  async function applyMode(next: Mode, dest: "main" | "split" = "main") {
-    setMode(next);
-    persist({ mode: next });
-    const paneBusy = dest === "split" ? splitBusy : mainPaneBusy;
-    const live =
-      dest === "split"
-        ? !!(split?.id && readyRef.current)
-        : !!(sessionIdRef.current && readyRef.current && !loadingSession);
-    if (live && paneBusy) {
-      showToast("将在下一轮生效");
-      return;
-    }
-    if (live) {
-      try {
-        await sendSlashToAgent(slashForMode(next), dest);
-      } catch (e) {
-        if (dest === "split") setSplitBusy(false);
-        else setBusy(false);
-        showToast(String(e));
-      }
-      return;
-    }
-    showToast(`已记下 ${modeLabel(next)}，下一轮会话生效`);
-  }
-
-  function applySessionModel(next: string) {
-    if (sessionIdRef.current && readyRef.current) {
-      void sendPrompt(`/model ${next}`);
-      showToast(`已发送 /model ${next}`);
-      return;
-    }
-    applyModel(next);
-  }
-
-  function applyModel(next: string) {
-    setModel(next);
-    void patchCliSettings({ model: next })
-      .then(() => {
-        setCli((prev) => (prev ? { ...prev, model: next } : prev));
-        if (sessionModel && sessionModel !== next) {
-          showToast(`已写入默认模型，当前会话仍是 ${sessionModel}。用 /model 可切换本会话。`);
-        }
-      })
-      .catch((e) => showToast(String(e)));
-  }
-
-  function applyEffort(next: Effort) {
-    if (!cli) return;
-    void patchCliSettings({ effort: next })
-      .then(() => {
-        setCli((prev) => (prev ? { ...prev, effort: next } : prev));
-      })
-      .catch((e) => showToast(String(e)));
-  }
-
-  const effort = normalizeEffort(cli?.effort);
-
-  async function runSlash(cmd: CommandDef, rest = "", dest: "main" | "split" = "main") {
-    if (dest === "split") {
-      if (cmd.local === "plan" || cmd.local === "yolo" || cmd.local === "auto") {
-        setSplitDraft("");
-        return applyMode(cmd.local === "auto" ? "agent" : cmd.local, "split");
-      }
-      if (cmd.local) {
-        showToast("这条命令请在左侧会话执行");
-        return;
-      }
-      splitComposerRef.current?.setText(cmd.name + " ");
-      return;
-    }
-    if (cmd.local === "new") return startSession();
-    if (cmd.local === "settings") return openSettings();
-    if (cmd.local === "hub") {
-      setDraft("");
-      return openHub(cmd.hubTab ?? "skills");
-    }
-    if (cmd.local === "session-info") {
-      setDraft("");
-      const text = formatSessionInfo({
-        id: sessionIdRef.current || "—",
-        cwd: cwd || inboxCwd,
-        model: sessionModel ?? model,
-        title: currentTitleRef.current,
-        turns: chat.items.filter((i) => i.kind === "user").length,
-        usage: chat.usage,
-      });
-      void navigator.clipboard.writeText(text).then(() => showToast("已复制会话信息"));
-      return;
-    }
-    if (cmd.local === "export") {
-      setDraft("");
-      const text = exportTranscript(chat.items);
-      void navigator.clipboard.writeText(text).then(() => showToast("已复制导出会话"));
-      return;
-    }
-    if (cmd.local === "copy") {
-      setDraft("");
-      const text = lastAssistantText(chat.items);
-      if (!text) {
-        showToast("还没有可复制的回复");
-        return;
-      }
-      void navigator.clipboard.writeText(text).then(() => showToast("已复制上一条回复"));
-      return;
-    }
-    if (cmd.local === "fork") {
-      setDraft("");
-      return void sendPrompt("/fork");
-    }
-    if (cmd.local === "rewind") {
-      setDraft("");
-      if (rewindIndex.lastEdit >= 0) {
-        setRewindTarget(rewindIndex.lastEdit);
-        showToast("文件还原用「回到这里」；对话回退请确认对话框。也可发 /rewind");
-        return;
-      }
-      return void sendPrompt("/rewind");
-    }
-    if (cmd.local === "dashboard") {
-      setDraft("");
-      setExtraPage("dashboard");
-      return;
-    }
-    if (cmd.local === "imagine" || cmd.local === "imagine-video") {
-      setDraft("");
-      setExtraPage(cmd.local);
-      void listImagineArtifacts(cwd || null).then((paths) => {
-        setImagineImages(paths.filter((p) => !/\.(mp4|webm)$/i.test(p)));
-        setImagineVideos(paths.filter((p) => /\.(mp4|webm)$/i.test(p)));
-      }).catch(() => {});
-      return;
-    }
-    if (cmd.local === "agents") {
-      setDraft("");
-      setExtraPage("agents");
-      void listAgentsDir().then(setAgentRows).catch(() => {});
-      return;
-    }
-    if (cmd.local === "memory") {
-      setDraft("");
-      setExtraPage("memory");
-      return;
-    }
-    if (cmd.local === "plan") {
-      setDraft("");
-      return applyMode("plan");
-    }
-    if (cmd.local === "yolo") {
-      setDraft("");
-      return applyMode("yolo");
-    }
-    if (cmd.local === "auto") {
-      setDraft("");
-      return applyMode("agent");
-    }
-    if (cmd.local === "delete" && sessionId) {
-      const s = sessions.find((x) => x.id === sessionId);
-      if (s) return removeSession(s);
-    }
-    if (cmd.local === "rename") {
-      setDraft("");
-      const parsed = parseRenameArgs(rest);
-      if (parsed.kind === "error") {
-        showToast(parsed.message);
-        return;
-      }
-      const id = sessionIdRef.current;
-      if (!id) {
-        showToast("没有可重命名的会话");
-        return;
-      }
-      if (parsed.kind === "auto") {
-        restoreGenerated(id);
-        return;
-      }
-      if (parsed.kind === "title") {
-        const next = setTitleOverride(titles, id, parsed.title);
-        setTitles(next);
-        persist({ titles: next });
-        return;
-      }
-      beginEditTitle();
-      return;
-    }
-    composerRef.current?.setText(cmd.name + " ");
-  }
-
-  /**
-   * Inject a message into the turn that is already running. The agent decides
-   * when to read it; the tool call in flight is not cancelled. If the CLI
-   * refuses a second prompt on a live session we fall back to the queue rather
-   * than losing the message.
-   */
-  async function steerPrompt(text: string, dest: "main" | "split" = "main") {
-    const sid = dest === "split" ? split?.id : sessionIdRef.current;
-    if (!sid) {
-      queuePrompt(text, dest);
-      return;
-    }
-    const echo = (prev: ChatState): ChatState => ({
-      ...prev,
-      items: [...prev.items, { kind: "user", id: `u-steer-${prev.nextId}`, text, at: Date.now() }],
-      nextId: prev.nextId + 1,
-    });
-    if (dest === "split") {
-      echoedSplitUser.current = true;
-      setSplit((prev) => (prev ? { ...prev, chat: echo(prev.chat) } : prev));
-      setSplitDraft("");
-    } else {
-      echoedUser.current = true;
-      setChat(echo);
-      setDraft("");
-    }
-    try {
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest });
-    } catch (e) {
-      showToast(`改向失败，已改为排队：${String(e)}`);
-      queuePrompt(text, dest);
-    }
-  }
-
-  function queuePrompt(text: string, dest: "main" | "split" = "main") {
-    if (dest === "split") {
-      const next = enqueue(splitQueueRef.current, text);
-      if (next === splitQueueRef.current) {
-        showToast("队列已满，等这一轮结束");
-        return;
-      }
-      splitQueueRef.current = next;
-      setSplitQueue(next);
-      setSplitDraft("");
-      return;
-    }
-    const next = enqueue(queueRef.current, text);
-    if (next === queueRef.current) {
-      showToast("队列已满，等这一轮结束");
-      return;
-    }
-    queueRef.current = next;
-    setQueue(next);
-    setDraft("");
-    if (sessionIdRef.current) {
-      const drafts = writeDraft(sessionDrafts, sessionIdRef.current, "");
-      setSessionDrafts(drafts);
-      persist({ drafts });
-    }
-  }
-
-  /** The action the send button performs while a turn is running. */
-  function submitPrompt(text: string, dest: "main" | "split" = "main") {
-    if (!text.trim()) return;
-    const paneBusy = dest === "split" ? splitBusy : mainPaneBusy;
-    if (!paneBusy) {
-      void sendPrompt(text, dest);
-      return;
-    }
-    if (steerByDefault) void steerPrompt(text, dest);
-    else queuePrompt(text, dest);
-  }
-
-  /** The other one, offered next to it. */
-  function altSubmit(text: string, dest: "main" | "split" = "main") {
-    if (!text.trim()) return;
-    if (steerByDefault) queuePrompt(text, dest);
-    else void steerPrompt(text, dest);
-  }
-
-  async function sendPrompt(text: string, dest: "main" | "split" = "main") {
-    const toSplit = dest === "split";
-    if (!text.trim() || loadingSession) return;
-    if (toSplit ? splitBusy : busy) return;
-    if (!toSplit && text.startsWith("/")) {
-      const name = text.split(/\s/)[0];
-      const found = filterCommands(name, chat.commands).find((c) => c.name === name);
-      if (found?.local) {
-        setDraft("");
-        return runSlash(found, text.slice(name.length).trimStart());
-      }
-    }
-    if (toSplit && text.startsWith("/")) {
-      const name = text.split(/\s/)[0];
-      const found = filterCommands(name, split?.chat.commands ?? []).find((c) => c.name === name);
-      if (found?.local) {
-        setSplitDraft("");
-        return runSlash(found, text.slice(name.length).trimStart(), "split");
-      }
-    }
-    if (toSplit) {
-      const sid = split?.id;
-      if (!sid) return;
-      setSplit((prev) =>
-        prev
-          ? {
-              ...prev,
-              chat: {
-                ...prev.chat,
-                items: [...prev.chat.items, { kind: "user", id: `u-local-${prev.chat.nextId}`, text, at: Date.now() }],
-                nextId: prev.chat.nextId + 1,
-              },
-            }
-          : prev,
-      );
-      setSplitDraft("");
-      setSplitBusy(true);
-      setSplitAtBottom(true);
-      echoedSplitUser.current = true;
-      pendingPrompt.current = "split";
-      try {
-        await ensureAgent();
-        if (split?.cwd) await setWorkspace(split.cwd, sid);
-        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "split" });
-      } catch (e) {
-        setSplitBusy(false);
-        showToast(String(e));
-      }
-      return;
-    }
-    echoedUser.current = true;
-    setChat((prev) => ({
-      ...prev,
-      items: [...prev.items, { kind: "user", id: `u-local-${prev.nextId}`, text, at: Date.now() }],
-      nextId: prev.nextId + 1,
-    }));
-    setDraft("");
-    if (sessionIdRef.current) {
-      const nextDrafts = writeDraft(sessionDrafts, sessionIdRef.current, "");
-      setSessionDrafts(nextDrafts);
-      persist({ drafts: nextDrafts });
-    }
-    setAtBottom(true);
-    pendingPrompt.current = "main";
-    try {
-      await ensureAgent();
-      let sid = sessionIdRef.current;
-      if (!sid) sid = await createAcpSession(cwd || inboxCwd || ".");
-      beginMainRun(sid);
-      if (cwd) await setWorkspace(cwd, sid);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "main" });
-    } catch (e) {
-      setBusy(false);
-      showToast(String(e));
-    }
-  }
-
-  async function cancelTurn(target: "main" | "split" = "main") {
-    const sid = target === "split" ? split?.id : runningSessionIdRef.current;
-    try {
-      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } });
-      const selected = panePermissions[target];
-      if (selected) await cancelPermission(selected);
-    } finally { if (target === "split") setSplitBusy(false); else setBusy(false); }
-  }
-  function onDraftChange(value: string) {
-    setDraft(value);
-    if (!sessionId) return;
-    const next = writeDraft(sessionDrafts, sessionId, value);
-    setSessionDrafts(next);
-    persist({ drafts: next });
-  }
-
-  async function newWorktreeSession() {
-    if (!cwd || !git?.isRepo || worktreeBusy) return;
-    const base = current ? displayTitle(current, titles) : "";
-    const name = worktreeName(base);
-    setWorktreeBusy(true);
-    try {
-      const dir = await gitCreateWorktree(cwd, name);
-      const next = mergeProjectPaths([...projects, dir], []);
-      setProjects(next);
-      persist({ projects: next });
-      await selectProject(dir);
-      await startSession(dir);
-      showToast(`已在 ${basename(dir)} 开新会话`);
-    } catch (e) {
-      showToast(String(e));
-    } finally {
-      setWorktreeBusy(false);
-    }
-  }
-
-  /**
-   * Undo every file edit the agent made after a given turn. Destructive, so
-   * the dialog states exactly what it will touch before this runs.
-   */
-  async function applyRewind(index: number) {
-    const root = cwd || inboxCwd;
-    if (!root) return;
-    const plan = planRevert(chat.items, index);
-    if (plan.steps.length === 0) {
-      showToast(describePlan(plan));
-      return;
-    }
-
-    let ok = 0;
-    const failed: string[] = [];
-    for (const step of plan.steps) {
-      try {
-        await restoreTextFile(step.path, step.kind === "restore" ? step.text : null, root);
-        ok += 1;
-      } catch {
-        failed.push(step.path);
-      }
-    }
-    await refreshGit();
-    showToast(
-      failed.length === 0
-        ? `已还原 ${ok} 个文件`
-        : `已还原 ${ok} 个，${failed.length} 个失败：${basename(failed[0])}`,
-    );
-  }
-
-  const toggleExpand = useCallback((id: string, currentlyOpen: boolean) => {
-    if (currentlyOpen) {
-      setExpandedIds((s) => {
-        const n = new Set(s);
-        n.delete(id);
-        return n;
-      });
-      setCollapsedIds((s) => new Set(s).add(id));
-    } else {
-      setCollapsedIds((s) => {
-        const n = new Set(s);
-        n.delete(id);
-        return n;
-      });
-      setExpandedIds((s) => new Set(s).add(id));
-    }
-  }, []);
-
-  const current = sessionId
-    ? sessions.find((s) => s.id === sessionId) ?? inboxSessions.find((s) => s.id === sessionId) ?? null
-    : null;
-  const currentTitle = current ? displayTitle(current, titles) : sessionId ? "新会话" : "新对话";
-  const sessionModel = current?.model ?? null;
-  const isInbox = !!(inboxCwd && cwd && sameCwd(cwd, inboxCwd));
-  const cwdLocked = !!(
-    sessionId &&
-    !isInbox &&
-    chat.items.some((i) => i.kind === "user" || i.kind === "assistant")
-  );
-  const menuSession = menu
-    ? menu.kind === "row"
-      ? sessions.find((s) => s.id === menu.id) ?? inboxSessions.find((s) => s.id === menu.id) ?? null
-      : current
-    : null;
-  const usage = chat.usage;
-
-  useEffect(() => {
-    if (!usage?.used || !usage.size) return;
-    setUsageHistory((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.used === usage.used && last.size === usage.size) return prev;
-      return [...prev.slice(-48), { at: Date.now(), used: usage.used ?? 0, size: usage.size ?? 0 }];
-    });
-  }, [usage?.used, usage?.size]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const used = usage?.used;
-    if (typeof used !== "number" || !Number.isFinite(used)) return;
-    if (sessionTokens[sessionId] === used) return;
-    const next = { ...sessionTokens, [sessionId]: used };
-    setSessionTokens(next);
-    persist({ sessionTokens: next });
-  }, [sessionId, usage?.used, sessionTokens, persist]);
-  const plan = chat.plan;
-  const splitSession = split
-    ? sessions.find((s) => s.id === split.id) ?? inboxSessions.find((s) => s.id === split.id) ?? null
-    : null;
-  const splitTitle = splitSession ? displayTitle(splitSession, titles) : "并列会话";
-  const userTurns = chat.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user");
-  const splitTurns = split
-    ? split.chat.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user")
-    : [];
-  const lastAssistant = [...chat.items].reverse().find((i) => i.kind === "assistant");
-  const urlChips = lastAssistant && lastAssistant.kind === "assistant"
-    ? Array.from(lastAssistant.text.matchAll(/https?:\/\/[^\s)]+/g)).map((m) => m[0]).slice(0, 3)
-    : [];
-
-  function openSettings() {
-    setSettingsOpen(true);
-  }
-
-  useEffect(() => {
-    currentTitleRef.current = currentTitle;
-  }, [currentTitle]);
-
-  const allSessions = useMemo(
-    () => [...inboxSessions, ...sessions],
-    [inboxSessions, sessions],
-  );
-
-  const palette = useCommandPalette({
-    sources: {
-      sessions: allSessions,
-      projects,
-      commands: chat.commands,
-      titles,
-      cwd,
-      isRepo: !!git?.isRepo,
-    },
-    onAction: (action) => {
-      if (action.kind === "session") {
-        const s = allSessions.find((x) => x.id === action.id);
-        if (s) void resumeSession(s);
-        return;
-      }
-      if (action.kind === "project") {
-        void selectProject(action.path);
-        return;
-      }
-      if (action.kind === "slash") {
-        const cmd = filterCommands(action.name, chat.commands).find((c) => c.name === action.name);
-        if (cmd) void runSlash(cmd);
-        else composerRef.current?.setText(`${action.name} `);
-        return;
-      }
-      switch (action.act) {
-        case "new-chat":
-          void startNewChat();
-          break;
-        case "new-session":
-          void startSession();
-          break;
-        case "settings":
-          openSettings();
-          break;
-        case "hub-skills":
-          openHub("skills");
-          break;
-        case "hub-mcp":
-          openHub("mcp");
-          break;
-        case "hub-plugins":
-          openHub("plugins");
-          break;
-        case "hub-hooks":
-          openHub("hooks");
-          break;
-        case "hub-market":
-          openHub("marketplace");
-          break;
-        case "fork":
-          void sendPrompt("/fork");
-          break;
-        case "export": {
-          const text = exportTranscript(chat.items);
-          void navigator.clipboard.writeText(text).then(() => showToast("已复制导出会话"));
-          break;
-        }
-        case "theme": {
-          const next = theme === "light" ? "dark" : "light";
-          setTheme(next);
-          persist({ theme: next });
-          break;
-        }
-        case "panel": {
-          const next = !reviewOpen;
-          review.toggle(defaultRail);
-          persist(persistReviewOpen(next));
-          break;
-        }
-        case "context":
-          openReview("plan");
-          break;
-        case "dashboard":
-          setExtraPage("dashboard");
-          break;
-        case "imagine":
-          setExtraPage("imagine");
-          void listImagineArtifacts(cwd || null).then((paths) => {
-            setImagineImages(paths.filter((p) => !/\.(mp4|webm)$/i.test(p)));
-            setImagineVideos(paths.filter((p) => /\.(mp4|webm)$/i.test(p)));
-          }).catch(() => {});
-          break;
-        case "agents":
-          setExtraPage("agents");
-          void listAgentsDir().then(setAgentRows).catch(() => {});
-          break;
-        case "memory":
-          setExtraPage("memory");
-          break;
-        case "usage":
-          setExtraPage("usage");
-          break;
-        case "add-project":
-          void addProject();
-          break;
-        case "worktree":
-          void newWorktreeSession();
-          break;
-        case "finder":
-          if (cwd) void openPath(cwd);
-          break;
-      }
-    },
-  });
-
-  const busyIds = useMemo(() => {
-    const ids: string[] = [];
-    if (busy && runningSessionId) ids.push(runningSessionId);
-    if (splitBusy && split?.id) ids.push(split.id);
-    return ids;
-  }, [busy, runningSessionId, splitBusy, split?.id]);
-
-  const statusFor = useCallback(
-    (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId, unread }),
-    [busyIds, awaitingId, unread],
-  );
-
-  const sidebarSections = useMemo(
-    () =>
-      buildSidebarSections({
-        sessions: allSessions,
-        projects,
-        inboxCwd,
-        pinned,
-        pinnedProjects,
-        archived,
-        autoArchiveDays,
-        now: Date.now(),
-        prefs: sidebarList,
-        titles,
-        statusFor,
-        sessionTokens,
-      }),
-    [allSessions, projects, inboxCwd, pinned, pinnedProjects, archived, autoArchiveDays, clock, sidebarList, titles, statusFor, sessionTokens],
-  );
-
-  const visibleHotkeySessions = useMemo(
-    () => sidebarSections.flatMap((section) => section.rows.map((r) => r.session.id)).slice(0, 9),
-    [sidebarSections],
-  );
-
-  useSessionHotkeys({
-    enabled: !settingsOpen && !menu && !palette.open,
-    sessionIds: visibleHotkeySessions,
-    onOpenIndex: (i) => {
-      const id = visibleHotkeySessions[i];
-      if (!id) return;
-      const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
-      if (s) void resumeSession(s);
-    },
-    onMru: () => setMruOpen((v) => !v),
-  });
-
-  // Sessions get deleted outside this app too; do not let the map grow forever.
-  useEffect(() => {
-    if (allSessions.length === 0) return;
-    setUnread((prev) => {
-      const next = pruneUnread(prev, allSessions.map((s) => s.id));
-      if (Object.keys(next).length === Object.keys(prev).length) return prev;
-      persist({ unread: next });
-      return next;
-    });
-  }, [allSessions, persist]);
-
-  /**
-   * Only offer a rewind where the turn actually produced file edits. Indexed
-   * once per thread change so the thread does not re-plan on every render.
-   */
-  useEffect(() => {
-    if (!searchJump) return;
-    const rows = chat.items
-      .filter((i): i is Extract<ChatItem, { kind: "user" | "assistant" }> => i.kind === "user" || i.kind === "assistant")
-      .map((i) => ({ id: i.id, text: i.text }));
-    const hit = firstHitIndex(rows, searchJump);
-    if (hit) setJumpTurnId(hit);
-  }, [chat.items, searchJump]);
-
-  const rewindIndex = useMemo(() => {
-    const byId = new Map<string, number>();
-    let lastEdit = -1;
-    chat.items.forEach((item, i) => {
-      byId.set(item.id, i);
-      if (item.kind === "tool" && item.diff?.path) lastEdit = i;
-    });
-    return { byId, lastEdit };
-  }, [chat.items]);
-
-  const rewindForItem = useCallback(
-    (itemId: string): (() => void) | undefined => {
-      const index = rewindIndex.byId.get(itemId);
-      if (index === undefined || index > rewindIndex.lastEdit) return undefined;
-      return () => setRewindTarget(index);
-    },
-    [rewindIndex],
-  );
-
-  const rewindPreview = useMemo(() => {
-    if (rewindTarget == null) return null;
-    return {
-      plan: planRevert(chat.items, rewindTarget),
-      rows: previewRevert(chat.items, rewindTarget),
-    };
-  }, [rewindTarget, chat.items]);
-
-  const subagentCards = useMemo(() => {
-    const out: { id: string; name: string; status: ReturnType<typeof subagentStatusFromTool> }[] = [];
-    for (const item of chat.items) {
-      if (item.kind !== "tool") continue;
-      const status = subagentStatusFromTool(item.title, item.status);
-      if (!status) continue;
-      out.push({ id: item.id, name: item.title, status });
-    }
-    return out;
-  }, [chat.items]);
-
-  const planComplete =
-    mode === "plan" && plan.length > 0 && plan.every((e) => e.status === "completed");
-
-  const dashboardSessions = useMemo(
-    () =>
-      allSessions.map((s) => {
-        const st = statusFor(s.id);
-        const status =
-          st === "needs-you" ? "needs-input" : st === "working" ? "running" : "idle";
-        return { id: s.id, title: displayTitle(s, titles), status } as const;
-      }),
-    [allSessions, statusFor, titles],
-  );
-
-  const memoryPath = rules.find((r) => r.name === "MEMORY.md")?.path;
-  const agentsMdPath = rules.find((r) => r.name === "AGENTS.md")?.path;
-  const permissionContext = { mainSessionId: sessionId, runningMainSessionId: runningSessionId, splitSessionId: split?.id ?? null, mainBusy: busy, splitBusy };
-  const panePermissions = selectPanePermissions(permissions, permissionContext);
-  const mainPermission = panePermissions.main; const splitPermission = panePermissions.split;
-  const mainPermissionView = derivePermissionView({ ...permissionContext, request: mainPermission });
-  const splitPermissionView = derivePermissionView({ ...permissionContext, request: splitPermission });
-  const splitMentions = selectPaneMentionSource(split?.cwd ?? "", splitMentionData);
-  const stallText = mainPaneBusy ? stallNote(Date.now() - lastActivityRef.current) : "";
-  const takeover = paneComposerTakeover({ pane: "main", pendingPane: mainPermissionView.pane, pendingKind: mainPermissionView.kind, plan: !!planComplete });
-  const splitTakeover = paneComposerTakeover({ pane: "split", pendingPane: splitPermissionView.pane, pendingKind: splitPermissionView.kind, plan: false });
-  const hero = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
-  const turnFiles = lastTurnFiles(chat.items);
-  const terminalTools = bashTools(chat.items);
-  const reviewTabs = deriveReviewTabs({ planCount: plan.length, fileCount: turnFiles.length, changeCount: changes.length, contextCount: (planFile ? 1 : 0) + rules.length, hasDetails: !!detailsTool, hasPreview: !!previewPath, bashCount: terminalTools.length });
-  const reconciledReviewTab = reconcileReviewTab(reviewTab, reviewTabs, defaultRail);
-  useEffect(() => {
-    if (reconciledReviewTab !== reviewTab) review.setTab(reconciledReviewTab);
-  }, [reconciledReviewTab, reviewTab]);
-  const jobs = headerJobs(chat.items);
-  const catalog = subagentCatalog(chat.items);
-  const goal = goalFromPlan(plan);
-  const health = agentHealth({ ready, connecting, sawExit });
-  const runStatus = deriveRunStatus({ disconnected: health === "disconnected", trustRequired: !!(inspect && cwd && inspect.projectTrusted === false), pending: mainPermissionView.statusPending, running: mainPaneBusy, stalled: !!stallText, stallDetail: stallText, planComplete });
-  const turnStats = turnStatsFromItems(chat.items, usage?.output);
-  const splitTurnStats = split ? turnStatsFromItems(split.chat.items, split.chat.usage?.output) : null;
-
-  return (
+    mainPaneBusy,
+    review,
+    reviewOpen,
+    previewPath,
+    previewText,
+    previewTruncated,
+    previewError,
+    persist,
+    git,
+    changes,
+    gitCommits,
+    gitBranchList,
+    refreshGit,
+    answerPermission,
+    refreshInspect,
+    openHub,
+    openReview,
+    openPreview,
+    openMenu,
+    beginEditTitle,
+    cancelEditTitle,
+    commitTitle,
+    moveInboxToProject,
+    restoreGenerated,
+    selectProject,
+    addProject,
+    refreshInbox,
+    switchWorkdir,
+    removeSession,
+    applyMode,
+    applySessionModel,
+    applyModel,
+    applyEffort,
+    effort,
+    runSlash,
+    submitPrompt,
+    altSubmit,
+    sendPrompt,
+    cancelTurn,
+    onDraftChange,
+    newWorktreeSession,
+    applyRewind,
+    toggleExpand,
+    currentTitle,
+    sessionModel,
+    cwdLocked,
+    menuSession,
+    usage,
+    plan,
+    splitSession,
+    splitTitle,
+    userTurns,
+    splitTurns,
+    urlChips,
+    openSettings,
+    allSessions,
+    palette,
+    statusFor,
+    sidebarSections,
+    visibleHotkeySessions,
+    rewindForItem,
+    rewindPreview,
+    subagentCards,
+    planComplete,
+    dashboardSessions,
+    memoryPath,
+    agentsMdPath,
+    mainPermission,
+    mainPermissionView,
+    splitPermissionView,
+    splitMentions,
+    takeover,
+    splitTakeover,
+    hero,
+    turnFiles,
+    terminalTools,
+    reviewTabs,
+    reconciledReviewTab,
+    jobs,
+    catalog,
+    goal,
+    health,
+    runStatus,
+    turnStats,
+    splitTurnStats,
+    splitPermission,
+  } = useAppModel();
+
+return (
     <div
       className="app"
       style={{
@@ -1878,6 +346,7 @@ export function App() {
         onAddProject={() => void addProject()}
         picking={picking}
         statusFor={statusFor}
+        width={sidebarCollapsed ? SIDEBAR_RAIL : sidebarWidth}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         signedIn={!!info?.authPresent}
@@ -2303,6 +772,7 @@ export function App() {
                 onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
               />
               <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
+                width={previewWidth}
                 onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
                 {{
                   progress: plan.length > 0 ? <ul className="todo">{plan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} />{e.content}</li>)}</ul> : <p className="float-empty">本轮还没有进度。</p>,
