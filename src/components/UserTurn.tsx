@@ -2,6 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useState, type MouseEventHandler } from "react";
 import { IconGrokCopy, IconGrokEdit, IconGrokRegenerate } from "../grok-icons";
 import { IconGitFork, IconUndo } from "../icons";
+import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { rewriteLocalMediaHtml } from "../lib/media";
 import { escapeText, linkifyLocalPaths } from "../lib/text";
 
@@ -89,7 +90,7 @@ export function UserTurn({
           __html: rewriteLocalMediaHtml(
             linkifyLocalPaths(escapeText(text).replace(/\n/g, "<br/>")),
             cwd,
-            convertFileSrc,
+            (path) => safeFileSrc(path, assetRoots(cwd, ""), convertFileSrc) ?? "",
           ),
         }}
       />

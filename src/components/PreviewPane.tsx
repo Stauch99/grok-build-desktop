@@ -1,5 +1,6 @@
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { basename } from "../lib/text";
 import { previewErrorCopy, previewKind, relativeTo } from "../lib/preview";
 import { IconGrokClose } from "../grok-icons";
@@ -65,6 +66,7 @@ export function PreviewPane({
 
   const kind = previewKind(path);
   const media = kind === "image" || kind === "video";
+  const mediaSrc = media ? safeFileSrc(path, assetRoots(cwd ?? "", ""), convertFileSrc) : null;
   const label = cwd ? relativeTo(path, cwd) : basename(path);
   const loading = !media && text === null && !error;
 
@@ -140,10 +142,14 @@ export function PreviewPane({
 
       {media ? (
         <div className="preview-body preview-media">
-          {kind === "video" ? (
-            <video src={convertFileSrc(path)} controls preload="metadata" playsInline />
+          {mediaSrc ? (
+            kind === "video" ? (
+              <video src={mediaSrc} controls preload="metadata" playsInline />
+            ) : (
+              <img src={mediaSrc} alt={basename(path)} />
+            )
           ) : (
-            <img src={convertFileSrc(path)} alt={basename(path)} />
+            <p className="preview-empty">无法预览，请用访达打开</p>
           )}
         </div>
       ) : loading ? (

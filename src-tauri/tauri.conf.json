@@ -23,23 +23,26 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://ipc.localhost http://localhost:1420 ws://localhost:1420 https:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'",
       "assetProtocol": {
         "enable": true,
         "scope": {
           "allow": [
-            "$HOME/**",
             "$TEMP/**",
             "/tmp/**",
             "/private/tmp/**",
             "/var/folders/**",
-            "/private/var/folders/**"
+            "/private/var/folders/**",
+            "$HOME/.grok/sessions/**"
           ],
           "deny": [
             "$HOME/.ssh/**",
             "$HOME/.gnupg/**",
             "$HOME/.aws/**",
-            "$HOME/.grok/auth.json"
+            "$HOME/.grok/auth.json",
+            "$HOME/.config/**",
+            "$HOME/.kube/**",
+            "$HOME/Library/Keychains/**"
           ],
           "requireLiteralLeadingDot": false
         }

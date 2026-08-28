@@ -672,7 +672,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
       {takeover === "bar" ? (
       <div className="composer">
-        <AttachStrip items={attachments} onRemove={removeAttachment} />
+        <AttachStrip items={attachments} onRemove={removeAttachment} cwd={cwd} />
         <textarea
           ref={taRef}
           value={value}

@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { basename } from "../lib/text";
 
 export type ImagineGalleryProps = {
@@ -7,16 +8,27 @@ export type ImagineGalleryProps = {
   onOpen: (path: string) => void;
   onSlash: (cmd: string) => void;
   mode?: "image" | "video";
+  cwd?: string;
+  grokHome?: string;
 };
 
 /**
  * Local /imagine artifacts. Generation stays on the slash — this is not a
  * second media studio.
  */
-export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: ImagineGalleryProps) {
+export function ImagineGallery({
+  images,
+  videos,
+  onOpen,
+  onSlash,
+  mode,
+  cwd = "",
+  grokHome = "",
+}: ImagineGalleryProps) {
   const showVideo = mode === "video";
   const paths = showVideo ? videos : images;
   const empty = paths.length === 0;
+  const roots = assetRoots(cwd, grokHome);
 
   return (
     <div>
@@ -30,23 +42,22 @@ export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: Imagin
           {showVideo ? "还没有视频。点 /imagine-video 生成。" : "还没有图片。点 /imagine 生成。"}
         </p>
       ) : null}
-      {showVideo ? (
-        <div className="gallery-grid">
-          {paths.map((path) => (
+      <div className="gallery-grid">
+        {paths.map((path) => {
+          const src = safeFileSrc(path, roots, convertFileSrc);
+          return (
             <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
-              <video src={convertFileSrc(path)} muted preload="metadata" playsInline />
+              {src ? (
+                showVideo ? (
+                  <video src={src} muted preload="metadata" playsInline />
+                ) : (
+                  <img src={src} alt={basename(path)} />
+                )
+              ) : null}
             </button>
-          ))}
-        </div>
-      ) : (
-        <div className="gallery-grid">
-          {paths.map((path) => (
-            <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
-              <img src={convertFileSrc(path)} alt={basename(path)} />
-            </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }

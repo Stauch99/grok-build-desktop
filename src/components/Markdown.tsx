@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { MouseEventHandler } from "react";
+import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { renderMd, splitAssistantBlocks } from "../lib/markdown";
 import { MermaidBlock } from "../MermaidBlock";
 
@@ -18,6 +19,8 @@ export type MarkdownProps = {
  */
 export function Markdown({ text, dark, className = "md", cwd = "", onClick }: MarkdownProps) {
   const blocks = splitAssistantBlocks(text);
+  const roots = assetRoots(cwd, "");
+  const toSrc = (path: string) => safeFileSrc(path, roots, convertFileSrc) ?? "";
   return (
     <div className={className} onClick={onClick}>
       {blocks.map((b, i) =>
@@ -26,7 +29,7 @@ export function Markdown({ text, dark, className = "md", cwd = "", onClick }: Ma
         ) : (
           <div
             key={`md-${i}`}
-            dangerouslySetInnerHTML={{ __html: renderMd(b.text, cwd, convertFileSrc) }}
+            dangerouslySetInnerHTML={{ __html: renderMd(b.text, cwd, toSrc) }}
           />
         ),
       )}
