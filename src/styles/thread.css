@@ -534,3 +534,92 @@
 :root[data-density="compact"] .msg { margin-bottom: 10px; }
 :root[data-density="compact"] .spine-row,
 :root[data-density="compact"] .work-live { padding-top: 3px; padding-bottom: 3px; }
+
+.thread-session-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.thread-session-tools button,
+.thread-import {
+  border: 0;
+  background: var(--bg-input);
+  color: var(--muted);
+  font-size: var(--ui-small);
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.thread-session-tools button.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.thread-import {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+.thread-import input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.thread-import-error { margin: 0 0 8px; color: var(--danger); }
+.thread-summary {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  background: var(--bg-alt);
+  border-radius: var(--radius-m);
+}
+.thread-summary summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--ui-small);
+  color: var(--muted);
+}
+.thread-summary p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: var(--ui-medium);
+  line-height: 1.5;
+}
+.session-outline {
+  margin: 0 0 14px;
+  padding: 8px 0;
+}
+.session-outline ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.session-outline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px 2px;
+  text-align: left;
+  color: var(--text);
+  border-radius: var(--radius);
+}
+.session-outline-item:hover { background: var(--bg-hover); }
+.session-outline-idx {
+  flex: none;
+  min-width: 1.25em;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ui-small);
+}
+.session-outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ui-small);
+}
+.session-outline-empty { margin: 0 0 10px; }

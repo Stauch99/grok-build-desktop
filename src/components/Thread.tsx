@@ -38,6 +38,9 @@ import { TrajectoryView } from "./TrajectoryView";
 import { trajectoryRows } from "../lib/trajectory";
 import { UserTurn } from "./UserTurn";
 import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
+import { SessionOutline } from "./SessionOutline";
+import { shouldShowSummary, summarizeThread } from "../lib/session-summary";
+import { exportSessionFile, parseSessionImport, viewOnlyItems } from "../lib/session-io";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -457,6 +460,11 @@ export type ThreadColumnProps = {
   onThreadView?: (v: "chat" | "trajectory") => void;
   turnFiles?: string[];
   onOpenTurnFile?: (path: string) => void;
+  /** Outline / export jump. Prefer setting `jumpTurnId` in the parent. */
+  onJumpTurn?: (id: string) => void;
+  /** Import JSON as view-only chat items. Parent owns chat state. */
+  onImportItems?: (items: ChatItem[]) => void;
+  sessionTitle?: string;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -490,12 +498,17 @@ export function ThreadColumn({
   onThreadView,
   turnFiles,
   onOpenTurnFile,
+  onJumpTurn,
+  onImportItems,
+  sessionTitle,
 }: ThreadColumnProps) {
   const [tocHover, setTocHover] = useState<{
     top: number;
     left: number;
     text: string;
   } | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [, setLiveTick] = useState(0);
   const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
   const virtualize = blocks.length > VIRTUALIZE_AFTER;
@@ -593,6 +606,38 @@ export function ThreadColumn({
     // Read blocks from this render. Listing them re-flashes while jumpId stays set.
   }, [jumpId, listActive, paneId, chatRef]);
 
+  function jumpToTurn(id: string) {
+    onJumpTurn?.(id);
+    if (listActive) {
+      const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === id);
+      if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "start", behavior: "smooth" });
+      return;
+    }
+    chatRef.current
+      ?.querySelector(`#turn-${paneId}-${id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function importJsonFile(file: File) {
+    setImportError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = typeof reader.result === "string" ? reader.result : "";
+      const parsed = parseSessionImport(raw);
+      if (!parsed.ok) {
+        setImportError(parsed.error);
+        return;
+      }
+      if (!onImportItems) {
+        setImportError("已解析为只读记录，等待接入会话");
+        return;
+      }
+      onImportItems(viewOnlyItems(parsed.value.items));
+    };
+    reader.onerror = () => setImportError("读取文件失败");
+    reader.readAsText(file);
+  }
+
   return (
     <>
     <div
@@ -605,11 +650,28 @@ export function ThreadColumn({
         style={{ ["--thread" as string]: `${chatWidth}px` }}
       >
         {empty ? (
-          emptyNode ?? (
-            <div className="empty">
-              <p>{emptyTitle}</p>
+          <>
+            <div className="thread-session-tools">
+              <label className="thread-import">
+                导入 JSON
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importJsonFile(file);
+                  }}
+                />
+              </label>
             </div>
-          )
+            {importError ? <p className="hint thread-import-error">{importError}</p> : null}
+            {emptyNode ?? (
+              <div className="empty">
+                <p>{emptyTitle}</p>
+              </div>
+            )}
+          </>
         ) : (
           <>
             {onThreadView ? (
@@ -617,6 +679,41 @@ export function ThreadColumn({
                 <button type="button" role="tab" aria-selected={threadView === "chat"} className={threadView === "chat" ? "active" : undefined} onClick={() => onThreadView("chat")}>对话</button>
                 <button type="button" role="tab" aria-selected={threadView === "trajectory"} className={threadView === "trajectory" ? "active" : undefined} onClick={() => onThreadView("trajectory")}>轨迹</button>
               </div>
+            ) : null}
+            <div className="thread-session-tools">
+              <button
+                type="button"
+                className={outlineOpen ? "active" : undefined}
+                onClick={() => setOutlineOpen((v) => !v)}
+              >
+                大纲
+              </button>
+              <button type="button" onClick={() => exportSessionFile(chat.items, "md", sessionTitle)}>
+                导出 MD
+              </button>
+              <button type="button" onClick={() => exportSessionFile(chat.items, "json", sessionTitle)}>
+                导出 JSON
+              </button>
+              <label className="thread-import">
+                导入 JSON
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importJsonFile(file);
+                  }}
+                />
+              </label>
+            </div>
+            {importError ? <p className="hint thread-import-error">{importError}</p> : null}
+            {outlineOpen ? <SessionOutline turns={turns} onJump={jumpToTurn} /> : null}
+            {shouldShowSummary(chat.items) ? (
+              <details className="thread-summary">
+                <summary>对话回顾</summary>
+                <p>{summarizeThread(chat.items)}</p>
+              </details>
             ) : null}
             {turnFiles && turnFiles.length > 0 ? (
               <div className="turn-files" aria-label="本轮产物">

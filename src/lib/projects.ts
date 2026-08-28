@@ -61,9 +61,14 @@ export function groupSessions(projects: string[], sessions: SessionSummary[]): P
 export function displayTitle(
   s: { id: string; title: string },
   titles: Record<string, string> = {},
+  preview?: Record<string, string>,
 ): string {
   const o = titles[s.id]?.trim();
-  return o || s.title || "未命名会话";
+  if (o) return o;
+  const generated = s.title.trim();
+  if (generated) return generated;
+  const clip = preview?.[s.id]?.replace(/\s+/g, " ").trim().slice(0, 40);
+  return clip || "未命名会话";
 }
 
 export function setTitleOverride(
