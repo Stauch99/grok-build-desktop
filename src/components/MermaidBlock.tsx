@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import mermaid from "mermaid";
+import { getMermaidSvg, loadMermaid, setMermaidSvg } from "../lib/mermaid-once";
 
 type Props = {
   text: string;
@@ -7,17 +7,11 @@ type Props = {
   dark: boolean;
 };
 
-function ensureMermaid(dark: boolean) {
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: dark ? "dark" : "default",
-  });
-}
-
-export function MermaidBlock({ text, closed, dark }: Props) {
+export default function MermaidBlock({ text, closed, dark }: Props) {
   const rawId = useId().replace(/:/g, "");
-  const [svg, setSvg] = useState<string | null>(null);
+  const [svg, setSvg] = useState<string | null>(() =>
+    closed ? (getMermaidSvg(text, dark) ?? null) : null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,13 +20,26 @@ export function MermaidBlock({ text, closed, dark }: Props) {
       setError(null);
       return;
     }
+    const hit = getMermaidSvg(text, dark);
+    if (hit) {
+      setSvg(hit);
+      setError(null);
+      return;
+    }
     let cancelled = false;
-    ensureMermaid(dark);
-    const id = `mmd-${rawId}`;
-    void mermaid
-      .render(id, text)
+    void loadMermaid()
+      .then((mod) => {
+        const mermaid = mod.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: dark ? "dark" : "default",
+        });
+        return mermaid.render(`mmd-${rawId}`, text);
+      })
       .then((out) => {
         if (cancelled) return;
+        setMermaidSvg(text, dark, out.svg);
         setError(null);
         setSvg(out.svg);
       })

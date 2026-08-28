@@ -1,9 +1,10 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { memo, type MouseEventHandler } from "react";
+import { lazy, memo, Suspense, type MouseEventHandler } from "react";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { memoizeMarkdown } from "../lib/markdown-cache";
 import { renderMd, splitAssistantBlocks } from "../lib/markdown";
-import { MermaidBlock } from "../MermaidBlock";
+
+const MermaidBlock = lazy(() => import("./MermaidBlock"));
 
 export type MarkdownProps = {
   text: string;
@@ -37,7 +38,18 @@ export const Markdown = memo(function Markdown({
     <div className={className} onClick={onClick}>
       {blocks.map((b, i) =>
         b.kind === "mermaid" ? (
-          <MermaidBlock key={`mmd-${i}`} text={b.text} closed={b.closed} dark={dark} />
+          <Suspense
+            key={`mmd-${i}`}
+            fallback={
+              <div className="mermaid-fallback">
+                <pre>
+                  <code>{b.text}</code>
+                </pre>
+              </div>
+            }
+          >
+            <MermaidBlock text={b.text} closed={b.closed} dark={dark} />
+          </Suspense>
         ) : (
           <div
             key={`md-${i}`}
