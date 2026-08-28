@@ -15,6 +15,9 @@ use walkdir::WalkDir;
 const GROK_TIMEOUT_SECS: u64 = 90;
 const GROK_LONG_TIMEOUT_SECS: u64 = 180;
 
+const AUDIT_ROTATE_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const ATTACHMENT_BYTE_CAP: u64 = 20 * 1024 * 1024;
+
 fn grok_args_allowed(args: &[String]) -> bool {
     let head = args.first().map(String::as_str).unwrap_or("");
     matches!(
@@ -28,6 +31,119 @@ fn grok_args_allowed(args: &[String]) -> bool {
             | "--help"
             | "help"
     )
+}
+
+fn grok_flag_ok(arg: &str) -> bool {
+    if arg.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let Some(rest) = arg.strip_prefix("--") else {
+        return false;
+    };
+    let name = rest.split_once('=').map(|(n, _)| n).unwrap_or(rest);
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphanumeric() => chars.all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        _ => false,
+    }
+}
+
+fn grok_pathlike(arg: &str) -> bool {
+    arg.contains('/') || arg.contains('.')
+}
+
+fn grok_path_has_parent(arg: &str) -> bool {
+    Path::new(arg)
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+fn grok_argv_ok(args: &[String]) -> bool {
+    if !grok_args_allowed(args) {
+        return false;
+    }
+    for arg in args.iter().skip(1) {
+        if arg.starts_with("--") {
+            if !grok_flag_ok(arg) {
+                return false;
+            }
+        } else if !arg.starts_with('-') && grok_pathlike(arg) && grok_path_has_parent(arg) {
+            return false;
+        }
+    }
+    true
+}
+
+pub(crate) fn append_desktop_audit(op: &str, path: &str) {
+    let _ = append_desktop_audit_to(&grok_home().join("desktop-audit.jsonl"), op, path);
+}
+
+pub(crate) fn append_desktop_audit_to(file: &Path, op: &str, path: &str) -> std::io::Result<()> {
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if let Ok(meta) = std::fs::metadata(file) {
+        if meta.len() > AUDIT_ROTATE_BYTES {
+            let rotated = PathBuf::from(format!("{}.1", file.display()));
+            let _ = std::fs::rename(file, &rotated);
+        }
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = serde_json::json!({ "ts": ts, "op": op, "path": path });
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(file)?;
+    writeln!(f, "{line}")?;
+    Ok(())
+}
+
+pub(crate) fn validate_attachment(path: &str, allow_root: Option<&str>) -> AppResult<()> {
+    let raw = PathBuf::from(path.trim());
+    if !raw.is_absolute() {
+        return Err(AppError::Message("附件路径必须是绝对路径".into()));
+    }
+    let canon = raw
+        .canonicalize()
+        .map_err(|_| AppError::Message("附件不存在".into()))?;
+    if is_blocked_path(&canon) {
+        return Err(AppError::Message("不能添加这个附件".into()));
+    }
+    let meta = std::fs::metadata(&canon).map_err(|_| AppError::Message("附件不存在".into()))?;
+    if meta.is_file() && meta.len() > ATTACHMENT_BYTE_CAP {
+        return Err(AppError::Message("文件太大".into()));
+    }
+    let under_home = grok_home()
+        .canonicalize()
+        .ok()
+        .map(|h| is_under(&canon, &h))
+        .unwrap_or(false);
+    let under_root = allow_root
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|r| PathBuf::from(r).canonicalize().ok())
+        .map(|r| is_under(&canon, &r))
+        .unwrap_or(false);
+    if !under_home && !under_root {
+        return Err(AppError::Message("附件不在工作区".into()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stat_attachment(path: String, allow_root: Option<String>) -> AppResult<Value> {
+    tokio::task::spawn_blocking(move || {
+        validate_attachment(&path, allow_root.as_deref())?;
+        let meta = std::fs::metadata(path.trim()).map_err(|e| AppError::Message(e.to_string()))?;
+        Ok(json!({
+            "path": path,
+            "bytes": meta.len(),
+            "kind": if meta.is_dir() { "dir" } else { "file" },
+        }))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 fn apply_grok_env(cmd: &mut Command) {
@@ -52,7 +168,7 @@ fn attach_cwd(cmd: &mut Command, cwd: Option<&str>) {
 }
 
 async fn grok_output(args: &[String], cwd: Option<&str>, secs: u64) -> AppResult<(Option<i32>, String, String)> {
-    if !grok_args_allowed(args) {
+    if !grok_argv_ok(args) {
         return Err(AppError::Message("不允许的 grok 子命令".into()));
     }
     let grok = resolve_grok().ok_or_else(|| AppError::Message("找不到 grok".into()))?;
@@ -91,7 +207,7 @@ pub async fn run_grok(args: Vec<String>, cwd: Option<String>) -> AppResult<Value
 
 #[tauri::command]
 pub async fn run_grok_stream(app: AppHandle, args: Vec<String>, cwd: Option<String>) -> AppResult<Value> {
-    if !grok_args_allowed(&args) {
+    if !grok_argv_ok(&args) {
         return Err(AppError::Message("不允许的 grok 子命令".into()));
     }
     let grok = resolve_grok().ok_or_else(|| AppError::Message("找不到 grok".into()))?;
@@ -216,9 +332,11 @@ pub async fn write_config_text(state: State<'_, Arc<AppState>>, scope: String, t
             .await
             .map_err(|e| AppError::Message(e.to_string()))?;
     }
-    tokio::fs::write(path, text)
+    tokio::fs::write(&path, text)
         .await
-        .map_err(|e| AppError::Message(e.to_string()))
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    append_desktop_audit("write_config_text", &path.display().to_string());
+    Ok(())
 }
 
 fn allow_write(canon: &Path, allow_root: Option<&Path>) -> bool {
@@ -334,7 +452,9 @@ pub async fn write_allowed_text(
         let canon = scoped_write_target(&raw, trusted.as_deref())?;
         if let Some(parent) = canon.parent() { std::fs::create_dir_all(parent).map_err(|e| AppError::Message(e.to_string()))?; }
         let checked = scoped_write_target(&canon, trusted.as_deref())?;
-        write_nofollow(&checked, text.as_bytes()).map_err(|e| AppError::Message(e.to_string()))
+        write_nofollow(&checked, text.as_bytes()).map_err(|e| AppError::Message(e.to_string()))?;
+        append_desktop_audit("write_allowed_text", &checked.display().to_string());
+        Ok(())
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -1223,5 +1343,54 @@ mod security_tests {
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_file(outside);
+    }
+
+    #[test]
+    fn grok_argv_ok_allows_inspect_json() {
+        let args = vec!["inspect".to_string(), "--json".to_string()];
+        assert!(grok_argv_ok(&args));
+    }
+
+    #[test]
+    fn grok_argv_ok_rejects_semicolon_flag() {
+        let args = vec!["inspect".to_string(), "--;rm".to_string()];
+        assert!(!grok_argv_ok(&args));
+    }
+
+    #[test]
+    fn grok_argv_ok_rejects_bare_double_dash() {
+        let args = vec!["mcp".to_string(), "--".to_string()];
+        assert!(!grok_argv_ok(&args));
+    }
+
+    #[test]
+    fn grok_argv_ok_rejects_flag_with_space_and_command_subst() {
+        assert!(!grok_argv_ok(&["inspect".into(), "--foo bar".into()]));
+        assert!(!grok_argv_ok(&["inspect".into(), "--$(id)".into()]));
+        assert!(!grok_argv_ok(&["inspect".into(), "foo/../secret".into()]));
+    }
+
+    #[test]
+    fn audit_helper_writes_a_line() {
+        let dir = temp_dir("audit-log");
+        let file = dir.join("desktop-audit.jsonl");
+        super::append_desktop_audit_to(&file, "write_allowed_text", "/tmp/note.md").unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(v["op"], "write_allowed_text");
+        assert_eq!(v["path"], "/tmp/note.md");
+        assert!(v.get("ts").is_some());
+        assert!(!text.contains("note body"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn validate_attachment_rejects_over_20mb() {
+        let root = temp_dir("attach-big").canonicalize().unwrap();
+        let file = root.join("big.bin");
+        let f = std::fs::File::create(&file).unwrap();
+        f.set_len(ATTACHMENT_BYTE_CAP + 1).unwrap();
+        assert!(validate_attachment(file.to_str().unwrap(), Some(root.to_str().unwrap())).is_err());
+        let _ = std::fs::remove_dir_all(root);
     }
 }

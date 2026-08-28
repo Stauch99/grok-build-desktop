@@ -18,6 +18,7 @@ use cli_bridge::{
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
     read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
     trust_folder, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
+    stat_attachment,
 };
 
 const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
@@ -1668,6 +1669,7 @@ async fn open_path(path: String) -> AppResult<()> {
     if !status.success() {
         return Err(AppError::Message(format!("open 失败: {target}")));
     }
+    crate::cli_bridge::append_desktop_audit("open_path", &target);
     Ok(())
 }
 
@@ -2443,6 +2445,7 @@ pub fn run() {
             read_config_text,
             write_config_text,
             write_allowed_text,
+            stat_attachment,
             git_log,
             git_branches,
             list_file_tree,

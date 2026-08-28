@@ -5,6 +5,7 @@ import {
   attachmentIconLabel,
   attachmentMeta,
   attachmentVisualKind,
+  ATTACHMENT_BYTE_CAP,
   formatAttachmentsPrompt,
   formatBytes,
   isFileDrag,
@@ -140,9 +141,15 @@ describe("attachmentVisualKind", () => {
 });
 
 describe("rejectAttachment", () => {
+  it("rejects files over 20MB with a toast line", () => {
+    expect(rejectAttachment({ name: "big.bin", bytes: ATTACHMENT_BYTE_CAP + 1 })).toBe(
+      "文件太大：big.bin（上限 20 MB）",
+    );
+  });
+
   it("rejects oversized files with a toast line", () => {
     expect(rejectAttachment({ name: "big.bin", bytes: 30 * 1024 * 1024 })).toBe(
-      "文件太大：big.bin（上限 25 MB）",
+      "文件太大：big.bin（上限 20 MB）",
     );
   });
 

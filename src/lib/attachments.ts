@@ -3,6 +3,7 @@ import { basename } from "./text";
 export type Attachment = { path: string; name: string; kind: "file" | "dir"; bytes?: number };
 
 export const ATTACHMENT_CAP = 20;
+export const ATTACHMENT_BYTE_CAP = 20 * 1024 * 1024;
 
 export type AttachmentVisualKind = "pdf" | "md" | "image" | "folder" | "other";
 
@@ -183,13 +184,11 @@ export function pathsFromTauriDrop(paths: string[]): Attachment[] {
     .filter((a): a is Attachment => a !== null);
 }
 
-const ATTACH_MAX_BYTES = 25 * 1024 * 1024;
-
 /** Human reason to toast, or null when the file is fine. */
 export function rejectAttachment(file: { name: string; bytes?: number }): string | null {
   if (!file.name.trim()) return "无法添加没有名字的附件";
-  if (file.bytes != null && file.bytes > ATTACH_MAX_BYTES) {
-    return `文件太大：${file.name}（上限 25 MB）`;
+  if (file.bytes != null && file.bytes > ATTACHMENT_BYTE_CAP) {
+    return `文件太大：${file.name}（上限 20 MB）`;
   }
   return null;
 }

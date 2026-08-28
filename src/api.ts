@@ -219,6 +219,11 @@ export const writeConfigText = (scope: "user" | "project", text: string, cwd?: s
   invoke<void>("write_config_text", { scope, text, cwd: cwd ?? null });
 export const writeAllowedText = (path: string, text: string, allowRoot?: string | null) =>
   invoke<void>("write_allowed_text", { path, text, allowRoot: allowRoot ?? null });
+export const statAttachment = (path: string, allowRoot?: string | null) =>
+  invoke<{ path: string; bytes: number; kind: "file" | "dir" }>("stat_attachment", {
+    path,
+    allowRoot: allowRoot ?? null,
+  });
 
 export type GitCommit = { hash: string; subject: string; date: string };
 export const gitLog = (cwd: string) => invoke<GitCommit[]>("git_log", { cwd });
