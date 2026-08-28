@@ -2,6 +2,7 @@ import {
   Fragment,
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -10,6 +11,7 @@ import {
 } from "react";
 import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "react-window";
 import { openPath } from "../api";
+import { applySearchHit } from "../lib/search-hit";
 import {
   assistantCopyReady,
   groupWorkRuns,
@@ -556,25 +558,42 @@ export function ThreadColumn({
     return () => window.clearInterval(id);
   }, [busy]);
 
+  useLayoutEffect(() => {
+    if (!listActive) return;
+    const sync = () => {
+      const el = listRef.current?.element;
+      if (el) chatRef.current = el;
+    };
+    sync();
+    const raf = requestAnimationFrame(sync);
+    return () => cancelAnimationFrame(raf);
+  }, [listActive, chatRef, listRef]);
+
   useEffect(() => {
     if (!jumpId) return;
+    const hitId = `${paneId}-${jumpId}`;
     if (listActive) {
       const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === jumpId);
       if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "center", behavior: "smooth" });
-      return;
+      let clear = () => {};
+      const t = window.setTimeout(() => {
+        clear = applySearchHit(listRef.current?.element ?? chatRef.current, hitId);
+      }, 0);
+      return () => {
+        window.clearTimeout(t);
+        clear();
+      };
     }
-    const el = chatRef.current?.querySelector(`#turn-${paneId}-${jumpId}, #msg-${paneId}-${jumpId}`);
+    const el = chatRef.current?.querySelector(`#turn-${hitId}, #msg-${hitId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    el?.classList.add("search-hit");
-    const t = window.setTimeout(() => el?.classList.remove("search-hit"), 2400);
-    return () => window.clearTimeout(t);
+    return applySearchHit(chatRef.current, hitId);
   }, [jumpId, paneId, chatRef, listActive, blocks, listRef]);
 
   return (
     <>
     <div
       className={`chat${listActive ? " virtualized" : ""}`}
-      ref={chatRef}
+      ref={listActive ? undefined : chatRef}
       onScroll={listActive ? undefined : (e) => onScroll(e.currentTarget)}
     >
       <div
