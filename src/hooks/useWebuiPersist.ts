@@ -1,9 +1,12 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { saveWebuiState, type WebuiState } from "../api";
 import type { Locale } from "../lib/i18n";
+import { WEBUI_PERSIST_MS } from "../lib/persist-cache";
 import type { Mode } from "../lib/mode";
 import type { UnreadMap } from "../lib/session-status";
 import type { SidebarListPrefs } from "../lib/sidebar-list";
+
+export { WEBUI_PERSIST_MS };
 
 export type WebuiSnapshot = {
   projects: string[];
@@ -43,11 +46,15 @@ export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) 
   const timer = useRef<number | null>(null);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
+  useEffect(() => () => {
+    if (timer.current != null) window.clearTimeout(timer.current);
+  }, []);
   return useCallback((partial: WebuiState) => {
     const next = buildWebuiState(snapRef.current, partial);
-    if (timer.current) window.clearTimeout(timer.current);
+    if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
+      timer.current = null;
       void saveWebuiState(next);
-    }, 200);
+    }, WEBUI_PERSIST_MS);
   }, []);
 }

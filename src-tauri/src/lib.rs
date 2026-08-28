@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
@@ -17,7 +17,7 @@ use cli_bridge::{
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
     read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
-    trust_folder, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
+    trust_folder, watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
     stat_attachment,
 };
 
@@ -681,37 +681,56 @@ fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
     }
 }
 
+struct SessionsDirCache {
+    mtime: u64,
+    sessions: Vec<SessionSummary>,
+}
+
+static SESSIONS_DIR_CACHE: OnceLock<std::sync::Mutex<Option<SessionsDirCache>>> = OnceLock::new();
+static LAST_WEBUI_TEXT: OnceLock<std::sync::Mutex<Option<String>>> = OnceLock::new();
+
+fn scan_all_sessions() -> Vec<SessionSummary> {
+    let root = grok_home().join("sessions");
+    if !root.is_dir() {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
+        if entry.file_name() != "summary.json" {
+            continue;
+        }
+        if let Some(row) = parse_summary(entry.path()) {
+            out.push(row);
+        }
+    }
+    attach_subagent_parents(&mut out);
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out
+}
+
+fn cached_sessions() -> Vec<SessionSummary> {
+    let root = grok_home().join("sessions");
+    let mtime = cli_bridge::dir_mtime_ms(&root);
+    let cache = SESSIONS_DIR_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if cli_bridge::cache_hit(guard.as_ref().map(|row| row.mtime), mtime) {
+        return guard.as_ref().map(|row| row.sessions.clone()).unwrap_or_default();
+    }
+    let sessions = scan_all_sessions();
+    *guard = Some(SessionsDirCache {
+        mtime,
+        sessions: sessions.clone(),
+    });
+    sessions
+}
+
 #[tauri::command]
 async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
     tokio::task::spawn_blocking(move || {
-        let root = grok_home().join("sessions");
-        if !root.is_dir() {
-            return Ok(vec![]);
+        let mut out = cached_sessions();
+        if let Some(want) = cwd.as_deref().filter(|s| !s.is_empty()) {
+            out.retain(|row| row.cwd == want);
         }
-        let mut scan_root = root.clone();
-        if let Some(cwd) = cwd.as_deref().filter(|s| !s.is_empty()) {
-            let encoded = encode_cwd(cwd);
-            let direct = root.join(&encoded);
-            if direct.is_dir() {
-                scan_root = direct;
-            }
-        }
-        let mut out = Vec::new();
-        for entry in WalkDir::new(&scan_root).max_depth(3).into_iter().flatten() {
-            if entry.file_name() != "summary.json" {
-                continue;
-            }
-            if let Some(row) = parse_summary(entry.path()) {
-                if let Some(want) = cwd.as_deref() {
-                    if row.cwd != want {
-                        continue;
-                    }
-                }
-                out.push(row);
-            }
-        }
-        attach_subagent_parents(&mut out);
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(out)
     })
     .await
@@ -975,30 +994,33 @@ async fn load_webui_state() -> AppResult<Value> {
 
 #[tauri::command]
 async fn save_webui_state(state: Value) -> AppResult<()> {
+    let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
+    {
+        let cache = LAST_WEBUI_TEXT.get_or_init(|| std::sync::Mutex::new(None));
+        let last = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cli_bridge::should_skip_save(last.as_deref(), &text) {
+            return Ok(());
+        }
+    }
     let path = webui_path();
     if let Some(parent) = path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
-    tokio::fs::write(path, text)
+    tokio::fs::write(&path, &text)
         .await
-        .map_err(|e| AppError::Message(e.to_string()))
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    let cache = LAST_WEBUI_TEXT.get_or_init(|| std::sync::Mutex::new(None));
+    *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
+    Ok(())
 }
 
 #[tauri::command]
 async fn list_project_roots() -> AppResult<Vec<String>> {
     tokio::task::spawn_blocking(|| {
-        let root = grok_home().join("sessions");
         let mut set = std::collections::BTreeSet::new();
-        if root.is_dir() {
-            for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-                if entry.file_name() == "summary.json" {
-                    if let Some(row) = parse_summary(entry.path()) {
-                        if !row.cwd.is_empty() {
-                            set.insert(row.cwd);
-                        }
-                    }
-                }
+        for row in cached_sessions() {
+            if !row.cwd.is_empty() {
+                set.insert(row.cwd);
             }
         }
         Ok(set.into_iter().collect())
@@ -2551,6 +2573,7 @@ pub fn run() {
             set_notify_target,
             write_hook_file,
             list_agents_dir,
+            watch_workspace,
             workspace_mtime,
             read_usage_history,
             read_token_turns

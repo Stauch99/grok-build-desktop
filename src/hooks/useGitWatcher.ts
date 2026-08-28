@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   gitBranches,
@@ -10,9 +12,11 @@ import {
   type GitStatus,
 } from "../api";
 import { workspaceMtimeChanged } from "../lib/git";
+import { GIT_FALLBACK_MS } from "../lib/persist-cache";
 
-/** Poll interval until Task 14 replaces this with a filesystem watcher. */
-export const GIT_POLL_MS = 4000;
+export { GIT_FALLBACK_MS };
+/** Kept as an alias of the 30s fallback so older callers still compile. */
+export const GIT_POLL_MS = GIT_FALLBACK_MS;
 
 export type GitWatcher = {
   git: GitStatus | null;
@@ -57,21 +61,50 @@ export function useGitWatcher(opts: {
   useEffect(() => {
     if (!opts.cwd) return;
     const cwd = opts.cwd;
-    let last = 0;
-    const tick = () => {
-      void workspaceMtime(cwd)
-        .then((n) => {
-          if (workspaceMtimeChanged(last, n)) {
-            void refresh();
-            onTouchedRef.current?.(cwd);
-          }
-          last = n;
-        })
-        .catch(() => {});
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    let fallbackId: number | undefined;
+
+    const onTouched = () => {
+      void refresh();
+      onTouchedRef.current?.(cwd);
     };
-    tick();
-    const id = window.setInterval(tick, GIT_POLL_MS);
-    return () => window.clearInterval(id);
+
+    const startFallback = () => {
+      let last = 0;
+      const tick = () => {
+        void workspaceMtime(cwd)
+          .then((n) => {
+            if (workspaceMtimeChanged(last, n)) onTouched();
+            last = n;
+          })
+          .catch(() => {});
+      };
+      tick();
+      fallbackId = window.setInterval(tick, GIT_FALLBACK_MS);
+    };
+
+    void (async () => {
+      try {
+        await invoke("watch_workspace", { cwd });
+        const stop = await listen<{ cwd: string; at: number }>("workspace-changed", () => {
+          onTouched();
+        });
+        if (cancelled) {
+          stop();
+          return;
+        }
+        unlisten = stop;
+      } catch {
+        if (!cancelled) startFallback();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (fallbackId != null) window.clearInterval(fallbackId);
+    };
   }, [opts.cwd, refresh]);
 
   useEffect(() => {

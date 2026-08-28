@@ -3,10 +3,12 @@ use crate::{
     is_blocked_path, is_under, reject_oversized_config_text, resolve_grok, AppError, AppResult,
     AppState,
 };
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -1205,6 +1207,157 @@ pub async fn read_token_turns() -> AppResult<Value> {
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+pub(crate) const WATCH_DEBOUNCE_MS: u64 = 300;
+pub(crate) const WATCH_IGNORE: &[&str] = &["node_modules", ".git", "target", "dist", ".next"];
+
+pub(crate) fn dir_mtime_ms(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub(crate) fn cache_hit(cached_mtime: Option<u64>, mtime: u64) -> bool {
+    cached_mtime == Some(mtime)
+}
+
+pub(crate) fn should_skip_save(previous: Option<&str>, next: &str) -> bool {
+    previous == Some(next)
+}
+
+pub(crate) fn watch_path_ignored(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(|name| WATCH_IGNORE.contains(&name))
+    })
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+struct DebouncedEmit {
+    last: StdMutex<Instant>,
+}
+
+impl DebouncedEmit {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            last: StdMutex::new(Instant::now() - Duration::from_secs(60)),
+        })
+    }
+
+    fn bump(&self) {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+    }
+
+    fn should_emit(&self) -> bool {
+        self.last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .elapsed()
+            >= Duration::from_millis(WATCH_DEBOUNCE_MS)
+    }
+}
+
+fn schedule_emit(app: AppHandle, event: &'static str, cwd: String, debounce: Arc<DebouncedEmit>) {
+    debounce.bump();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(WATCH_DEBOUNCE_MS)).await;
+        if !debounce.should_emit() {
+            return;
+        }
+        let _ = app.emit(event, json!({ "cwd": cwd, "at": now_ms() }));
+    });
+}
+
+fn event_is_relevant(event: &Event, filter_ignored: bool) -> bool {
+    if event.paths.is_empty() {
+        return true;
+    }
+    event
+        .paths
+        .iter()
+        .any(|path| !filter_ignored || !watch_path_ignored(path))
+}
+
+fn start_watcher(
+    root: PathBuf,
+    app: AppHandle,
+    event: &'static str,
+    cwd: String,
+    debounce: Arc<DebouncedEmit>,
+    filter_ignored: bool,
+) -> Result<RecommendedWatcher, notify::Error> {
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        let Ok(ev) = res else { return };
+        if !event_is_relevant(&ev, filter_ignored) {
+            return;
+        }
+        schedule_emit(app.clone(), event, cwd.clone(), debounce.clone());
+    })?;
+    watcher.watch(&root, RecursiveMode::Recursive)?;
+    Ok(watcher)
+}
+
+struct WorkspaceWatchState {
+    cwd: String,
+    _workspace: RecommendedWatcher,
+    _memory: Option<RecommendedWatcher>,
+}
+
+static WORKSPACE_WATCH: OnceLock<StdMutex<Option<WorkspaceWatchState>>> = OnceLock::new();
+
+#[tauri::command]
+pub async fn watch_workspace(app: AppHandle, cwd: String) -> AppResult<()> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Err(AppError::Message("invalid workspace".into()));
+    };
+    let cwd_str = root.to_string_lossy().into_owned();
+    let lock = WORKSPACE_WATCH.get_or_init(|| StdMutex::new(None));
+    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.as_ref().is_some_and(|state| state.cwd == cwd_str) {
+        return Ok(());
+    }
+    let workspace = start_watcher(
+        root,
+        app.clone(),
+        "workspace-changed",
+        cwd_str.clone(),
+        DebouncedEmit::new(),
+        true,
+    )
+    .map_err(|e| AppError::Message(e.to_string()))?;
+
+    let memory_dir = grok_home().join("memory");
+    let memory = if memory_dir.is_dir() {
+        start_watcher(
+            memory_dir.clone(),
+            app,
+            "memory-changed",
+            memory_dir.to_string_lossy().into_owned(),
+            DebouncedEmit::new(),
+            false,
+        )
+        .ok()
+    } else {
+        None
+    };
+
+    *guard = Some(WorkspaceWatchState {
+        cwd: cwd_str,
+        _workspace: workspace,
+        _memory: memory,
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod security_tests {
     use super::*;
@@ -1422,5 +1575,34 @@ mod security_tests {
         f.set_len(ATTACHMENT_BYTE_CAP + 1).unwrap();
         assert!(validate_attachment(file.to_str().unwrap(), Some(root.to_str().unwrap())).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_hit_when_directory_mtime_matches() {
+        assert!(cache_hit(Some(1_700_000_000_000), 1_700_000_000_000));
+        assert!(!cache_hit(Some(100), 101));
+        assert!(!cache_hit(None, 100));
+    }
+
+    #[test]
+    fn skip_save_when_serialized_string_is_identical() {
+        assert!(should_skip_save(Some("{\"theme\":\"dark\"}"), "{\"theme\":\"dark\"}"));
+        assert!(!should_skip_save(Some("{\"theme\":\"dark\"}"), "{\"theme\":\"light\"}"));
+        assert!(!should_skip_save(None, "{}"));
+    }
+
+    #[test]
+    fn watch_path_ignored_skips_build_and_vcs_dirs() {
+        assert!(watch_path_ignored(Path::new("/proj/node_modules/pkg/index.js")));
+        assert!(watch_path_ignored(Path::new("/proj/.git/HEAD")));
+        assert!(watch_path_ignored(Path::new("/proj/target/debug/app")));
+        assert!(watch_path_ignored(Path::new("/proj/dist/index.js")));
+        assert!(watch_path_ignored(Path::new("/proj/.next/cache")));
+        assert!(!watch_path_ignored(Path::new("/proj/src/lib/persist-cache.ts")));
+    }
+
+    #[test]
+    fn watch_debounce_is_300_ms() {
+        assert_eq!(WATCH_DEBOUNCE_MS, 300);
     }
 }
