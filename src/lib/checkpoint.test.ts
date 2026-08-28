@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat";
-import { checkpointIndexes, describePlan, planRevert, previewRevert } from "./checkpoint";
+import {
+  checkpointIndexes,
+  describePlan,
+  planRevert,
+  previewRevert,
+  rewindSkipReason,
+} from "./checkpoint";
 
 const user = (id: string, text = "做点事"): ChatItem => ({ kind: "user", id, text });
 const assistant = (id: string): ChatItem => ({ kind: "assistant", id, text: "好的" });
@@ -90,6 +96,51 @@ describe("previewRevert", () => {
     expect(previewRevert(items, 1)).toEqual([
       { path: "new.ts", kind: "delete", current: "new", restored: "" },
     ]);
+  });
+});
+
+const row = (
+  restored: string,
+  kind: "restore" | "delete" = "restore",
+): Parameters<typeof rewindSkipReason>[0] => ({
+  path: "a.bin",
+  kind,
+  current: "now",
+  restored,
+});
+
+describe("rewindSkipReason", () => {
+  it("allows ordinary restore text", () => {
+    expect(rewindSkipReason(row("hello"))).toBeNull();
+  });
+
+  it("treats a NUL byte as binary", () => {
+    expect(rewindSkipReason(row("hello\0world"))).toBe("binary");
+  });
+
+  it("treats empty restore text as binary unless the row is a delete", () => {
+    expect(rewindSkipReason(row(""))).toBe("binary");
+    expect(rewindSkipReason(row("", "delete"))).toBeNull();
+  });
+
+  it("skips restored text longer than 2MB characters", () => {
+    const limit = 2 * 1024 * 1024;
+    expect(rewindSkipReason(row("x".repeat(limit)))).toBeNull();
+    expect(rewindSkipReason(row("x".repeat(limit + 1)))).toBe("too_large");
+  });
+});
+
+describe("planRevert binary skip", () => {
+  it("excludes binary and oversized restores from the write plan", () => {
+    const huge = "x".repeat(2 * 1024 * 1024 + 1);
+    const items = [
+      user("u1"),
+      tool("t1", "ok.ts", "fine"),
+      tool("t2", "blob.bin", "a\0b"),
+      { ...tool("t3", "huge.txt", huge), diff: { path: "huge.txt", oldText: huge, newText: "n" } } as ChatItem,
+    ];
+    expect(planRevert(items, 1).steps).toEqual([{ kind: "restore", path: "ok.ts", text: "fine" }]);
+    expect(previewRevert(items, 1).map((r) => r.path)).toEqual(["ok.ts", "blob.bin", "huge.txt"]);
   });
 });
 
