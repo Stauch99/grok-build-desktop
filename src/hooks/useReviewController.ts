@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { TextFilePreview } from "../api";
 import {
   initialReviewState,
@@ -8,7 +8,16 @@ import {
   type ReviewOpenAction,
   type ReviewTab,
 } from "../lib/review-rail";
-import { previewErrorCopy, previewKind } from "../lib/preview";
+import {
+  activeTabAfterClose,
+  previewErrorCopy,
+  previewKind,
+  putPreviewCache,
+  removePreviewTab,
+  upsertPreviewTab,
+  type PreviewCacheEntry,
+  type PreviewTab,
+} from "../lib/preview";
 
 export type ReviewControllerDependencies = {
   cwd: string;
@@ -36,6 +45,9 @@ export type ReviewController = {
   setTab: (tab: ReviewTab) => void;
   hydrateLegacy: (value: { open?: boolean; defaultTab?: LegacyReviewTab }) => void;
   setPreviewText: (path: string, requestId: number, text: string) => void;
+  previewTabs: PreviewTab[];
+  selectPreviewTab: (path: string) => void;
+  closePreviewTab: (path: string) => void;
 };
 
 export function reviewOwnerKey(sessionId: string | null, cwd: string): string {
@@ -61,13 +73,17 @@ export function validateReviewFallbackTarget(path: string, cwd: string): string 
 
 export function useReviewController(deps: ReviewControllerDependencies): ReviewController {
   const [state, dispatch] = useReducer(reviewReducer, initialReviewState);
+  const [previewTabs, setPreviewTabs] = useState<PreviewTab[]>([]);
   const requestId = useRef(0);
   const ownerKey = useRef(deps.ownerKey);
+  const previewCache = useRef(new Map<string, PreviewCacheEntry>());
   ownerKey.current = deps.ownerKey;
 
   useEffect(() => {
     requestId.current += 1;
     dispatch({ type: "owner-change", requestId: requestId.current, disabled: deps.disabled });
+    setPreviewTabs([]);
+    previewCache.current.clear();
   }, [deps.ownerKey, deps.disabled]);
 
   const openReview = useCallback((action: ReviewOpenAction) => {
@@ -88,6 +104,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     const resolvedPath = resolveReviewPath(path, deps.cwd);
     const kind = previewKind(resolvedPath);
     if (kind === "image" || kind === "video") {
+      setPreviewTabs((tabs) => upsertPreviewTab(tabs, resolvedPath));
       dispatch({ type: "preview-start", path: resolvedPath, requestId: ++requestId.current });
       deps.onOpened?.();
       return;
@@ -99,19 +116,52 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
       try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
       return;
     }
+    setPreviewTabs((tabs) => upsertPreviewTab(tabs, resolvedPath));
+    const cached = previewCache.current.get(resolvedPath);
     const id = ++requestId.current;
     const requestOwner = deps.ownerKey;
     dispatch({ type: "preview-start", path: resolvedPath, requestId: id });
+    if (cached) {
+      dispatch({ type: "preview-success", requestId: id, path: resolvedPath, text: cached.text, truncated: false });
+    }
     deps.onOpened?.();
     try {
       const row = await deps.readTextFile(resolvedPath, deps.cwd || null);
       if (ownerKey.current !== requestOwner) return;
+      putPreviewCache(previewCache.current, row.path, row.text);
       dispatch({ type: "preview-success", requestId: id, path: row.path, text: row.text, truncated: row.truncated });
     } catch (error) {
       if (ownerKey.current !== requestOwner) return;
+      if (cached) return;
       dispatch({ type: "preview-error", requestId: id, error: previewErrorCopy(error) });
     }
   }, [deps.cwd, deps.disabled, deps.isTextPreviewable, deps.onError, deps.onOpened, deps.openReviewPath, deps.ownerKey, deps.readTextFile]);
+
+  const selectPreviewTab = useCallback((path: string) => {
+    const cached = previewCache.current.get(path);
+    if (cached) {
+      const id = ++requestId.current;
+      dispatch({ type: "preview-start", path, requestId: id });
+      dispatch({ type: "preview-success", requestId: id, path, text: cached.text, truncated: false });
+      return;
+    }
+    void openPreview(path);
+  }, [openPreview]);
+
+  const closePreviewTab = useCallback((path: string) => {
+    const nextActive = activeTabAfterClose(previewTabs, path, state.preview.path);
+    setPreviewTabs((tabs) => removePreviewTab(tabs, path));
+    previewCache.current.delete(path);
+    if (state.preview.path !== path) return;
+    if (nextActive) {
+      const cached = previewCache.current.get(nextActive);
+      const id = ++requestId.current;
+      dispatch({ type: "preview-start", path: nextActive, requestId: id });
+      if (cached) dispatch({ type: "preview-success", requestId: id, path: nextActive, text: cached.text, truncated: false });
+      return;
+    }
+    dispatch({ type: "preview-start", path: "", requestId: ++requestId.current });
+  }, [previewTabs, state.preview.path]);
 
   return {
     open: state.open,
@@ -131,6 +181,12 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     toggle: (defaultTab) => { if (!deps.disabled) dispatch({ type: "toggle", defaultTab }); },
     setTab: (tab) => dispatch({ type: "tab", tab }),
     hydrateLegacy: (value) => dispatch({ type: "hydrate-legacy", ...value }),
-    setPreviewText: (path, id, text) => dispatch({ type: "preview-text", path, requestId: id, text }),
+    setPreviewText: (path, id, text) => {
+      putPreviewCache(previewCache.current, path, text);
+      dispatch({ type: "preview-text", path, requestId: id, text });
+    },
+    previewTabs,
+    selectPreviewTab,
+    closePreviewTab,
   };
 }

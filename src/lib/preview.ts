@@ -79,3 +79,69 @@ export function relativeTo(path: string, root: string): string {
   if (path.startsWith(`${base}/`)) return path.slice(base.length + 1);
   return path;
 }
+
+export const MAX_PREVIEW_TABS = 8;
+export type PreviewTab = { path: string };
+export type PreviewCacheEntry = { text: string; mtime: number };
+
+export function upsertPreviewTab(tabs: PreviewTab[], path: string): PreviewTab[] {
+  if (tabs.some((tab) => tab.path === path)) return tabs;
+  const next = [...tabs, { path }];
+  return next.length > MAX_PREVIEW_TABS ? next.slice(next.length - MAX_PREVIEW_TABS) : next;
+}
+
+export function removePreviewTab(tabs: PreviewTab[], path: string): PreviewTab[] {
+  return tabs.filter((tab) => tab.path !== path);
+}
+
+export function activeTabAfterClose(tabs: PreviewTab[], closed: string, active: string | null): string | null {
+  if (active !== closed) return active;
+  const at = tabs.findIndex((tab) => tab.path === closed);
+  const next = tabs[at + 1] ?? tabs[at - 1];
+  return next?.path ?? null;
+}
+
+export function putPreviewCache(
+  cache: Map<string, PreviewCacheEntry>,
+  path: string,
+  text: string,
+  mtime = Date.now(),
+): void {
+  cache.set(path, { text, mtime });
+}
+
+export const IMAGE_ZOOM_MIN = 0.25;
+export const IMAGE_ZOOM_MAX = 8;
+
+export function clampImageZoom(zoom: number): number {
+  return Math.min(IMAGE_ZOOM_MAX, Math.max(IMAGE_ZOOM_MIN, zoom));
+}
+
+export function zoomByWheel(zoom: number, deltaY: number): number {
+  const factor = deltaY > 0 ? 1 / 1.1 : 1.1;
+  return clampImageZoom(zoom * factor);
+}
+
+export function panImage(pan: { x: number; y: number }, dx: number, dy: number): { x: number; y: number } {
+  return { x: pan.x + dx, y: pan.y + dy };
+}
+
+export function imageTransform(state: { zoom: number; x: number; y: number }): string {
+  return `translate(${state.x}px, ${state.y}px) scale(${state.zoom})`;
+}
+
+export function lineGutter(text: string): number[] {
+  return text.split("\n").map((_, i) => i + 1);
+}
+
+export function previewSaveToast(ok: boolean, err?: unknown): string {
+  if (ok) return "已保存";
+  const raw = err instanceof Error ? err.message : err != null ? String(err) : "";
+  return raw.trim() || "保存失败";
+}
+
+export function afterPreviewSave(ok: boolean, refresh?: () => void): void {
+  if (ok) refresh?.();
+}
+
+export type ImageView = { zoom: number; x: number; y: number };
