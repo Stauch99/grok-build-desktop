@@ -257,6 +257,63 @@ fn scoped_write_target(raw: &Path, trusted: Option<&Path>) -> AppResult<PathBuf>
     Ok(canon)
 }
 
+/// Write `bytes` to `path` without following a final-component symlink (TOCTOU-safe on Unix).
+pub(crate) fn write_nofollow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(o_nofollow())
+            .open(path)?;
+        file.write_all(bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "refusing to write through a symlink",
+            ));
+        }
+        std::fs::write(path, bytes)
+    }
+}
+
+#[cfg(unix)]
+fn o_nofollow() -> i32 {
+    // fcntl.h O_NOFOLLOW; avoid a direct libc dependency.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "emscripten",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))]
+    {
+        0x20000
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        0x0100
+    }
+}
+
 #[tauri::command]
 pub async fn write_allowed_text(
     state: State<'_, Arc<AppState>>,
@@ -277,7 +334,7 @@ pub async fn write_allowed_text(
         let canon = scoped_write_target(&raw, trusted.as_deref())?;
         if let Some(parent) = canon.parent() { std::fs::create_dir_all(parent).map_err(|e| AppError::Message(e.to_string()))?; }
         let checked = scoped_write_target(&canon, trusted.as_deref())?;
-        std::fs::write(&checked, text).map_err(|e| AppError::Message(e.to_string()))
+        write_nofollow(&checked, text.as_bytes()).map_err(|e| AppError::Message(e.to_string()))
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -1145,5 +1202,26 @@ mod security_tests {
         assert!(project_config_path(Some(root.to_str().unwrap()), Some(&root)).is_none());
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_nofollow_writes_regular_file_and_rejects_outside_symlink() {
+        use std::os::unix::fs::symlink;
+        let root = temp_dir("nofollow").canonicalize().unwrap();
+        let regular = root.join("note.txt");
+        super::write_nofollow(&regular, b"hello").expect("regular file write");
+        assert_eq!(std::fs::read(&regular).unwrap(), b"hello");
+
+        let outside = PathBuf::from("/tmp/pwned-outside");
+        std::fs::write(&outside, b"original").unwrap();
+        let link = root.join("link.txt");
+        symlink(&outside, &link).unwrap();
+
+        assert!(super::write_nofollow(&link, b"pwned").is_err());
+        assert_eq!(std::fs::read(&outside).unwrap(), b"original");
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_file(outside);
     }
 }
