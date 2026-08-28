@@ -1,0 +1,156 @@
+.settings-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 28px 16px;
+  animation: fade-in var(--dur-fast) var(--ease);
+}
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+}
+.settings-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(880px, calc(100vw - 48px));
+  max-height: min(86vh, 820px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  overflow: hidden;
+  animation: rise-in var(--dur) var(--ease);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  flex: none;
+  border-bottom: 0;
+  background: transparent;
+}
+.settings-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settings { padding: 4px 18px 22px; overflow: auto; min-height: 0; flex: 1 1 auto; }
+.settings .lead { max-width: 100%; color: var(--muted); font-size: var(--ui-small); line-height: 1.55; margin: 0 0 14px; }
+.settings code { font-family: var(--mono); font-size: 0.92em; }
+.set-block {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  padding: 12px 14px 10px;
+  margin: 0 0 12px;
+}
+.settings-pane > .set-block {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 0 12px;
+  margin: 0;
+  box-shadow: none;
+}
+.set-block h3 {
+  margin: 0 0 10px;
+  font-size: var(--ui-small);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+.set-block h3:not(:first-of-type) { margin-top: 16px; }
+.set-row, .set-stack { margin: 0 0 10px; }
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+.set-row label, .set-stack label {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text);
+  margin: 0;
+}
+.set-stack label { margin-bottom: 6px; color: var(--muted); font-size: 12.5px; }
+.set-stack input, .set-stack select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13.5px;
+}
+.set-stack input[type="range"] { padding: 0; }
+.set-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.set-note { margin: 4px 2px 0; font-size: 12.5px; color: var(--muted); }
+.settings .hint { margin: 0 0 8px; font-size: 12.5px; color: var(--faint); line-height: 1.45; }
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+.settings-nav .search-field {
+  margin: 0 0 10px;
+  min-height: 30px;
+}
+.settings-nav button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  min-height: 36px;
+  border-radius: var(--radius-xl);
+  font-size: var(--ui-small);
+  color: var(--muted);
+}
+.settings-nav button.active,
+.settings-nav button:hover { background: var(--bg-hover); color: var(--text); }
+.settings-pane { min-width: 0; }
+.set-card {
+  background: var(--bg-alt);
+  border-radius: 14px;
+  padding: 4px 12px;
+  margin: 0 0 16px;
+}
+.set-card .set-actions { margin-bottom: 8px; }
+.set-card .health-list { margin: 6px 0 4px; }
+.hub-body.set-block,
+.hub-body .set-block,
+.extra-dialog .set-block,
+.float-card .set-block,
+.extra-dialog .settings {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 0 18px;
+  box-shadow: none;
+}
+.extra-dialog .settings { padding: 0; }
+.hub-body .set-block:first-child h3,
+.extra-dialog .set-block:first-child h3 { margin-top: 8px; }
+.health-list .set-row { min-height: 28px; }
+.health-list .set-row label { color: var(--muted); font-size: 12.5px; }
+.health-list .set-row p { margin: 0; font-size: 13.5px; text-align: right; }

@@ -1,0 +1,118 @@
+/* UI type: HarmonyOS Sans SC (installed as HarmonyOS Sans CN). */
+:root {
+  color-scheme: light;
+  --bg: hsl(30 14.3% 97.3%);
+  --bg-side: hsl(20 13% 95.5%);
+  --bg-card: hsl(0 0% 100%);
+  --bg-alt: hsl(40 9.1% 93.5%);
+  --bg-hover: hsl(0 0% 0% / 4%);
+  --bg-active: hsl(0 0% 0% / 8%);
+  --bg-input: hsl(0 0% 100%);
+  --line: #e6e5e3;
+  --line-strong: hsl(36 20% 5% / 8%);
+  --text: hsl(0 0% 2%);
+  --muted: hsl(0 0% 39%);
+  --faint: hsl(0 0% 52%);
+  --accent: hsl(207 100% 51.6%);
+  --accent-deep: hsl(206.7 100% 42.4%);
+  --cta: hsl(0 0% 2%);
+  --cta-text: hsl(0 0% 99%);
+  --ok: hsl(142 42% 32%);
+  --warn: rgb(224, 205, 99);
+  --danger: hsl(356 42% 46%);
+  --code: #383a42;
+  --code-keyword: #e45749;
+  --code-string: #0d97b3;
+  --shadow: 0 2px 8px 0 #0000000a;
+  --shadow-l: 0 14px 62px #00000040;
+  --font: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
+  --display: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
+  --serif: "Source Serif 4", "Songti SC", "Noto Serif SC", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 8px;
+  --radius-xl: 12px;
+  --radius-m: 16px;
+  --radius-l: 24px;
+  --header-h: 56px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 100ms;
+  --dur: 200ms;
+  --ui-smaller: 13px;
+  --ui-small: 14px;
+  --ui-medium: 15px;
+  --md-size: 15px;
+  --scrollbar-thumb: #00000026;
+  --scrollbar-thumb-dim: #0000000d;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: hsl(30 5% 7%);
+  --bg-side: hsl(30 5% 9%);
+  --bg-card: hsl(30 5% 13%);
+  --bg-alt: hsl(30 5% 12%);
+  --bg-hover: hsl(0 0% 100% / 8%);
+  --bg-active: hsl(0 0% 100% / 10%);
+  --bg-input: hsl(30 5% 9%);
+  --line: hsl(0 0% 100% / 6%);
+  --line-strong: hsl(0 0% 100% / 10%);
+  --text: hsl(0 0% 99%);
+  --muted: hsl(0 0% 62%);
+  --faint: hsl(0 0% 52%);
+  --accent: hsl(207 100% 58%);
+  --accent-deep: hsl(207 100% 64%);
+  --cta: hsl(0 0% 99%);
+  --cta-text: hsl(30 5% 7%);
+  --ok: hsl(138 36% 55%);
+  --warn: rgb(196, 180, 94);
+  --danger: hsl(356 42% 66%);
+  --code: #abb2bf;
+  --code-keyword: #e16d76;
+  --code-string: #58b6c2;
+  --shadow: 0 2px 8px 0 #00000066;
+  --shadow-l: 0 14px 62px #00000040;
+  --scrollbar-thumb: #ffffff26;
+  --scrollbar-thumb-dim: #ffffff0d;
+}
+
+:root[data-theme-family="paper"] {
+  --bg: #f7f1e3;
+  --bg-side: #efe6d4;
+  --bg-card: #fbf6ea;
+  --bg-alt: #f3ead8;
+  --bg-input: #fffdf7;
+  --line: #e0d3b8;
+  --text: #2b2416;
+  --muted: #6b5e45;
+  --accent: hsl(28, 62%, 46%);
+}
+:root[data-theme="dark"][data-theme-family="paper"] {
+  --bg: #1c1914;
+  --bg-side: #241f18;
+  --bg-card: #1c1914;
+  --bg-alt: #2a241c;
+  --bg-input: #2e2820;
+  --line: #3d3428;
+  --text: #efe6d4;
+  --muted: #b3a48a;
+}
+:root[data-theme-family="ink"] {
+  --bg: #f4f6f8;
+  --bg-side: #e8eef3;
+  --bg-card: #ffffff;
+  --accent: hsl(222, 42%, 42%);
+  --cta: #1b2430;
+}
+:root[data-theme="dark"][data-theme-family="ink"] {
+  --bg: #12161c;
+  --bg-side: #171c24;
+  --bg-card: #12161c;
+  --accent: hsl(210, 70%, 64%);
+  --cta: #e8eef3;
+  --cta-text: #12161c;
+}
+:root[data-density="compact"] {
+  --ui-smaller: 11px;
+  --ui-small: 12px;
+  --ui-medium: 13.5px;
+}

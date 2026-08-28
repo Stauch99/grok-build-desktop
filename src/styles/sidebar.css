@@ -1,0 +1,56 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-side);
+  border-right: 0.5px solid var(--line);
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-w, 248px) - 2px);
+  width: 5px;
+  flex: none;
+  margin: 0;
+}
+.sidebar.rail {
+  min-width: 72px;
+  overflow: hidden;
+  align-items: center;
+}
+.sidebar.rail .side-traffic {
+  width: 100%;
+  height: var(--header-h);
+  padding: 0;
+  justify-content: center;
+}
+.sidebar.rail .side-content,
+.sidebar.rail .session-list,
+.sidebar.rail .ws-head,
+.sidebar.rail .section-label,
+.sidebar.rail .ws-hits { display: none; }
+.sidebar.rail .side-account {
+  display: flex;
+  width: 100%;
+  padding: 8px 0 12px;
+  justify-content: center;
+}
+.sidebar.rail .account-trigger.compact {
+  width: auto;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 6px;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar.rail .account-pop {
+  left: calc(100% + 8px);
+  bottom: 8px;
+}
+.sidebar.rail .account-trigger.compact .account-usage {
+  flex: none;
+  align-items: center;
+}
+.sidebar.rail .account-trigger.compact .usage-bar {
+  width: 28px;
+}

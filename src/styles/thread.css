@@ -1,0 +1,238 @@
+.chat-shell {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.chat {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 28px 12px;
+  display: flex;
+  justify-content: center;
+}
+.thread {
+  width: min(100%, var(--thread, 680px));
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  overflow: visible;
+}
+.thread .msg,
+.thread .md,
+.thread .work-cluster,
+.thread .work-timeline,
+.thread .tool-result,
+.thread .thought {
+  min-width: 0;
+  max-width: 100%;
+}
+.thread .md,
+.thread .thought,
+.thread .tool-result {
+  overflow-wrap: anywhere;
+}
+.md {
+  font-family: var(--font);
+  font-size: var(--md-size, 15px);
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.md p { margin: 0 0 0.85em; }
+.md p:last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  font-family: var(--display);
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.6em 0 0.4em;
+  letter-spacing: normal;
+  text-wrap: pretty;
+}
+.md h1 { font-size: 1.5em; }
+.md h2 { font-size: 1.25em; }
+.md h3 { font-size: 1.125em; }
+.md h4 { font-size: 1.05em; }
+.md h5 { font-size: 1em; }
+.md h6 {
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.md ul, .md ol {
+  padding-inline-start: 1.75em;
+  margin: 0.4em 0 0.9em;
+  list-style-position: outside;
+}
+.md ol { padding-inline-start: 2em; }
+.md li { margin: 0.175em 0; }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 1.1em 0; }
+.md blockquote {
+  position: relative;
+  margin: 0.7em 0;
+  padding: 12px 16px 12px 28px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  color: var(--muted);
+}
+.md blockquote::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--faint);
+}
+.md table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.7em 0 1em;
+  font-size: 0.95em;
+}
+.md thead th {
+  border: 0;
+  background: transparent;
+  font-weight: 600;
+  padding: 0 12px 10px;
+  text-align: left;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.md tbody td {
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-right: 0;
+  border-bottom: 0;
+  background: var(--bg);
+  padding: 10px 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.md tbody td:last-child { border-right: 1px solid var(--line); }
+.md tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+.md tbody tr:first-child td:first-child { border-top-left-radius: var(--radius); }
+.md tbody tr:first-child td:last-child { border-top-right-radius: var(--radius); }
+.md tbody tr:last-child td:first-child { border-bottom-left-radius: var(--radius); }
+.md tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
+.md th { background: transparent; font-weight: 600; }
+.md a, .md a.file-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text) 30%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md a:hover, .md a.file-link:hover {
+  color: var(--text);
+  text-decoration-color: var(--text);
+}
+.md-media {
+  display: block;
+  margin: 8px 0 12px;
+  max-width: min(100%, 440px);
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg-alt);
+}
+.md-media img,
+.md-media video,
+.md img,
+.md video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: contain;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+}
+.md-media img,
+.md-media video {
+  border-radius: 0;
+  max-height: 360px;
+}
+.md pre {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow: auto;
+  max-width: 100%;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.md code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 4px;
+  color: var(--code);
+  overflow-wrap: anywhere;
+}
+.md pre code { border: 0; padding: 0; }
+.md mark {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+  border-radius: var(--radius);
+  padding: 2px 4px;
+  font-weight: 500;
+}
+.md kbd {
+  border: 1px solid var(--line);
+  background: var(--bg-side);
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.86em;
+}
+.msg.user .md {
+  background: var(--bg-alt);
+  border: 0;
+  border-radius: var(--radius-m);
+  padding: 8px 16px;
+}
+/* Split only tightens padding. Thread/composer still use min(100%, var(--thread)). */
+.workspace.split .chat { padding: 8px 16px 12px; }
+.chat { position: relative; }
+.preview-body.md-scroll .md { font-size: calc(var(--md-size, 16px) - 1px); }
+.preview-body.md-scroll .md h1 { font-size: 1.35em; }
+.preview-body.md-scroll .md h2 { font-size: 1.15em; }
+.md a.file-link {
+  border-bottom: 1px dotted color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.work-col .chat-shell { flex: 1 1 0; min-width: 0; }
+.thread .hub-row {
+  max-width: 680px;
+  margin: 0 auto 6px;
+  border-bottom: 0;
+  padding: 6px 2px;
+}
+.new-chat-hero .chat-shell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.thread-tabs button.active { font-weight: 600; }
+.thread .md { font-family: var(--font); }
