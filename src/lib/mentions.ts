@@ -135,6 +135,39 @@ export function mentionRequestIsCurrent(input: { requestGeneration: number; curr
   return input.visible && input.requestGeneration === input.currentGeneration && input.requestQuery === input.currentQuery && input.requestOwner === input.currentOwner;
 }
 
+export type MentionPick = {
+  generation: number;
+  value: string;
+  visible: false;
+};
+
+/** Close the menu and snapshot composer text before any file read. */
+export function beginMentionPick(input: { generation: number; value: string }): MentionPick {
+  return { generation: input.generation + 1, value: input.value, visible: false };
+}
+
+export function mentionPickIsCurrent(input: { pickGeneration: number; currentGeneration: number }): boolean {
+  return input.pickGeneration === input.currentGeneration;
+}
+
+export function applyMentionPickIfCurrent(input: {
+  pick: MentionPick;
+  currentGeneration: number;
+  hit: MentionHit;
+  includeContent: boolean;
+  content?: string;
+}): string | null {
+  if (!mentionPickIsCurrent({ pickGeneration: input.pick.generation, currentGeneration: input.currentGeneration })) {
+    return null;
+  }
+  return applyMentionPick({
+    value: input.pick.value,
+    hit: input.hit,
+    includeContent: input.includeContent,
+    content: input.content,
+  });
+}
+
 type MentionRequestToken = {
   generation: number;
   query: string;

@@ -32,7 +32,8 @@ import { type Effort } from "../lib/effort";
 import { modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
 import type { SlashCommand } from "../lib/chat";
 import {
-  applyMentionPick,
+  applyMentionPickIfCurrent,
+  beginMentionPick,
   canAttachMentionContent,
   filterMentions,
   mentionMenuVisible,
@@ -499,6 +500,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   async function selectMention(hit: MentionHit) {
+    const pick = beginMentionPick({ generation: mentionGenerationRef.current, value });
+    mentionGenerationRef.current = pick.generation;
+    mentionVisibleRef.current = pick.visible;
+    setMentionOn(false);
+
     let content: string | undefined;
     if (includeContent && canAttachMentionContent(hit)) {
       const path = mentionPath(hit);
@@ -510,10 +516,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         content = undefined;
       }
     }
-    onChange(applyMentionPick({ value, hit, includeContent, content }));
-    mentionVisibleRef.current = false;
-    mentionGenerationRef.current += 1;
-    setMentionOn(false);
+
+    const next = applyMentionPickIfCurrent({
+      pick,
+      currentGeneration: mentionGenerationRef.current,
+      hit,
+      includeContent,
+      content,
+    });
+    if (next == null) return;
+    onChange(next);
     taRef.current?.focus();
   }
 

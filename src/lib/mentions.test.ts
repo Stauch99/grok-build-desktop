@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   applyMentionPick,
+  applyMentionPickIfCurrent,
+  beginMentionPick,
   canAttachMentionContent,
   createMentionLifecycle,
   filterMentions,
   formatMentionWithContent,
   mentionMenuVisible,
+  mentionPickIsCurrent,
   mentionRequestIsCurrent,
   resolveMentionReadPath,
 } from "./mentions";
@@ -112,5 +115,57 @@ describe("mentionMenuVisible", () => {
     expect(mentionMenuVisible("/compact")).toBe(false);
     expect(mentionMenuVisible("/foo @bar")).toBe(false);
     expect(mentionMenuVisible("@src\nmore")).toBe(false);
+  });
+});
+
+describe("mention pick race", () => {
+  const hit = { id: "file:a.ts", label: "a.ts", insert: "@a.ts", group: "file" as const };
+
+  it("closes the menu and advances generation before the file read", () => {
+    expect(beginMentionPick({ generation: 4, value: "see @a" })).toEqual({
+      generation: 5,
+      value: "see @a",
+      visible: false,
+    });
+  });
+
+  it("applies the click-time snapshot only while that pick generation is current", () => {
+    const pick = beginMentionPick({ generation: 0, value: "see @a" });
+
+    expect(
+      applyMentionPickIfCurrent({
+        pick,
+        currentGeneration: pick.generation,
+        hit,
+        includeContent: true,
+        content: "export {}",
+      }),
+    ).toBe("see @a.ts\n\n```ts\nexport {}\n``` ");
+
+    expect(
+      applyMentionPickIfCurrent({
+        pick,
+        currentGeneration: pick.generation + 1,
+        hit,
+        includeContent: true,
+        content: "stale",
+      }),
+    ).toBeNull();
+  });
+
+  it("lets a later pick invalidate an in-flight one", () => {
+    const first = beginMentionPick({ generation: 0, value: "see @a" });
+    const second = beginMentionPick({ generation: first.generation, value: "see @b" });
+
+    expect(mentionPickIsCurrent({ pickGeneration: first.generation, currentGeneration: second.generation })).toBe(false);
+    expect(mentionPickIsCurrent({ pickGeneration: second.generation, currentGeneration: second.generation })).toBe(true);
+    expect(
+      applyMentionPickIfCurrent({
+        pick: first,
+        currentGeneration: second.generation,
+        hit,
+        includeContent: false,
+      }),
+    ).toBeNull();
   });
 });
