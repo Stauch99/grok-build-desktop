@@ -1,3 +1,11 @@
+export const HTML_FRAME_SANDBOX = "";
+
+export function buildSrcDoc(html: string): string {
+  return /<html[\s>]/i.test(html)
+    ? html
+    : `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;padding:12px;background:#fff;color:#111;font:14px/1.45 system-ui,sans-serif;overflow:auto}</style></head><body>${html}</body></html>`;
+}
+
 export type HtmlArtifactPreviewProps = {
   html: string;
   title?: string;
@@ -8,15 +16,13 @@ export type HtmlArtifactPreviewProps = {
  */
 export function HtmlArtifactPreview({ html, title }: HtmlArtifactPreviewProps) {
   const heading = title?.trim() || "预览";
-  const srcDoc = /<html[\s>]/i.test(html)
-    ? html
-    : `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><style>html,body{margin:0;padding:12px;background:#fff;color:#111;font:14px/1.45 system-ui,sans-serif;overflow:auto}</style></head><body>${html}</body></html>`;
+  const srcDoc = buildSrcDoc(html);
 
   return (
     <iframe
       className="html-frame"
       title={heading}
-      sandbox=""
+      sandbox={HTML_FRAME_SANDBOX}
       referrerPolicy="no-referrer"
       srcDoc={srcDoc}
     />
