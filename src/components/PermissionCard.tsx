@@ -1,5 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import type { PermissionOption } from "../lib/permission-allow";
+import { isAllowOption, pickAllowOption, type PermissionOption } from "../lib/permission-allow";
+import { t, type Locale } from "../lib/i18n";
+import { rejectCountdownLabel, secondsUntilReject } from "../lib/permission-queue";
 
 export type PermissionCardProps = {
   title: string;
@@ -8,6 +10,8 @@ export type PermissionCardProps = {
   onAlwaysAllow: () => void;
   timedOut?: boolean;
   timeoutNotice?: string;
+  locale?: Locale;
+  receivedAt?: number;
 };
 
 /**
@@ -21,8 +25,14 @@ export function PermissionCard({
   onAlwaysAllow,
   timedOut,
   timeoutNotice,
+  locale = "zh",
+  receivedAt,
 }: PermissionCardProps) {
   const [index, setIndex] = useState(0);
+  const [remember, setRemember] = useState(false);
+  const [mountedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(mountedAt);
+  const startedAt = receivedAt ?? mountedAt;
 
   useEffect(() => {
     setIndex((i) => {
@@ -31,8 +41,37 @@ export function PermissionCard({
     });
   }, [options.length]);
 
+  useEffect(() => {
+    if (timedOut) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [timedOut]);
+
+  const left = timedOut ? 0 : secondsUntilReject(startedAt, now);
+  const expired = timedOut || left <= 0;
+
+  const allowOnce = () => {
+    if (expired) return;
+    if (remember) {
+      onAlwaysAllow();
+      return;
+    }
+    const pick = pickAllowOption(options);
+    if (pick) onPick(pick);
+  };
+
+  const handlePick = (id: string) => {
+    if (expired) return;
+    const opt = options.find((o) => o.optionId === id);
+    if (remember && opt && isAllowOption(opt)) {
+      onAlwaysAllow();
+      return;
+    }
+    onPick(id);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (options.length === 0) return;
+    if (options.length === 0 || expired) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopPropagation();
@@ -50,7 +89,7 @@ export function PermissionCard({
       e.preventDefault();
       e.stopPropagation();
       const opt = options[index];
-      if (opt) onPick(opt.optionId);
+      if (opt) handlePick(opt.optionId);
     }
   };
 
@@ -60,19 +99,34 @@ export function PermissionCard({
       id="permission-card"
       tabIndex={0}
       role="group"
-      aria-label="许可请求"
+      aria-label={t(locale, "perm.title")}
       data-keys="1-9,ArrowUp,ArrowDown,Enter"
       onKeyDown={onKeyDown}
     >
-      <h4>许可请求</h4>
+      <h4>{t(locale, "perm.title")}</h4>
       <pre className="permission-cmd">{title}</pre>
-      {timedOut ? (
+      {expired ? (
         <p className="permission-timeout" role="status">
-          {timeoutNotice || "许可已超时，已自动拒绝。再发一条即可重试。"}
+          {timeoutNotice || t(locale, "perm.timeout")}
         </p>
       ) : (
-        <p className="permission-hint">按 1–4 选择，↑↓ 移动，Enter 确认</p>
+        <>
+          <p className="permission-hint" role="status">
+            {rejectCountdownLabel(left, locale)}
+          </p>
+          <p className="permission-hint">{t(locale, "perm.hint")}</p>
+        </>
       )}
+      <label className="permission-hint">
+        <input
+          type="checkbox"
+          checked={remember}
+          disabled={expired}
+          onChange={(e) => setRemember(e.target.checked)}
+        />
+        {" "}
+        {t(locale, "perm.remember")}
+      </label>
       <div className="opts">
         {options.map((opt, i) => {
           const hotkey = i < 9 ? String(i + 1) : undefined;
@@ -84,7 +138,8 @@ export function PermissionCard({
               data-hotkey={hotkey}
               data-option-index={i}
               aria-current={i === index ? "true" : undefined}
-              onClick={() => onPick(opt.optionId)}
+              disabled={expired}
+              onClick={() => handlePick(opt.optionId)}
               onMouseEnter={() => setIndex(i)}
             >
               {hotkey ? <kbd>{hotkey}</kbd> : null}
@@ -96,9 +151,10 @@ export function PermissionCard({
           type="button"
           className="perm-always"
           data-always-allow="true"
-          onClick={onAlwaysAllow}
+          disabled={expired}
+          onClick={allowOnce}
         >
-          本次会话总是允许
+          {t(locale, "perm.allowOnce")}
         </button>
       </div>
     </div>

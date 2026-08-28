@@ -1,5 +1,45 @@
+import { t, type Locale } from "./i18n";
 import { derivePermissionView, type PermissionPane, type PermissionViewInput } from "./permission-view";
 import { asRecord } from "./text";
+
+export const PERMISSION_TIMEOUT_MS = 90_000;
+
+/** In-memory allow-list: session id → Set of tool names remembered this session. */
+export type SessionAllowList = Map<string, Set<string>>;
+
+export function rememberTool(
+  allowed: SessionAllowList,
+  sessionId: string,
+  toolName: string,
+): SessionAllowList {
+  const next = new Map(allowed);
+  const tools = new Set(next.get(sessionId) ?? []);
+  if (sessionId && toolName) tools.add(toolName);
+  next.set(sessionId, tools);
+  return next;
+}
+
+export function isRememberedTool(
+  allowed: SessionAllowList,
+  sessionId: string | null | undefined,
+  toolName: string,
+): boolean {
+  if (!sessionId || !toolName) return false;
+  return allowed.get(sessionId)?.has(toolName) ?? false;
+}
+
+export function secondsUntilReject(
+  receivedAt: number,
+  now: number,
+  timeoutMs = PERMISSION_TIMEOUT_MS,
+): number {
+  return Math.max(0, Math.ceil((receivedAt + timeoutMs - now) / 1000));
+}
+
+export function rejectCountdownLabel(seconds: number, locale: Locale): string {
+  return t(locale, "perm.rejectIn").replace("{n}", String(seconds));
+}
+
 
 export type QueuedPermission = {
   rpcId: number | string;

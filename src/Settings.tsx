@@ -4,12 +4,14 @@ import {
   openPath,
   patchCliSettings,
   pickDirectory,
+  trustFolder,
   type CliSettings,
   type DoctorInfo,
 } from "./api";
 import { MenuSelect } from "./components/MenuSelect";
+import { dangerCaption, tapDanger, type ConfirmState } from "./lib/confirm";
 import { EFFORT_OPTIONS, normalizeEffort } from "./lib/effort";
-import { t, type Locale } from "./lib/i18n";
+import { isDangerousTrustPath, t, type Locale } from "./lib/i18n";
 import { permissionModeHint } from "./lib/permission-copy";
 import { UPDATE_INSTALLATION_COPY } from "./lib/product-copy";
 import { stateAuthorityExplanation } from "./lib/state-authority";
@@ -123,6 +125,7 @@ export function SettingsPanel({
     confirmLabel: string;
     run: () => void;
   } | null>(null);
+  const [trustConfirm, setTrustConfirm] = useState<ConfirmState | null>(null);
 
   useEffect(() => {
     if (focusSection !== "shortcuts") return;
@@ -229,6 +232,9 @@ export function SettingsPanel({
   const aboutHas = aboutMeta || aboutInstall || aboutManaged;
 
   const emptyCopy = <p className="float-empty">没有匹配的设置</p>;
+  const trustCwd = inspect?.cwd ?? "";
+  const showTrust = inspect?.projectTrusted === false && !!trustCwd;
+  const trustId = `trust:${trustCwd}`;
 
   return (
     <div className="settings">
@@ -316,6 +322,43 @@ export function SettingsPanel({
                         </button>
                         <button type="button" className="btn ghost" onClick={() => onRefreshHealth?.()}>
                           刷新健康
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {showTrust ? (
+                    <div className="set-card">
+                      <div className="set-stack">
+                        <p className="hub-meta">{t(locale, "trust.banner")}</p>
+                        {isDangerousTrustPath(trustCwd) ? (
+                          <p className="hint">{t(locale, "trust.danger")}</p>
+                        ) : null}
+                      </div>
+                      <div className="set-actions">
+                        <button
+                          type="button"
+                          className="btn primary"
+                          onClick={() => {
+                            const { confirmed, next } = tapDanger(trustConfirm, trustId, Date.now());
+                            setTrustConfirm(next);
+                            if (!confirmed) return;
+                            void (async () => {
+                              try {
+                                await trustFolder(trustCwd, true);
+                                onRefreshHealth?.();
+                                setNote(t(locale, "trust.done"));
+                              } catch (e) {
+                                setNote(String(e));
+                              }
+                            })();
+                          }}
+                        >
+                          {dangerCaption(
+                            trustConfirm,
+                            trustId,
+                            t(locale, "trust.action"),
+                            t(locale, "hub.confirmAgain"),
+                          )}
                         </button>
                       </div>
                     </div>
