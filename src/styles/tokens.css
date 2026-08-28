@@ -43,6 +43,8 @@
   --md-size: 15px;
   --scrollbar-thumb: #00000026;
   --scrollbar-thumb-dim: #0000000d;
+  --usage-fg: #1a1a1a;
+  --usage-bg: #e8e4da;
 }
 
 :root[data-theme="dark"] {
@@ -73,6 +75,8 @@
   --shadow-l: 0 14px 62px #00000040;
   --scrollbar-thumb: #ffffff26;
   --scrollbar-thumb-dim: #ffffff0d;
+  --usage-fg: #f4f0e8;
+  --usage-bg: #3a3530;
 }
 
 :root[data-theme-family="paper"] {

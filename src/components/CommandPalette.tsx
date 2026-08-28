@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadLocalPaletteFrecency, recordLocalPaletteUse, type FrecencyMap } from "../lib/frecency";
 import { filterPalette, paletteKey, type PaletteItem } from "../lib/palette";
+import { trapFocus } from "../lib/trap-focus";
 
 export type CommandPaletteProps = {
   items: PaletteItem[];
@@ -19,6 +20,8 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
   const [frecency, setFrecency] = useState<FrecencyMap>(loadLocalPaletteFrecency);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
 
   const hits = useMemo(() => filterPalette(items, query, 40, frecency), [items, query, frecency]);
 
@@ -28,7 +31,19 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
   }
 
   useEffect(() => {
-    inputRef.current?.focus();
+    previousActive.current =
+      typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const first =
+      layerRef.current?.querySelector<HTMLElement>(
+        'input, button, [href], [tabindex]:not([tabindex="-1"])',
+      ) ?? inputRef.current;
+    first?.focus();
+    return () => {
+      const el = previousActive.current;
+      if (el?.isConnected) el.focus();
+    };
   }, []);
 
   useEffect(() => {
@@ -43,7 +58,16 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
   let lastGroup = "";
 
   return (
-    <div className="palette-layer" role="dialog" aria-modal="true" aria-label="命令面板">
+    <div
+      ref={layerRef}
+      className="palette-layer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="命令面板"
+      onKeyDown={(e) => {
+        if (e.key === "Tab" && layerRef.current) trapFocus(layerRef.current, e.nativeEvent);
+      }}
+    >
       <div className="palette-backdrop" onClick={onClose} />
       <div className="palette">
         <input

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { SessionSearchHit, SessionSummary } from "../api";
 import { ProjectMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
@@ -193,6 +193,21 @@ export function Sidebar({
     anchorId.current = null;
   }
 
+  function onSessionTreeKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== "Tab") return;
+    const groups = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-session-group]"));
+    if (groups.length < 2) return;
+    const current =
+      e.target instanceof Element ? e.target.closest<HTMLElement>("[data-session-group]") : null;
+    const i = current ? groups.indexOf(current) : -1;
+    if (i < 0) return;
+    const next = e.shiftKey ? i - 1 : i + 1;
+    if (next < 0 || next >= groups.length) return;
+    e.preventDefault();
+    const stop = groups[next].querySelector<HTMLElement>(".project-head, [data-group-tab]");
+    (stop ?? groups[next]).focus();
+  }
+
   const branchProps = {
     sessionId,
     splitId,
@@ -364,6 +379,9 @@ export function Sidebar({
 
       <div
         className={`session-list${selectedIds.length ? " is-batching" : ""}`}
+        role="list"
+        aria-label="会话"
+        onKeyDown={onSessionTreeKeyDown}
         onDoubleClick={(e) => {
           const target = e.target;
           if (!(target instanceof Element)) return;
@@ -383,7 +401,13 @@ export function Sidebar({
             const pinned = section.rows.some((row) => row.projectPinned);
             const rowKind = path === INBOX_PIN ? "inbox" : "project";
             return (
-              <div key={section.id} className={`project ${open ? "open" : ""}`}>
+              <div
+                key={section.id}
+                className={`project ${open ? "open" : ""}`}
+                role="listitem"
+                aria-label={section.label}
+                data-session-group
+              >
                 <div className="project-head-row">
                   <button
                     type="button"
@@ -437,8 +461,20 @@ export function Sidebar({
           }
 
           return (
-            <div key={section.id} className="ws-section">
-              <div className={section.kind === "pin" ? "pin-label" : "section-label"}>{section.label}</div>
+            <div
+              key={section.id}
+              className="ws-section"
+              role="listitem"
+              aria-label={section.label}
+              data-session-group
+            >
+              <div
+                className={section.kind === "pin" ? "pin-label" : "section-label"}
+                tabIndex={0}
+                data-group-tab
+              >
+                {section.label}
+              </div>
               {section.rows.map((row) => (
                 <SessionBranch
                   key={row.session.id}
