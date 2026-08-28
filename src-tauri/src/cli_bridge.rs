@@ -509,6 +509,124 @@ pub async fn git_branches(cwd: String) -> AppResult<Vec<String>> {
         .collect())
 }
 
+fn commit_message_ok(message: &str) -> bool {
+    !message.trim().is_empty()
+}
+
+async fn git_run(root: &Path, args: &[&str], secs: u64) -> (bool, i32, String, String) {
+    let run = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output();
+    match tokio::time::timeout(Duration::from_secs(secs), run).await {
+        Ok(Ok(out)) => (
+            out.status.success(),
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        ),
+        Ok(Err(e)) => (false, -1, String::new(), e.to_string()),
+        Err(_) => (false, -1, String::new(), "git timeout".into()),
+    }
+}
+
+fn git_cmd_result(ok: bool, code: i32, stderr: String) -> Value {
+    json!({ "ok": ok, "code": code, "stderr": stderr })
+}
+
+/// Relative path for `git blame -- path`, confined to `root`.
+fn blame_rel_path(root: &Path, raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return None;
+    }
+    let p = Path::new(trimmed);
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(p)
+    };
+    if !is_under(&abs, root) {
+        return None;
+    }
+    let rel = if p.is_absolute() {
+        abs.strip_prefix(root).ok()?.to_path_buf()
+    } else {
+        p.to_path_buf()
+    };
+    let s = rel.to_string_lossy().replace('\\', "/");
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+#[tauri::command]
+pub async fn git_commit(cwd: String, message: String) -> AppResult<Value> {
+    if !commit_message_ok(&message) {
+        return Ok(git_cmd_result(false, 1, "empty message".into()));
+    }
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let (add_ok, add_code, _, add_err) = git_run(&root, &["add", "-A"], 30).await;
+    if !add_ok {
+        return Ok(git_cmd_result(false, add_code, add_err));
+    }
+    let (ok, code, _, stderr) = git_run(&root, &["commit", "-m", message.trim()], 30).await;
+    Ok(git_cmd_result(ok, code, stderr))
+}
+
+#[tauri::command]
+pub async fn git_blame(cwd: String, path: String, line: u32) -> AppResult<Value> {
+    if line == 0 {
+        return Ok(json!({ "ok": false, "text": "", "stderr": "invalid line" }));
+    }
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(json!({ "ok": false, "text": "", "stderr": "invalid cwd" }));
+    };
+    let Some(rel) = blame_rel_path(&root, &path) else {
+        return Ok(json!({ "ok": false, "text": "", "stderr": "invalid path" }));
+    };
+    let range = format!("{line},{line}");
+    let (ok, _, stdout, stderr) = git_run(&root, &["blame", "-L", &range, "--", &rel], 8).await;
+    Ok(json!({
+        "ok": ok,
+        "text": stdout,
+        "stderr": stderr,
+    }))
+}
+
+#[tauri::command]
+pub async fn git_status_untracked(cwd: String) -> AppResult<Vec<String>> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(vec![]);
+    };
+    let text = git_stdout(&root, &["status", "--porcelain", "--untracked-files=all"])
+        .await
+        .unwrap_or_default();
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("?? ")?;
+            let path = rest.trim().trim_matches('"');
+            if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            }
+        })
+        .take(200)
+        .collect())
+}
+
 #[tauri::command]
 pub async fn list_file_tree(cwd: String, query: Option<String>) -> AppResult<Value> {
     tokio::task::spawn_blocking(move || {
@@ -1604,5 +1722,25 @@ mod security_tests {
     #[test]
     fn watch_debounce_is_300_ms() {
         assert_eq!(WATCH_DEBOUNCE_MS, 300);
+    }
+
+    #[test]
+    fn commit_message_ok_rejects_empty_and_whitespace() {
+        assert!(!commit_message_ok(""));
+        assert!(!commit_message_ok("   "));
+        assert!(commit_message_ok("fix login"));
+    }
+
+    #[test]
+    fn blame_rel_path_stays_inside_repo() {
+        let root = Path::new("/work/app");
+        assert_eq!(blame_rel_path(root, "src/lib.rs").as_deref(), Some("src/lib.rs"));
+        assert_eq!(
+            blame_rel_path(root, "/work/app/src/lib.rs").as_deref(),
+            Some("src/lib.rs")
+        );
+        assert!(blame_rel_path(root, "../secret").is_none());
+        assert!(blame_rel_path(root, "/etc/passwd").is_none());
+        assert!(blame_rel_path(root, "").is_none());
     }
 }

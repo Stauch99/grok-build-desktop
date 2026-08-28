@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 mod cli_bridge;
 use cli_bridge::{
-    create_skill, git_branches, git_log, hide_window, list_agents_dir, list_file_tree,
+    create_skill, git_blame, git_branches, git_commit, git_log, git_status_untracked, hide_window, list_agents_dir, list_file_tree,
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
     read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
@@ -2557,6 +2557,9 @@ pub fn run() {
             stat_attachment,
             git_log,
             git_branches,
+            git_commit,
+            git_blame,
+            git_status_untracked,
             list_file_tree,
             hide_window,
             set_hide_on_close,

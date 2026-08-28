@@ -3,6 +3,7 @@ import {
   displayTitle,
   filterProjectTree,
   groupSessions,
+  keepExistingDirs,
   mergeProjectPaths,
   countDescendants,
   nestByParent,
@@ -16,6 +17,19 @@ describe("mergeProjectPaths", () => {
     expect(merged).toContain("/a/app");
     expect(merged).toContain("/b/proj");
     expect(merged).toContain("/c/x");
+  });
+});
+
+describe("keepExistingDirs", () => {
+  it("drops saved paths whose directory no longer exists", () => {
+    const live = new Set(["/work/app"]);
+    expect(keepExistingDirs(["/work/app", "/gone/old", "/work/app/"], (p) => live.has(p))).toEqual([
+      "/work/app",
+    ]);
+  });
+
+  it("keeps an empty list empty", () => {
+    expect(keepExistingDirs([], () => true)).toEqual([]);
   });
 });
 

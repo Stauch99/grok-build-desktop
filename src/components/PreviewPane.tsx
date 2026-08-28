@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { gitBlame } from "../api";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { highlight, highlightLang, tokensToLines, type HighlightToken } from "../lib/highlight";
 import {
@@ -87,6 +88,9 @@ export function PreviewPane({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const [blameOn, setBlameOn] = useState(false);
+  const [blameLine, setBlameLine] = useState<number | null>(null);
+  const [blameText, setBlameText] = useState<string | null>(null);
 
   useEffect(() => {
     if (!path) return;
@@ -106,6 +110,8 @@ export function PreviewPane({
     setDraft(displayText ?? "");
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setBlameLine(null);
+    setBlameText(null);
   }, [displayPath, displayText]);
 
   useEffect(() => {
@@ -236,6 +242,26 @@ export function PreviewPane({
               <IconSearch size={14} />
             </button>
           ) : null}
+          {source && cwd ? (
+            <button
+              type="button"
+              className="file-open"
+              aria-pressed={blameOn}
+              title="行历史"
+              aria-label="行历史"
+              onClick={() => {
+                setBlameOn((v) => {
+                  if (v) {
+                    setBlameLine(null);
+                    setBlameText(null);
+                  }
+                  return !v;
+                });
+              }}
+            >
+              行历史
+            </button>
+          ) : null}
           {displayText !== null && !media ? (
             <button
               type="button"
@@ -304,6 +330,11 @@ export function PreviewPane({
       ) : null}
 
       {truncated && !media && displayPath === path ? <p className="preview-note">文件较大，仅显示前 256KB</p> : null}
+      {blameOn && blameText ? (
+        <p className="preview-note" role="status">
+          {blameLine != null ? `L${blameLine} ${blameText}` : blameText}
+        </p>
+      ) : null}
 
       {media ? (
         <div
@@ -364,7 +395,25 @@ export function PreviewPane({
           <Markdown text={displayText} dark={dark} cwd={cwd} onClick={onFollowLink} />
         </div>
       ) : source ? (
-        <HighlightedSource text={displayText} path={displayPath} find={find} />
+        <HighlightedSource
+          text={displayText}
+          path={displayPath}
+          find={find}
+          blameOn={blameOn}
+          blameLine={blameLine}
+          onBlameLine={
+            cwd
+              ? (line) => {
+                  setBlameLine(line);
+                  void gitBlame(cwd, displayPath, line)
+                    .then((res) => {
+                      setBlameText(res.ok ? res.text.trim() : res.stderr.trim() || "无法读取 blame");
+                    })
+                    .catch((e) => setBlameText(String(e)));
+                }
+              : undefined
+          }
+        />
       ) : (
         <pre className="preview-body preview-code">{displayText}</pre>
       )}
@@ -372,7 +421,21 @@ export function PreviewPane({
   );
 }
 
-function HighlightedSource({ text, path, find }: { text: string; path: string; find: PreviewFindState }) {
+function HighlightedSource({
+  text,
+  path,
+  find,
+  blameOn,
+  blameLine,
+  onBlameLine,
+}: {
+  text: string;
+  path: string;
+  find: PreviewFindState;
+  blameOn?: boolean;
+  blameLine?: number | null;
+  onBlameLine?: (line: number) => void;
+}) {
   const lang = highlightLang(path);
   const lines = useMemo(() => {
     const tokens = lang ? highlight(text, lang) : [{ text, kind: "plain" as const }];
@@ -389,7 +452,20 @@ function HighlightedSource({ text, path, find }: { text: string; path: string; f
         offset += lineText.length + (i < numbers.length - 1 ? 1 : 0);
         return (
           <div key={n} className="preview-line">
-            <span className="preview-gutter">{n}</span>
+            {blameOn && onBlameLine ? (
+              <button
+                type="button"
+                className="preview-gutter"
+                aria-label={`第 ${n} 行 blame`}
+                aria-pressed={blameLine === n}
+                title="查看此行历史"
+                onClick={() => onBlameLine(n)}
+              >
+                {n}
+              </button>
+            ) : (
+              <span className="preview-gutter">{n}</span>
+            )}
             <span className="preview-line-code">{paintLine(lineTokens, start, find)}</span>
           </div>
         );
