@@ -1568,7 +1568,7 @@ fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     #[cfg(target_os = "macos")]
     { ("open", vec!["--".into(), target.as_os_str().to_owned()]) }
     #[cfg(target_os = "linux")]
-    { ("xdg-open", vec!["--".into(), target.as_os_str().to_owned()]) }
+    { ("xdg-open", vec![target.as_os_str().to_owned()]) }
     #[cfg(target_os = "windows")]
     { ("explorer", vec![target.as_os_str().to_owned()]) }
 }
@@ -2653,7 +2653,7 @@ mod final_review_tests {
     #[cfg(target_os = "macos")]
     { assert_eq!(program, "open"); assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]); }
     #[cfg(target_os = "linux")]
-    { assert_eq!(program, "xdg-open"); assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]); }
+    { assert_eq!(program, "xdg-open"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
     #[cfg(target_os = "windows")]
     { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
 }
