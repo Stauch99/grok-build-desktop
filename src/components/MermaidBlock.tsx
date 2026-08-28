@@ -1,6 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { getMermaidSvg, setMermaidSvg } from "../lib/mermaid-cache";
-import { loadMermaid } from "../lib/mermaid-once";
+import { getMermaidSvg, loadMermaid, setMermaidSvg } from "../lib/mermaid-once";
 
 type Props = {
   text: string;
