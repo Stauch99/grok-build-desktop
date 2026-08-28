@@ -131,3 +131,32 @@ function compactUnit(n: number): string {
   if (n >= 100) return String(Math.round(n));
   return n.toFixed(1).replace(/\.0$/, "");
 }
+
+export function splitCostByModel(ticks: { model?: string; cost: number }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const tick of ticks) {
+    const key = tick.model?.trim() || "unknown";
+    out[key] = (out[key] ?? 0) + tick.cost;
+  }
+  return out;
+}
+
+export function sparklinePoints(
+  points: { at: number; used: number }[],
+  width: number,
+  height: number,
+): string {
+  if (points.length === 0) return "";
+  const ordered = [...points].sort((a, b) => a.at - b.at);
+  const values = ordered.map((p) => p.used);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  return ordered
+    .map((p, i) => {
+      const x = ordered.length === 1 ? width / 2 : (i / (ordered.length - 1)) * width;
+      const y = span === 0 ? height / 2 : height - ((p.used - min) / span) * height;
+      return `${x},${y}`;
+    })
+    .join(" ");
+}

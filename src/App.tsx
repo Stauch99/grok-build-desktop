@@ -50,6 +50,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { ChangesPanel } from "./components/ChangesPanel";
 import { GitBar } from "./components/GitBar";
 import { EmptyState } from "./components/EmptyState";
+import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
 import { snapshotMtimes } from "./lib/memory-dock";
 import { basename } from "./lib/text";
@@ -89,6 +90,9 @@ export function App() {
     agentRows,
     managed,
     usageHistory,
+    appConfirm,
+    confirmAppModal,
+    cancelAppModal,
     usageDays,
     setUsageDays,
     jumpTurnId,
@@ -689,7 +693,7 @@ return (
               setCwd(folder);
               void setWorkspace(folder).catch((e) => showToast(String(e)));
             }}
-            footer={<StatsLineView stats={turnStats} sessionTokens={usage?.used} />}
+            footer={<StatsLineView stats={turnStats} sessionTokens={usage?.used} usageHistory={usageHistory} />}
             metaActions={
               <>
                 {sessionId ? (
@@ -935,7 +939,7 @@ return (
               onRemoveQueued={(id) => setSplitQueue((q) => removeQueued(q, id))}
               onReorderQueued={(from, to) => setSplitQueue((q) => reorderQueue(q, from, to))}
               onOverflow={showToast}
-              footer={<StatsLineView stats={splitTurnStats} sessionTokens={split.chat.usage?.used} />}
+              footer={<StatsLineView stats={splitTurnStats} sessionTokens={split.chat.usage?.used} usageHistory={usageHistory} />}
               metaActions={
                 <UsageRing
                   usage={split.chat.usage ?? {}}
@@ -1257,6 +1261,14 @@ return (
         />
       )}
       {toast && <div className="toast">{toast}</div>}
+      <AppModal
+        open={!!appConfirm}
+        title={appConfirm?.title ?? ""}
+        body={appConfirm?.body ?? ""}
+        confirmLabel={appConfirm?.confirmLabel ?? "确定"}
+        onConfirm={confirmAppModal}
+        onCancel={cancelAppModal}
+      />
     </div>
   );
 }

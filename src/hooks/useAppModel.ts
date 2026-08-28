@@ -61,7 +61,8 @@ import { subagentStatusFromTool } from "../lib/subagent";
 import { describePlan, planRevert, previewRevert } from "../lib/checkpoint";
 import { worktreeName } from "../lib/git";
 import { dequeue, emptyQueue, type QueueState } from "../lib/prompt-queue";
-import { badgeCount, notifyText, shouldNotify, trayStatus } from "../lib/notify";
+import { notifyText, shouldNotify, trayStatus } from "../lib/notify";
+import { countNeedsYou } from "../lib/session-badge";
 import { fitLayout, loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { paneComposerTakeover, heroLayout, situationAutoCollapse } from "../lib/shell-ia";
 import { agentHealth } from "../lib/agent-health";
@@ -78,7 +79,6 @@ import { derivePermissionView, type PermissionPane } from "../lib/permission-vie
 import { selectPanePermissions } from "../lib/permission-queue";
 import { selectPaneMentionSource, type PaneMentionData } from "../lib/pane-mentions";
 import {
-  attentionCount,
   clearUnread,
   deriveStatus,
   loadUnread,
@@ -114,6 +114,15 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 
+export type AppConfirm = {
+  title: string;
+  body: string;
+  confirmLabel: string;
+} & (
+  | { kind: "delete-session"; session: SessionSummary }
+  | { kind: "move-inbox"; sessionId: string; dest: string }
+);
+
 const FALLBACK_MODELS = ["grok-4.6", "grok-4.5", "grok-build"];
 
 export function useAppModel() {
@@ -135,6 +144,7 @@ export function useAppModel() {
   const [agentRows, setAgentRows] = useState<{ name: string; path: string; kind: "agent" | "persona" }[]>([]);
   const [managed, setManaged] = useState<{ path: string; text: string; exists: boolean } | null>(null);
   const [usageHistory, setUsageHistory] = useState<{ at: number; used: number; size: number }[]>([]);
+  const [appConfirm, setAppConfirm] = useState<AppConfirm | null>(null);
   const [usageDays, setUsageDays] = useState<7 | 30>(7);
   const [jumpTurnId, setJumpTurnId] = useState<string | null>(null);
   const [doctorNote, setDoctorNote] = useState<string | null>(null);
@@ -696,15 +706,7 @@ export function useAppModel() {
     return () => off?.();
   }, []);
 
-  const doneUnread = useMemo(
-    () => Object.values(unread).filter((k) => k === "done").length,
-    [unread],
-  );
   const awaitingId = permissions[0] ? permissions[0].sessionId || runningSessionId || sessionId : null;
-
-  useEffect(() => {
-    void setBadge(badgeCount(attentionCount(unread, awaitingId), doneUnread));
-  }, [unread, awaitingId, doneUnread]);
 
   useEffect(() => {
     void setTrayStatus(trayStatus(busy || splitBusy, permissions.length)).catch(() => {});
@@ -790,7 +792,17 @@ export function useAppModel() {
       showToast(err);
       return;
     }
-    if (!window.confirm("工作目录将改为该项目，agent 随后能读改仓库。独立对话不会搬回来。")) return;
+    setAppConfirm({
+      title: "移入项目",
+      body: "工作目录将改为该项目，agent 随后能读改仓库。独立对话不会搬回来。",
+      confirmLabel: "移入",
+      kind: "move-inbox",
+      sessionId,
+      dest,
+    });
+  }
+
+  async function commitMoveInbox(sessionId: string, dest: string) {
     setMovePick(null);
     try {
       if (runningSessionIdRef.current === sessionId && busy) {
@@ -1025,7 +1037,16 @@ export function useAppModel() {
   }
 
   async function removeSession(s: SessionSummary) {
-    if (!window.confirm(`删除会话「${displayTitle(s, titles)}」？`)) return;
+    setAppConfirm({
+      title: "删除会话",
+      body: `删除会话「${displayTitle(s, titles)}」？`,
+      confirmLabel: "删除",
+      kind: "delete-session",
+      session: s,
+    });
+  }
+
+  async function commitRemoveSession(s: SessionSummary) {
     try {
       await deleteSession(s.id);
       const next = setTitleOverride(titles, s.id, "");
@@ -1298,6 +1319,18 @@ export function useAppModel() {
     [busyIds, awaitingId, unread],
   );
 
+  useEffect(() => {
+    void setBadge(countNeedsYou(allSessions.map((s) => statusFor(s.id))));
+  }, [allSessions, statusFor]);
+
+  function confirmAppModal() {
+    const pending = appConfirm;
+    setAppConfirm(null);
+    if (!pending) return;
+    if (pending.kind === "delete-session") void commitRemoveSession(pending.session);
+    else void commitMoveInbox(pending.sessionId, pending.dest);
+  }
+
   const sidebarSections = useMemo(
     () =>
       buildSidebarSections({
@@ -1522,6 +1555,9 @@ export function useAppModel() {
     agentRows,
     managed,
     usageHistory,
+    appConfirm,
+    confirmAppModal,
+    cancelAppModal: () => setAppConfirm(null),
     usageDays,
     setUsageDays,
     jumpTurnId,
