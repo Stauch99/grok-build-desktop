@@ -62,12 +62,22 @@ fn grok_argv_ok(args: &[String]) -> bool {
     if !grok_args_allowed(args) {
         return false;
     }
+    let mut end_of_options = false;
     for arg in args.iter().skip(1) {
-        if arg.starts_with("--") {
+        if end_of_options {
+            if arg.starts_with("--") {
+                return false;
+            }
+        } else if arg == "--" {
+            end_of_options = true;
+            continue;
+        } else if arg.starts_with("--") {
             if !grok_flag_ok(arg) {
                 return false;
             }
-        } else if !arg.starts_with('-') && grok_pathlike(arg) && grok_path_has_parent(arg) {
+            continue;
+        }
+        if !arg.starts_with('-') && grok_pathlike(arg) && grok_path_has_parent(arg) {
             return false;
         }
     }
@@ -1359,8 +1369,28 @@ mod security_tests {
 
     #[test]
     fn grok_argv_ok_rejects_bare_double_dash() {
-        let args = vec!["mcp".to_string(), "--".to_string()];
-        assert!(!grok_argv_ok(&args));
+        assert!(grok_argv_ok(&[
+            "mcp".into(),
+            "add".into(),
+            "x".into(),
+            "--".into(),
+            "npx".into(),
+        ]));
+        assert!(!grok_argv_ok(&["inspect".into(), "--;rm".into()]));
+        assert!(!grok_argv_ok(&[
+            "mcp".into(),
+            "add".into(),
+            "x".into(),
+            "--".into(),
+            "--evil".into(),
+        ]));
+        assert!(!grok_argv_ok(&[
+            "mcp".into(),
+            "add".into(),
+            "x".into(),
+            "--".into(),
+            "foo/../secret".into(),
+        ]));
     }
 
     #[test]

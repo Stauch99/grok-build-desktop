@@ -12,6 +12,7 @@ import {
   normalizeAttachmentPath,
   pathsFromTauriDrop,
   rejectAttachment,
+  resolveAttachPath,
 } from "./attachments";
 
 describe("attachmentFromPath", () => {
@@ -159,5 +160,44 @@ describe("rejectAttachment", () => {
 
   it("allows a normal file", () => {
     expect(rejectAttachment({ name: "note.md", bytes: 1200 })).toBeNull();
+  });
+});
+
+describe("resolveAttachPath", () => {
+  it("stats files and keeps them when under the cap", async () => {
+    const stat = async () => ({ path: "/tmp/note.md", bytes: 1200, kind: "file" as const });
+    await expect(resolveAttachPath({ path: "/tmp/note.md", kind: "file" }, stat)).resolves.toEqual({
+      attachment: attachmentFromPath("/tmp/note.md", "file", 1200),
+    });
+  });
+
+  it("drops files when stat fails or size is over the cap", async () => {
+    const over = async () => ({
+      path: "/tmp/big.bin",
+      bytes: ATTACHMENT_BYTE_CAP + 1,
+      kind: "file" as const,
+    });
+    await expect(resolveAttachPath({ path: "/tmp/big.bin", kind: "file" }, over)).resolves.toEqual({
+      reason: "文件太大：big.bin（上限 20 MB）",
+    });
+
+    const fail = async () => {
+      throw new Error("附件不存在");
+    };
+    await expect(resolveAttachPath({ path: "/tmp/gone.md", kind: "file" }, fail)).resolves.toEqual({
+      reason: "附件不存在",
+    });
+  });
+
+  it("does not stat directories", async () => {
+    let called = 0;
+    const stat = async () => {
+      called += 1;
+      return { path: "/tmp/src", bytes: 0, kind: "dir" as const };
+    };
+    await expect(resolveAttachPath({ path: "/tmp/src", kind: "dir" }, stat)).resolves.toEqual({
+      attachment: attachmentFromPath("/tmp/src", "dir"),
+    });
+    expect(called).toBe(0);
   });
 });

@@ -192,3 +192,39 @@ export function rejectAttachment(file: { name: string; bytes?: number }): string
   }
   return null;
 }
+
+export type AttachPathEntry = { path: string; kind: "file" | "dir"; bytes?: number };
+export type StatAttachmentInfo = { path: string; bytes: number; kind: "file" | "dir" };
+
+function attachFailReason(name: string, err: unknown): string {
+  const named = rejectAttachment({ name });
+  if (named) return named;
+  if (err instanceof Error && err.message.trim()) return err.message;
+  const text = String(err ?? "").trim();
+  return text || `无法添加这个附件：${name}`;
+}
+
+/** Stat files (not dirs). Drop when stat fails or size is over the cap. */
+export async function resolveAttachPath(
+  entry: AttachPathEntry,
+  statFile: (path: string) => Promise<StatAttachmentInfo>,
+): Promise<{ attachment: Attachment } | { reason: string }> {
+  const name = basename(entry.path) || entry.path;
+  const early = rejectAttachment({ name, bytes: entry.bytes });
+  if (early) return { reason: early };
+  if (entry.kind === "dir") {
+    return { attachment: attachmentFromPath(entry.path, "dir") };
+  }
+  try {
+    const info = await statFile(entry.path);
+    if (info.kind === "dir") {
+      return { attachment: attachmentFromPath(entry.path, "dir") };
+    }
+    const reason = rejectAttachment({ name, bytes: info.bytes });
+    if (reason) return { reason };
+    return { attachment: attachmentFromPath(entry.path, "file", info.bytes) };
+  } catch (err) {
+    return { reason: attachFailReason(name, err) };
+  }
+}
+

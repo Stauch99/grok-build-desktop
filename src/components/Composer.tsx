@@ -15,14 +15,14 @@ import { IconChevron, IconCheck, IconUp } from "../icons";
 import {
   addAttachments,
   ATTACHMENT_CAP,
-  attachmentFromPath,
   formatAttachmentsPrompt,
   isFileDrag,
   pathsFromDataTransfer,
   pathsFromTauriDrop,
-  rejectAttachment,
+  resolveAttachPath,
   type Attachment,
 } from "../lib/attachments";
+import { statAttachment } from "../api";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { commandGroup } from "../lib/slash-groups";
 import { EFFORT_OPTIONS, effortLabel, normalizeEffort, type Effort } from "../lib/effort";
@@ -227,19 +227,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   );
 
   const ingestPaths = useCallback(
-    (paths: { path: string; kind: "file" | "dir"; bytes?: number }[]) => {
+    async (paths: { path: string; kind: "file" | "dir"; bytes?: number }[]) => {
       const incoming: Attachment[] = [];
       for (const p of paths) {
-        const reason = rejectAttachment({ name: p.path.split("/").pop() || p.path, bytes: p.bytes });
-        if (reason) {
-          onOverflow?.(reason);
+        const result = await resolveAttachPath(p, (path) => statAttachment(path, cwd || null));
+        if ("reason" in result) {
+          onOverflow?.(result.reason);
           continue;
         }
-        incoming.push(attachmentFromPath(p.path, p.kind, p.bytes));
+        incoming.push(result.attachment);
       }
       mergeAttachments(incoming);
     },
-    [mergeAttachments, onOverflow],
+    [cwd, mergeAttachments, onOverflow],
   );
 
   const pointInWrap = useCallback((x: number, y: number) => {
@@ -282,7 +282,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (!pointInWrap(x, y)) return;
 
         const incoming = pathsFromTauriDrop(payload.paths);
-        mergeAttachments(incoming);
+        void ingestPaths(incoming.map((a) => ({ path: a.path, kind: a.kind, bytes: a.bytes })));
       })
       .then((fn) => {
         if (alive) unlisten = fn;
@@ -296,7 +296,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       alive = false;
       unlisten?.();
     };
-  }, [mergeAttachments, pointInWrap]);
+  }, [ingestPaths, pointInWrap]);
 
   useEffect(() => {
     if (!modeOpen && !effortOpen && !modelOpen && !wsOpen) return;
@@ -419,7 +419,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
     const paths = await pathsFromDataTransfer(e.dataTransfer);
     if (paths.length > 0) {
-      ingestPaths(paths);
+      void ingestPaths(paths);
       return;
     }
 
