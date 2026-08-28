@@ -103,6 +103,7 @@ import type { ComposerHandle } from "../components/Composer";
 import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "../lib/memory-dock";
 import { isTextPreviewable } from "../lib/preview";
 import { parseWeeklyUsage, type WeeklyUsage } from "../lib/weekly-usage";
+import { BILLING_POLL_MS, scheduleIdle, shouldBlockComposer } from "../lib/agent-warmup";
 import { useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { useAcpSession } from "./useAcpSession";
@@ -892,41 +893,64 @@ export function useAppModel() {
         if (initial) setCwd(initial);
         void refreshInspect(initial || inbox);
         void refreshModels();
-        void readManagedConfig().then(setManaged).catch(() => {});
-        void readUsageHistory().then(setUsageHistory).catch(() => {});
-        void listAgentsDir().then(setAgentRows).catch(() => {});
-        if (doc.grokPath) {
-          void ensureAgent().catch((e) => showToast(String(e)));
-        }
       } catch (e) {
         showToast(String(e));
       }
     })();
   }, []);
 
+  const billingInflight = useRef(false);
+  const refreshBillingRef = useRef<() => Promise<void>>(async () => {});
+  refreshBillingRef.current = async () => {
+    if (!readyRef.current || billingInflight.current) return;
+    billingInflight.current = true;
+    try {
+      const raw = await rpc("_x.ai/billing", {}, { timeoutMs: 8000 });
+      setWeeklyUsage(parseWeeklyUsage(raw));
+    } catch {
+      /* keep the last snapshot; billing is best-effort */
+    } finally {
+      billingInflight.current = false;
+    }
+  };
+
   useEffect(() => {
     if (!ready) return;
-    let cancelled = false;
-    let inflight = false;
-    const tick = async () => {
-      if (cancelled || inflight) return;
-      inflight = true;
-      try {
-        const raw = await rpc("_x.ai/billing", {}, { timeoutMs: 8000 });
-        if (!cancelled) setWeeklyUsage(parseWeeklyUsage(raw));
-      } catch {
-        /* keep the last snapshot; billing is best-effort */
-      } finally {
-        inflight = false;
-      }
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), 10_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
+    void refreshBillingRef.current();
+    const id = window.setInterval(() => void refreshBillingRef.current(), BILLING_POLL_MS);
+    return () => window.clearInterval(id);
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !focused) return;
+    void refreshBillingRef.current();
+  }, [ready, focused]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (extraPage !== "usage" && !settingsOpen) return;
+    void refreshBillingRef.current();
+  }, [ready, extraPage, settingsOpen]);
+
+  useEffect(() => {
+    return scheduleIdle(() => {
+      void readUsageHistory().then(setUsageHistory).catch(() => {});
+      void readManagedConfig().then(setManaged).catch(() => {});
+      void listAgentsDir().then(setAgentRows).catch(() => {});
+    });
+  }, []);
+
+  useEffect(() => {
+    if (extraPage === "usage" || settingsOpen) {
+      void readUsageHistory().then(setUsageHistory).catch(() => {});
+    }
+    if (extraPage === "agents") {
+      void listAgentsDir().then(setAgentRows).catch(() => {});
+    }
+    if (settingsOpen) {
+      void readManagedConfig().then(setManaged).catch(() => {});
+    }
+  }, [extraPage, settingsOpen]);
 
   async function selectProject(path: string) {
     const last = path === INBOX_PIN || (inboxCwd && sameCwd(path, inboxCwd)) ? INBOX_PIN : path;
@@ -1448,7 +1472,11 @@ export function useAppModel() {
   const stallText = mainPaneBusy ? stallNote(Date.now() - lastActivityRef.current) : "";
   const takeover = paneComposerTakeover({ pane: "main", pendingPane: mainPermissionView.pane, pendingKind: mainPermissionView.kind, plan: !!planComplete });
   const splitTakeover = paneComposerTakeover({ pane: "split", pendingPane: splitPermissionView.pane, pendingKind: splitPermissionView.kind, plan: false });
-  const hero = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
+  const layout = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
+  const hero = {
+    ...layout,
+    blocked: layout.blocked || shouldBlockComposer(connecting, ready),
+  };
   const turnFiles = lastTurnFiles(chat.items);
   const terminalTools = bashTools(chat.items);
   const reviewTabs = deriveReviewTabs({ planCount: plan.length, fileCount: turnFiles.length, changeCount: changes.length, contextCount: (planFile ? 1 : 0) + rules.length, hasDetails: !!detailsTool, hasPreview: !!previewPath, bashCount: terminalTools.length });

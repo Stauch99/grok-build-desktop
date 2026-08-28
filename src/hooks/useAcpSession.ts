@@ -32,6 +32,8 @@ import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { asRecord, surfaceStderr } from "../lib/text";
 
+let agentBoot: Promise<void> | null = null;
+
 export function sessionIdFromNewResult(result: unknown): string {
   const sid = String(asRecord(result).sessionId ?? "");
   if (!sid) throw new Error("session/new 没有返回 sessionId");
@@ -156,7 +158,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const runningSessionIdRef = useRef<string | null>(null);
   const readyRef = useRef(false);
   const busyRef = useRef(false);
-  const ensurePromise = useRef<Promise<void> | null>(null);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
   const echoedUser = useRef(false);
   const echoedSplitUser = useRef(false);
@@ -210,9 +211,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
 
   async function ensureAgent(): Promise<void> {
     if (readyRef.current) return;
-    if (ensurePromise.current) return ensurePromise.current;
+    if (agentBoot) return agentBoot;
     setConnecting(true);
-    ensurePromise.current = (async () => {
+    agentBoot = (async () => {
       await startAgent();
       await rpc("initialize", {
         protocolVersion: 1,
@@ -224,11 +225,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       depsRef.current.setSawExit(false);
     })()
       .catch((e) => {
-        ensurePromise.current = null;
+        agentBoot = null;
         throw e;
       })
       .finally(() => setConnecting(false));
-    return ensurePromise.current;
+    return agentBoot;
   }
 
   async function refreshUsage(id: string, dest: "main" | "split" = "main") {
@@ -311,7 +312,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         depsRef.current.setSplitBusy(false);
         setConnecting(false);
         pendingPrompt.current = null;
-        ensurePromise.current = null;
+        agentBoot = null;
       });
       if (cancelled) {
         a(); c(); exit();
@@ -323,6 +324,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       cancelled = true;
       offs.forEach((fn) => fn());
     };
+  }, []);
+
+  useEffect(() => {
+    void ensureAgent().catch((e) => {
+      depsRef.current.showToast(String(e));
+    });
   }, []);
 
   async function createAcpSession(work: string): Promise<string> {
