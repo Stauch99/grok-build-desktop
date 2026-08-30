@@ -21,6 +21,12 @@ export function shouldFlushSessionUpdateNow(params: Record<string, unknown>): bo
   return FLUSH_NOW.has(String(update.sessionUpdate ?? ""));
 }
 
+/** Kimi (and others) may stream the reply and emit `turn_completed` without a prompt `stopReason`. */
+export function shouldClearBusyOnSessionUpdate(params: Record<string, unknown>): boolean {
+  const update = params.update ? asRecord(params.update) : params;
+  return String(update.sessionUpdate ?? "") === "turn_completed";
+}
+
 /** One animation frame, or a microtask when rAF is missing (Node tests). */
 export function scheduleSessionUpdateFlush(apply: () => void): () => void {
   if (typeof requestAnimationFrame === "function") {

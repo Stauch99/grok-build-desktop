@@ -4,16 +4,21 @@ import { emptyChat } from "../lib/chat";
 import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
 import { agentIdForPaneDest } from "../lib/session-agent";
 import {
+  ignoreAcpHistoryDuringResume,
   isAgentReady,
   isPromptStopResult,
   paneAgentForEvent,
   resumeOnSessionAgent,
   sessionIdFromNewResult,
   sessionUpdateDest,
+  shouldClearBusyOnPromptError,
   shouldClearBusyOnPromptResult,
   shouldIgnoreAcpEvent,
   targetAgentId,
   withEchoedUser,
+  withPromptFail,
+  isAbandonedPromptError,
+  abandonPendingForDest,
 } from "./useAcpSession";
 
 describe("sessionIdFromNewResult", () => {
@@ -67,6 +72,19 @@ describe("shouldClearBusyOnPromptResult", () => {
     expect(shouldClearBusyOnPromptResult({ stopReason: "end_turn" }, false)).toBe(false);
     expect(shouldClearBusyOnPromptResult({ sessionId: "x" }, true)).toBe(false);
   });
+
+  it("clears busy on any session/prompt result, even without stopReason", () => {
+    expect(shouldClearBusyOnPromptResult({}, true, "session/prompt")).toBe(true);
+    expect(shouldClearBusyOnPromptResult({}, true, "session/new")).toBe(false);
+  });
+});
+
+describe("shouldClearBusyOnPromptError", () => {
+  it("clears busy when a live prompt rpc returns an error", () => {
+    expect(shouldClearBusyOnPromptError({ message: "Authentication required" }, true)).toBe(true);
+    expect(shouldClearBusyOnPromptError({ message: "Authentication required" }, false)).toBe(false);
+    expect(shouldClearBusyOnPromptError(undefined, true)).toBe(false);
+  });
 });
 
 describe("withEchoedUser", () => {
@@ -76,6 +94,47 @@ describe("withEchoedUser", () => {
     expect(prev.items).toHaveLength(0);
     expect(next.items).toEqual([{ kind: "user", id: "u-local-1", text: "hello", at: 42 }]);
     expect(next.nextId).toBe(prev.nextId + 1);
+  });
+});
+
+describe("withPromptFail", () => {
+  it("appends a failed tool once for the same detail", () => {
+    const prev = emptyChat();
+    const next = withPromptFail(prev, "Authentication required", 9);
+    expect(next.items[0]).toMatchObject({
+      kind: "tool",
+      title: "请求失败",
+      status: "failed",
+      detail: "Authentication required",
+      at: 9,
+    });
+    expect(withPromptFail(next, "Authentication required", 10).items).toHaveLength(1);
+  });
+});
+
+describe("abandonPendingForDest", () => {
+  it("rejects only waiters bound to that pane", () => {
+    const pending = new Map<number, { reject: (e: Error) => void }>();
+    const dest = new Map<number, string>([
+      [1, "main"],
+      [2, "split"],
+    ]);
+    const rejected: string[] = [];
+    pending.set(1, { reject: (e) => rejected.push(e.message) });
+    pending.set(2, { reject: (e) => rejected.push(e.message) });
+    abandonPendingForDest(pending, dest, "main");
+    expect(rejected).toEqual(["prompt-abandoned"]);
+    expect(pending.has(1)).toBe(false);
+    expect(pending.has(2)).toBe(true);
+    expect(isAbandonedPromptError(new Error("prompt-abandoned"))).toBe(true);
+    expect(isAbandonedPromptError(new Error("rpc error"))).toBe(false);
+  });
+});
+
+describe("ignoreAcpHistoryDuringResume", () => {
+  it("ignores live ACP history only when disk already filled the thread", () => {
+    expect(ignoreAcpHistoryDuringResume(3)).toBe(true);
+    expect(ignoreAcpHistoryDuringResume(0)).toBe(false);
   });
 });
 

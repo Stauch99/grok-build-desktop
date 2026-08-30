@@ -87,6 +87,12 @@ export function surfaceStderr(line: string): string | null {
   return t.replace(/^\d{4}-\d{2}-\d{2}[T ][\d:.Z+-]+\s*/i, "").slice(0, 140);
 }
 
+export function shouldClearBusyOnAgentStderr(line: string): boolean {
+  const t = cleanLogLine(line);
+  if (!t) return false;
+  return /\[SYSTEM_ERROR\]|Authentication required|Prompt for session .+\sfailed/i.test(t);
+}
+
 export function resolveOpenTarget(href: string, cwd = ""): string | null {
   const h = href.trim();
   if (!h || /^javascript:/i.test(h) || /^data:/i.test(h)) return null;

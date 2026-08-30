@@ -3,6 +3,7 @@ import { applyChatUpdate, emptyChat } from "./chat";
 import {
   foldSessionUpdates,
   scheduleSessionUpdateFlush,
+  shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
 } from "./session-update-batch";
 
@@ -28,6 +29,14 @@ describe("foldSessionUpdates", () => {
   it("is a no-op for an empty batch", () => {
     const prev = emptyChat();
     expect(foldSessionUpdates(prev, [])).toBe(prev);
+  });
+});
+
+describe("shouldClearBusyOnSessionUpdate", () => {
+  it("clears busy when the turn ends, not on chunks or compact", () => {
+    expect(shouldClearBusyOnSessionUpdate(kind("turn_completed"))).toBe(true);
+    expect(shouldClearBusyOnSessionUpdate(chunk("pong"))).toBe(false);
+    expect(shouldClearBusyOnSessionUpdate(kind("auto_compact_completed"))).toBe(false);
   });
 });
 

@@ -67,6 +67,19 @@ export function shouldUnbindBeforeNewChat(): boolean {
   return true;
 }
 
+/** Bound 新对话 must cancel the in-flight ACP prompt so the child is not left occupying stdin. */
+export function shouldCancelAcpOnNewChat(): boolean {
+  return true;
+}
+
+export function sessionCancelNotification(sessionId: string): {
+  jsonrpc: "2.0";
+  method: "session/cancel";
+  params: { sessionId: string };
+} {
+  return { jsonrpc: "2.0", method: "session/cancel", params: { sessionId } };
+}
+
 /** First send creates the ACP session; 新对话 must not re-lock the chip row. */
 export function shouldCreateAcpSessionOnNewChat(): boolean {
   return false;
@@ -84,4 +97,9 @@ export function keepLiveAgentOnHydrate(
   current: AgentId,
 ): AgentId {
   return userPicked ? current : hydrateLastAgent(loaded);
+}
+
+/** `_meta.yoloMode` is Grok-only. Other CLIs ignore it or treat unknown meta as a hang risk. */
+export function sessionNewMeta(agentId: AgentId, yolo: boolean): Record<string, unknown> {
+  return agentId === "grok" && yolo ? { yoloMode: true } : {};
 }

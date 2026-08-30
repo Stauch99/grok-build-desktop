@@ -6,6 +6,9 @@ import {
   hydrateLastAgent,
   keepLiveAgentOnHydrate,
   nextSelectedAgent,
+  sessionNewMeta,
+  sessionCancelNotification,
+  shouldCancelAcpOnNewChat,
   shouldUnbindBeforeNewChat,
   shouldCreateAcpSessionOnNewChat,
   shouldWarmupOnChipSelect,
@@ -104,6 +107,17 @@ describe("shouldUnbindBeforeNewChat", () => {
   });
 });
 
+describe("shouldCancelAcpOnNewChat", () => {
+  it("cancels the bound ACP prompt so a later chip send is not stuck behind it", () => {
+    expect(shouldCancelAcpOnNewChat()).toBe(true);
+    expect(sessionCancelNotification("sid-1")).toEqual({
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: "sid-1" },
+    });
+  });
+});
+
 describe("shouldCreateAcpSessionOnNewChat", () => {
   it("leaves the composer unbound so chips stay switchable until first send", () => {
     expect(shouldCreateAcpSessionOnNewChat()).toBe(false);
@@ -132,5 +146,15 @@ describe("hydrateLastAgent", () => {
     expect(hydrateLastAgent("gemini")).toBe("grok");
     expect(hydrateLastAgent(undefined)).toBe("grok");
     expect(hydrateLastAgent(1)).toBe("grok");
+  });
+});
+
+describe("sessionNewMeta", () => {
+  it("stamps yoloMode only for Grok", () => {
+    expect(sessionNewMeta("grok", true)).toEqual({ yoloMode: true });
+    expect(sessionNewMeta("grok", false)).toEqual({});
+    expect(sessionNewMeta("claude", true)).toEqual({});
+    expect(sessionNewMeta("codex", true)).toEqual({});
+    expect(sessionNewMeta("kimi", true)).toEqual({});
   });
 });

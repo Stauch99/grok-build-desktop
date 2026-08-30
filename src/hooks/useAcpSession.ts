@@ -25,6 +25,7 @@ import {
 import {
   foldSessionUpdates,
   scheduleSessionUpdateFlush,
+  shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
 } from "../lib/session-update-batch";
 import { filterCommands, type CommandDef } from "../lib/commands";
@@ -36,7 +37,7 @@ import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
 import { agentSendBlockReason, type AgentDoctor } from "../lib/agent-doctor";
 import { INBOX_PIN, lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
-import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
+import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import {
   afterInitializeFetchSessionList,
@@ -45,7 +46,7 @@ import {
   shouldAdoptInFlightBoot,
   shouldStartWarmup,
 } from "../lib/agent-warmup";
-import { asRecord, surfaceStderr } from "../lib/text";
+import { asRecord, shouldClearBusyOnAgentStderr, surfaceStderr } from "../lib/text";
 import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
 import { isDreamSession } from "../lib/memory-dream-acp";
@@ -64,8 +65,14 @@ export function isPromptStopResult(result: unknown): boolean {
   return !!result && typeof result === "object" && "stopReason" in result;
 }
 
-export function shouldClearBusyOnPromptResult(result: unknown, hadLiveWaiter: boolean): boolean {
-  return hadLiveWaiter && isPromptStopResult(result);
+export function shouldClearBusyOnPromptResult(result: unknown, hadLiveWaiter: boolean, method?: string): boolean {
+  if (!hadLiveWaiter || result == null) return false;
+  if (method === "session/prompt") return true;
+  return isPromptStopResult(result);
+}
+
+export function shouldClearBusyOnPromptError(error: unknown, hadLiveWaiter: boolean): boolean {
+  return hadLiveWaiter && error != null;
 }
 
 export type SessionUpdateDest = string | "drop";
@@ -89,6 +96,47 @@ export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, 
     items: [...chat.items, { kind: "user", id: `${idPrefix}-${chat.nextId}`, text, at }],
     nextId: chat.nextId + 1,
   };
+}
+
+export function withPromptFail(chat: ChatState, text: string, at: number): ChatState {
+  const last = chat.items[chat.items.length - 1];
+  if (last?.kind === "tool" && last.status === "failed" && last.detail === text) return chat;
+  return {
+    ...chat,
+    items: [
+      ...chat.items,
+      {
+        kind: "tool",
+        id: `fail-${chat.nextId}`,
+        title: "请求失败",
+        status: "failed",
+        detail: text,
+        at,
+      },
+    ],
+    nextId: chat.nextId + 1,
+  };
+}
+
+export function isAbandonedPromptError(e: unknown): boolean {
+  return e instanceof Error && e.message === "prompt-abandoned";
+}
+
+export function abandonPendingForDest(
+  pendingRpc: Map<number, { reject: (e: Error) => void }>,
+  pendingDest: Map<number, string>,
+  dest: string,
+): void {
+  for (const [id, pane] of [...pendingDest.entries()]) {
+    if (pane !== dest) continue;
+    pendingRpc.get(id)?.reject(new Error("prompt-abandoned"));
+    pendingRpc.delete(id);
+    pendingDest.delete(id);
+  }
+}
+
+export function ignoreAcpHistoryDuringResume(diskRowCount: number): boolean {
+  return diskRowCount > 0;
 }
 
 export function targetAgentId(requested: AgentId | undefined, chip: AgentId): AgentId {
@@ -257,7 +305,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const readyRef = useRef(false);
   const readyByAgentRef = useRef<Partial<Record<AgentId, boolean>>>({});
   const busyRef = useRef(false);
-  const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
+  const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string }>());
   const echoedUser = useRef(false);
   const echoedExtra = useRef<Record<string, boolean>>({});
   const loadGen = useRef(0);
@@ -360,6 +408,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
 
   function clearMainComposer() {
     if (!shouldUnbindBeforeNewChat()) return;
+    const sid = runningSessionIdRef.current || sessionIdRef.current;
+    const agentId = paneAgent(MAIN_PANE);
+    if (shouldCancelAcpOnNewChat() && sid) {
+      void sendRaw(sessionCancelNotification(sid), agentId).catch(() => {});
+    }
+    abandonPendingForDest(pendingRpc.current, pendingDest.current, "main");
+    pendingPrompt.current = null;
     adoptSession(null);
     runningSessionIdRef.current = null;
     setRunningSessionId(null);
@@ -392,7 +447,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (opts?.dest) pendingDest.current.set(id, opts.dest);
     const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
     return new Promise((resolve, reject) => {
-      pendingRpc.current.set(id, { resolve, reject });
+      pendingRpc.current.set(id, { resolve, reject, method });
       void sendRaw({ jsonrpc: "2.0", id, method, params }, agentId).catch((e) => {
         pendingRpc.current.delete(id);
         pendingDest.current.delete(id);
@@ -491,12 +546,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const id = Number(msg.id);
       const waiter = pendingRpc.current.get(id);
       const hadLiveWaiter = !!waiter || pendingDest.current.has(id);
+      const method = waiter?.method;
       if (waiter) {
         pendingRpc.current.delete(id);
         if (msg.error) waiter.reject(new Error(msg.error.message || "rpc error"));
         else waiter.resolve(msg.result);
       }
-      if (shouldClearBusyOnPromptResult(msg.result, hadLiveWaiter)) {
+      if (
+        shouldClearBusyOnPromptResult(msg.result, hadLiveWaiter, method) ||
+        shouldClearBusyOnPromptError(msg.error, hadLiveWaiter)
+      ) {
         const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
         pendingDest.current.delete(id);
         if (dest && dest !== MAIN_PANE) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
@@ -523,6 +582,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (ignoreReplay.current && !extra) return;
       if (extra && ignoreExtraReplay.current[dest]) return;
       enqueueSessionUpdate(params, dest);
+      if (shouldClearBusyOnSessionUpdate(params)) {
+        if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
+        else {
+          busyRef.current = false;
+          setBusy(false);
+        }
+        pendingPrompt.current = null;
+      }
       if (shouldFlushSessionUpdateNow(params)) {
         const id = sid || (extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current);
         if (id) void refreshUsage(id, dest);
@@ -539,6 +606,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     void (async () => {
       const a = await onAcpMessage((m, eventAgent) => handleRef.current(m, eventAgent));
       const c = await onAcpStderr((line) => {
+        if (shouldClearBusyOnAgentStderr(line)) {
+          busyRef.current = false;
+          setBusy(false);
+          pendingPrompt.current = null;
+          const notice = surfaceStderr(line);
+          if (notice) setChat((prev) => withPromptFail(prev, notice, Date.now()));
+        }
         const msg = surfaceStderr(line);
         if (msg) depsRef.current.showToast(msg);
       });
@@ -609,9 +683,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   async function createAcpSession(work: string): Promise<string> {
-    const meta: Record<string, unknown> = {};
-    if (depsRef.current.mode === "yolo") meta.yoloMode = true;
     const agentId = paneAgent(MAIN_PANE);
+    const meta = sessionNewMeta(agentId, depsRef.current.mode === "yolo");
     const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }, { agentId }));
     const sid = sessionIdFromNewResult(result);
     bindMainAgent(agentId);
@@ -701,8 +774,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const inbox = d.inboxCwd && sameCwd(work, d.inboxCwd);
       const dir = inbox ? d.inboxCwd || work : work;
       await setWorkspace(dir);
-      const meta: Record<string, unknown> = {};
-      if (d.mode === "yolo") meta.yoloMode = true;
+      const meta = sessionNewMeta(agentId, d.mode === "yolo");
       const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }, { dest: paneId, agentId }));
       const sid = sessionIdFromNewResult(result);
       echoedExtra.current[paneId] = false;
@@ -769,14 +841,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return next;
     });
     try {
-      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
+      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null, s.dir);
       if (token !== loadGen.current) return;
       const next = applySessionPage(updateCursors.current, s.id, page);
       setChat(next);
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id);
       setLoadingSession(false);
-      ignoreReplay.current = true;
+      ignoreReplay.current = ignoreAcpHistoryDuringResume(page.rows.length);
       try {
         await resumeBoundSession(s);
       } finally {
@@ -802,9 +874,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     d.onOpenSplit();
     echoedExtra.current[paneId] = false;
-    ignoreExtraReplay.current[paneId] = true;
     try {
-      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
+      const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null, s.dir);
+      ignoreExtraReplay.current[paneId] = ignoreAcpHistoryDuringResume(page.rows.length);
       const next = applySessionPage(updateCursors.current, s.id, page);
       const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
       d.setSelectedAgentId(selectedAfterOpen);
@@ -1052,7 +1124,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     } catch (e) {
       busyRef.current = false;
       setBusy(false);
+      if (isAbandonedPromptError(e)) return;
       d.showToast(String(e));
+      setChat((prev) => withPromptFail(prev, String(e), Date.now()));
     }
   }
 

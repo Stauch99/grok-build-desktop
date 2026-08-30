@@ -86,6 +86,59 @@ pub(crate) struct SpawnProfile {
     pub args: Vec<String>,
 }
 
+pub(crate) fn parse_npx_pkg(spec: &str) -> Option<(&str, &str)> {
+    let (name, ver) = spec.rsplit_once('@')?;
+    if name.is_empty() || ver.is_empty() {
+        return None;
+    }
+    Some((name, ver))
+}
+
+pub(crate) fn cached_npx_entry(npx_root: &Path, package_name: &str, version: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(npx_root).ok()?;
+    for ent in entries.flatten() {
+        let mut pkg_dir = ent.path().join("node_modules");
+        for part in package_name.split('/') {
+            pkg_dir.push(part);
+        }
+        let Ok(raw) = std::fs::read_to_string(pkg_dir.join("package.json")) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if val.get("version").and_then(|v| v.as_str()) != Some(version) {
+            continue;
+        }
+        let entry = pkg_dir.join("dist").join("index.js");
+        if entry.is_file() {
+            return Some(entry);
+        }
+    }
+    None
+}
+
+pub(crate) fn default_npx_root() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"));
+    home.join(".npm").join("_npx")
+}
+
+/// Prefer `node <cached dist/index.js>` so stdin is not swallowed by `npx -y`.
+pub(crate) fn spawn_npx_adapter(
+    pkg: &str,
+    npx_root: &Path,
+    lookup: impl Fn(&str) -> Option<PathBuf>,
+) -> (PathBuf, Vec<String>) {
+    if let Some((name, ver)) = parse_npx_pkg(pkg) {
+        if let (Some(node), Some(entry)) = (lookup("node"), cached_npx_entry(npx_root, name, ver)) {
+            return (node, vec![entry.to_string_lossy().into()]);
+        }
+    }
+    (PathBuf::from("npx"), vec!["-y".into(), pkg.into()])
+}
+
 pub(crate) fn default_spawn_profile(id: AgentId) -> SpawnProfile {
     match id {
         AgentId::Grok => SpawnProfile {
@@ -352,5 +405,75 @@ mod tests {
             ParsedStdio::Message(json!({"jsonrpc":"2.0","result":{}}))
         );
         assert_eq!(parse_stdout_line("not json"), ParsedStdio::Log("not json".into()));
+    }
+
+    #[test]
+    fn parse_npx_pkg_splits_scoped_pin() {
+        assert_eq!(
+            parse_npx_pkg(CLAUDE_ACP_PKG),
+            Some(("@agentclientprotocol/claude-agent-acp", "0.70.0"))
+        );
+        assert_eq!(
+            parse_npx_pkg(CODEX_ACP_PKG),
+            Some(("@agentclientprotocol/codex-acp", "1.7.0"))
+        );
+        assert_eq!(parse_npx_pkg("npx"), None);
+    }
+
+    #[test]
+    fn cached_npx_entry_requires_matching_version_and_entry() {
+        let root = std::env::temp_dir().join(format!("npx-cache-{}", std::process::id()));
+        let pkg = root
+            .join("deadbeef")
+            .join("node_modules")
+            .join("@agentclientprotocol")
+            .join("claude-agent-acp");
+        let dist = pkg.join("dist");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(pkg.join("package.json"), r#"{"version":"0.70.0"}"#).unwrap();
+        let entry = dist.join("index.js");
+        std::fs::write(&entry, "export {}\n").unwrap();
+        assert_eq!(
+            cached_npx_entry(&root, "@agentclientprotocol/claude-agent-acp", "0.70.0"),
+            Some(entry.clone())
+        );
+        assert_eq!(
+            cached_npx_entry(&root, "@agentclientprotocol/claude-agent-acp", "0.69.0"),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn spawn_npx_adapter_uses_node_on_cache_hit_else_npx() {
+        let empty = std::env::temp_dir().join(format!("npx-empty-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&empty);
+        let lookup = |name: &str| {
+            if name == "node" {
+                Some(PathBuf::from("/usr/local/bin/node"))
+            } else {
+                None
+            }
+        };
+        let (cmd, args) = spawn_npx_adapter(CLAUDE_ACP_PKG, &empty, lookup);
+        assert_eq!(cmd, PathBuf::from("npx"));
+        assert_eq!(args, vec!["-y".to_string(), CLAUDE_ACP_PKG.to_string()]);
+
+        let root = std::env::temp_dir().join(format!("npx-hit-{}", std::process::id()));
+        let pkg = root
+            .join("cafebabe")
+            .join("node_modules")
+            .join("@agentclientprotocol")
+            .join("claude-agent-acp");
+        let dist = pkg.join("dist");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(pkg.join("package.json"), r#"{"version":"0.70.0"}"#).unwrap();
+        let entry = dist.join("index.js");
+        std::fs::write(&entry, "export {}\n").unwrap();
+        let (cmd, args) = spawn_npx_adapter(CLAUDE_ACP_PKG, &root, lookup);
+        assert_eq!(cmd, PathBuf::from("/usr/local/bin/node"));
+        assert_eq!(args, vec![entry.to_string_lossy().to_string()]);
+        let _ = std::fs::remove_dir_all(&empty);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -13,9 +13,18 @@ pub(crate) fn spawn_argv(id: crate::agent_host::AgentId, grok_bin: Option<&Path>
     use crate::agent_host::AgentId;
     match id {
         AgentId::Grok => grok_bin.map(|p| (p.to_path_buf(), vec!["agent".into(), "stdio".into()])),
-        other => {
-            let p = crate::agent_host::default_spawn_profile(other);
+        AgentId::Kimi => {
+            let p = crate::agent_host::default_spawn_profile(AgentId::Kimi);
             Some((PathBuf::from(p.command), p.args))
+        }
+        AgentId::Claude | AgentId::Codex => {
+            let p = crate::agent_host::default_spawn_profile(id);
+            let pkg = p.args.get(1).cloned().unwrap_or_default();
+            Some(crate::agent_host::spawn_npx_adapter(
+                &pkg,
+                &crate::agent_host::default_npx_root(),
+                crate::agent_host::which_on_path,
+            ))
         }
     }
 }
@@ -63,13 +72,22 @@ mod tests {
         let (cmd, args) = spawn_argv(AgentId::Kimi, None).unwrap();
         assert_eq!(cmd, PathBuf::from("kimi"));
         assert_eq!(args, vec!["acp".to_string()]);
-        let (cmd, args) = spawn_argv(AgentId::Claude, None).unwrap();
+        let empty = Path::new("/no/such/npx-cache");
+        let (cmd, args) = crate::agent_host::spawn_npx_adapter(
+            crate::agent_host::CLAUDE_ACP_PKG,
+            empty,
+            |_| None,
+        );
         assert_eq!(cmd, PathBuf::from("npx"));
         assert_eq!(
             args,
             vec!["-y".to_string(), crate::agent_host::CLAUDE_ACP_PKG.to_string()]
         );
-        let (cmd, args) = spawn_argv(AgentId::Codex, None).unwrap();
+        let (cmd, args) = crate::agent_host::spawn_npx_adapter(
+            crate::agent_host::CODEX_ACP_PKG,
+            empty,
+            |_| None,
+        );
         assert_eq!(cmd, PathBuf::from("npx"));
         assert_eq!(
             args,

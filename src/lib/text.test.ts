@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, surfaceStderr, textFromContent } from "./text";
+import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent } from "./text";
 
 describe("basename", () => {
   it("takes the last path segment", () => {
@@ -136,6 +136,25 @@ describe("surfaceStderr", () => {
   });
   it("keeps a real failure line", () => {
     expect(surfaceStderr("failed to start agent: permission denied")).toMatch(/permission denied/);
+  });
+  it("keeps a Codex prompt auth failure", () => {
+    expect(
+      surfaceStderr(
+        "[SYSTEM_ERROR] Prompt for session abc failed: RequestError: Authentication required: refresh token",
+      ),
+    ).toMatch(/Authentication required/);
+  });
+});
+
+describe("shouldClearBusyOnAgentStderr", () => {
+  it("clears busy on a prompt SYSTEM_ERROR, not on MCP transport noise", () => {
+    expect(
+      shouldClearBusyOnAgentStderr(
+        "[SYSTEM_ERROR] Prompt for session abc failed: RequestError: Authentication required",
+      ),
+    ).toBe(true);
+    expect(shouldClearBusyOnAgentStderr("worker quit with fatal: Transport channel closed")).toBe(false);
+    expect(shouldClearBusyOnAgentStderr("")).toBe(false);
   });
 });
 
