@@ -36,7 +36,7 @@ import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
 import { MAIN_PANE } from "../lib/pane-tree";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
-import { agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
+import { agentIdForPaneDest, agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
@@ -146,7 +146,7 @@ export type ExtraPaneState = {
   busy: boolean;
   atBottom: boolean;
   queue: QueueState;
-  agentId?: AgentId;
+  agentId: AgentId;
 };
 
 export type AcpSplitState = ExtraPaneState;
@@ -231,6 +231,8 @@ export type AcpSession = {
   onDraftChange: (value: string) => void;
   injectedSessions: Set<string>;
   dismissInjectedSession: (sessionId: string) => void;
+  mainAgentIdRef: React.MutableRefObject<AgentId>;
+  bindMainAgent: (id: AgentId) => void;
 };
 
 export function useAcpSession(deps: AcpSessionDeps): AcpSession {
@@ -269,6 +271,21 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const selectedAgentIdRef = useRef(deps.selectedAgentId);
   selectedAgentIdRef.current = deps.selectedAgentId;
   const mainAgentIdRef = useRef<AgentId>(deps.selectedAgentId);
+
+  function bindMainAgent(id: AgentId) {
+    mainAgentIdRef.current = id;
+  }
+
+  function paneAgent(dest: PaneDest): AgentId {
+    const extra = dest !== MAIN_PANE;
+    return agentIdForPaneDest({
+      dest,
+      extraAgent: extra ? depsRef.current.extraPanes[dest]?.agentId : undefined,
+      mainAgentId: mainAgentIdRef.current,
+      chip: selectedAgentIdRef.current,
+      hasOpenMainSession: !extra && !!sessionIdRef.current,
+    });
+  }
 
   function patchExtra(paneId: string, patch: (prev: ExtraPaneState) => ExtraPaneState) {
     depsRef.current.setExtraPanes((prev) => {
@@ -565,9 +582,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   async function createAcpSession(work: string): Promise<string> {
     const meta: Record<string, unknown> = {};
     if (depsRef.current.mode === "yolo") meta.yoloMode = true;
-    const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }));
+    const agentId = paneAgent(MAIN_PANE);
+    const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }, { agentId }));
     const sid = sessionIdFromNewResult(result);
-    mainAgentIdRef.current = selectedAgentIdRef.current;
+    bindMainAgent(agentId);
     adoptSession(sid);
     await setWorkspace(work || ".", sid);
     window.setTimeout(() => void depsRef.current.onSessionsNeedRefresh(), 500);
@@ -636,13 +654,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     try {
-      await ensureAgent();
+      const agentId = selectedAgentIdRef.current;
+      await ensureAgent(agentId);
       const inbox = d.inboxCwd && sameCwd(work, d.inboxCwd);
       const dir = inbox ? d.inboxCwd || work : work;
       await setWorkspace(dir);
       const meta: Record<string, unknown> = {};
       if (d.mode === "yolo") meta.yoloMode = true;
-      const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }));
+      const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }, { dest: paneId, agentId }));
       const sid = sessionIdFromNewResult(result);
       echoedExtra.current[paneId] = false;
       d.setExtraPanes((prev) => ({
@@ -655,7 +674,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           busy: false,
           atBottom: true,
           queue: emptyQueue(),
-          agentId: selectedAgentIdRef.current,
+          agentId,
         },
       }));
       window.setTimeout(() => void d.onSessionsNeedRefresh(), 500);
@@ -705,7 +724,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       try {
         const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
         d.setSelectedAgentId(selectedAfterOpen);
-        mainAgentIdRef.current = agentId;
+        bindMainAgent(agentId);
         await resumeBoundSession(s);
       } finally {
         ignoreReplay.current = false;
@@ -762,7 +781,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   async function sendSlashToAgent(text: string, dest: PaneDest = MAIN_PANE) {
-    await ensureAgent();
+    const agentId = paneAgent(dest);
+    await ensureAgent(agentId);
     if (dest !== MAIN_PANE) {
       const pane = depsRef.current.extraPanes[dest];
       if (!pane) return;
@@ -770,7 +790,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await rpc(
         "session/prompt",
         { sessionId: pane.sessionId, prompt: [{ type: "text", text }] },
-        { dest },
+        { dest, agentId },
       );
       return;
     }
@@ -780,7 +800,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     await rpc(
       "session/prompt",
       { sessionId: sid, prompt: [{ type: "text", text }] },
-      { dest: "main" },
+      { dest: "main", agentId: paneAgent(MAIN_PANE) },
     );
   }
 
@@ -812,7 +832,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       d.setDraft("");
     }
     try {
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest });
+      const agentId = paneAgent(dest);
+      await ensureAgent(agentId);
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest, agentId });
     } catch (e) {
       d.showToast(`改向失败，已改为排队：${String(e)}`);
       queuePrompt(text, dest);
@@ -916,9 +938,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         atBottom: true,
       }));
       try {
-        await ensureAgent();
+        const agentId = paneAgent(dest);
+        await ensureAgent(agentId);
         if (pane.cwd) await setWorkspace(pane.cwd, pane.sessionId);
-        await rpc("session/prompt", { sessionId: pane.sessionId, prompt: [{ type: "text", text: acpText }] }, { dest });
+        await rpc("session/prompt", { sessionId: pane.sessionId, prompt: [{ type: "text", text: acpText }] }, { dest, agentId });
         startedRef.current = markStarted(startedRef.current, pane.sessionId);
         if (wrapInjected) {
           const next = markInjected(injectedRef.current, pane.sessionId, true);
@@ -948,12 +971,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setBusy(true);
     }
     try {
-      await ensureAgent();
+      const agentId = paneAgent(MAIN_PANE);
+      await ensureAgent(agentId);
       let sid = sessionIdRef.current;
       if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
       if (sid !== existing) beginMainRun(sid);
       if (d.cwd) await setWorkspace(d.cwd, sid);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main" });
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
       startedRef.current = markStarted(startedRef.current, sid);
       if (wrapInjected) {
         const next = markInjected(injectedRef.current, sid, true);
@@ -977,7 +1001,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const sid = target !== MAIN_PANE ? d.extraPanes[target]?.sessionId : runningSessionIdRef.current;
     try {
-      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } }, selectedAgentIdRef.current);
+      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } }, paneAgent(target));
       await d.onCancelPermission(target);
     } finally {
       if (target !== MAIN_PANE) patchExtra(target, (prev) => ({ ...prev, busy: false }));
@@ -1035,5 +1059,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     onDraftChange,
     injectedSessions,
     dismissInjectedSession,
+    mainAgentIdRef,
+    bindMainAgent,
   };
 }

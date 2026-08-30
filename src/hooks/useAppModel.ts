@@ -383,6 +383,8 @@ export function useAppModel() {
     onDraftChange,
     injectedSessions,
     dismissInjectedSession,
+    mainAgentIdRef,
+    bindMainAgent,
   } = acp;
 
   const paneCount = leafIds(paneTree).length;
@@ -1242,6 +1244,7 @@ export function useAppModel() {
       busy,
       atBottom,
       queue: queueRef.current,
+      agentId: mainAgentIdRef.current,
     };
   }
 
@@ -1253,6 +1256,8 @@ export function useAppModel() {
     setAtBottom(extra.atBottom);
     setQueue(extra.queue);
     queueRef.current = extra.queue;
+    bindMainAgent(extra.agentId);
+    setSelectedAgentId(extra.agentId);
   }
 
   async function commitDrop(drop: ResolvedDrop) {

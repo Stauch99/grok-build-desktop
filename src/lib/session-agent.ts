@@ -31,3 +31,21 @@ export function nextSelectedAgent(
 ): AgentId {
   return canChangeSelectedAgent(hasOpenSession) ? requested : current;
 }
+
+/** Prompt/cancel target: pane session agent, not the chip, once a session is open. */
+export function agentIdForPaneDest(args: {
+  dest: string;
+  extraAgent?: AgentId | null;
+  mainAgentId: AgentId;
+  chip: AgentId;
+  hasOpenMainSession: boolean;
+}): AgentId {
+  if (args.dest !== "main") {
+    return args.extraAgent && isAgentId(args.extraAgent) ? args.extraAgent : args.chip;
+  }
+  return args.hasOpenMainSession ? args.mainAgentId : args.chip;
+}
+
+export function hydrateLastAgent(raw: unknown, fallback: AgentId = "grok"): AgentId {
+  return typeof raw === "string" && isAgentId(raw) ? raw : fallback;
+}

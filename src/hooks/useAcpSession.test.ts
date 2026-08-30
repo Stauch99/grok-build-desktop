@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentId } from "../lib/agent-id";
 import { emptyChat } from "../lib/chat";
 import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
+import { agentIdForPaneDest } from "../lib/session-agent";
 import {
   isAgentReady,
   isPromptStopResult,
@@ -125,5 +126,42 @@ describe("ACP event drop by pane agent", () => {
   it("uses the split pane agent when dest is split", () => {
     expect(paneAgentForEvent("split", "grok", "claude")).toBe("claude");
     expect(paneAgentForEvent("main", "grok", "claude")).toBe("grok");
+  });
+});
+
+describe("prompt and cancel target the pane agent, not the chip", () => {
+  it("sends extra-pane prompt/cancel to kimi while the chip is grok", () => {
+    const target = agentIdForPaneDest({
+      dest: "p2",
+      extraAgent: "kimi",
+      mainAgentId: "grok",
+      chip: "grok",
+      hasOpenMainSession: true,
+    });
+    expect(target).toBe("kimi");
+    expect(target).not.toBe("grok");
+  });
+
+  it("sends main prompt/cancel to the bound kimi session while the chip is grok", () => {
+    const target = agentIdForPaneDest({
+      dest: "main",
+      extraAgent: "claude",
+      mainAgentId: "kimi",
+      chip: "grok",
+      hasOpenMainSession: true,
+    });
+    expect(target).toBe("kimi");
+    expect(target).not.toBe("grok");
+  });
+
+  it("uses the chip for a new chat with no session", () => {
+    expect(
+      agentIdForPaneDest({
+        dest: "main",
+        mainAgentId: "kimi",
+        chip: "codex",
+        hasOpenMainSession: false,
+      }),
+    ).toBe("codex");
   });
 });
