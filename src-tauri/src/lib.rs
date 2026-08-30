@@ -23,6 +23,7 @@ mod workbench_state;
 mod agent_doctor;
 mod adapters;
 mod skill_sync;
+mod session_scan;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use agent_host::{
     parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
