@@ -9,6 +9,22 @@ pub struct ScannedSession {
     pub dir: String,
 }
 
+pub enum ScanMode {
+    ImmediateDirs, // kimi / codex
+    Skip,          // claude until ACP session/list or deeper probe
+}
+
+pub fn scan_agent_sessions(root: &Path, agent_id: &str, mode: ScanMode) -> Vec<ScannedSession> {
+    match mode {
+        ScanMode::Skip => Vec::new(),
+        ScanMode::ImmediateDirs => scan_named_subdirs(root, agent_id),
+    }
+}
+
+pub fn keep_row_for_cwd(row_cwd: &str, want: &str) -> bool {
+    want.is_empty() || row_cwd.is_empty() || row_cwd == want
+}
+
 pub fn scan_named_subdirs(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
     if !root.is_dir() {
         return Vec::new();
@@ -49,6 +65,7 @@ pub fn scan_named_subdirs(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
 
     fn uniq() -> PathBuf {
         let n = std::time::SystemTime::now()
@@ -70,5 +87,34 @@ mod tests {
         assert_eq!(rows[0].agent_id, "kimi");
         assert_eq!(rows[0].id, "abc");
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn skip_mode_ignores_claude_project_slug() {
+        let root = uniq();
+        fs::create_dir_all(root.join("-Users-foxie-project")).unwrap();
+        let rows = scan_agent_sessions(&root, "claude", ScanMode::Skip);
+        assert!(rows.is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn immediate_dirs_lists_kimi_wd_abc() {
+        let root = uniq();
+        fs::create_dir_all(root.join("wd_abc")).unwrap();
+        let rows = scan_agent_sessions(&root, "kimi", ScanMode::ImmediateDirs);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "wd_abc");
+        assert_eq!(rows[0].agent_id, "kimi");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn keep_row_for_cwd_keeps_empty_row_and_empty_want() {
+        assert!(keep_row_for_cwd("", "/some/project"));
+        assert!(!keep_row_for_cwd("/other", "/some/project"));
+        assert!(keep_row_for_cwd("/other", ""));
+        assert!(keep_row_for_cwd("", ""));
+        assert!(keep_row_for_cwd("/some/project", "/some/project"));
     }
 }

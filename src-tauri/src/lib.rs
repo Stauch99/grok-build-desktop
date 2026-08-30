@@ -657,9 +657,21 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
         let mut out = cached_sessions();
         let home = dirs_home();
         let extra = [
-            crate::session_scan::scan_named_subdirs(&home.join(".kimi-code").join("sessions"), "kimi"),
-            crate::session_scan::scan_named_subdirs(&home.join(".claude").join("projects"), "claude"),
-            crate::session_scan::scan_named_subdirs(&home.join(".codex").join("sessions"), "codex"),
+            crate::session_scan::scan_agent_sessions(
+                &home.join(".kimi-code").join("sessions"),
+                "kimi",
+                crate::session_scan::ScanMode::ImmediateDirs,
+            ),
+            crate::session_scan::scan_agent_sessions(
+                &home.join(".claude").join("projects"),
+                "claude",
+                crate::session_scan::ScanMode::Skip,
+            ),
+            crate::session_scan::scan_agent_sessions(
+                &home.join(".codex").join("sessions"),
+                "codex",
+                crate::session_scan::ScanMode::ImmediateDirs,
+            ),
         ];
         for batch in extra {
             for row in batch {
@@ -680,9 +692,8 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
             }
         }
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        if let Some(want) = cwd.as_deref().filter(|s| !s.is_empty()) {
-            out.retain(|row| row.cwd == want);
-        }
+        let want = cwd.as_deref().unwrap_or("");
+        out.retain(|row| crate::session_scan::keep_row_for_cwd(&row.cwd, want));
         Ok(out)
     })
     .await
