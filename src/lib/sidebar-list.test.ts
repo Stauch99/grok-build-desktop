@@ -18,7 +18,9 @@ import {
   toggleStatusFilter,
   tokenForRow,
   worktreeLabel,
+  sessionAgentPill,
 } from "./sidebar-list";
+import { AGENT_IDS } from "./agent-id";
 
 describe("loadSidebarList", () => {
   it("returns defaults for junk", () => {
@@ -244,5 +246,33 @@ describe("list menu prefs helpers", () => {
     const b = toggleStatusFilter(a, "done");
     expect(b.statusFilter).toEqual(["working", "done"]);
     expect(toggleStatusFilter(b, "working").statusFilter).toEqual(["done"]);
+  });
+});
+
+describe("sessionAgentPill", () => {
+  it("defaults missing, null, and junk agent ids to grok", () => {
+    const grok = { agentId: "grok", label: "Grok", className: "sess-agent sess-agent-grok" };
+    expect(sessionAgentPill()).toEqual(grok);
+    expect(sessionAgentPill(null)).toEqual(grok);
+    expect(sessionAgentPill("not-an-agent")).toEqual(grok);
+  });
+
+  it("maps claude to its label and class", () => {
+    expect(sessionAgentPill("claude")).toEqual({
+      agentId: "claude",
+      label: "Claude",
+      className: "sess-agent sess-agent-claude",
+    });
+  });
+
+  it("gives each agent id a distinct className", () => {
+    const classes = AGENT_IDS.map((id) => sessionAgentPill(id).className);
+    expect(classes).toEqual([
+      "sess-agent sess-agent-grok",
+      "sess-agent sess-agent-kimi",
+      "sess-agent sess-agent-claude",
+      "sess-agent sess-agent-codex",
+    ]);
+    expect(new Set(classes).size).toBe(4);
   });
 });

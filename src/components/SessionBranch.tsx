@@ -4,7 +4,7 @@ import { IconChat, IconChevron } from "../icons";
 import { countDescendants, displayTitle, type SessionNode } from "../lib/projects";
 import { shouldAutoExpand } from "../lib/session-chrome";
 import { statusLabel, type SessionStatus } from "../lib/session-status";
-import { formatTokenCount, type SidebarRow } from "../lib/sidebar-list";
+import { formatTokenCount, sessionAgentPill, type SidebarRow } from "../lib/sidebar-list";
 import { DotMatrix } from "./DotMatrix";
 
 function collectDescendantIds(node: SessionNode): string[] {
@@ -98,6 +98,7 @@ export function SessionBranch({
   hideProjectSubtitle = false,
 }: SessionBranchProps) {
   const s = node.session;
+  const pill = sessionAgentPill(s.agentId);
   const meta = rowMeta?.get(s.id);
   const rowSubtitle = meta?.subtitle ?? subtitle;
   const rowToken = meta?.token ?? token;
@@ -156,6 +157,7 @@ export function SessionBranch({
             <span className="sess-title">{displayTitle(s, titles)}</span>
             {subLine ? <span className="sess-sub">{subLine}</span> : null}
           </span>
+          <span className={pill.className}>{pill.label}</span>
         </button>
         {showTokens && rowToken !== undefined ? (
           <span className="sess-token">{formatTokenCount(rowToken)}</span>

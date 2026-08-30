@@ -1,7 +1,10 @@
 import type { SessionSummary } from "../api";
+import { agentChipLabel } from "./agent-chip";
+import type { AgentId } from "./agent-id";
 import { sameCwd, normalizeCwd } from "./inbox";
 import { displayTitle } from "./projects";
 import { visibleSessions, partitionPinned } from "./session-chrome";
+import { agentIdOfSession } from "./session-agent";
 import type { SessionStatus } from "./session-status";
 import { basename } from "./text";
 
@@ -350,4 +353,17 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
     });
   }
   return sections;
+}
+
+export function sessionAgentPill(agentId?: string | null): {
+  agentId: AgentId;
+  label: string;
+  className: string;
+} {
+  const id = agentIdOfSession({ agentId });
+  return {
+    agentId: id,
+    label: agentChipLabel(id),
+    className: `sess-agent sess-agent-${id}`,
+  };
 }

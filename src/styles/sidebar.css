@@ -384,6 +384,31 @@
   white-space: nowrap;
   line-height: 18px;
 }
+.sess-agent {
+  flex: none;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.sess-agent-grok {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.sess-agent-kimi {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.sess-agent-claude {
+  color: color-mix(in srgb, var(--warn) 28%, var(--text));
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.sess-agent-codex {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
 .sess-sub {
   display: block;
   font-size: 11px;
