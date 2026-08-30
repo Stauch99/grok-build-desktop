@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.fn();
+const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
 describe("workbench-api", () => {
-  beforeEach(() => invoke.mockReset());
+  beforeEach(() => {
+    invoke.mockReset();
+    listen.mockReset();
+  });
 
   it("calls doctor_all and install_marketplace_skill", async () => {
     const { doctorAll, installMarketplaceSkill } = await import("./workbench-api");
@@ -36,5 +41,18 @@ describe("workbench-api", () => {
     invoke.mockResolvedValueOnce(["git"]);
     await expect(importAgentsMcpFirstOpen()).resolves.toEqual(["git"]);
     expect(invoke).toHaveBeenCalledWith("import_agents_mcp_first_open");
+  });
+
+  it("onTaggedAcpRequest listens and forwards tagged payload", async () => {
+    const unlisten = vi.fn();
+    listen.mockResolvedValueOnce(unlisten);
+    const { onTaggedAcpRequest } = await import("./workbench-api");
+    const handler = vi.fn();
+    const payload = { method: "session/request_permission", params: {} };
+    await onTaggedAcpRequest(handler);
+    expect(listen).toHaveBeenCalledWith("acp-request", expect.any(Function));
+    const onEvent = listen.mock.calls[0]![1] as (e: { payload: unknown }) => void;
+    onEvent({ payload: { agentId: "claude", generation: 1, payload } });
+    expect(handler).toHaveBeenCalledWith("claude", payload);
   });
 });
