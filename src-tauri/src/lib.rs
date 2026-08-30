@@ -15,6 +15,7 @@ mod cli_bridge;
 mod rpc_allowlist;
 mod agent_host;
 mod agents_paths;
+mod agents_files;
 mod marketplace;
 mod mcp_import;
 mod mcp_toml;
@@ -1170,6 +1171,30 @@ async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
         std::fs::write(&mcp_path, out).map_err(|e| AppError::Message(e.to_string()))?;
         Ok(conflicts)
     }).await.map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn read_agents_file(kind: String) -> AppResult<String> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
+    tokio::task::spawn_blocking(move || Ok(crate::agents_files::read_agents_file_text(&path)))
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn write_agents_file(kind: String, text: String) -> AppResult<()> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
+    tokio::task::spawn_blocking(move || {
+        crate::agents_files::write_agents_file_text(&path, &text).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
@@ -2781,6 +2806,8 @@ pub fn run() {
             trust_folder,
             create_skill,
             import_agents_mcp_first_open,
+            read_agents_file,
+            write_agents_file,
             sync_agent_skill,
             install_marketplace_skill,
             patch_skills_disabled,
