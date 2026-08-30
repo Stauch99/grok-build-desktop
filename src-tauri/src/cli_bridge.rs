@@ -1,4 +1,5 @@
 use crate::{
+    agents_paths::{agents_home_from, skill_md_path},
     config_path, dirs_home, ensure_table, find_session_dir, git_stdout, grok_home, guard_repo_cwd,
     is_blocked_path, is_under, reject_oversized_config_text, resolve_grok, AppError, AppResult,
     AppState,
@@ -830,15 +831,21 @@ Write the procedure here.
         project_scoped_path(
             input.cwd.as_deref(),
             trusted.as_deref(),
-            Path::new(".grok/skills").join(&name).join("SKILL.md").as_path(),
+            Path::new(".agents/skills")
+                .join(&name)
+                .join("SKILL.md")
+                .as_path(),
         )
         .ok_or_else(|| AppError::Message("没有项目技能路径".into()))?
     } else {
-        let home = grok_home();
+        let home = agents_home_from(
+            &dirs_home(),
+            std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+        );
         tokio::fs::create_dir_all(&home)
             .await
             .map_err(|e| AppError::Message(e.to_string()))?;
-        resolve_scoped_target(&home.join("skills").join(&name).join("SKILL.md"), &home)?
+        resolve_scoped_target(&skill_md_path(&home, &name), &home)?
     };
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)

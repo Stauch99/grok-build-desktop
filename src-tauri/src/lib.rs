@@ -14,6 +14,7 @@ use walkdir::WalkDir;
 mod cli_bridge;
 mod rpc_allowlist;
 mod agent_host;
+mod agents_paths;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use agent_host::{
     default_spawn_profile, parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
