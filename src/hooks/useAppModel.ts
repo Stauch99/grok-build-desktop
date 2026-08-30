@@ -68,7 +68,7 @@ import { fitLayout, loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { paneComposerTakeover, heroLayout, situationAutoCollapse } from "../lib/shell-ia";
 import { agentHealth } from "../lib/agent-health";
 import { shouldPollBilling } from "../lib/auth-kind";
-import { doctorAll } from "../lib/workbench-api";
+import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { brandSessionList } from "../lib/session-list";
 import type { AgentDoctor } from "../lib/agent-doctor";
@@ -845,6 +845,7 @@ export function useAppModel() {
     void (async () => {
       try {
         void doctorAll().then(setDoctors).catch(() => setDoctors([]));
+        void importAgentsMcpFirstOpen().catch(() => undefined);
         const [doc, state, roots, cliState] = await Promise.all([
           doctor(),
           loadWebuiState().catch(() => ({}) as WebuiState),

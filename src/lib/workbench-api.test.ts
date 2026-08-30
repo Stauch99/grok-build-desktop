@@ -30,4 +30,11 @@ describe("workbench-api", () => {
       ],
     });
   });
+
+  it("calls import_agents_mcp_first_open", async () => {
+    const { importAgentsMcpFirstOpen } = await import("./workbench-api");
+    invoke.mockResolvedValueOnce(["git"]);
+    await expect(importAgentsMcpFirstOpen()).resolves.toEqual(["git"]);
+    expect(invoke).toHaveBeenCalledWith("import_agents_mcp_first_open");
+  });
 });

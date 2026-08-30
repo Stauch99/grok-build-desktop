@@ -12,3 +12,7 @@ export async function installMarketplaceSkill(source: string): Promise<string> {
 export async function syncAgentSkill(name: string, enabled: Record<string, boolean>): Promise<[string, string][]> {
   return invoke("sync_agent_skill", { name, enabled: Object.entries(enabled) });
 }
+
+export async function importAgentsMcpFirstOpen(): Promise<string[]> {
+  return invoke("import_agents_mcp_first_open");
+}
