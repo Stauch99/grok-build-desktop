@@ -66,6 +66,21 @@ export async function syncHubMcpServer(server: McpServer): Promise<void> {
 export async function removeHubMcpServer(name: string): Promise<void> {
   const catalog = removeMcpCatalog(parseMcpJson(safeJson(await readAgentsFile("mcp-json"))), name);
   await writeAgentsFile("mcp-json", stringifyMcpJson(catalog));
+  await stripHubMcpFromLives(name);
+}
+
+export async function disableHubMcpServer(name: string): Promise<void> {
+  await stripHubMcpFromLives(name);
+}
+
+export async function enableHubMcpServer(name: string): Promise<void> {
+  const catalog = parseMcpJson(safeJson(await readAgentsFile("mcp-json")));
+  const server = catalog.find((row) => row.name === name);
+  if (!server) return;
+  await syncHubMcpServer(server);
+}
+
+async function stripHubMcpFromLives(name: string): Promise<void> {
   await writeAgentsFile("claude-json", nextClaudeLiveText(await readAgentsFile("claude-json"), [], [name]));
   await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [], [name]));
   await removeTomlMcp("grok-toml", name);

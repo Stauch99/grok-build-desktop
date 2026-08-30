@@ -142,4 +142,42 @@ describe("workbench-api", () => {
     expect(tomls[0]![1]).toEqual({ kind: "grok-toml", name: "git" });
     expect(tomls[1]![1]).toEqual({ kind: "codex-toml", name: "git" });
   });
+
+  it("disableHubMcpServer strips four lives and keeps catalog", async () => {
+    const { disableHubMcpServer } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === "read_agents_file") return Promise.resolve("{}");
+      return Promise.resolve(undefined);
+    });
+    await disableHubMcpServer("git");
+    const written = invoke.mock.calls
+      .filter((c) => c[0] === "write_agents_file")
+      .map((c) => (c[1] as { kind: string }).kind);
+    expect(written).toEqual(["claude-json", "kimi-mcp"]);
+    expect(invoke.mock.calls.some((c) => c[0] === "write_agents_file" && (c[1] as { kind: string }).kind === "mcp-json")).toBe(
+      false,
+    );
+    expect(invoke.mock.calls.filter((c) => c[0] === "remove_toml_mcp")).toHaveLength(2);
+  });
+
+  it("enableHubMcpServer re-syncs a catalog server into four lives", async () => {
+    const { enableHubMcpServer } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
+      if (cmd === "read_agents_file") {
+        if (args?.kind === "mcp-json") {
+          return Promise.resolve(
+            JSON.stringify({ servers: [{ name: "git", transport: "stdio", commandOrUrl: "uvx", args: ["mcp-git"] }] }),
+          );
+        }
+        return Promise.resolve("{}");
+      }
+      return Promise.resolve(undefined);
+    });
+    await enableHubMcpServer("git");
+    const written = invoke.mock.calls
+      .filter((c) => c[0] === "write_agents_file")
+      .map((c) => (c[1] as { kind: string }).kind);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    expect(invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp")).toHaveLength(2);
+  });
 });
