@@ -1,4 +1,5 @@
-export type HubTab = "skills" | "mcp" | "plugins" | "marketplace" | "hooks";
+export type HubTab = "skills" | "mcp" | "marketplace" | "hooks";
+export const HUB_TABS: HubTab[] = ["skills", "mcp", "marketplace", "hooks"];
 
 export type CommandDef = {
   name: string;

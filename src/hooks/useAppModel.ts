@@ -1252,7 +1252,7 @@ export function useAppModel() {
           openHub("mcp");
           break;
         case "hub-plugins":
-          openHub("plugins");
+          openHub("skills");
           break;
         case "hub-hooks":
           openHub("hooks");

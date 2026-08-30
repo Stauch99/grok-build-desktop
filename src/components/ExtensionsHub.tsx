@@ -25,7 +25,6 @@ import {
   sourcePath,
   type InspectHook,
   type InspectMcp,
-  type InspectPlugin,
   type InspectReport,
   type InspectSkill,
   type SkillScope,
@@ -36,7 +35,6 @@ import { IconFinder, IconRefresh } from "../icons";
 import { hubEmptyKind } from "../lib/hub-empty";
 import { HOOK_TEMPLATES } from "../lib/hook-templates";
 import { marketplaceJsonHelp } from "../lib/copy-help";
-import { splitPluginFaces } from "../lib/plugin-faces";
 import { POPULAR_MCP, popularMcpAddArgs } from "../lib/popular-mcp";
 // compat toggles live in Settings, not here
 import {
@@ -50,11 +48,7 @@ import {
   grokMcpEnable,
   grokMcpList,
   grokMcpRemove,
-  grokPluginDetails,
-  grokPluginDisable,
-  grokPluginEnable,
   grokPluginInstall,
-  grokPluginUninstall,
   mcpAddArgv,
   parseJsonList,
   parseJsonObject,
@@ -63,7 +57,7 @@ import {
   type McpTransport,
 } from "../lib/grok-cli";
 import { grokCliNote } from "../lib/grok-note";
-import type { HubTab } from "../lib/commands";
+import { HUB_TABS, type HubTab } from "../lib/commands";
 
 export type ExtensionsHubProps = {
   open: boolean;
@@ -75,7 +69,7 @@ export type ExtensionsHubProps = {
   onForwardSlash?: (text: string) => void;
 };
 
-const TABS: HubTab[] = ["skills", "mcp", "plugins", "marketplace", "hooks"];
+const TABS = HUB_TABS;
 const SCOPE_LABEL: Record<SkillScope, string> = {
   cwd: "当前目录",
   repo: "仓库",
@@ -144,7 +138,6 @@ export function ExtensionsHub({
   });
   const [envDraft, setEnvDraft] = useState("");
   const [headerDraft, setHeaderDraft] = useState("");
-  const [pluginDetail, setPluginDetail] = useState<string>("");
   const [marketSource, setMarketSource] = useState("");
   const [installSource, setInstallSource] = useState("");
   const [newSkill, setNewSkill] = useState({ name: "", scope: "user" as "user" | "project", template: "blank" });
@@ -221,11 +214,6 @@ export function ExtensionsHub({
     if (!q) return all;
     return all.filter((s) => s.name.toLowerCase().includes(q) || (s.target ?? "").toLowerCase().includes(q));
   }, [report, q]);
-  const plugins = useMemo(() => {
-    const all = report?.plugins ?? [];
-    if (!q) return all;
-    return all.filter((s) => s.name.toLowerCase().includes(q));
-  }, [report, q]);
   const hooks = report?.hooks ?? [];
   const empty = hubEmptyKind({
     tab,
@@ -235,13 +223,11 @@ export function ExtensionsHub({
         ? skills.length
         : tab === "mcp"
           ? mcpServers.length
-          : tab === "plugins"
-            ? plugins.length
-            : tab === "hooks"
-              ? hooks.length
-              : marketText.trim()
-                ? 1
-                : 0,
+          : tab === "hooks"
+            ? hooks.length
+            : marketText.trim()
+              ? 1
+              : 0,
     marketFailed,
   });
 
@@ -434,27 +420,6 @@ export function ExtensionsHub({
               }
               compose={compose}
               setCompose={setCompose}
-            />
-          )}
-          {tab === "plugins" && (
-            <PluginsTab
-              plugins={plugins}
-              empty={empty}
-              detail={pluginDetail}
-              onDetails={(name) =>
-                void runNoted(async () => {
-                  const r = await grokPluginDetails(name, cwd || null);
-                  setPluginDetail(r.stdout || r.stderr);
-                  return r;
-                })
-              }
-              onToggle={(name, enabled) =>
-                void runNoted(() => (enabled ? grokPluginDisable(name, cwd || null) : grokPluginEnable(name, cwd || null)))
-              }
-              onUninstall={(name) =>
-                askDanger(`plug-rm:${name}`, () => void runNoted(() => grokPluginUninstall(name, cwd || null)))
-              }
-              confirm={confirm}
             />
           )}
           {tab === "marketplace" && (
@@ -865,83 +830,6 @@ function McpTab({
           </>
         ) : null}
       </div>
-    </>
-  );
-}
-
-function PluginsTab({
-  plugins,
-  empty,
-  detail,
-  onDetails,
-  onToggle,
-  onUninstall,
-  confirm,
-}: {
-  plugins: InspectPlugin[];
-  empty: ReturnType<typeof hubEmptyKind>;
-  detail: string;
-  onDetails: (name: string) => void;
-  onToggle: (name: string, enabled: boolean) => void;
-  onUninstall: (name: string) => void;
-  confirm: ConfirmState | null;
-}) {
-  const { configurable, inventory } = splitPluginFaces(plugins);
-  return (
-    <>
-      <h3>可配置 · {configurable.length}</h3>
-      <EmptyLine kind={empty} />
-      <ul className="hub-rows">
-        {configurable.map((p) => {
-          const blocked = p.trusted === false;
-          const bits = [
-            p.scope === "project" ? "项目" : "用户",
-            blocked ? "未信任" : null,
-            p.provides?.skills ? `${p.provides.skills} 技能` : null,
-            p.provides?.mcpServers ? `${p.provides.mcpServers} MCP` : null,
-          ].filter(Boolean);
-          return (
-            <li key={`${p.scope}:${p.name}`} className="hub-row">
-              <button type="button" className="hub-row-main" onClick={() => onDetails(p.name)}>
-                <strong>{p.name}</strong>
-                {bits.length > 0 ? <span className="hub-meta">{bits.join(" · ")}</span> : null}
-              </button>
-              <div className="hub-row-side">
-                <button
-                  type="button"
-                  className={`btn ghost${isArmed(confirm, `plug-rm:${p.name}`, Date.now()) ? " armed" : ""}`}
-                  onClick={() => onUninstall(p.name)}
-                >
-                  {dangerCaption(confirm, `plug-rm:${p.name}`, `卸载 ${p.name}`, `再点一次以卸载 ${p.name}`)}
-                </button>
-                <button
-                  type="button"
-                  className={`toggle ${p.enabled === false ? "" : "on"}`}
-                  onClick={() => onToggle(p.name, p.enabled !== false)}
-                >
-                  <i />
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      {detail ? <pre className="hub-preview">{detail.slice(0, 8000)}</pre> : null}
-      <h3>只读库存 · {inventory.length}</h3>
-      <ul className="hub-rows">
-        {inventory.map((p) => (
-          <li key={`inv:${p.scope}:${p.name}`} className="hub-row">
-            <div className="hub-row-main">
-              <strong>{p.name}</strong>
-              <span className="hub-meta">
-                {[p.scope === "project" ? "项目" : "用户", p.provides?.skills ? `${p.provides.skills} 技能` : null]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
     </>
   );
 }

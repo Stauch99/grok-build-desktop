@@ -35,7 +35,7 @@ const CORE_ACTIONS: PaletteItem[] = [
   { id: "act:settings", label: "打开设置", group: "操作" },
   { id: "act:hub-skills", label: "扩展中心 · 技能", group: "操作", hint: "/skills" },
   { id: "act:hub-mcp", label: "扩展中心 · MCP", group: "操作", hint: "/mcps" },
-  { id: "act:hub-plugins", label: "扩展中心 · 插件", group: "操作", hint: "/plugins" },
+  { id: "act:hub-plugins", label: "扩展中心 · 技能", group: "操作", hint: "/plugins" },
   { id: "act:hub-hooks", label: "扩展中心 · Hooks", group: "操作", hint: "/hooks" },
   { id: "act:hub-market", label: "扩展中心 · 市场", group: "操作", hint: "/marketplace" },
   { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
