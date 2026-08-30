@@ -75,3 +75,65 @@ export function mergeKimiMcpDoc(doc: unknown, servers: McpServer[]): { servers: 
 export function removeKimiMcpServer(doc: unknown, name: string): { servers: McpServer[] } {
   return { servers: parseMcpJson(doc).filter((row) => row.name !== name) };
 }
+
+export type CodexMcpEntry = {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+};
+
+export function mcpServerToCodex(server: McpServer): CodexMcpEntry {
+  if (server.transport === "http" || server.transport === "sse") {
+    const entry: CodexMcpEntry = {};
+    if (server.commandOrUrl) entry.url = server.commandOrUrl;
+    return entry;
+  }
+  const entry: CodexMcpEntry = {};
+  if (server.commandOrUrl) entry.command = server.commandOrUrl;
+  if (server.args?.length) entry.args = server.args;
+  const env = envRecord(server.env);
+  if (env) entry.env = env;
+  return entry;
+}
+
+export function mergeCodexMcpTables(
+  existing: Record<string, CodexMcpEntry>,
+  servers: McpServer[],
+): Record<string, CodexMcpEntry> {
+  const next = { ...existing };
+  for (const server of servers) next[server.name] = mcpServerToCodex(server);
+  return next;
+}
+
+export function removeCodexMcpServer(
+  existing: Record<string, CodexMcpEntry>,
+  name: string,
+): Record<string, CodexMcpEntry> {
+  const next = { ...existing };
+  delete next[name];
+  return next;
+}
+
+export function parseClaudeMcpDoc(doc: unknown): McpServer[] {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return [];
+  const raw = (doc as Record<string, unknown>).mcpServers;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const out: McpServer[] = [];
+  for (const [name, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!name || !val || typeof val !== "object" || Array.isArray(val)) continue;
+    const rec = val as Record<string, unknown>;
+    if (rec.type === "http" || rec.type === "sse") {
+      const row: McpServer = { name, transport: rec.type };
+      if (typeof rec.url === "string") row.commandOrUrl = rec.url;
+      out.push(row);
+      continue;
+    }
+    if (typeof rec.command !== "string") continue;
+    const row: McpServer = { name, transport: "stdio", commandOrUrl: rec.command };
+    const args = rec.args;
+    if (Array.isArray(args) && args.every((x) => typeof x === "string")) row.args = args as string[];
+    out.push(row);
+  }
+  return out;
+}

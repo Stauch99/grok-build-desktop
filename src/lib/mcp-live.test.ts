@@ -3,8 +3,12 @@ import type { McpServer } from "./agents-store";
 import {
   mcpServerToClaude,
   mergeClaudeMcpDoc,
+  mergeCodexMcpTables,
   mergeKimiMcpDoc,
+  mcpServerToCodex,
+  parseClaudeMcpDoc,
   removeClaudeMcpServer,
+  removeCodexMcpServer,
   removeKimiMcpServer,
 } from "./mcp-live";
 
@@ -58,5 +62,47 @@ describe("kimi mcp.json", () => {
     expect(mergeKimiMcpDoc(existing, [git, docs]).servers.map((s) => s.name)).toEqual(["git", "docs"]);
     expect(mergeKimiMcpDoc(existing, [git]).servers[0]).toEqual(git);
     expect(removeKimiMcpServer({ servers: [git, docs] }, "git").servers).toEqual([docs]);
+  });
+});
+
+describe("codex mcp tables", () => {
+  const codexGit: McpServer = {
+    name: "git",
+    transport: "stdio",
+    commandOrUrl: "uvx",
+    args: ["mcp-git"],
+    env: ["TOKEN=abc"],
+  };
+  it("maps and upserts without deleting neighbors", () => {
+    expect(mcpServerToCodex(codexGit)).toEqual({
+      command: "uvx",
+      args: ["mcp-git"],
+      env: { TOKEN: "abc" },
+    });
+    expect(mcpServerToCodex({ name: "docs", transport: "http", commandOrUrl: "https://x" })).toEqual({
+      url: "https://x",
+    });
+    const next = mergeCodexMcpTables({ old: { command: "a" } }, [codexGit]);
+    expect(next.old).toEqual({ command: "a" });
+    expect(next.git).toEqual({ command: "uvx", args: ["mcp-git"], env: { TOKEN: "abc" } });
+    expect(removeCodexMcpServer(next, "git").git).toBeUndefined();
+    expect(removeCodexMcpServer(next, "git").old).toEqual({ command: "a" });
+  });
+});
+
+describe("parseClaudeMcpDoc", () => {
+  it("imports mcpServers map into McpServer rows", () => {
+    expect(
+      parseClaudeMcpDoc({
+        mcpServers: {
+          git: { command: "uvx", args: ["mcp-git"] },
+          docs: { type: "http", url: "https://x" },
+        },
+      }),
+    ).toEqual([
+      { name: "git", transport: "stdio", commandOrUrl: "uvx", args: ["mcp-git"] },
+      { name: "docs", transport: "http", commandOrUrl: "https://x" },
+    ]);
+    expect(parseClaudeMcpDoc(null)).toEqual([]);
   });
 });
