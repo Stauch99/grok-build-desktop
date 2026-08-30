@@ -16,6 +16,7 @@ mod rpc_allowlist;
 mod agent_host;
 mod agents_paths;
 mod marketplace;
+mod mcp_import;
 mod workbench_state;
 mod agent_doctor;
 mod adapters;
