@@ -11,6 +11,7 @@ export function phasePrompt(phase: DreamPhase, io: DreamIo): string {
     return [
       `Rewrite daily/${day}.md.`,
       "Return only the replacement daily markdown body.",
+      "Keep every line in the locked tagged form: - [agent | session | cwd | kind] text",
       "Do not edit other files.",
       "",
       "Current daily file:",
@@ -33,15 +34,12 @@ export function phasePrompt(phase: DreamPhase, io: DreamIo): string {
   return [
     "Return a full replacement USER.md.",
     "Every newly promoted line must include a Source: ref (agent · session).",
-    "Stay within 8KiB. Keep prior entries unless they are wrong.",
+    "Stay within 8KiB. Keep existing USER.md lines on conflict; do not resolve contradictions.",
     "",
     "Current USER.md:",
     io.userMd.trim() || "# You\n",
     "",
-    "Today's daily file:",
+    "Today's daily / staging file:",
     io.dailyMd.trim() || `# ${day}\n`,
-    "",
-    "Recent DREAMS.md:",
-    io.dreamsMd.trim() || "(empty)",
   ].join("\n");
 }

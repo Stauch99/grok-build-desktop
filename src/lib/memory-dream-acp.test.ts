@@ -3,6 +3,7 @@ import {
   appendDreamsAppendix,
   dreamAlreadyRunning,
   dreamAssistantDelta,
+  forgetDreamAgent,
   forgetDreamSession,
   isDreamSession,
   loggedInAgentIds,
@@ -86,5 +87,15 @@ describe("dreamAlreadyRunning", () => {
     expect(dreamAlreadyRunning("kimi", "kimi")).toBe(true);
     rememberDreamAgent("claude");
     expect(dreamAlreadyRunning("grok", "claude")).toBe(true);
+    forgetDreamAgent("claude");
+    expect(dreamAlreadyRunning("grok", "claude")).toBe(false);
+  });
+
+  it("forgets a started dream agent so a later sweep can startAgent", () => {
+    rememberDreamAgent("kimi");
+    expect(dreamAlreadyRunning("grok", "kimi")).toBe(true);
+    forgetDreamAgent("kimi");
+    expect(dreamAlreadyRunning("grok", "kimi")).toBe(false);
+    expect(dreamAlreadyRunning("kimi", "kimi")).toBe(true);
   });
 });

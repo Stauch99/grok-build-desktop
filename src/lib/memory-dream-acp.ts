@@ -27,6 +27,10 @@ export function rememberDreamAgent(agentId: AgentId): void {
   startedDreamAgents.add(agentId);
 }
 
+export function forgetDreamAgent(agentId: AgentId): void {
+  startedDreamAgents.delete(agentId);
+}
+
 export function dreamAlreadyRunning(selectedAgentId: AgentId, dreamAgentId: AgentId): boolean {
   return selectedAgentId === dreamAgentId || startedDreamAgents.has(dreamAgentId);
 }
@@ -144,6 +148,7 @@ export async function openDreamAcp(opts: {
   };
 
   const dispose = () => {
+    forgetDreamAgent(opts.agentId);
     if (sessionId) forgetDreamSession(sessionId);
     offs.forEach((fn) => {
       try {

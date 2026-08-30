@@ -15,6 +15,7 @@ describe("phasePrompt", () => {
     const text = phasePrompt("light", io);
     expect(text).toMatch(/daily/i);
     expect(text).toMatch(/2026-08-30/);
+    expect(text).toMatch(/\[agent \| session \| cwd \| kind\]/);
     expect(text).not.toMatch(/USER\.md/);
   });
 
@@ -30,5 +31,8 @@ describe("phasePrompt", () => {
     expect(text).toMatch(/USER\.md/);
     expect(text).toMatch(/Source:/);
     expect(text).toMatch(/8\s*KiB/i);
+    expect(text).toMatch(/keep existing USER\.md lines on conflict/i);
+    expect(text).not.toMatch(/unless they are wrong/);
+    expect(text).not.toMatch(/DREAMS\.md/);
   });
 });
