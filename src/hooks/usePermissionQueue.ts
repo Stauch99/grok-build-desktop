@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { notify, onAcpRequest, sendRaw } from "../api";
+import { notify, sendRaw } from "../api";
+import type { AgentId } from "../lib/agent-id";
 import { findAlwaysOption, parseToolName, pickAllowOption, shouldSkipPermission } from "../lib/permission-allow";
+import { permissionReplyAgent } from "../lib/permission-agent";
 import {
   enqueuePermission,
   markPermissionTimedOut,
   permissionFromAcpRequest,
   removePermission,
   selectShortcutPermission,
+  type AcpPermissionMessage,
   type PermissionContext,
   type QueuedPermission,
 } from "../lib/permission-queue";
+import { onTaggedAcpRequest } from "../lib/workbench-api";
 import type { PermissionPane } from "../lib/permission-view";
 import { notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
@@ -40,24 +44,24 @@ export function usePermissionQueue(opts: {
 
   const answerPermission = useCallback(async (request: QueuedPermission, optionId: string) => {
     try {
-      await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } });
+      await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }, permissionReplyAgent((request as { agentId?: AgentId }).agentId));
     } finally {
       setPermissions((q) => removePermission(q, request));
     }
   }, []);
 
   const cancelPermission = useCallback(async (request: QueuedPermission) => {
-    await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } });
+    await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } }, permissionReplyAgent((request as { agentId?: AgentId }).agentId));
     setPermissions((q) => removePermission(q, request));
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     let off: (() => void) | undefined;
-    void onAcpRequest((msg) => {
-      const parsed = permissionFromAcpRequest(msg);
+    void onTaggedAcpRequest((agentId, msg) => {
+      const parsed = permissionFromAcpRequest(msg as AcpPermissionMessage);
       if (!parsed) return;
-      setPermissions((queue) => enqueuePermission(queue, parsed));
+      setPermissions((q) => enqueuePermission(q, { ...parsed, agentId }));
     }).then((fn) => {
       if (cancelled) {
         fn();
