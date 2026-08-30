@@ -300,6 +300,8 @@ export function useAppModel() {
     setSplitQueue,
     onLocalSlash: (cmd, rest, dest) => runSlashRef.current(cmd, rest, dest),
     onCancelPermission: (target) => permissionCancelRef.current(target),
+    injectUserMemory,
+    userMd: null,
   });
   const {
     sessionId,
@@ -329,6 +331,8 @@ export function useAppModel() {
     altSubmit,
     cancelTurn,
     onDraftChange,
+    injectedSessions,
+    dismissInjectedSession,
   } = acp;
 
   const mainPaneBusy = mainPaneIsBusy({ busy, sessionId, runningSessionId });
@@ -1827,5 +1831,7 @@ export function useAppModel() {
     selectedAgentId,
     setSelectedAgentId,
     hasOpenSession: !!acp.sessionId,
+    injectedSessions,
+    dismissInjectedSession,
   };
 }

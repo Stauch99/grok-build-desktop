@@ -33,6 +33,8 @@ import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
+import { wrapFirstPrompt } from "../lib/memory-inject";
+import { dismissInjected, markInjected } from "../lib/memory-inject-session";
 
 let agentBoot: Promise<void> | null = null;
 
@@ -107,6 +109,8 @@ export type AcpSessionDeps = {
   setSplitQueue: React.Dispatch<React.SetStateAction<QueueState>>;
   onLocalSlash: (cmd: CommandDef, rest: string, dest: "main" | "split") => Promise<void>;
   onCancelPermission: (target: "main" | "split") => Promise<void>;
+  injectUserMemory: boolean;
+  userMd: string | null;
 };
 
 export type AcpSession = {
@@ -146,6 +150,8 @@ export type AcpSession = {
   altSubmit: (text: string, dest?: "main" | "split") => void;
   cancelTurn: (target?: "main" | "split") => Promise<void>;
   onDraftChange: (value: string) => void;
+  injectedSessions: Set<string>;
+  dismissInjectedSession: (sessionId: string) => void;
 };
 
 export function useAcpSession(deps: AcpSessionDeps): AcpSession {
@@ -168,6 +174,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const ignoreReplay = useRef(false);
   const ignoreSplitReplay = useRef(false);
   const pendingPrompt = useRef<"main" | "split" | null>(null);
+  const [injectedSessions, setInjectedSessions] = useState<Set<string>>(() => new Set());
+  const injectedRef = useRef(injectedSessions);
+  injectedRef.current = injectedSessions;
   const pendingDest = useRef(new Map<number, "main" | "split">());
   const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
   const depsRef = useRef(deps);
@@ -634,6 +643,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         return d.onLocalSlash(found, text.slice(name.length).trimStart(), "split");
       }
     }
+    let acpText = text;
+    let wrapInjected = false;
+    try {
+      const sidGuess = dest === "split" ? d.split?.id : sessionIdRef.current;
+      const wrap = wrapFirstPrompt({
+        sessionId: sidGuess || "pending",
+        alreadyInjected: sidGuess ? injectedRef.current.has(sidGuess) : false,
+        injectOn: d.injectUserMemory,
+        userMd: d.userMd,
+        userText: text,
+      });
+      acpText = wrap.text;
+      wrapInjected = wrap.injected;
+    } catch {
+      acpText = text;
+    }
     if (toSplit) {
       const sid = d.split?.id;
       if (!sid) return;
@@ -647,7 +672,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       try {
         await ensureAgent();
         if (d.split?.cwd) await setWorkspace(d.split.cwd, sid);
-        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "split" });
+        if (wrapInjected) {
+          const next = markInjected(injectedRef.current, sid, true);
+          injectedRef.current = next;
+          setInjectedSessions(next);
+        }
+        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "split" });
       } catch (e) {
         d.setSplitBusy(false);
         d.showToast(String(e));
@@ -675,13 +705,24 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       let sid = sessionIdRef.current;
       if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
       if (sid !== existing) beginMainRun(sid);
+      if (wrapInjected) {
+        const next = markInjected(injectedRef.current, sid, true);
+        injectedRef.current = next;
+        setInjectedSessions(next);
+      }
       if (d.cwd) await setWorkspace(d.cwd, sid);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "main" });
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main" });
     } catch (e) {
       busyRef.current = false;
       setBusy(false);
       d.showToast(String(e));
     }
+  }
+
+  function dismissInjectedSession(id: string) {
+    const next = dismissInjected(injectedRef.current, id);
+    injectedRef.current = next;
+    setInjectedSessions(next);
   }
 
   async function cancelTurn(target: "main" | "split" = "main") {
@@ -744,5 +785,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     altSubmit,
     cancelTurn,
     onDraftChange,
+    injectedSessions,
+    dismissInjectedSession,
   };
 }

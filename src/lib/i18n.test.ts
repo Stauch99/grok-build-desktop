@@ -25,6 +25,10 @@ describe("i18n", () => {
   it("has user-memory settings copy", () => {
     expect(t("zh", "settings.injectUserMemory")).toBe("用户画像注入");
     expect(t("en", "settings.dreamAgentId")).toBe("Dream with");
+    expect(t("zh", "memory.loadedChip")).toBe("已加载记忆");
+    expect(t("en", "memory.loadedChip")).toBe("Memory loaded");
+    expect(t("zh", "memory.dismissChip")).toBe("关闭");
+    expect(t("en", "memory.dismissChip")).toBe("Dismiss");
   });
 
   it("differs on at least 20 chrome keys", () => {

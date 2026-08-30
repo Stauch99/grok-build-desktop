@@ -39,6 +39,7 @@ import { PreviewPane } from "./components/PreviewPane";
 import { ReviewRail } from "./components/ReviewRail";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryDock } from "./components/MemoryDock";
+import { MemoryInjectChip } from "./components/MemoryInjectChip";
 import { handleMdClick, ThreadColumn, WaitPill } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitHistory } from "./components/GitHistory";
@@ -196,6 +197,8 @@ export function App() {
     steerByDefault,
     setSteerByDefault,
     injectUserMemory,
+    injectedSessions,
+    dismissInjectedSession,
     setInjectUserMemory,
     dreamingEnabled,
     setDreamingEnabled,
@@ -731,6 +734,13 @@ return (
           >
             <RunStatusRegion status={runStatus} />
             {goal ? <GoalBar goal={goal} /> : null}
+            {sessionId && injectedSessions.has(sessionId) ? (
+              <MemoryInjectChip
+                locale={locale}
+                onOpen={() => setExtraPage("memory")}
+                onDismiss={() => dismissInjectedSession(sessionId)}
+              />
+            ) : null}
             {memoryChanges.length > 0 && (
               <MemoryDock
                 changes={memoryChanges}

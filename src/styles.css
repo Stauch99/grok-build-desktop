@@ -1128,6 +1128,29 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 }
 .memory-dock button:hover { background: var(--bg-hover); }
 
+.memory-inject-chip {
+  width: min(100%, var(--thread, 680px));
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  color: var(--muted);
+  font-size: var(--ui-small);
+}
+.memory-inject-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+}
+.memory-inject-chip button:hover { background: var(--bg-hover); }
+
 .memory-workspace {
   display: flex;
   flex-direction: column;
