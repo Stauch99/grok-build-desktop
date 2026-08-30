@@ -33,8 +33,8 @@ import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
-import { wrapFirstPrompt } from "../lib/memory-inject";
-import { dismissInjected, markInjected } from "../lib/memory-inject-session";
+import { resolveOutgoingPrompt } from "../lib/memory-inject";
+import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
 
 let agentBoot: Promise<void> | null = null;
 
@@ -177,6 +177,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const [injectedSessions, setInjectedSessions] = useState<Set<string>>(() => new Set());
   const injectedRef = useRef(injectedSessions);
   injectedRef.current = injectedSessions;
+  const startedRef = useRef(new Set<string>());
   const pendingDest = useRef(new Map<number, "main" | "split">());
   const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
   const depsRef = useRef(deps);
@@ -467,6 +468,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (token !== loadGen.current) return;
       const next = applySessionPage(updateCursors.current, s.id, page);
       setChat(next);
+      if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id);
       setLoadingSession(false);
       ignoreReplay.current = true;
@@ -504,6 +506,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
       const next = applySessionPage(updateCursors.current, s.id, page);
       d.setSplit({ id: s.id, cwd: s.cwd, chat: next });
+      if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id, "split");
       ignoreSplitReplay.current = true;
       try {
@@ -647,9 +650,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     let wrapInjected = false;
     try {
       const sidGuess = dest === "split" ? d.split?.id : sessionIdRef.current;
-      const wrap = wrapFirstPrompt({
+      const wrap = resolveOutgoingPrompt({
         sessionId: sidGuess || "pending",
-        alreadyInjected: sidGuess ? injectedRef.current.has(sidGuess) : false,
+        alreadyInjected: sidGuess ? startedRef.current.has(sidGuess) : false,
         injectOn: d.injectUserMemory,
         userMd: d.userMd,
         userText: text,
@@ -672,12 +675,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       try {
         await ensureAgent();
         if (d.split?.cwd) await setWorkspace(d.split.cwd, sid);
+        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "split" });
+        startedRef.current = markStarted(startedRef.current, sid);
         if (wrapInjected) {
           const next = markInjected(injectedRef.current, sid, true);
           injectedRef.current = next;
           setInjectedSessions(next);
         }
-        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "split" });
       } catch (e) {
         d.setSplitBusy(false);
         d.showToast(String(e));
@@ -705,13 +709,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       let sid = sessionIdRef.current;
       if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
       if (sid !== existing) beginMainRun(sid);
+      if (d.cwd) await setWorkspace(d.cwd, sid);
+      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main" });
+      startedRef.current = markStarted(startedRef.current, sid);
       if (wrapInjected) {
         const next = markInjected(injectedRef.current, sid, true);
         injectedRef.current = next;
         setInjectedSessions(next);
       }
-      if (d.cwd) await setWorkspace(d.cwd, sid);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main" });
     } catch (e) {
       busyRef.current = false;
       setBusy(false);

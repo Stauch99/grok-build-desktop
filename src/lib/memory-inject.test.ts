@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactUserMd, wrapFirstPrompt } from "./memory-inject";
+import { compactUserMd, resolveOutgoingPrompt, wrapFirstPrompt } from "./memory-inject";
 
 describe("compactUserMd", () => {
   it("keeps short files", () => {
@@ -41,5 +41,29 @@ describe("wrapFirstPrompt", () => {
       text: "hello",
       injected: false,
     });
+  });
+});
+
+describe("resolveOutgoingPrompt", () => {
+  const md = "# You\n- prefers TypeScript\n";
+  const base = { sessionId: "s1", injectOn: true, userMd: md, userText: "hello" };
+
+  it("skips wrap for slash strings and reports no inject", () => {
+    expect(resolveOutgoingPrompt({ ...base, alreadyInjected: false, userText: "/model fast" })).toEqual({
+      text: "/model fast",
+      injected: false,
+    });
+  });
+
+  it("treats a started session as already injected", () => {
+    const r = resolveOutgoingPrompt({ ...base, alreadyInjected: true });
+    expect(r).toEqual({ text: "hello", injected: false });
+  });
+
+  it("wraps the first non-slash prompt when not started", () => {
+    const r = resolveOutgoingPrompt({ ...base, alreadyInjected: false });
+    expect(r.injected).toBe(true);
+    expect(r.text).toContain("<user-memory>");
+    expect(r.text.endsWith("hello")).toBe(true);
   });
 });

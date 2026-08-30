@@ -30,3 +30,8 @@ export function wrapFirstPrompt(input: WrapFirstPromptInput): WrapFirstPromptRes
   if (!compact) return { text: input.userText, injected: false };
   return { text: `<user-memory>\n${compact}\n</user-memory>\n\n${input.userText}`, injected: true };
 }
+
+export function resolveOutgoingPrompt(input: WrapFirstPromptInput): WrapFirstPromptResult {
+  if (input.userText.startsWith("/")) return { text: input.userText, injected: false };
+  return wrapFirstPrompt(input);
+}
