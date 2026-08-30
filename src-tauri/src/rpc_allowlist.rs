@@ -1,3 +1,4 @@
+use crate::agent_host::AgentId;
 use serde_json::Value;
 
 #[derive(Clone, Copy)]
@@ -20,6 +21,24 @@ impl AgentRpcCaps {
             authenticate: false,
             vendor_xai: true,
         }
+    }
+
+    pub fn acp_common() -> Self {
+        Self {
+            load_session: true,
+            list_sessions: true,
+            set_mode: true,
+            set_config_option: true,
+            authenticate: true,
+            vendor_xai: false,
+        }
+    }
+}
+
+pub(crate) fn caps_for_agent(id: AgentId) -> AgentRpcCaps {
+    match id {
+        AgentId::Grok => AgentRpcCaps::grok_legacy(),
+        AgentId::Kimi | AgentId::Claude | AgentId::Codex => AgentRpcCaps::acp_common(),
     }
 }
 
@@ -175,5 +194,30 @@ mod rpc_allowlist_tests {
         assert!(!rpc_payload_allowed(&json!({ "method": "session/set_mode" })));
         assert!(!rpc_payload_allowed(&json!({ "method": "authenticate" })));
         assert!(!rpc_payload_allowed(&json!({ "method": "session/list" })));
+    }
+
+    #[test]
+    fn caps_for_agent_splits_grok_from_others() {
+        use crate::agent_host::AgentId;
+        assert!(rpc_payload_allowed_for(
+            &json!({ "method": "_x.ai/billing" }),
+            &caps_for_agent(AgentId::Grok)
+        ));
+        assert!(!rpc_payload_allowed_for(
+            &json!({ "method": "authenticate" }),
+            &caps_for_agent(AgentId::Grok)
+        ));
+        assert!(rpc_payload_allowed_for(
+            &json!({ "method": "authenticate" }),
+            &caps_for_agent(AgentId::Kimi)
+        ));
+        assert!(!rpc_payload_allowed_for(
+            &json!({ "method": "_x.ai/billing" }),
+            &caps_for_agent(AgentId::Claude)
+        ));
+        assert!(rpc_payload_allowed_for(
+            &json!({ "method": "session/set_mode" }),
+            &caps_for_agent(AgentId::Codex)
+        ));
     }
 }
