@@ -1,40 +1,66 @@
-import { useEffect, useMemo, useState } from "react";
-import { readTokenTurns } from "../api";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { readTokenTurns, type TokenTurnRow } from "../api";
 import { MenuSelect } from "./MenuSelect";
 import { IconRefresh } from "../icons";
 import { basename } from "../lib/text";
 import {
   cacheHitRate,
-  chartBarPx,
-  dailyUsageBars,
-  dayBarTip,
   filterTurns,
-  formatChartTick,
   formatInt,
   formatTokenZh,
   formatUsdFromTicks,
-  isTodayBar,
-  mapTokenTurnRow,
   summarizeTurns,
   uniqueModels,
   uniqueSources,
-  USAGE_BRAND_OPTIONS,
   type TokenTurn,
   type TurnFilter,
-  type UsageBrandFilter,
 } from "../lib/token-usage";
-import { splitCostByModel } from "../lib/usage-split";
+import { sparklinePoints, splitCostByModel } from "../lib/usage-split";
 
 type DaysKey = "7" | "30" | "all";
 
-const CHART_PLOT_PX = 128;
+function asTurns(rows: TokenTurnRow[]): TokenTurn[] {
+  return rows.map((row) => ({
+    at: Number(row.at) || 0,
+    cwd: row.cwd || "",
+    model: row.model || "",
+    input: Number(row.input) || 0,
+    output: Number(row.output) || 0,
+    cacheRead: Number(row.cacheRead) || 0,
+    cacheCreate: Number(row.cacheCreate) || 0,
+    total: Number(row.total) || 0,
+    modelCalls: Number(row.modelCalls) || 0,
+    costTicks: Number(row.costTicks) || 0,
+  }));
+}
+
+function Metric({
+  label,
+  value,
+  icon,
+  empty,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+  empty?: boolean;
+}) {
+  return (
+    <div className="usage-metric">
+      <span className="usage-metric-icon" aria-hidden>
+        {icon}
+      </span>
+      <span className="usage-metric-label">{label}</span>
+      <strong className={`usage-metric-value${empty ? " empty" : ""}`}>{value}</strong>
+    </div>
+  );
+}
 
 export function UsageStats() {
   const [turns, setTurns] = useState<TokenTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState<DaysKey>("7");
-  const [brand, setBrand] = useState<UsageBrandFilter>("all");
   const [model, setModel] = useState("");
   const [cwd, setCwd] = useState("");
 
@@ -43,7 +69,7 @@ export function UsageStats() {
     setError(null);
     try {
       const rows = await readTokenTurns();
-      setTurns((Array.isArray(rows) ? rows : []).map(mapTokenTurnRow));
+      setTurns(asTurns(Array.isArray(rows) ? rows : []));
     } catch (reason) {
       setError(String(reason));
       setTurns([]);
@@ -60,40 +86,26 @@ export function UsageStats() {
   const sources = useMemo(() => uniqueSources(turns), [turns]);
   const filter: TurnFilter = {
     days: days === "all" ? 0 : days === "30" ? 30 : 7,
-    agentId: brand,
     model: model || undefined,
     cwd: cwd || undefined,
   };
-  const visible = useMemo(() => filterTurns(turns, filter), [turns, days, brand, model, cwd]);
+  const visible = useMemo(() => filterTurns(turns, filter), [turns, days, model, cwd]);
   const sum = useMemo(() => summarizeTurns(visible), [visible]);
   const hit = cacheHitRate(sum);
-  const dayCount = days === "all" ? 0 : days === "30" ? 30 : 7;
-  const bars = useMemo(
-    () => dailyUsageBars(visible, dayCount),
-    [visible, dayCount],
+  const usageHistory = useMemo(
+    () => visible.map((row) => ({ at: row.at, used: row.total })),
+    [visible],
   );
-  const barMax = Math.max(0, ...bars.map((b) => b.used));
+  const spark = sparklinePoints(usageHistory, 240, 36);
   const costByModel = useMemo(
     () => splitCostByModel(visible.map((row) => ({ model: row.model, cost: row.costTicks }))),
     [visible],
   );
   const costRows = Object.entries(costByModel).sort((a, b) => b[1] - a[1]);
-  const chartLabel = days === "30" ? "近 30 天" : days === "all" ? "近 30 天" : "近 7 天";
-  const brandLabel =
-    brand === "all"
-      ? "Grok Build"
-      : (USAGE_BRAND_OPTIONS.find((o) => o.value === brand)?.label ?? brand);
 
   return (
     <div className="usage-stats">
       <div className="usage-toolbar">
-        <MenuSelect
-          variant="inline"
-          ariaLabel="CLI"
-          value={brand}
-          onChange={setBrand}
-          options={USAGE_BRAND_OPTIONS}
-        />
         <MenuSelect
           variant="inline"
           ariaLabel="来源"
@@ -138,7 +150,7 @@ export function UsageStats() {
         <article className="usage-card">
           <header className="usage-card-head">
             <div>
-              <p className="usage-kicker">{brandLabel} · 真实消耗 Tokens</p>
+              <p className="usage-kicker">Grok Build · 真实消耗 Tokens</p>
               <p className="usage-total">
                 <strong>{formatInt(sum.total)}</strong>
                 <span>≈ {formatTokenZh(sum.total)}</span>
@@ -156,26 +168,17 @@ export function UsageStats() {
             </dl>
           </header>
 
-          <dl className="usage-facts">
-            <div>
-              <dt>新增输入</dt>
-              <dd>{formatTokenZh(sum.newInput)}</dd>
-            </div>
-            <div>
-              <dt>输出</dt>
-              <dd>{formatTokenZh(sum.output)}</dd>
-            </div>
-            {sum.cacheCreate > 0 ? (
-              <div>
-                <dt>缓存写入</dt>
-                <dd>{formatTokenZh(sum.cacheCreate)}</dd>
-              </div>
-            ) : null}
-            <div>
-              <dt>缓存命中</dt>
-              <dd>{formatTokenZh(sum.cacheRead)}</dd>
-            </div>
-          </dl>
+          <div className="usage-metrics">
+            <Metric label="新增输入" value={formatTokenZh(sum.newInput)} icon={<IconIn />} />
+            <Metric label="Output" value={formatTokenZh(sum.output)} icon={<IconOut />} />
+            <Metric
+              label="创建"
+              value={sum.cacheCreate ? formatTokenZh(sum.cacheCreate) : "N/A"}
+              empty={!sum.cacheCreate}
+              icon={<IconDb />}
+            />
+            <Metric label="命中" value={formatTokenZh(sum.cacheRead)} icon={<IconHit />} />
+          </div>
 
           <div className="usage-hit">
             <div className="usage-hit-row">
@@ -187,51 +190,56 @@ export function UsageStats() {
             </div>
           </div>
 
-          {bars.some((b) => b.used > 0) ? (
-            <figure className="usage-chart">
-              <figcaption>
-                <span>{chartLabel}</span>
-                <span>峰值 {formatTokenZh(barMax)}</span>
-              </figcaption>
-              <div className="usage-chart-plot" role="list" aria-label={`${chartLabel}每日用量`}>
-                {bars.map((b) => {
-                  const h = chartBarPx(b.used, barMax, CHART_PLOT_PX);
-                  const tip = dayBarTip(b);
-                  const today = isTodayBar(b.at);
-                  return (
-                    <button
-                      key={b.at}
-                      type="button"
-                      className={`usage-chart-col${today ? " usage-chart-col-today" : ""}`}
-                      aria-label={tip}
-                    >
-                      <span className="usage-chart-bar" style={{ height: `${h}px` }} />
-                      <span className="usage-chart-tip">{tip}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="usage-chart-axis" aria-hidden>
-                {bars.map((b, i) => (
-                  <span key={b.at}>{formatChartTick(i, bars.length, b.at)}</span>
-                ))}
-              </div>
-              <p className="usage-chart-note">柱高 = tokens，金额见悬停</p>
-            </figure>
+          {spark ? (
+            <div className="usage-hit" role="img" aria-label="用量时间序列">
+              <svg width="100%" height="36" viewBox="0 0 240 36" preserveAspectRatio="none">
+                <polyline fill="none" stroke="currentColor" strokeWidth="1.6" points={spark} />
+              </svg>
+            </div>
           ) : null}
 
           {costRows.length > 0 ? (
-            <ul className="usage-models">
+            <dl className="usage-side">
               {costRows.map(([id, ticks]) => (
-                <li key={id}>
-                  <span title={id}>{id}</span>
-                  <strong className="usage-cost">{formatUsdFromTicks(ticks)}</strong>
-                </li>
+                <div key={id}>
+                  <dt>{id}</dt>
+                  <dd className="usage-cost">{formatUsdFromTicks(ticks)}</dd>
+                </div>
               ))}
-            </ul>
+            </dl>
           ) : null}
         </article>
       ) : null}
     </div>
+  );
+}
+
+function IconIn() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 3v7M5.5 8.5 8 11l2.5-2.5M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconOut() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 11V4M5.5 6.5 8 4l2.5 2.5M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconDb() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <ellipse cx="8" cy="4.5" rx="5" ry="2" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+function IconHit() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 2.5 9.4 6h3.6L10.5 8.3 11.8 12 8 9.8 4.2 12l1.3-3.7L3 6h3.6L8 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
   );
 }
