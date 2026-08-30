@@ -69,4 +69,77 @@ describe("workbench-api", () => {
     onEvent({ payload: { agentId: "claude", generation: 1, payload } });
     expect(handler).toHaveBeenCalledWith("claude", payload);
   });
+
+  it("calls upsert_toml_mcp and remove_toml_mcp", async () => {
+    const { upsertTomlMcp, removeTomlMcp } = await import("./workbench-api");
+    invoke.mockResolvedValue(undefined);
+    await expect(upsertTomlMcp("grok-toml", "git", "uvx", ["mcp-git"])).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith("upsert_toml_mcp", {
+      kind: "grok-toml",
+      name: "git",
+      command: "uvx",
+      args: ["mcp-git"],
+    });
+    await expect(removeTomlMcp("codex-toml", "git")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith("remove_toml_mcp", { kind: "codex-toml", name: "git" });
+  });
+
+  it("syncHubMcpServer writes mcp-json, claude-json, kimi-mcp, then upserts toml twice", async () => {
+    const { syncHubMcpServer } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
+      if (cmd === "read_agents_file") {
+        if (args?.kind === "mcp-json") return Promise.resolve(JSON.stringify({ servers: [] }));
+        return Promise.resolve("{}");
+      }
+      return Promise.resolve(undefined);
+    });
+    await syncHubMcpServer({
+      name: "git",
+      transport: "stdio",
+      commandOrUrl: "uvx",
+      args: ["mcp-git"],
+    });
+    const written = invoke.mock.calls
+      .filter((c) => c[0] === "write_agents_file")
+      .map((c) => (c[1] as { kind: string }).kind);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    const tomls = invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp");
+    expect(tomls).toHaveLength(2);
+    expect(tomls[0]![1]).toEqual({
+      kind: "grok-toml",
+      name: "git",
+      command: "uvx",
+      args: ["mcp-git"],
+    });
+    expect(tomls[1]![1]).toEqual({
+      kind: "codex-toml",
+      name: "git",
+      command: "uvx",
+      args: ["mcp-git"],
+    });
+  });
+
+  it("removeHubMcpServer writes catalog and lives then removes toml twice", async () => {
+    const { removeHubMcpServer } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
+      if (cmd === "read_agents_file") {
+        if (args?.kind === "mcp-json") {
+          return Promise.resolve(
+            JSON.stringify({ servers: [{ name: "git", transport: "stdio", commandOrUrl: "uvx" }] }),
+          );
+        }
+        return Promise.resolve("{}");
+      }
+      return Promise.resolve(undefined);
+    });
+    await removeHubMcpServer("git");
+    const written = invoke.mock.calls
+      .filter((c) => c[0] === "write_agents_file")
+      .map((c) => (c[1] as { kind: string }).kind);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    const tomls = invoke.mock.calls.filter((c) => c[0] === "remove_toml_mcp");
+    expect(tomls).toHaveLength(2);
+    expect(tomls[0]![1]).toEqual({ kind: "grok-toml", name: "git" });
+    expect(tomls[1]![1]).toEqual({ kind: "codex-toml", name: "git" });
+  });
 });

@@ -3,6 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { acpMessageFromEvent } from "./acp-host";
 import type { AgentId } from "./agent-id";
 import type { AgentDoctor } from "./agent-doctor";
+import { parseMcpJson, stringifyMcpJson, type McpServer } from "./agents-store";
+import { nextClaudeLiveText, nextKimiLiveText } from "./mcp-hub-sync";
+import { removeMcpCatalog, upsertMcpCatalog } from "./mcp-live-paths";
 
 export async function doctorAll(): Promise<AgentDoctor[]> {
   return invoke("doctor_all");
@@ -26,6 +29,47 @@ export async function readAgentsFile(kind: string): Promise<string> {
 
 export async function writeAgentsFile(kind: string, text: string): Promise<void> {
   return invoke("write_agents_file", { kind, text });
+}
+
+export async function upsertTomlMcp(
+  kind: "grok-toml" | "codex-toml",
+  name: string,
+  command: string,
+  args: string[],
+): Promise<void> {
+  return invoke("upsert_toml_mcp", { kind, name, command, args });
+}
+
+export async function removeTomlMcp(kind: "grok-toml" | "codex-toml", name: string): Promise<void> {
+  return invoke("remove_toml_mcp", { kind, name });
+}
+
+function safeJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export async function syncHubMcpServer(server: McpServer): Promise<void> {
+  const raw = await readAgentsFile("mcp-json");
+  const catalog = upsertMcpCatalog(parseMcpJson(safeJson(raw)), server);
+  await writeAgentsFile("mcp-json", stringifyMcpJson(catalog));
+  await writeAgentsFile("claude-json", nextClaudeLiveText(await readAgentsFile("claude-json"), [server], []));
+  await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [server], []));
+  const cmd = server.commandOrUrl ?? "";
+  await upsertTomlMcp("grok-toml", server.name, cmd, server.args ?? []);
+  await upsertTomlMcp("codex-toml", server.name, cmd, server.args ?? []);
+}
+
+export async function removeHubMcpServer(name: string): Promise<void> {
+  const catalog = removeMcpCatalog(parseMcpJson(safeJson(await readAgentsFile("mcp-json"))), name);
+  await writeAgentsFile("mcp-json", stringifyMcpJson(catalog));
+  await writeAgentsFile("claude-json", nextClaudeLiveText(await readAgentsFile("claude-json"), [], [name]));
+  await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [], [name]));
+  await removeTomlMcp("grok-toml", name);
+  await removeTomlMcp("codex-toml", name);
 }
 
 export function onTaggedAcpRequest(
