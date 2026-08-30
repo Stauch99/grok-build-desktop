@@ -22,7 +22,7 @@ mod adapters;
 mod skill_sync;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use agent_host::{
-    default_spawn_profile, parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
+    parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
 };
 use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 use cli_bridge::{
@@ -569,46 +569,32 @@ async fn start_agent(
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = mpsc::channel::<String>(64);
 
-    let (mut child, grok_path) = if id == AgentId::Grok {
-        let grok = resolve_grok().ok_or_else(|| {
+    let grok_bin = if id == AgentId::Grok { resolve_grok() } else { None };
+    let (cmd_path, args) = crate::adapters::spawn_argv(id, grok_bin.as_deref()).ok_or_else(|| {
+        if id == AgentId::Grok {
             AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
-        })?;
-
-        let mut cmd = Command::new(&grok);
-        cmd.args(["agent", "stdio"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
+        } else {
+            AppError::Message(format!("无法解析 {} 的启动参数", id.as_str()))
+        }
+    })?;
+    let mut cmd = Command::new(&cmd_path);
+    cmd.args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .env("HOME", dirs_home());
+    if id == AgentId::Grok {
         let mut path = std::env::var("PATH").unwrap_or_default();
         let extra = grok_home().join("bin");
         if !path.split(':').any(|p| Path::new(p) == extra) {
             path = format!("{}:{path}", extra.display());
         }
         cmd.env("PATH", path);
-        cmd.env("HOME", dirs_home());
         cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
-
-        let child = cmd
-            .spawn()
-            .map_err(|e| AppError::Message(format!("启动 grok agent 失败: {e}")))?;
-        (child, Some(grok))
-    } else {
-        let profile = default_spawn_profile(id);
-        let mut cmd = Command::new(&profile.command);
-        cmd.args(&profile.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .env("HOME", dirs_home());
-
-        let child = cmd.spawn().map_err(|e| {
-            AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str()))
-        })?;
-        (child, None)
-    };
+    }
+    let mut child = cmd.spawn().map_err(|e| AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str())))?;
+    let grok_path = grok_bin;
 
     let stdout = child
         .stdout
@@ -1149,6 +1135,21 @@ async fn install_marketplace_skill(source: String) -> AppResult<String> {
         .await
         .map_err(|e| AppError::Message(e.to_string()))?
         .map_err(AppError::Message)
+}
+
+#[tauri::command]
+async fn sync_agent_skill(name: String, enabled: Vec<(String, bool)>) -> AppResult<Vec<(String, String)>> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let canonical = agents.join("skills").join(&name);
+    let flags: Vec<(String, bool)> = enabled;
+    tokio::task::spawn_blocking(move || {
+        let pairs: Vec<(&str, bool)> = flags.iter().map(|(a, e)| (a.as_str(), *e)).collect();
+        let rows = crate::skill_sync::sync_skill_to_agents(&canonical, &home, &name, &pairs);
+        Ok(rows.into_iter().map(|(a, r)| {
+            (a, match r { Ok(s) => s.to_string(), Err(e) => e })
+        }).collect())
+    }).await.map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
@@ -2759,6 +2760,7 @@ pub fn run() {
             list_models_text,
             trust_folder,
             create_skill,
+            sync_agent_skill,
             install_marketplace_skill,
             patch_skills_disabled,
             patch_compat,
