@@ -18,6 +18,7 @@ mod agents_paths;
 mod marketplace;
 mod workbench_state;
 mod agent_doctor;
+mod adapters;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use agent_host::{
     default_spawn_profile, parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
