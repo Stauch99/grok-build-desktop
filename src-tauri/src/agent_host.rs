@@ -31,6 +31,9 @@ impl AgentId {
     }
 }
 
+pub(crate) const CLAUDE_ACP_PKG: &str = "@agentclientprotocol/claude-agent-acp@0.70.0";
+pub(crate) const CODEX_ACP_PKG: &str = "@agentclientprotocol/codex-acp@1.7.0";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SpawnProfile {
     pub command: String,
@@ -49,11 +52,11 @@ pub(crate) fn default_spawn_profile(id: AgentId) -> SpawnProfile {
         },
         AgentId::Claude => SpawnProfile {
             command: "npx".into(),
-            args: vec!["-y".into(), "@agentclientprotocol/claude-agent-acp".into()],
+            args: vec!["-y".into(), CLAUDE_ACP_PKG.into()],
         },
         AgentId::Codex => SpawnProfile {
             command: "npx".into(),
-            args: vec!["-y".into(), "@agentclientprotocol/codex-acp".into()],
+            args: vec!["-y".into(), CODEX_ACP_PKG.into()],
         },
     }
 }
@@ -142,6 +145,29 @@ pub(crate) fn classify_acp_stdio_line(line: &str) -> AcpStdioLine {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) enum ParsedStdio {
+    Skip,
+    Request(Value),
+    Message(Value),
+    Log(String),
+}
+
+pub(crate) fn parse_stdout_line(line: &str) -> ParsedStdio {
+    match classify_acp_stdio_line(line) {
+        AcpStdioLine::Skip => ParsedStdio::Skip,
+        AcpStdioLine::Request => match serde_json::from_str(line.trim()) {
+            Ok(v) => ParsedStdio::Request(v),
+            Err(_) => ParsedStdio::Log(line.to_string()),
+        },
+        AcpStdioLine::Message => match serde_json::from_str(line.trim()) {
+            Ok(v) => ParsedStdio::Message(v),
+            Err(_) => ParsedStdio::Log(line.to_string()),
+        },
+        AcpStdioLine::Log => ParsedStdio::Log(line.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,10 +193,10 @@ mod tests {
         assert_eq!(kimi.args, vec!["acp"]);
         let claude = default_spawn_profile(AgentId::Claude);
         assert_eq!(claude.command, "npx");
-        assert_eq!(claude.args, vec!["-y", "@agentclientprotocol/claude-agent-acp"]);
+        assert_eq!(claude.args, vec!["-y", CLAUDE_ACP_PKG]);
         let codex = default_spawn_profile(AgentId::Codex);
         assert_eq!(codex.command, "npx");
-        assert_eq!(codex.args, vec!["-y", "@agentclientprotocol/codex-acp"]);
+        assert_eq!(codex.args, vec!["-y", CODEX_ACP_PKG]);
     }
 
     #[test]
@@ -237,5 +263,19 @@ mod tests {
             AcpStdioLine::Message
         );
         assert_eq!(classify_acp_stdio_line("not json"), AcpStdioLine::Log);
+    }
+
+    #[test]
+    fn parse_stdout_line_routes_classifier() {
+        assert_eq!(parse_stdout_line(""), ParsedStdio::Skip);
+        assert_eq!(
+            parse_stdout_line(r#"{"method":"x","id":1}"#),
+            ParsedStdio::Request(json!({"method":"x","id":1}))
+        );
+        assert_eq!(
+            parse_stdout_line(r#"{"jsonrpc":"2.0","result":{}}"#),
+            ParsedStdio::Message(json!({"jsonrpc":"2.0","result":{}}))
+        );
+        assert_eq!(parse_stdout_line("not json"), ParsedStdio::Log("not json".into()));
     }
 }
