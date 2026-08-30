@@ -5,6 +5,25 @@ export function shouldBlockComposer(connecting: boolean, initialized: boolean): 
   return connecting || !initialized;
 }
 
+/** session/list is best-effort catalog. It must not keep `connecting` after initialize. */
+export function shouldHoldConnectingForSessionList(): boolean {
+  return false;
+}
+
+/**
+ * After initialize succeeds, start session/list without holding the boot promise.
+ * Await the fetch only if connecting is allowed to stay held for list (never).
+ */
+export function afterInitializeFetchSessionList(
+  fetchList: () => Promise<unknown>,
+): Promise<void> {
+  if (shouldHoldConnectingForSessionList()) {
+    return fetchList().then(() => undefined);
+  }
+  void fetchList();
+  return Promise.resolve();
+}
+
 /** Warmup may start only after ACP listeners are subscribed and the effect is still live. */
 export function shouldStartWarmup(listenersAttached: boolean, cancelled: boolean): boolean {
   return listenersAttached && !cancelled;

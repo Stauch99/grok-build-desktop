@@ -37,7 +37,12 @@ import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sideb
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { agentIdForPaneDest, agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
-import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
+import {
+  afterInitializeFetchSessionList,
+  flagsAfterWarmup,
+  shouldAdoptInFlightBoot,
+  shouldStartWarmup,
+} from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
 import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
@@ -421,16 +426,19 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       }, { agentId: id });
       applyWarmupFlags(id, true);
-      try {
-        const listed = await maybeFetchAcpSessionList({
-          initializeResult,
-          agentId: id,
-          rpc,
-        });
-        if (listed) depsRef.current.onAcpSessionList(id, listed);
-      } catch {
-        /* session/list is best-effort; do not fail initialize */
-      }
+      setConnecting(false);
+      await afterInitializeFetchSessionList(async () => {
+        try {
+          const listed = await maybeFetchAcpSessionList({
+            initializeResult,
+            agentId: id,
+            rpc,
+          });
+          if (listed) depsRef.current.onAcpSessionList(id, listed);
+        } catch {
+          /* session/list is best-effort; do not fail initialize or keep send blocked */
+        }
+      });
     })()
       .catch((e) => {
         delete agentBoots[id];

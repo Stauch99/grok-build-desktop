@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BILLING_POLL_MS,
   IDLE_PRELOAD_TIMEOUT_MS,
+  afterInitializeFetchSessionList,
   flagsAfterWarmup,
   scheduleIdle,
   shouldAdoptInFlightBoot,
   shouldBlockComposer,
+  shouldHoldConnectingForSessionList,
   shouldStartWarmup,
 } from "./agent-warmup";
 
@@ -24,6 +26,25 @@ describe("shouldBlockComposer", () => {
 
   it("stays blocked if connecting is still true", () => {
     expect(shouldBlockComposer(true, true)).toBe(true);
+  });
+});
+
+describe("shouldHoldConnectingForSessionList", () => {
+  it("never holds connecting for session/list after initialize", () => {
+    expect(shouldHoldConnectingForSessionList()).toBe(false);
+  });
+
+  it("unblocks the composer after initialize even if list is still pending", () => {
+    expect(shouldBlockComposer(shouldHoldConnectingForSessionList(), true)).toBe(false);
+  });
+
+  it("resolves the boot path without waiting for session/list", async () => {
+    const hung = () => new Promise<void>(() => {});
+    const raced = Promise.race([
+      afterInitializeFetchSessionList(hung).then(() => "boot" as const),
+      new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 30)),
+    ]);
+    await expect(raced).resolves.toBe("boot");
   });
 });
 
