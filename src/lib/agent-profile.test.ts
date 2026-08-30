@@ -22,14 +22,14 @@ describe("defaultProfile", () => {
       id: "claude",
       label: "Claude",
       command: "npx",
-      args: ["-y", "@agentclientprotocol/claude-agent-acp"],
+      args: ["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"],
       loginArgs: ["login"],
     });
     expect(defaultProfile("codex")).toEqual({
       id: "codex",
       label: "Codex",
       command: "npx",
-      args: ["-y", "@agentclientprotocol/codex-acp"],
+      args: ["-y", "@agentclientprotocol/codex-acp@1.7.0"],
       loginArgs: ["login"],
     });
   });

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canMoveInboxSession, encodeCwd, normalizeCwd, sameCwd } from "./inbox";
+import { canMoveInboxSession, DEFAULT_INBOX_NAME, encodeCwd, normalizeCwd, sameCwd } from "./inbox";
 
 describe("cwd helpers", () => {
+  it("defaults new unbound chats to Agent Chats", () => {
+    expect(DEFAULT_INBOX_NAME).toBe("Agent Chats");
+  });
   it("normalizes trailing slashes", () => {
     expect(normalizeCwd("/tmp/chats/")).toBe("/tmp/chats");
     expect(sameCwd("/tmp/chats/", "/tmp/chats")).toBe(true);

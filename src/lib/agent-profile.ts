@@ -19,7 +19,7 @@ export function defaultProfile(id: AgentId): AgentProfile {
         id,
         label: "Claude",
         command: "npx",
-        args: ["-y", "@agentclientprotocol/claude-agent-acp"],
+        args: ["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"],
         loginArgs: ["login"],
       };
     case "codex":
@@ -27,7 +27,7 @@ export function defaultProfile(id: AgentId): AgentProfile {
         id,
         label: "Codex",
         command: "npx",
-        args: ["-y", "@agentclientprotocol/codex-acp"],
+        args: ["-y", "@agentclientprotocol/codex-acp@1.7.0"],
         loginArgs: ["login"],
       };
   }
