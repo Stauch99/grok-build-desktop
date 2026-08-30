@@ -11,6 +11,7 @@ import {
   usagePercent,
   formatElapsed,
   liveWorkStatus,
+  shouldClearBusyOnSettledChat,
   assistantCopyReady,
   workRunLabel,
   workRunMeta,
@@ -361,6 +362,24 @@ describe("assistantCopyReady", () => {
 
   it("hides copy when the item is missing during a live turn", () => {
     expect(assistantCopyReady(items, "missing", true)).toBe(false);
+  });
+});
+
+describe("shouldClearBusyOnSettledChat", () => {
+  const items = [
+    { kind: "user" as const, id: "u", text: "ping", at: 1 },
+    { kind: "assistant" as const, id: "a", text: "pong", at: 2, until: 3 },
+  ];
+
+  it("clears after the reply has been quiet and no tool is in flight", () => {
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items })).toBe(true);
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 3999, items })).toBe(false);
+    expect(shouldClearBusyOnSettledChat({ busy: false, now: 3 + 4000, items })).toBe(false);
+  });
+
+  it("waits while a tool is still running", () => {
+    const live = [...items, { kind: "tool" as const, id: "t", title: "Read", status: "in_progress" as const, at: 4 }];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 9_000, items: live })).toBe(false);
   });
 });
 

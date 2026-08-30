@@ -19,6 +19,7 @@ import {
   applySessionPage,
   emptyChat,
   shouldKeepSessionUpdate,
+  shouldClearBusyOnSettledChat,
   type ChatState,
   type SessionUpdateCursor,
 } from "../lib/chat";
@@ -324,6 +325,26 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const depsRef = useRef(deps);
   depsRef.current = deps;
   busyRef.current = busy;
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
+  useEffect(() => {
+    if (!busy) return;
+    const tick = () => {
+      if (
+        shouldClearBusyOnSettledChat({
+          busy: true,
+          now: Date.now(),
+          items: chatRef.current.items,
+        })
+      ) {
+        busyRef.current = false;
+        setBusy(false);
+        pendingPrompt.current = null;
+      }
+    };
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [busy]);
   const selectedAgentIdRef = useRef(deps.selectedAgentId);
   selectedAgentIdRef.current = deps.selectedAgentId;
   const mainAgentIdRef = useRef<AgentId>(deps.selectedAgentId);

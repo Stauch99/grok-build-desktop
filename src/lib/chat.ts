@@ -115,6 +115,33 @@ export function liveWorkStatus(items: ChatItem[]): string {
   return "工作中";
 }
 
+/** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
+export const SETTLED_TURN_MS = 4_000;
+
+export function shouldClearBusyOnSettledChat(opts: {
+  busy: boolean;
+  now: number;
+  items: ChatItem[];
+  settleMs?: number;
+}): boolean {
+  if (!opts.busy) return false;
+  if (
+    opts.items.some(
+      (it) => it.kind === "tool" && (it.status === "pending" || it.status === "in_progress"),
+    )
+  ) {
+    return false;
+  }
+  if (!opts.items.some((it) => it.kind === "assistant" && it.text.trim())) return false;
+  let last = 0;
+  for (const it of opts.items) {
+    const t = it.until ?? it.at;
+    if (typeof t === "number" && t > last) last = t;
+  }
+  if (!last) return false;
+  return opts.now - last >= (opts.settleMs ?? SETTLED_TURN_MS);
+}
+
 /** Start of the current turn (after the last user message), for “工作了 …”. */
 export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
   let start: number | undefined;
