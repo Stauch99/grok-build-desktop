@@ -54,10 +54,25 @@ pub(crate) fn extra_spawn_env(
     }
 }
 
+pub(crate) fn which_search_dirs(path: &str, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = path
+        .split(':')
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    if let Some(home) = home {
+        dirs.push(home.join(".local/bin"));
+    }
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs
+}
+
 pub(crate) fn which_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var("PATH").ok()?;
-    for dir in path.split(':') {
-        let candidate = Path::new(dir).join(name);
+    let path = std::env::var("PATH").unwrap_or_default();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    for dir in which_search_dirs(&path, home.as_deref()) {
+        let candidate = dir.join(name);
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -250,6 +265,14 @@ mod tests {
         assert_eq!(stamp_agent_id(None), AgentId::Grok);
         assert_eq!(stamp_agent_id(Some("claude")), AgentId::Claude);
         assert_eq!(stamp_agent_id(Some("nope")), AgentId::Grok);
+    }
+
+    #[test]
+    fn which_search_dirs_includes_homebrew_and_user_local() {
+        let dirs = which_search_dirs("/usr/bin", Some(Path::new("/Users/me")));
+        assert!(dirs.contains(&PathBuf::from("/usr/bin")));
+        assert!(dirs.contains(&PathBuf::from("/Users/me/.local/bin")));
+        assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
     }
 
     #[test]
