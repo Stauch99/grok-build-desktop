@@ -678,7 +678,7 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
                 out.push(SessionSummary {
                     id: row.id,
                     agent_id: row.agent_id,
-                    cwd: String::new(),
+                    cwd: row.cwd,
                     title: row.title,
                     model: None,
                     agent_name: None,

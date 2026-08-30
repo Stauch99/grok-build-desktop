@@ -7,6 +7,7 @@ pub struct ScannedSession {
     pub title: String,
     pub updated_at: String,
     pub dir: String,
+    pub cwd: String,
 }
 
 pub enum ScanMode {
@@ -17,7 +18,7 @@ pub enum ScanMode {
 pub fn scan_agent_sessions(root: &Path, agent_id: &str, mode: ScanMode) -> Vec<ScannedSession> {
     match mode {
         ScanMode::Skip => Vec::new(),
-        ScanMode::ImmediateDirs => scan_named_subdirs(root, agent_id),
+        ScanMode::ImmediateDirs => expand_nested_sessions(scan_named_subdirs(root, agent_id)),
     }
 }
 
@@ -56,9 +57,93 @@ pub fn scan_named_subdirs(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
             title: name_str.to_string(),
             updated_at,
             dir: path.to_string_lossy().to_string(),
+            cwd: String::new(),
         });
     }
     rows
+}
+
+fn expand_nested_sessions(wrappers: Vec<ScannedSession>) -> Vec<ScannedSession> {
+    let mut out = Vec::new();
+    for wrapper in wrappers {
+        let children = scan_session_children(&wrapper);
+        if children.is_empty() {
+            out.push(wrapper);
+        } else {
+            out.extend(children);
+        }
+    }
+    out
+}
+
+fn scan_session_children(wrapper: &ScannedSession) -> Vec<ScannedSession> {
+    let root = Path::new(&wrapper.dir);
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("session_") {
+            continue;
+        }
+        let meta = read_kimi_state(&path.join("state.json"));
+        rows.push(ScannedSession {
+            agent_id: wrapper.agent_id.clone(),
+            id: name,
+            title: meta.title.unwrap_or_else(|| wrapper.title.clone()),
+            updated_at: meta.updated_at.unwrap_or_else(|| wrapper.updated_at.clone()),
+            dir: path.to_string_lossy().into_owned(),
+            cwd: meta.cwd.unwrap_or_default(),
+        });
+    }
+    rows
+}
+
+struct KimiStateMeta {
+    title: Option<String>,
+    cwd: Option<String>,
+    updated_at: Option<String>,
+}
+
+fn read_kimi_state(path: &Path) -> KimiStateMeta {
+    let empty = KimiStateMeta {
+        title: None,
+        cwd: None,
+        updated_at: None,
+    };
+    let Ok(text) = fs::read_to_string(path) else {
+        return empty;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return empty;
+    };
+    let title = value
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let cwd = value
+        .get("workDir")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let updated_at = match value.get("updatedAt") {
+        Some(serde_json::Value::String(s)) if !s.is_empty() => Some(s.clone()),
+        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    };
+    KimiStateMeta {
+        title,
+        cwd,
+        updated_at,
+    }
 }
 
 #[cfg(test)]
@@ -116,5 +201,25 @@ mod tests {
         assert!(keep_row_for_cwd("/other", ""));
         assert!(keep_row_for_cwd("", ""));
         assert!(keep_row_for_cwd("/some/project", "/some/project"));
+    }
+
+    #[test]
+    fn kimi_nested_session_reads_state_json() {
+        let root = uniq();
+        let sid = "session_b42204e6-b461-4912-bb2b-57805a5e5edb";
+        let inner = root.join("wd_kimi-smoke").join(sid);
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(
+            inner.join("state.json"),
+            r#"{"title":"Kimi smoke","workDir":"/tmp/kimi-smoke","updatedAt":"1710000000"}"#,
+        )
+        .unwrap();
+        let rows = scan_agent_sessions(&root, "kimi", ScanMode::ImmediateDirs);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, sid);
+        assert_eq!(rows[0].agent_id, "kimi");
+        assert_eq!(rows[0].title, "Kimi smoke");
+        assert_eq!(rows[0].cwd, "/tmp/kimi-smoke");
+        fs::remove_dir_all(root).ok();
     }
 }
