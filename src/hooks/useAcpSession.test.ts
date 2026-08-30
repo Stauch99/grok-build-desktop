@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { AgentId } from "../lib/agent-id";
 import { emptyChat } from "../lib/chat";
 import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
 import {
+  isAgentReady,
   isPromptStopResult,
+  openSessionAgent,
+  paneAgentForEvent,
   sessionIdFromNewResult,
   sessionUpdateDest,
   shouldClearBusyOnPromptResult,
+  shouldIgnoreAcpEvent,
+  targetAgentId,
   withEchoedUser,
 } from "./useAcpSession";
 
@@ -66,5 +72,50 @@ describe("withEchoedUser", () => {
     expect(prev.items).toHaveLength(0);
     expect(next.items).toEqual([{ kind: "user", id: "u-local-1", text: "hello", at: 42 }]);
     expect(next.nextId).toBe(prev.nextId + 1);
+  });
+});
+
+describe("resume routes to the session agent", () => {
+  it("resume with agentId kimi while chip is grok routes startAgent and sendRaw to kimi", async () => {
+    const startAgent = vi.fn(async (_id: AgentId) => {});
+    const sendRaw = vi.fn(async (_payload: unknown, _id: AgentId) => {});
+    const chip: AgentId = "grok";
+    const { agentId, selectedAfterOpen } = openSessionAgent({ agentId: "kimi" }, chip);
+
+    expect(selectedAfterOpen).toBe("kimi");
+    const ensureId = targetAgentId(agentId, chip);
+    const rpcId = targetAgentId(agentId, chip);
+    await startAgent(ensureId);
+    await sendRaw({ jsonrpc: "2.0", method: "session/resume" }, rpcId);
+
+    expect(startAgent).toHaveBeenCalledWith("kimi");
+    expect(sendRaw.mock.calls[0]?.[1]).toBe("kimi");
+    expect(sendRaw.mock.calls[0]?.[1]).not.toBe(chip);
+  });
+
+  it("create and empty composer keep the chip when no session agent is requested", () => {
+    expect(targetAgentId(undefined, "grok")).toBe("grok");
+    expect(targetAgentId(undefined, "kimi")).toBe("kimi");
+  });
+});
+
+describe("per-agent ready", () => {
+  it("does not skip kimi boot just because grok is already ready", () => {
+    const ready: Partial<Record<AgentId, boolean>> = { grok: true };
+    expect(isAgentReady(ready, "grok")).toBe(true);
+    expect(isAgentReady(ready, "kimi")).toBe(false);
+  });
+});
+
+describe("ACP event drop by pane agent", () => {
+  it("drops an event whose agent does not match the pane", () => {
+    expect(shouldIgnoreAcpEvent("grok", "kimi")).toBe(true);
+    expect(shouldIgnoreAcpEvent("kimi", "kimi")).toBe(false);
+    expect(shouldIgnoreAcpEvent("grok", undefined)).toBe(false);
+  });
+
+  it("uses the split pane agent when dest is split", () => {
+    expect(paneAgentForEvent("split", "grok", "claude")).toBe("claude");
+    expect(paneAgentForEvent("main", "grok", "claude")).toBe("grok");
   });
 });

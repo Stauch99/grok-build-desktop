@@ -25,11 +25,13 @@ import {
 } from "../lib/chat";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
+import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, type QueueState } from "../lib/prompt-queue";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
+import { agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "../lib/agent-warmup";
 import { asRecord, surfaceStderr } from "../lib/text";
@@ -37,7 +39,7 @@ import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
 import { isDreamSession } from "../lib/memory-dream-acp";
 
-let agentBoot: Promise<void> | null = null;
+const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
 
 export function sessionIdFromNewResult(result: unknown): string {
   const sid = String(asRecord(result).sessionId ?? "");
@@ -74,7 +76,43 @@ export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, 
   };
 }
 
-export type AcpSplitState = { id: string; cwd: string; chat: ChatState };
+export function targetAgentId(requested: AgentId | undefined, chip: AgentId): AgentId {
+  return requested ?? chip;
+}
+
+export function isAgentReady(
+  ready: Readonly<Partial<Record<AgentId, boolean>>>,
+  agentId: AgentId,
+): boolean {
+  return ready[agentId] === true;
+}
+
+export function openSessionAgent(
+  session: { agentId?: string | null },
+  chip: AgentId,
+): { agentId: AgentId; selectedAfterOpen: AgentId } {
+  const agentId = agentIdOfSession(session);
+  return { agentId, selectedAfterOpen: selectedAgentAfterOpen(agentId, chip) };
+}
+
+export function paneAgentForEvent(
+  dest: SessionUpdateDest,
+  mainAgent: AgentId,
+  splitAgent?: AgentId | null,
+): AgentId {
+  if (dest === "split") return splitAgent ?? mainAgent;
+  return mainAgent;
+}
+
+export function shouldIgnoreAcpEvent(
+  paneAgent: AgentId,
+  eventAgent: AgentId | undefined,
+): boolean {
+  if (eventAgent == null) return false;
+  return shouldDropAcpEvent(paneAgent, eventAgent);
+}
+
+export type AcpSplitState = { id: string; cwd: string; chat: ChatState; agentId?: AgentId };
 
 export type AcpSessionDeps = {
   cwd: string;
@@ -83,6 +121,7 @@ export type AcpSessionDeps = {
   lastWorkspace: string;
   mode: Mode;
   selectedAgentId: AgentId;
+  setSelectedAgentId: (id: AgentId) => void;
   sessionDrafts: Record<string, string>;
   titles: Record<string, string>;
   split: AcpSplitState | null;
@@ -137,8 +176,8 @@ export type AcpSession = {
   echoedUser: React.MutableRefObject<boolean>;
   echoedSplitUser: React.MutableRefObject<boolean>;
   pendingPrompt: React.MutableRefObject<"main" | "split" | null>;
-  rpc: (method: string, params: unknown, opts?: { timeoutMs?: number; dest?: "main" | "split" }) => Promise<unknown>;
-  ensureAgent: () => Promise<void>;
+  rpc: (method: string, params: unknown, opts?: { timeoutMs?: number; dest?: "main" | "split"; agentId?: AgentId }) => Promise<unknown>;
+  ensureAgent: (agentId?: AgentId) => Promise<void>;
   adoptSession: (id: string | null) => void;
   beginMainRun: (sid: string) => void;
   createAcpSession: (work: string) => Promise<string>;
@@ -172,6 +211,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const sessionIdRef = useRef<string | null>(null);
   const runningSessionIdRef = useRef<string | null>(null);
   const readyRef = useRef(false);
+  const readyByAgentRef = useRef<Partial<Record<AgentId, boolean>>>({});
   const busyRef = useRef(false);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
   const echoedUser = useRef(false);
@@ -191,6 +231,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   busyRef.current = busy;
   const selectedAgentIdRef = useRef(deps.selectedAgentId);
   selectedAgentIdRef.current = deps.selectedAgentId;
+  const mainAgentIdRef = useRef<AgentId>(deps.selectedAgentId);
 
   function adoptSession(id: string | null) {
     sessionIdRef.current = id;
@@ -207,14 +248,15 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   async function rpc(
     method: string,
     params: unknown,
-    opts?: { timeoutMs?: number; dest?: "main" | "split" },
+    opts?: { timeoutMs?: number; dest?: "main" | "split"; agentId?: AgentId },
   ): Promise<unknown> {
+    const agentId = targetAgentId(opts?.agentId, selectedAgentIdRef.current);
     const id = await nextRpcId();
     if (opts?.dest) pendingDest.current.set(id, opts.dest);
     const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
     return new Promise((resolve, reject) => {
       pendingRpc.current.set(id, { resolve, reject });
-      void sendRaw({ jsonrpc: "2.0", id, method, params }, selectedAgentIdRef.current).catch((e) => {
+      void sendRaw({ jsonrpc: "2.0", id, method, params }, agentId).catch((e) => {
         pendingRpc.current.delete(id);
         pendingDest.current.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
@@ -231,22 +273,27 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     });
   }
 
-  function applyWarmupFlags(ok: boolean) {
+  function applyWarmupFlags(agentId: AgentId, ok: boolean) {
     const flags = flagsAfterWarmup(ok);
-    readyRef.current = flags.ready;
-    setReady(flags.ready);
-    depsRef.current.setSawExit(flags.sawExit);
+    readyByAgentRef.current[agentId] = flags.ready;
+    if (agentId === selectedAgentIdRef.current) {
+      readyRef.current = flags.ready;
+      setReady(flags.ready);
+      depsRef.current.setSawExit(flags.sawExit);
+    }
   }
 
-  async function ensureAgent(): Promise<void> {
-    if (readyRef.current) return;
-    if (shouldAdoptInFlightBoot(!!agentBoot, readyRef.current) && agentBoot) {
+  async function ensureAgent(agentId?: AgentId): Promise<void> {
+    const id = targetAgentId(agentId, selectedAgentIdRef.current);
+    if (isAgentReady(readyByAgentRef.current, id)) return;
+    const inflight = agentBoots[id];
+    if (shouldAdoptInFlightBoot(!!inflight, false) && inflight) {
       setConnecting(true);
       try {
-        await agentBoot;
-        applyWarmupFlags(true);
+        await inflight;
+        applyWarmupFlags(id, true);
       } catch (e) {
-        applyWarmupFlags(false);
+        applyWarmupFlags(id, false);
         throw e;
       } finally {
         setConnecting(false);
@@ -254,22 +301,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     setConnecting(true);
-    agentBoot = (async () => {
-      await startAgent(selectedAgentIdRef.current);
+    agentBoots[id] = (async () => {
+      await startAgent(id);
       await rpc("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
-      });
-      applyWarmupFlags(true);
+      }, { agentId: id });
+      applyWarmupFlags(id, true);
     })()
       .catch((e) => {
-        agentBoot = null;
-        applyWarmupFlags(false);
+        delete agentBoots[id];
+        applyWarmupFlags(id, false);
         throw e;
       })
       .finally(() => setConnecting(false));
-    return agentBoot;
+    return agentBoots[id];
   }
 
   async function refreshUsage(id: string, dest: "main" | "split" = "main") {
@@ -288,7 +335,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
-  function handleRpcMessage(msg: JsonRpc) {
+  function handleRpcMessage(msg: JsonRpc, eventAgent?: AgentId) {
     const d = depsRef.current;
     if (msg.id !== undefined && (msg.result !== undefined || msg.error)) {
       const id = Number(msg.id);
@@ -316,6 +363,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (isDreamSession(sid)) return;
       const dest = sessionUpdateDest(sessionIdRef.current, d.split?.id ?? null, sid);
       if (dest === "drop") return;
+      const paneAgent = paneAgentForEvent(dest, mainAgentIdRef.current, d.split?.agentId);
+      if (shouldIgnoreAcpEvent(paneAgent, eventAgent)) return;
       const forSplit = dest === "split";
       if (ignoreReplay.current && !forSplit) return;
       if (forSplit && ignoreSplitReplay.current) return;
@@ -340,12 +389,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     let cancelled = false;
     const offs: Array<() => void> = [];
     void (async () => {
-      const a = await onAcpMessage((m) => handleRef.current(m));
+      const a = await onAcpMessage((m, eventAgent) => handleRef.current(m, eventAgent));
       const c = await onAcpStderr((line) => {
         const msg = surfaceStderr(line);
         if (msg) depsRef.current.showToast(msg);
       });
       const exit = await onAgentExit((eventAgent) => {
+        readyByAgentRef.current[eventAgent] = false;
+        delete agentBoots[eventAgent];
         if (eventAgent !== selectedAgentIdRef.current) return;
         if (busyRef.current && runningSessionIdRef.current) {
           const id = runningSessionIdRef.current;
@@ -358,7 +409,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         depsRef.current.setSplitBusy(false);
         setConnecting(false);
         pendingPrompt.current = null;
-        agentBoot = null;
       });
       if (cancelled) {
         a(); c(); exit();
@@ -377,11 +427,19 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     };
   }, []);
 
+  useEffect(() => {
+    const id = deps.selectedAgentId;
+    const ok = isAgentReady(readyByAgentRef.current, id);
+    readyRef.current = ok;
+    setReady(ok);
+  }, [deps.selectedAgentId]);
+
   async function createAcpSession(work: string): Promise<string> {
     const meta: Record<string, unknown> = {};
     if (depsRef.current.mode === "yolo") meta.yoloMode = true;
     const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }));
     const sid = sessionIdFromNewResult(result);
+    mainAgentIdRef.current = selectedAgentIdRef.current;
     adoptSession(sid);
     await setWorkspace(work || ".", sid);
     window.setTimeout(() => void depsRef.current.onSessionsNeedRefresh(), 500);
@@ -482,12 +540,15 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setLoadingSession(false);
       ignoreReplay.current = true;
       try {
-        await ensureAgent();
+        const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
+        d.setSelectedAgentId(selectedAfterOpen);
+        mainAgentIdRef.current = agentId;
+        await ensureAgent(agentId);
         await setWorkspace(s.cwd, s.id);
         try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
+          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
         } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
+          await rpc("session/load", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
         }
       } finally {
         ignoreReplay.current = false;
@@ -514,17 +575,19 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     try {
       const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
       const next = applySessionPage(updateCursors.current, s.id, page);
-      d.setSplit({ id: s.id, cwd: s.cwd, chat: next });
+      const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
+      d.setSelectedAgentId(selectedAfterOpen);
+      d.setSplit({ id: s.id, cwd: s.cwd, chat: next, agentId });
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id, "split");
       ignoreSplitReplay.current = true;
       try {
-        await ensureAgent();
+        await ensureAgent(agentId);
         await setWorkspace(s.cwd, s.id);
         try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
+          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
         } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd, mcpServers: [] });
+          await rpc("session/load", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
         }
       } finally {
         ignoreSplitReplay.current = false;

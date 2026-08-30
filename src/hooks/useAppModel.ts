@@ -315,6 +315,7 @@ export function useAppModel() {
     lastWorkspace,
     mode,
     selectedAgentId,
+    setSelectedAgentId,
     sessionDrafts,
     titles,
     extraPanes,

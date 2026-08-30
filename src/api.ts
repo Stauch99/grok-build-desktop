@@ -386,9 +386,10 @@ export async function windowFocused(): Promise<boolean> {
 export const onWindowFocus = (handler: (focused: boolean) => void): Promise<UnlistenFn> =>
   getCurrentWindow().onFocusChanged(({ payload }) => handler(payload));
 
-export const onAcpMessage = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
+export const onAcpMessage = (handler: (msg: JsonRpc, agentId: AgentId) => void): Promise<UnlistenFn> =>
   listen<unknown>("acp-message", (e) => {
-    handler(acpMessageFromEvent(e.payload).payload as JsonRpc);
+    const ev = acpMessageFromEvent(e.payload);
+    handler(ev.payload as JsonRpc, ev.agentId);
   });
 export const onAcpRequest = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
   listen<unknown>("acp-request", (e) => {
