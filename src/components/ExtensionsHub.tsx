@@ -43,9 +43,7 @@ import {
   grokMarketplaceRemove,
   grokMarketplaceUpdate,
   grokMcpAdd,
-  grokMcpDisable,
   grokMcpDoctor,
-  grokMcpEnable,
   grokMcpList,
   grokMcpRemove,
   mcpAddArgv,
@@ -56,7 +54,13 @@ import {
   type McpTransport,
 } from "../lib/grok-cli";
 import { grokCliNote } from "../lib/grok-note";
-import { installMarketplaceSkill, removeHubMcpServer, syncHubMcpServer } from "../lib/workbench-api";
+import {
+  disableHubMcpServer,
+  enableHubMcpServer,
+  installMarketplaceSkill,
+  removeHubMcpServer,
+  syncHubMcpServer,
+} from "../lib/workbench-api";
 import { HUB_TABS, type HubTab } from "../lib/commands";
 
 export type ExtensionsHubProps = {
@@ -414,7 +418,7 @@ export function ExtensionsHub({
                 })
               }
               onToggle={(name, enabled) =>
-                void runNoted(() => (enabled ? grokMcpDisable(name, cwd || null) : grokMcpEnable(name, cwd || null)))
+                void runNoted(() => (enabled ? disableHubMcpServer(name) : enableHubMcpServer(name)))
               }
               onRemove={(name, scope) =>
                 askDanger(`mcp-rm:${name}`, () =>
