@@ -56,7 +56,7 @@ import {
   type McpTransport,
 } from "../lib/grok-cli";
 import { grokCliNote } from "../lib/grok-note";
-import { installMarketplaceSkill } from "../lib/workbench-api";
+import { installMarketplaceSkill, removeHubMcpServer, syncHubMcpServer } from "../lib/workbench-api";
 import { HUB_TABS, type HubTab } from "../lib/commands";
 
 export type ExtensionsHubProps = {
@@ -395,23 +395,34 @@ export function ExtensionsHub({
                 })
               }
               onAdd={() =>
-                void runNoted(() =>
-                  grokMcpAdd(
-                    {
-                      ...mcpForm,
-                      env: envDraft.split("\n").map((s) => s.trim()).filter(Boolean),
-                      headers: headerDraft.split("\n").map((s) => s.trim()).filter(Boolean),
-                      args: mcpForm.args,
-                    },
-                    cwd || null,
-                  ),
-                )
+                void runNoted(async () => {
+                  const input = {
+                    ...mcpForm,
+                    env: envDraft.split("\n").map((s) => s.trim()).filter(Boolean),
+                    headers: headerDraft.split("\n").map((s) => s.trim()).filter(Boolean),
+                    args: mcpForm.args,
+                  };
+                  await syncHubMcpServer({
+                    name: input.name,
+                    transport: input.transport,
+                    commandOrUrl: input.commandOrUrl,
+                    args: input.args,
+                    env: input.env,
+                    headers: input.headers,
+                  });
+                  return grokMcpAdd(input, cwd || null);
+                })
               }
               onToggle={(name, enabled) =>
                 void runNoted(() => (enabled ? grokMcpDisable(name, cwd || null) : grokMcpEnable(name, cwd || null)))
               }
               onRemove={(name, scope) =>
-                askDanger(`mcp-rm:${name}`, () => void runNoted(() => grokMcpRemove(name, scope, cwd || null)))
+                askDanger(`mcp-rm:${name}`, () =>
+                  void runNoted(async () => {
+                    await removeHubMcpServer(name);
+                    return grokMcpRemove(name, scope, cwd || null);
+                  }),
+                )
               }
               confirm={confirm}
               onOauth={(name) => void runNoted(() => grokMcpDoctor(name, cwd || null))}
@@ -788,7 +799,7 @@ function McpTab({
             onChange={(v) => setForm({ ...form, scope: v as McpScope })}
           />
         </div>
-        <p className="hint">将执行：grok {mcpAddArgv(form).join(" ")}</p>
+        <p className="hint">写入 ~/.agents/mcp.json 并同步各 CLI，然后：grok {mcpAddArgv(form).join(" ")}</p>
         <div className="set-actions">
           <button type="button" className="btn primary" onClick={onAdd} disabled={!form.name.trim()}>
             {t(locale, "hub.add")}
