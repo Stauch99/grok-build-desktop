@@ -38,6 +38,7 @@ import { asRecord, surfaceStderr } from "../lib/text";
 import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
 import { isDreamSession } from "../lib/memory-dream-acp";
+import { maybeFetchAcpSessionList } from "../lib/session-acp-list";
 
 const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
 
@@ -161,6 +162,7 @@ export type AcpSessionDeps = {
   setSplitAtBottom: (value: boolean) => void;
   onOpenSplit: () => void;
   onSessionsNeedRefresh: (inbox?: string) => Promise<void>;
+  onAcpSessionList: (agentId: AgentId, rows: SessionSummary[]) => void;
   setSawExit: (value: boolean) => void;
   lastActivityRef: React.MutableRefObject<number>;
   splitBusy: boolean;
@@ -321,12 +323,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     setConnecting(true);
     agentBoots[id] = (async () => {
       await startAgent(id);
-      await rpc("initialize", {
+      const initializeResult = await rpc("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       }, { agentId: id });
       applyWarmupFlags(id, true);
+      try {
+        const listed = await maybeFetchAcpSessionList({
+          initializeResult,
+          agentId: id,
+          rpc,
+        });
+        if (listed) depsRef.current.onAcpSessionList(id, listed);
+      } catch {
+        /* session/list is best-effort; do not fail initialize */
+      }
     })()
       .catch((e) => {
         delete agentBoots[id];

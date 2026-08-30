@@ -94,6 +94,7 @@ import { shouldPollBilling } from "../lib/auth-kind";
 import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { brandSessionList } from "../lib/session-list";
+import { unionSessionsById } from "../lib/session-acp-list";
 import type { AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
@@ -281,6 +282,9 @@ export function useAppModel() {
   const doctorsRef = useRef<AgentDoctor[]>([]);
   doctorsRef.current = doctors;
   const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
+  const acpListedRef = useRef<Partial<Record<AgentId, SessionSummary[]>>>({});
+  const diskSessionsRef = useRef<SessionSummary[]>([]);
+  const onAcpSessionListRef = useRef<(agentId: AgentId, rows: SessionSummary[]) => void>(() => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
   const runSlashRef = useRef<(cmd: CommandDef, rest?: string, dest?: string) => Promise<void>>(async () => {});
@@ -336,6 +340,7 @@ export function useAppModel() {
       setMenu(null);
     },
     onSessionsNeedRefresh: (inbox) => refreshSessionsRef.current(inbox),
+    onAcpSessionList: (agentId, rows) => onAcpSessionListRef.current(agentId, rows),
     setSawExit,
     lastActivityRef,
     steerByDefault,
@@ -1025,8 +1030,7 @@ export function useAppModel() {
         const inbox = await ensureInbox(state.inboxCwd ?? null);
         setInboxCwd(inbox);
         const all = brandSessionList(await listSessions(null).catch(() => [] as SessionSummary[]));
-        setInboxSessions(all.filter((s) => sameCwd(s.cwd, inbox)));
-        setSessions(all.filter((s) => !sameCwd(s.cwd, inbox)));
+        applySessionUnion(all, inbox);
         const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
         setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
         const initial = kept[0] || inbox;
@@ -1134,11 +1138,22 @@ export function useAppModel() {
     }
   }
 
+  function applySessionUnion(disk: SessionSummary[], inbox: string) {
+    diskSessionsRef.current = disk;
+    const all = unionSessionsById(disk, Object.values(acpListedRef.current).flat());
+    setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
+    setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
+  }
+
+  function onAcpSessionList(agentId: AgentId, rows: SessionSummary[]) {
+    acpListedRef.current = { ...acpListedRef.current, [agentId]: rows };
+    applySessionUnion(diskSessionsRef.current, inboxCwd);
+  }
+  onAcpSessionListRef.current = onAcpSessionList;
+
   async function refreshAllSessions(inbox = inboxCwd) {
     try {
-      const all = brandSessionList(await listSessions(null));
-      setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
-      setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
+      applySessionUnion(brandSessionList(await listSessions(null)), inbox);
     } catch {
       setInboxSessions([]);
     }
