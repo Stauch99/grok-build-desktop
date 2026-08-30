@@ -69,13 +69,12 @@ export function groupSlashCommands(cmds: CommandDef[]): Array<{ group: SlashGrou
     .map((group) => ({ group, items: buckets.get(group) ?? [] }));
 }
 
-export type HubTab = "skills" | "mcp" | "plugins" | "marketplace" | "hooks";
+export type HubTab = "skills" | "mcp" | "marketplace" | "hooks";
 
 export function hubTabForSlash(name: string): HubTab | null {
   const bare = name.replace(/^\//, "").toLowerCase();
-  if (bare === "skills" || bare === "create-skill") return "skills";
+  if (bare === "skills" || bare === "create-skill" || bare === "plugins") return "skills";
   if (bare === "mcps" || bare === "mcp") return "mcp";
-  if (bare === "plugins") return "plugins";
   if (bare === "marketplace") return "marketplace";
   if (bare === "hooks" || bare === "hooks-trust") return "hooks";
   return null;
