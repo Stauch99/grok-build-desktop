@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 
 mod cli_bridge;
 mod rpc_allowlist;
+mod agent_host;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use cli_bridge::{
     create_skill, git_blame, git_branches, git_commit, git_log, git_status_untracked, hide_window, list_agents_dir, list_file_tree,
