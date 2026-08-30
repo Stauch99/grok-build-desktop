@@ -8,6 +8,7 @@ import {
   type CliSettings,
   type DoctorInfo,
 } from "./api";
+import { DoctorsOverview } from "./components/DoctorsOverview";
 import { MenuSelect } from "./components/MenuSelect";
 import { dangerCaption, tapDanger, type ConfirmState } from "./lib/confirm";
 import { EFFORT_OPTIONS, normalizeEffort } from "./lib/effort";
@@ -25,6 +26,8 @@ import type { HubTab } from "./lib/commands";
 import type { InspectReport } from "./lib/inspect";
 import { enabledMcpCount } from "./lib/inspect";
 import { IconGrokSearch } from "./grok-icons";
+import type { AgentDoctor } from "./lib/agent-doctor";
+import { doctorAll } from "./lib/workbench-api";
 
 type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
 
@@ -126,6 +129,11 @@ export function SettingsPanel({
     run: () => void;
   } | null>(null);
   const [trustConfirm, setTrustConfirm] = useState<ConfirmState | null>(null);
+  const [doctors, setDoctors] = useState<AgentDoctor[]>([]);
+
+  useEffect(() => {
+    void doctorAll().then(setDoctors).catch(() => setDoctors([]));
+  }, []);
 
   useEffect(() => {
     if (focusSection !== "shortcuts") return;
@@ -297,6 +305,7 @@ export function SettingsPanel({
                           </div>
                         ) : null}
                         {doctorNote ? <p className="hint">{doctorNote}</p> : null}
+                        <DoctorsOverview doctors={doctors} />
                         {overviewAgent ? (
                           <div className="set-row">
                             <label>Agent</label>
