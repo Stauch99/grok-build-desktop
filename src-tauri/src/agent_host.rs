@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -33,6 +34,36 @@ impl AgentId {
 
 pub(crate) const CLAUDE_ACP_PKG: &str = "@agentclientprotocol/claude-agent-acp@0.70.0";
 pub(crate) const CODEX_ACP_PKG: &str = "@agentclientprotocol/codex-acp@1.7.0";
+
+/// npx adapters ship a nested CLI that often skips optional native binaries.
+/// Point them at a PATH-installed `codex` / `claude` when one exists.
+pub(crate) fn extra_spawn_env(
+    id: AgentId,
+    lookup: impl Fn(&str) -> Option<PathBuf>,
+) -> Vec<(String, PathBuf)> {
+    match id {
+        AgentId::Codex => lookup("codex")
+            .into_iter()
+            .map(|p| ("CODEX_PATH".into(), p))
+            .collect(),
+        AgentId::Claude => lookup("claude")
+            .into_iter()
+            .map(|p| ("CLAUDE_CODE_EXECUTABLE".into(), p))
+            .collect(),
+        AgentId::Grok | AgentId::Kimi => Vec::new(),
+    }
+}
+
+pub(crate) fn which_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var("PATH").ok()?;
+    for dir in path.split(':') {
+        let candidate = Path::new(dir).join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SpawnProfile {
@@ -219,6 +250,27 @@ mod tests {
         assert_eq!(stamp_agent_id(None), AgentId::Grok);
         assert_eq!(stamp_agent_id(Some("claude")), AgentId::Claude);
         assert_eq!(stamp_agent_id(Some("nope")), AgentId::Grok);
+    }
+
+    #[test]
+    fn extra_spawn_env_points_npx_adapters_at_native_clis() {
+        use std::path::PathBuf;
+        let lookup = |name: &str| match name {
+            "codex" => Some(PathBuf::from("/opt/homebrew/bin/codex")),
+            "claude" => Some(PathBuf::from("/Users/me/.local/bin/claude")),
+            _ => None,
+        };
+        assert_eq!(
+            extra_spawn_env(AgentId::Codex, lookup),
+            vec![("CODEX_PATH".into(), PathBuf::from("/opt/homebrew/bin/codex"))]
+        );
+        assert_eq!(
+            extra_spawn_env(AgentId::Claude, lookup),
+            vec![("CLAUDE_CODE_EXECUTABLE".into(), PathBuf::from("/Users/me/.local/bin/claude"))]
+        );
+        assert!(extra_spawn_env(AgentId::Grok, lookup).is_empty());
+        assert!(extra_spawn_env(AgentId::Kimi, lookup).is_empty());
+        assert!(extra_spawn_env(AgentId::Codex, |_| None).is_empty());
     }
 
     #[test]

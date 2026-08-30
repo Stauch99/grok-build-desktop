@@ -30,7 +30,7 @@ mod memory_host;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use memory_host::{read_memory_host, write_memory_host};
 use agent_host::{
-    parse_agent_id_arg, AgentId, AgentPool,
+    extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool,
 };
 use acp_loop::{spawn_reader, spawn_writer};
 use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
@@ -401,6 +401,9 @@ async fn start_agent(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .env("HOME", dirs_home());
+    for (key, value) in extra_spawn_env(id, which_on_path) {
+        cmd.env(key, value);
+    }
     if id == AgentId::Grok {
         let mut path = std::env::var("PATH").unwrap_or_default();
         let extra = grok_home().join("bin");
