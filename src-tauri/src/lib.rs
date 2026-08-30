@@ -1198,6 +1198,42 @@ async fn write_agents_file(kind: String, text: String) -> AppResult<()> {
 }
 
 #[tauri::command]
+async fn upsert_toml_mcp(kind: String, name: String, command: String, args: Vec<String>) -> AppResult<()> {
+    if kind != "grok-toml" && kind != "codex-toml" {
+        return Err(AppError::Message("unknown toml kind".into()));
+    }
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message("unknown kind".into()))?;
+    tokio::task::spawn_blocking(move || {
+        let text = crate::agents_files::read_agents_file_text(&path);
+        let next = crate::mcp_toml::upsert_mcp_servers_toml(&text, &name, &command, &args);
+        crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
+    if kind != "grok-toml" && kind != "codex-toml" {
+        return Err(AppError::Message("unknown toml kind".into()));
+    }
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message("unknown kind".into()))?;
+    tokio::task::spawn_blocking(move || {
+        let text = crate::agents_files::read_agents_file_text(&path);
+        let next = crate::mcp_toml::remove_mcp_servers_toml(&text, &name);
+        crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
 async fn save_webui_state(state: Value) -> AppResult<()> {
     let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
     {
@@ -2808,6 +2844,8 @@ pub fn run() {
             import_agents_mcp_first_open,
             read_agents_file,
             write_agents_file,
+            upsert_toml_mcp,
+            remove_toml_mcp,
             sync_agent_skill,
             install_marketplace_skill,
             patch_skills_disabled,
