@@ -75,7 +75,7 @@ import type { AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
-import { nextGoalView, type GoalView } from "../lib/goal-bar";
+import { goalFromPlan } from "../lib/goal-bar";
 import { turnStatsFromItems } from "../lib/usage-split";
 import { activityKey, stallNote } from "../lib/stall";
 import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "../lib/review-rail";
