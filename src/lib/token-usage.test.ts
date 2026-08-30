@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentId } from "./agent-id";
+import { isAgentId, type AgentId } from "./agent-id";
 import {
   USD_TICKS,
   cacheHitRate,
@@ -9,6 +9,8 @@ import {
   parseTurnUsage,
   summarizeTurns,
   uncachedInput,
+  mapTokenTurnRow,
+  USAGE_BRAND_OPTIONS,
   type TokenTurn,
 } from "./token-usage";
 
@@ -152,5 +154,20 @@ describe("parseTurnUsage agentId meta", () => {
       { at: 1, cwd: "/w", agentId: "kimi" },
     );
     expect(row?.agentId).toBe("kimi");
+  });
+});
+
+describe("USAGE_BRAND_OPTIONS", () => {
+  it("lists 全部 then the four CLIs", () => {
+    expect(USAGE_BRAND_OPTIONS.map((o) => o.value)).toEqual(["all", "grok", "kimi", "claude", "codex"]);
+    expect(USAGE_BRAND_OPTIONS[0]?.label).toBe("全部");
+  });
+});
+
+describe("mapTokenTurnRow", () => {
+  it("keeps a valid agentId and drops junk", () => {
+    expect(mapTokenTurnRow({ total: 9, agentId: "claude" }).agentId).toBe("claude");
+    expect(mapTokenTurnRow({ total: 9, agentId: "gemini" }).agentId).toBeUndefined();
+    expect(isAgentId("claude")).toBe(true);
   });
 });

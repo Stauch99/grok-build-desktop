@@ -1,4 +1,4 @@
-import type { AgentId } from "./agent-id";
+import { isAgentId, type AgentId } from "./agent-id";
 
 export const USD_TICKS = 10_000_000_000;
 
@@ -35,6 +35,45 @@ export type TurnFilter = {
   cwd?: string;
   agentId?: AgentId | "all";
 };
+
+export type UsageBrandFilter = AgentId | "all";
+
+export const USAGE_BRAND_OPTIONS: { value: UsageBrandFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "grok", label: "Grok" },
+  { value: "kimi", label: "Kimi" },
+  { value: "claude", label: "Claude" },
+  { value: "codex", label: "Codex" },
+];
+
+export function mapTokenTurnRow(row: {
+  at?: unknown;
+  cwd?: unknown;
+  model?: unknown;
+  input?: unknown;
+  output?: unknown;
+  cacheRead?: unknown;
+  cacheCreate?: unknown;
+  total?: unknown;
+  modelCalls?: unknown;
+  costTicks?: unknown;
+  agentId?: unknown;
+}): TokenTurn {
+  const agentId = typeof row.agentId === "string" && isAgentId(row.agentId) ? row.agentId : undefined;
+  return {
+    at: Number(row.at) || 0,
+    cwd: typeof row.cwd === "string" ? row.cwd : "",
+    model: typeof row.model === "string" ? row.model : "",
+    input: Number(row.input) || 0,
+    output: Number(row.output) || 0,
+    cacheRead: Number(row.cacheRead) || 0,
+    cacheCreate: Number(row.cacheCreate) || 0,
+    total: Number(row.total) || 0,
+    modelCalls: Number(row.modelCalls) || 0,
+    costTicks: Number(row.costTicks) || 0,
+    ...(agentId ? { agentId } : {}),
+  };
+}
 
 function num(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, v);
