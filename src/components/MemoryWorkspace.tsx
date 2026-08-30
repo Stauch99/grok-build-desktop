@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { openPath, readTextFile, writeAllowedText } from "../api";
 import { IconEdit } from "../icons";
+import { t, type Locale } from "../lib/i18n";
+import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
+import { MemoryDreamPane } from "./MemoryDreamPane";
 import { MemoryEditor } from "./MemoryEditor";
 
 export type MemoryWorkspaceProps = {
@@ -9,11 +12,17 @@ export type MemoryWorkspaceProps = {
   cwd?: string;
   onOpen: (path: string) => void;
   onEdit: (path: string) => void;
+  diary?: DiaryEntry[];
+  status?: OverlayStatus;
+  corpus?: string | null;
+  onDreamNow?: () => void;
+  onOpenUserMd?: () => void;
+  locale?: Locale;
 };
 
 /**
- * MEMORY.md + AGENTS.md only. Desktop opens or edits those files; it does
- * not invent another memory product.
+ * User dream diary plus the cwd-scoped MEMORY.md / AGENTS.md rows,
+ * folded under 项目文件.
  */
 export function MemoryWorkspace({
   memoryPath,
@@ -21,11 +30,28 @@ export function MemoryWorkspace({
   cwd,
   onOpen,
   onEdit,
+  diary = [],
+  status = { kind: "idle", lastAt: null },
+  corpus = null,
+  onDreamNow,
+  onOpenUserMd,
+  locale = "zh",
 }: MemoryWorkspaceProps) {
   return (
-    <div>
-      <DocRow heading="MEMORY.md" path={memoryPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
-      <DocRow heading="AGENTS.md" path={agentsPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
+    <div className="memory-workspace">
+      <MemoryDreamPane
+        entries={diary}
+        status={status}
+        corpus={corpus}
+        onDreamNow={onDreamNow ?? (() => {})}
+        onOpenUserMd={onOpenUserMd ?? (() => {})}
+        locale={locale}
+      />
+      <details className="memory-project-files">
+        <summary>{t(locale, "memory.projectFiles")}</summary>
+        <DocRow heading="MEMORY.md" path={memoryPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
+        <DocRow heading="AGENTS.md" path={agentsPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
+      </details>
     </div>
   );
 }

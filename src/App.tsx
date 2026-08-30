@@ -1205,6 +1205,11 @@ return (
         memoryPath={memoryPath}
         agentsPath={agentsMdPath}
         cwd={cwd || inboxCwd}
+        locale={locale}
+        diary={[]}
+        status={{ kind: "idle", lastAt: null }}
+        corpus={null}
+        onDreamNow={() => {}}
         usagePoints={usageHistory}
         usageDays={usageDays}
         onUsageDays={setUsageDays}

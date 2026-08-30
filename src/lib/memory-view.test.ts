@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyMemoryState } from "./memory-state";
-import { corpusLine, overlayStatus, parseDreamsMd } from "./memory-view";
+import { corpusLine, overlayStatus, parseDreamsMd, selectedDiary } from "./memory-view";
 
 describe("parseDreamsMd", () => {
   it("reads dated entries newest-last in file order", () => {
@@ -9,6 +9,23 @@ describe("parseDreamsMd", () => {
       { date: "2026-08-29", body: "old" },
       { date: "2026-08-30", body: "new" },
     ]);
+  });
+});
+
+describe("selectedDiary", () => {
+  const entries = [
+    { date: "2026-08-29", body: "old" },
+    { date: "2026-08-30", body: "new" },
+  ];
+
+  it("defaults to entries.at(-1) when date is null or missing", () => {
+    expect(selectedDiary(entries, null)).toEqual(entries.at(-1));
+    expect(selectedDiary(entries, "2026-01-01")).toEqual(entries.at(-1));
+    expect(selectedDiary([], null)).toBe(null);
+  });
+
+  it("returns the matching date when present", () => {
+    expect(selectedDiary(entries, "2026-08-29")).toEqual(entries[0]);
   });
 });
 
