@@ -134,6 +134,7 @@ export function useAppModel() {
   const [hubTab, setHubTab] = useState<HubTab>("skills");
   const [locale, setLocale] = useState<Locale>("zh");
   const [themeFamily, setThemeFamily] = useState<"default" | "paper" | "ink">("default");
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [hideToTray, setHideToTray] = useState(true);
   const [defaultRail, setDefaultRail] = useState<"tasks" | "changes" | "context">("tasks");
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
