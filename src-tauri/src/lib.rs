@@ -17,6 +17,7 @@ mod agent_host;
 mod agents_paths;
 mod marketplace;
 mod mcp_import;
+mod mcp_toml;
 mod workbench_state;
 mod agent_doctor;
 mod adapters;
