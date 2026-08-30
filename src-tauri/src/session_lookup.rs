@@ -11,6 +11,12 @@ pub(crate) fn session_roots(user_home: &Path, grok_home: &Path) -> Vec<(String, 
     ]
 }
 
+/// Grok replay reads only `updates.jsonl`. Vendor session dirs may hold
+/// `chat.jsonl` or other artifacts; those must not enable replay.
+pub(crate) fn replay_path_or_empty(dir: &Path) -> bool {
+    dir.join("updates.jsonl").is_file()
+}
+
 pub(crate) fn find_session_dir_in(
     session_id: &str,
     roots: &[(String, PathBuf)],
@@ -138,5 +144,41 @@ mod tests {
         let roots = session_roots(&base, &grok_home);
         assert!(find_session_dir_in("no-such-session", &roots).is_none());
         fs::remove_dir_all(base).ok();
+    }
+
+    fn grok_update_line(kind: &str, text: &str) -> String {
+        format!(
+            r#"{{"params":{{"update":{{"sessionUpdate":"{kind}","content":{{"text":"{text}"}}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn kimi_like_dir_with_chat_jsonl_returns_empty_replay() {
+        let dir = uniq("replay_empty_kimi");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("chat.jsonl"),
+            r#"{"type":"message","role":"user","content":"hello from kimi"}"#,
+        )
+        .unwrap();
+        assert!(!replay_path_or_empty(&dir));
+        let page = crate::session_updates_for_dir(&dir, None).unwrap();
+        assert!(page.rows.is_empty(), "vendor chat.jsonl must not produce replay rows");
+        assert_eq!(page.next_byte, 0);
+        assert!(!page.truncated);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn grok_dir_with_updates_jsonl_returns_replay_rows() {
+        let dir = uniq("replay_grok_rows");
+        fs::create_dir_all(&dir).unwrap();
+        let line = grok_update_line("user_message_chunk", "hi");
+        fs::write(dir.join("updates.jsonl"), format!("{line}\n")).unwrap();
+        assert!(replay_path_or_empty(&dir));
+        let page = crate::session_updates_for_dir(&dir, None).unwrap();
+        assert_eq!(page.rows.len(), 1, "Grok updates.jsonl must yield replay rows");
+        assert!(page.next_byte > 0);
+        fs::remove_dir_all(dir).ok();
     }
 }

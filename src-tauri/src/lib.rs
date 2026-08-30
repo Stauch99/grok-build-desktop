@@ -801,7 +801,7 @@ fn parse_update_line(line: &str) -> Option<Value> {
     }
 }
 
-fn read_updates_jsonl(path: &Path, after_byte: Option<u64>) -> AppResult<SessionUpdates> {
+pub(crate) fn read_updates_jsonl(path: &Path, after_byte: Option<u64>) -> AppResult<SessionUpdates> {
     read_updates_jsonl_limited(path, after_byte, SESSION_UPDATES_TAIL_MAX)
 }
 
@@ -869,6 +869,16 @@ fn read_updates_jsonl_limited(
     })
 }
 
+pub(crate) fn session_updates_for_dir(
+    dir: &Path,
+    after_byte: Option<u64>,
+) -> AppResult<SessionUpdates> {
+    if !crate::session_lookup::replay_path_or_empty(dir) {
+        return Ok(empty_session_updates());
+    }
+    read_updates_jsonl(&dir.join("updates.jsonl"), after_byte)
+}
+
 #[tauri::command]
 async fn read_session_updates(
     session_id: String,
@@ -878,11 +888,7 @@ async fn read_session_updates(
         let Some(dir) = find_session_dir(&session_id) else {
             return Ok(empty_session_updates());
         };
-        let path = dir.join("updates.jsonl");
-        if !path.is_file() {
-            return Ok(empty_session_updates());
-        }
-        read_updates_jsonl(&path, after_byte)
+        session_updates_for_dir(&dir, after_byte)
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
