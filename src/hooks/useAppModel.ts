@@ -120,6 +120,7 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 import type { AgentId } from "../lib/agent-id";
+import { DEFAULT_MEMORY_SETTINGS, parseMemorySettings } from "../lib/memory-settings";
 
 export type AppConfirm = {
   title: string;
@@ -221,6 +222,9 @@ export function useAppModel() {
   const [splitQueue, setSplitQueue] = useState<QueueState>(emptyQueue);
   const [focused, setFocused] = useState(true);
   const [steerByDefault, setSteerByDefault] = useState(false);
+  const [injectUserMemory, setInjectUserMemory] = useState(DEFAULT_MEMORY_SETTINGS.injectUserMemory);
+  const [dreamingEnabled, setDreamingEnabled] = useState(DEFAULT_MEMORY_SETTINGS.dreamingEnabled);
+  const [dreamAgentId, setDreamAgentId] = useState<AgentId>(DEFAULT_MEMORY_SETTINGS.dreamAgentId);
   const [unread, setUnread] = useState<UnreadMap>({});
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
   const [previewWidth, setPreviewWidth] = useState(PREVIEW.initial);
@@ -365,6 +369,9 @@ export function useAppModel() {
     autoArchiveDays,
     filePanelOpen: reviewOpen,
     steerByDefault,
+    injectUserMemory,
+    dreamingEnabled,
+    dreamAgentId,
     unread,
     sidebarWidth,
     previewWidth,
@@ -893,6 +900,10 @@ export function useAppModel() {
           review.hydrateLegacy({ open: state.filePanelOpen });
         }
         if (typeof state.steerByDefault === "boolean") setSteerByDefault(state.steerByDefault);
+        const memory = parseMemorySettings(state);
+        setInjectUserMemory(memory.injectUserMemory);
+        setDreamingEnabled(memory.dreamingEnabled);
+        setDreamAgentId(memory.dreamAgentId);
         setLocale(normalizeLocale(state.locale));
         if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
           setThemeFamily(state.themeFamily);
@@ -1692,6 +1703,13 @@ export function useAppModel() {
     setSplitQueue,
     steerByDefault,
     setSteerByDefault,
+    injectUserMemory,
+    setInjectUserMemory,
+    dreamingEnabled,
+    setDreamingEnabled,
+    dreamAgentId,
+    setDreamAgentId,
+    doctors,
     unread,
     setUnread,
     sidebarWidth,

@@ -26,7 +26,11 @@ import type { HubTab } from "./lib/commands";
 import type { InspectReport } from "./lib/inspect";
 import { enabledMcpCount } from "./lib/inspect";
 import { IconGrokSearch } from "./grok-icons";
+import { agentChipLabel } from "./lib/agent-chip";
+import { isAgentId } from "./lib/agent-id";
 import type { AgentDoctor } from "./lib/agent-doctor";
+import { DEFAULT_MEMORY_SETTINGS } from "./lib/memory-settings";
+import { nextDreamAgent } from "./lib/memory-settings-ui";
 import { doctorAll } from "./lib/workbench-api";
 
 type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
@@ -49,6 +53,13 @@ type Props = {
   onAutoArchiveDays?: (n: number) => void;
   steerByDefault?: boolean;
   onSteerByDefault?: (v: boolean) => void;
+  injectUserMemory?: boolean;
+  onInjectUserMemory?: (v: boolean) => void;
+  dreamingEnabled?: boolean;
+  onDreamingEnabled?: (v: boolean) => void;
+  dreamAgentId?: string;
+  onDreamAgentId?: (id: string) => void;
+  dreamAgentOptions?: { id: string; label: string }[];
   locale?: Locale;
   onLocale?: (l: Locale) => void;
   themeFamily?: "default" | "paper" | "ink";
@@ -93,6 +104,13 @@ export function SettingsPanel({
   onAutoArchiveDays,
   steerByDefault,
   onSteerByDefault,
+  injectUserMemory = DEFAULT_MEMORY_SETTINGS.injectUserMemory,
+  onInjectUserMemory,
+  dreamingEnabled = DEFAULT_MEMORY_SETTINGS.dreamingEnabled,
+  onDreamingEnabled,
+  dreamAgentId = DEFAULT_MEMORY_SETTINGS.dreamAgentId,
+  onDreamAgentId,
+  dreamAgentOptions,
   locale = "zh",
   onLocale,
   themeFamily = "default",
@@ -164,6 +182,11 @@ export function SettingsPanel({
   }
 
   const mcp = [...(cli?.mcp ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const pickerOptions = dreamAgentOptions ?? doctors.filter((d) => d.authPresent).map((d) => ({
+    id: d.agentId,
+    label: agentChipLabel(d.agentId),
+  }));
+  const loggedInDreamAgents = pickerOptions.map((o) => o.id).filter(isAgentId);
   const enterSendsOn = enterSends !== false;
   const archiveDays = autoArchiveDays && autoArchiveDays > 0 ? autoArchiveDays : 0;
   const tabs: { id: TabId; label: string }[] = [
@@ -212,7 +235,17 @@ export function SettingsPanel({
   const chatArchive = show("自动归档（天）");
   const chatThinking = show("显示思考过程");
   const chatCompact = show("自动压缩阈值");
-  const chatMemory = show("跨会话记忆");
+  const chatMemory = show(
+    "跨会话记忆",
+    [
+      t("zh", "settings.injectUserMemory"),
+      t("en", "settings.injectUserMemory"),
+      t("zh", "settings.dreamingEnabled"),
+      t("en", "settings.dreamingEnabled"),
+      t("zh", "settings.dreamAgentId"),
+      t("en", "settings.dreamAgentId"),
+    ].join(" "),
+  );
   const chatTelemetry = show("匿名遥测");
   const chatModel = show("默认模型");
   const chatEffort = show("推理力度");
@@ -613,12 +646,49 @@ export function SettingsPanel({
                         </div>
                       ) : null}
                       {chatMemory ? (
-                        <div className="set-row">
-                          <label>跨会话记忆</label>
-                          <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
-                            <i />
-                          </button>
-                        </div>
+                        <>
+                          <div className="set-row">
+                            <label>跨会话记忆</label>
+                            <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-row">
+                            <label>{t(locale, "settings.injectUserMemory")}</label>
+                            <button
+                              type="button"
+                              className={`toggle ${injectUserMemory ? "on" : ""}`}
+                              disabled={!onInjectUserMemory}
+                              onClick={() => onInjectUserMemory?.(!injectUserMemory)}
+                            >
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-row">
+                            <label>{t(locale, "settings.dreamingEnabled")}</label>
+                            <button
+                              type="button"
+                              className={`toggle ${dreamingEnabled ? "on" : ""}`}
+                              disabled={!onDreamingEnabled}
+                              onClick={() => onDreamingEnabled?.(!dreamingEnabled)}
+                            >
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-stack">
+                            <label>{t(locale, "settings.dreamAgentId")}</label>
+                            <MenuSelect
+                              ariaLabel={t(locale, "settings.dreamAgentId")}
+                              value={dreamAgentId}
+                              options={pickerOptions.map((o) => ({ value: o.id, label: o.label }))}
+                              disabled={!onDreamAgentId}
+                              onChange={(next) => {
+                                const id = nextDreamAgent(next, loggedInDreamAgents);
+                                if (id) onDreamAgentId?.(id);
+                              }}
+                            />
+                          </div>
+                        </>
                       ) : null}
                     </div>
                   ) : null}

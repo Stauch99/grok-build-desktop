@@ -11,6 +11,8 @@ import {
 } from "./api";
 import { formatElapsed, liveWorkStatus } from "./lib/chat";
 import { sameCwd } from "./lib/inbox";
+import { agentChipLabel } from "./lib/agent-chip";
+import { isAgentId } from "./lib/agent-id";
 import { t } from "./lib/i18n";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
@@ -193,6 +195,13 @@ export function App() {
     setSplitQueue,
     steerByDefault,
     setSteerByDefault,
+    injectUserMemory,
+    setInjectUserMemory,
+    dreamingEnabled,
+    setDreamingEnabled,
+    dreamAgentId,
+    setDreamAgentId,
+    doctors,
     setUnread,
     sidebarWidth,
     setSidebarWidth,
@@ -1130,6 +1139,20 @@ return (
               onAutoArchiveDays={(n) => { setAutoArchiveDays(n); persist({ autoArchiveDays: n }); }}
               steerByDefault={steerByDefault}
               onSteerByDefault={(v) => { setSteerByDefault(v); persist({ steerByDefault: v }); }}
+              injectUserMemory={injectUserMemory}
+              onInjectUserMemory={(v) => { setInjectUserMemory(v); persist({ injectUserMemory: v }); }}
+              dreamingEnabled={dreamingEnabled}
+              onDreamingEnabled={(v) => { setDreamingEnabled(v); persist({ dreamingEnabled: v }); }}
+              dreamAgentId={dreamAgentId}
+              onDreamAgentId={(id) => {
+                if (!isAgentId(id)) return;
+                setDreamAgentId(id);
+                persist({ dreamAgentId: id });
+              }}
+              dreamAgentOptions={doctors.filter((d) => d.authPresent).map((d) => ({
+                id: d.agentId,
+                label: agentChipLabel(d.agentId),
+              }))}
               cli={cli}
               onCli={(next) => {
                 setCli(next);
