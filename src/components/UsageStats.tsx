@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { readTokenTurns, type TokenTurnRow } from "../api";
+import { readTokenTurns } from "../api";
 import { MenuSelect } from "./MenuSelect";
 import { IconRefresh } from "../icons";
 import { basename } from "../lib/text";
@@ -9,30 +9,18 @@ import {
   formatInt,
   formatTokenZh,
   formatUsdFromTicks,
+  mapTokenTurnRow,
   summarizeTurns,
   uniqueModels,
   uniqueSources,
+  USAGE_BRAND_OPTIONS,
   type TokenTurn,
   type TurnFilter,
+  type UsageBrandFilter,
 } from "../lib/token-usage";
 import { sparklinePoints, splitCostByModel } from "../lib/usage-split";
 
 type DaysKey = "7" | "30" | "all";
-
-function asTurns(rows: TokenTurnRow[]): TokenTurn[] {
-  return rows.map((row) => ({
-    at: Number(row.at) || 0,
-    cwd: row.cwd || "",
-    model: row.model || "",
-    input: Number(row.input) || 0,
-    output: Number(row.output) || 0,
-    cacheRead: Number(row.cacheRead) || 0,
-    cacheCreate: Number(row.cacheCreate) || 0,
-    total: Number(row.total) || 0,
-    modelCalls: Number(row.modelCalls) || 0,
-    costTicks: Number(row.costTicks) || 0,
-  }));
-}
 
 function Metric({
   label,
@@ -61,6 +49,7 @@ export function UsageStats() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState<DaysKey>("7");
+  const [brand, setBrand] = useState<UsageBrandFilter>("all");
   const [model, setModel] = useState("");
   const [cwd, setCwd] = useState("");
 
@@ -69,7 +58,7 @@ export function UsageStats() {
     setError(null);
     try {
       const rows = await readTokenTurns();
-      setTurns(asTurns(Array.isArray(rows) ? rows : []));
+      setTurns((Array.isArray(rows) ? rows : []).map(mapTokenTurnRow));
     } catch (reason) {
       setError(String(reason));
       setTurns([]);
@@ -86,10 +75,11 @@ export function UsageStats() {
   const sources = useMemo(() => uniqueSources(turns), [turns]);
   const filter: TurnFilter = {
     days: days === "all" ? 0 : days === "30" ? 30 : 7,
+    agentId: brand,
     model: model || undefined,
     cwd: cwd || undefined,
   };
-  const visible = useMemo(() => filterTurns(turns, filter), [turns, days, model, cwd]);
+  const visible = useMemo(() => filterTurns(turns, filter), [turns, days, brand, model, cwd]);
   const sum = useMemo(() => summarizeTurns(visible), [visible]);
   const hit = cacheHitRate(sum);
   const usageHistory = useMemo(
@@ -102,10 +92,21 @@ export function UsageStats() {
     [visible],
   );
   const costRows = Object.entries(costByModel).sort((a, b) => b[1] - a[1]);
+  const brandLabel =
+    brand === "all"
+      ? "Grok Build"
+      : (USAGE_BRAND_OPTIONS.find((o) => o.value === brand)?.label ?? brand);
 
   return (
     <div className="usage-stats">
       <div className="usage-toolbar">
+        <MenuSelect
+          variant="inline"
+          ariaLabel="CLI"
+          value={brand}
+          onChange={setBrand}
+          options={USAGE_BRAND_OPTIONS}
+        />
         <MenuSelect
           variant="inline"
           ariaLabel="来源"
@@ -150,7 +151,7 @@ export function UsageStats() {
         <article className="usage-card">
           <header className="usage-card-head">
             <div>
-              <p className="usage-kicker">Grok Build · 真实消耗 Tokens</p>
+              <p className="usage-kicker">{brandLabel} · 真实消耗 Tokens</p>
               <p className="usage-total">
                 <strong>{formatInt(sum.total)}</strong>
                 <span>≈ {formatTokenZh(sum.total)}</span>
