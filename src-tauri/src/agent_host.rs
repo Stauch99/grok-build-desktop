@@ -122,6 +122,26 @@ pub(crate) fn tagged_acp_event(agent_id: AgentId, generation: u64, payload: Valu
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AcpStdioLine {
+    Skip,
+    Request,
+    Message,
+    Log,
+}
+
+pub(crate) fn classify_acp_stdio_line(line: &str) -> AcpStdioLine {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return AcpStdioLine::Skip;
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(v) if v.get("method").is_some() && v.get("id").is_some() => AcpStdioLine::Request,
+        Ok(_) => AcpStdioLine::Message,
+        Err(_) => AcpStdioLine::Log,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +222,20 @@ mod tests {
         pairs.sort_by_key(|(id, _)| id.as_str());
         assert_eq!(pairs, vec![(AgentId::Grok, 1), (AgentId::Kimi, 2)]);
         assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn classify_acp_stdio_line_cases() {
+        assert_eq!(classify_acp_stdio_line(""), AcpStdioLine::Skip);
+        assert_eq!(classify_acp_stdio_line("   \n"), AcpStdioLine::Skip);
+        assert_eq!(
+            classify_acp_stdio_line(r#"{"method":"x","id":1}"#),
+            AcpStdioLine::Request
+        );
+        assert_eq!(
+            classify_acp_stdio_line(r#"{"jsonrpc":"2.0","result":{}}"#),
+            AcpStdioLine::Message
+        );
+        assert_eq!(classify_acp_stdio_line("not json"), AcpStdioLine::Log);
     }
 }
