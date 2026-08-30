@@ -29,7 +29,7 @@ export type WebuiSnapshot = {
   previewWidth: number;
   locale: Locale;
   themeFamily: "default" | "paper" | "ink";
-  density: "comfortable" | "compact";
+  density?: "comfortable" | "compact";
   hideToTray: boolean;
   defaultRail: "tasks" | "changes" | "context";
   shortcuts: Record<string, string>;
@@ -40,6 +40,7 @@ export type WebuiSnapshot = {
   injectUserMemory?: boolean;
   dreamingEnabled?: boolean;
   dreamAgentId?: AgentId;
+  lastAgent?: AgentId;
 };
 
 export function buildWebuiState(snapshot: WebuiSnapshot, partial: WebuiState = {}): WebuiState {

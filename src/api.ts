@@ -22,6 +22,8 @@ export type SessionSummary = {
   dir?: string | null;
   sessionKind?: string | null;
   parentSessionId?: string | null;
+  lastTurnSummary?: string | null;
+  lastTurnSummaryPromptId?: string | null;
   agentId?: string | null;
 };
 
@@ -74,6 +76,7 @@ export type WebuiState = {
   injectUserMemory?: boolean;
   dreamingEnabled?: boolean;
   dreamAgentId?: AgentId;
+  lastAgent?: AgentId;
 };
 
 export type WorkspaceEntry = {
@@ -391,9 +394,10 @@ export const onAcpMessage = (handler: (msg: JsonRpc, agentId: AgentId) => void):
     const ev = acpMessageFromEvent(e.payload);
     handler(ev.payload as JsonRpc, ev.agentId);
   });
-export const onAcpRequest = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
+export const onAcpRequest = (handler: (msg: JsonRpc, agentId: AgentId) => void): Promise<UnlistenFn> =>
   listen<unknown>("acp-request", (e) => {
-    handler(acpMessageFromEvent(e.payload).payload as JsonRpc);
+    const ev = acpMessageFromEvent(e.payload);
+    handler(ev.payload as JsonRpc, ev.agentId);
   });
 export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn> =>
   listen<unknown>("acp-stderr", (e) => {

@@ -51,6 +51,10 @@ describe("buildWebuiState", () => {
   it("keeps memory settings on the snapshot", () => {
     expect(buildWebuiState({ ...base, injectUserMemory: false, dreamAgentId: "claude" }, {}).dreamAgentId).toBe("claude");
   });
+
+  it("includes lastAgent from the snapshot", () => {
+    expect(buildWebuiState({ ...base, lastAgent: "kimi" }, {}).lastAgent).toBe("kimi");
+  });
 });
 
 describe("webui persist throttle", () => {

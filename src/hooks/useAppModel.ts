@@ -147,6 +147,7 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 import type { AgentId } from "../lib/agent-id";
+import { hydrateLastAgent } from "../lib/session-agent";
 import { DEFAULT_MEMORY_SETTINGS, parseMemorySettings } from "../lib/memory-settings";
 
 export type AppConfirm = {
@@ -300,6 +301,11 @@ export function useAppModel() {
   paneDragRef.current = paneDrag;
   const notifyReviewOpened = useCallback(() => persistReviewOpened.current(), []);
 
+  function setSelectedAgentIdPersist(id: AgentId) {
+    setSelectedAgentId(id);
+    persistRef.current({ lastAgent: id });
+  }
+
   const { toast, showToast } = useToast();
 
   const dream = useDreamJob({
@@ -319,7 +325,7 @@ export function useAppModel() {
     lastWorkspace,
     mode,
     selectedAgentId,
-    setSelectedAgentId,
+    setSelectedAgentId: setSelectedAgentIdPersist,
     sessionDrafts,
     titles,
     extraPanes,
@@ -445,6 +451,7 @@ export function useAppModel() {
     pinnedProjects,
     sessionTokens,
     sidebarList,
+    lastAgent: selectedAgentId,
   });
   persistRef.current = persist;
   persistReviewOpened.current = () => persist(persistReviewOpen(true));
@@ -1005,6 +1012,7 @@ export function useAppModel() {
         setInjectUserMemory(memory.injectUserMemory);
         setDreamingEnabled(memory.dreamingEnabled);
         setDreamAgentId(memory.dreamAgentId);
+        setSelectedAgentId(hydrateLastAgent(state.lastAgent));
         setLocale(normalizeLocale(state.locale));
         if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
           setThemeFamily(state.themeFamily);
@@ -1257,7 +1265,7 @@ export function useAppModel() {
     setQueue(extra.queue);
     queueRef.current = extra.queue;
     bindMainAgent(extra.agentId);
-    setSelectedAgentId(extra.agentId);
+    setSelectedAgentIdPersist(extra.agentId);
   }
 
   async function commitDrop(drop: ResolvedDrop) {
@@ -2110,7 +2118,7 @@ export function useAppModel() {
     showToast,
     sessionId,
     selectedAgentId,
-    setSelectedAgentId,
+    setSelectedAgentId: setSelectedAgentIdPersist,
     sessionIdRef,
     chat,
     busy,
