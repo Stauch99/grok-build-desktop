@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde_json::{json, Value};
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum AgentId {
     Grok,
@@ -95,6 +97,25 @@ impl<T> AgentPool<T> {
     pub(crate) fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
+
+    pub(crate) fn drain(&mut self) -> Vec<(AgentId, T)> {
+        self.inner.drain().collect()
+    }
+}
+
+pub(crate) fn parse_agent_id_arg(s: Option<&str>) -> Result<AgentId, String> {
+    match s.map(str::trim).filter(|v| !v.is_empty()) {
+        None => Ok(AgentId::Grok),
+        Some(v) => AgentId::parse(v).ok_or_else(|| format!("未知 agent: {v}")),
+    }
+}
+
+pub(crate) fn tagged_acp_event(agent_id: AgentId, generation: u64, payload: Value) -> Value {
+    json!({
+        "agentId": agent_id.as_str(),
+        "generation": generation,
+        "payload": payload,
+    })
 }
 
 #[cfg(test)]
@@ -140,6 +161,35 @@ mod tests {
         *pool.get_mut(AgentId::Grok).unwrap() = 3;
         assert_eq!(pool.remove(AgentId::Grok), Some(3));
         assert!(pool.get(AgentId::Grok).is_none());
+        assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn parse_agent_id_arg_defaults_to_grok() {
+        assert_eq!(parse_agent_id_arg(None).unwrap(), AgentId::Grok);
+        assert_eq!(parse_agent_id_arg(Some("")).unwrap(), AgentId::Grok);
+        assert_eq!(parse_agent_id_arg(Some("  ")).unwrap(), AgentId::Grok);
+        assert_eq!(parse_agent_id_arg(Some("claude")).unwrap(), AgentId::Claude);
+        let err = parse_agent_id_arg(Some("gemini")).unwrap_err();
+        assert!(err.contains("未知 agent"));
+    }
+
+    #[test]
+    fn tagged_acp_event_envelope() {
+        let v = tagged_acp_event(AgentId::Kimi, 4, serde_json::json!({"jsonrpc":"2.0"}));
+        assert_eq!(v["agentId"], "kimi");
+        assert_eq!(v["generation"], 4);
+        assert_eq!(v["payload"]["jsonrpc"], "2.0");
+    }
+
+    #[test]
+    fn pool_drain_empties() {
+        let mut pool = AgentPool::new();
+        pool.insert(AgentId::Grok, 1);
+        pool.insert(AgentId::Kimi, 2);
+        let mut pairs = pool.drain();
+        pairs.sort_by_key(|(id, _)| id.as_str());
+        assert_eq!(pairs, vec![(AgentId::Grok, 1), (AgentId::Kimi, 2)]);
         assert!(pool.is_empty());
     }
 }
