@@ -978,8 +978,14 @@ async fn load_webui_state() -> AppResult<Value> {
     if !path.is_file() {
         return Ok(json!({ "projects": [], "theme": "light", "model": "", "showThinking": true }));
     }
-    let text = tokio::fs::read_to_string(path).await.map_err(|e| AppError::Message(e.to_string()))?;
-    serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))
+    let text = tokio::fs::read_to_string(&path).await.map_err(|e| AppError::Message(e.to_string()))?;
+    let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+    let migrated = crate::workbench_state::load_existing_workbench_doc(raw.clone());
+    if migrated != raw {
+        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+    }
+    Ok(migrated)
 }
 
 #[tauri::command]

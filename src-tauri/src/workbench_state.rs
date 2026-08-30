@@ -73,6 +73,10 @@ pub(crate) fn migrate_workbench_doc(mut doc: Value) -> Value {
     doc
 }
 
+pub(crate) fn load_existing_workbench_doc(raw: Value) -> Value {
+    migrate_workbench_doc(raw)
+}
+
 pub(crate) fn should_copy_webui(workbench_exists: bool, grok_webui_exists: bool) -> bool {
     agents_paths::should_migrate_webui(workbench_exists, grok_webui_exists)
 }
@@ -120,5 +124,41 @@ mod tests {
         assert!(should_copy_webui(false, true));
         assert!(!should_copy_webui(true, true));
         assert!(!should_copy_webui(false, false));
+    }
+
+    #[test]
+    fn load_existing_inserts_last_agent_grok_when_missing() {
+        let raw = json!({
+            "theme": "dark",
+            "inboxCwd": "/Users/me/Documents/Grok Chats"
+        });
+        let doc = load_existing_workbench_doc(raw);
+        assert_eq!(doc["lastAgent"], "grok");
+        assert_eq!(doc["theme"], "dark");
+        assert_eq!(doc["inboxCwd"], "/Users/me/Documents/Grok Chats");
+    }
+
+    #[test]
+    fn load_existing_preserves_last_agent_kimi() {
+        let raw = json!({
+            "lastAgent": "kimi",
+            "inboxCwd": "/Users/me/Documents/Grok Chats"
+        });
+        let doc = load_existing_workbench_doc(raw);
+        assert_eq!(doc["lastAgent"], "kimi");
+        assert_eq!(doc["inboxCwd"], "/Users/me/Documents/Grok Chats");
+    }
+
+    #[test]
+    fn load_existing_leaves_grok_chats_inbox_cwd_unchanged() {
+        let inbox = "/Users/me/Documents/Grok Chats";
+        let raw = json!({
+            "lastAgent": "grok",
+            "inboxCwd": inbox,
+            "projects": []
+        });
+        let doc = load_existing_workbench_doc(raw.clone());
+        assert_eq!(doc["inboxCwd"], inbox);
+        assert_eq!(doc, raw);
     }
 }
