@@ -1,3 +1,5 @@
+import type { AgentId } from "./agent-id";
+
 export const USD_TICKS = 10_000_000_000;
 
 export type TokenTurn = {
@@ -11,6 +13,7 @@ export type TokenTurn = {
   total: number;
   modelCalls: number;
   costTicks: number;
+  agentId?: AgentId;
 };
 
 export type UsageSummary = {
@@ -30,6 +33,7 @@ export type TurnFilter = {
   now?: number;
   model?: string;
   cwd?: string;
+  agentId?: AgentId | "all";
 };
 
 function num(v: unknown): number {
@@ -44,7 +48,7 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 
 export function parseTurnUsage(
   update: Record<string, unknown>,
-  meta?: { at?: number; cwd?: string },
+  meta?: { at?: number; cwd?: string; agentId?: AgentId },
 ): TokenTurn | null {
   if (String(update.sessionUpdate ?? "") !== "turn_completed") return null;
   const usage = asRecord(update.usage);
@@ -68,6 +72,7 @@ export function parseTurnUsage(
     total,
     modelCalls: num(usage.modelCalls ?? usage.numTurns),
     costTicks: num(usage.costUsdTicks ?? usage.total_cost_usd_ticks),
+    ...(meta?.agentId ? { agentId: meta.agentId } : {}),
   };
 }
 
@@ -82,6 +87,8 @@ export function filterTurns(turns: TokenTurn[], opts: TurnFilter): TokenTurn[] {
     if (opts.days > 0 && row.at < from) return false;
     if (opts.model && row.model !== opts.model) return false;
     if (opts.cwd && row.cwd !== opts.cwd) return false;
+    const brand = row.agentId ?? "grok";
+    if (opts.agentId && opts.agentId !== "all" && brand !== opts.agentId) return false;
     return true;
   });
 }

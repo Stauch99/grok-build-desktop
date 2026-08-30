@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentId } from "./agent-id";
 import {
   USD_TICKS,
   cacheHitRate,
@@ -119,5 +120,37 @@ describe("formatters", () => {
   it("reports cache hit rate against the full prompt", () => {
     expect(cacheHitRate({ input: 100, cacheRead: 91 })).toBe(91);
     expect(cacheHitRate({ input: 0, cacheRead: 0 })).toBeNull();
+  });
+});
+
+describe("filterTurns agent brand", () => {
+  const grok = turn({ agentId: "grok" as AgentId, total: 10 });
+  const claude = turn({ agentId: "claude" as AgentId, total: 20, model: "opus" });
+  const legacy = turn({ total: 30 }); // no agentId
+
+  it("treats missing agentId as grok", () => {
+    expect(filterTurns([grok, claude, legacy], { days: 0, agentId: "grok" }).map((t) => t.total)).toEqual([10, 30]);
+  });
+
+  it("filters a single brand", () => {
+    expect(filterTurns([grok, claude, legacy], { days: 0, agentId: "claude" }).map((t) => t.total)).toEqual([20]);
+  });
+
+  it("keeps every brand when agentId is all or omitted", () => {
+    expect(filterTurns([grok, claude], { days: 0 }).length).toBe(2);
+    expect(filterTurns([grok, claude], { days: 0, agentId: "all" }).length).toBe(2);
+  });
+});
+
+describe("parseTurnUsage agentId meta", () => {
+  it("stamps agentId from meta", () => {
+    const row = parseTurnUsage(
+      {
+        sessionUpdate: "turn_completed",
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+      { at: 1, cwd: "/w", agentId: "kimi" },
+    );
+    expect(row?.agentId).toBe("kimi");
   });
 });
