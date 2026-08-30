@@ -1484,6 +1484,7 @@ export function useAppModel() {
     removeSession,
     restoreGenerated,
     beginEditTitle,
+    onDreamNow: () => {},
   });
   runSlashRef.current = runSlash;
 

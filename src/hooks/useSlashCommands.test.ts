@@ -11,6 +11,7 @@ describe("splitSlashAction", () => {
   it("keeps other local commands on the main pane", () => {
     expect(splitSlashAction("settings")).toBe("main-only");
     expect(splitSlashAction("rename")).toBe("main-only");
+    expect(splitSlashAction("dream")).toBe("main-only");
   });
 
   it("forwards agent slash prompts", () => {

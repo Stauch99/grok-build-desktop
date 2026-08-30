@@ -51,6 +51,11 @@ describe("filterCommands", () => {
     expect(plugins?.local).toBe("hub");
     expect(plugins?.hubTab).toBe("skills");
   });
+
+  it("runs /dream on the desktop", () => {
+    const dream = SLASH_COMMANDS.find((c) => c.name === "/dream");
+    expect(dream?.local).toBe("dream");
+  });
 });
 
 describe("parseRenameArgs", () => {
