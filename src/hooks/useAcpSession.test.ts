@@ -5,8 +5,8 @@ import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-ac
 import {
   isAgentReady,
   isPromptStopResult,
-  openSessionAgent,
   paneAgentForEvent,
+  resumeOnSessionAgent,
   sessionIdFromNewResult,
   sessionUpdateDest,
   shouldClearBusyOnPromptResult,
@@ -80,17 +80,25 @@ describe("resume routes to the session agent", () => {
     const startAgent = vi.fn(async (_id: AgentId) => {});
     const sendRaw = vi.fn(async (_payload: unknown, _id: AgentId) => {});
     const chip: AgentId = "grok";
-    const { agentId, selectedAfterOpen } = openSessionAgent({ agentId: "kimi" }, chip);
 
-    expect(selectedAfterOpen).toBe("kimi");
-    const ensureId = targetAgentId(agentId, chip);
-    const rpcId = targetAgentId(agentId, chip);
-    await startAgent(ensureId);
-    await sendRaw({ jsonrpc: "2.0", method: "session/resume" }, rpcId);
+    const agentId = await resumeOnSessionAgent({
+      session: { id: "sid-kimi", cwd: "/work", agentId: "kimi" },
+      chip,
+      startAgent,
+      sendRaw,
+      alreadyReady: (id) => id === "grok",
+    });
 
+    expect(agentId).toBe("kimi");
+    expect(startAgent).toHaveBeenCalledTimes(1);
     expect(startAgent).toHaveBeenCalledWith("kimi");
+    expect(startAgent).not.toHaveBeenCalledWith(chip);
+    expect(sendRaw).toHaveBeenCalledTimes(1);
     expect(sendRaw.mock.calls[0]?.[1]).toBe("kimi");
     expect(sendRaw.mock.calls[0]?.[1]).not.toBe(chip);
+    const payload = sendRaw.mock.calls[0]?.[0] as { method?: string; params?: { sessionId?: string } };
+    expect(payload.method).toBe("session/resume");
+    expect(payload.params?.sessionId).toBe("sid-kimi");
   });
 
   it("create and empty composer keep the chip when no session agent is requested", () => {

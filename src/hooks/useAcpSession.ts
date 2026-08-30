@@ -95,6 +95,24 @@ export function openSessionAgent(
   return { agentId, selectedAfterOpen: selectedAgentAfterOpen(agentId, chip) };
 }
 
+export async function resumeOnSessionAgent(args: {
+  session: { id: string; cwd?: string; agentId?: string | null };
+  chip: AgentId;
+  startAgent: (id: AgentId) => Promise<unknown>;
+  sendRaw: (payload: unknown, agentId: AgentId) => Promise<unknown>;
+  alreadyReady: (id: AgentId) => boolean;
+}): Promise<AgentId> {
+  const { agentId } = openSessionAgent(args.session, args.chip);
+  if (!args.alreadyReady(agentId)) await args.startAgent(agentId);
+  const params = { sessionId: args.session.id, cwd: args.session.cwd || undefined, mcpServers: [] };
+  try {
+    await args.sendRaw({ method: "session/resume", params }, agentId);
+  } catch {
+    await args.sendRaw({ method: "session/load", params }, agentId);
+  }
+  return agentId;
+}
+
 export function paneAgentForEvent(
   dest: SessionUpdateDest,
   mainAgent: AgentId,
@@ -434,6 +452,21 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     setReady(ok);
   }, [deps.selectedAgentId]);
 
+  async function resumeBoundSession(s: SessionSummary): Promise<AgentId> {
+    const chip = selectedAgentIdRef.current;
+    await setWorkspace(s.cwd, s.id);
+    return resumeOnSessionAgent({
+      session: s,
+      chip,
+      startAgent: (id) => ensureAgent(id),
+      sendRaw: async (payload, id) => {
+        const rec = asRecord(payload);
+        return rpc(String(rec.method ?? ""), rec.params, { agentId: id });
+      },
+      alreadyReady: (id) => isAgentReady(readyByAgentRef.current, id),
+    });
+  }
+
   async function createAcpSession(work: string): Promise<string> {
     const meta: Record<string, unknown> = {};
     if (depsRef.current.mode === "yolo") meta.yoloMode = true;
@@ -543,13 +576,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
         d.setSelectedAgentId(selectedAfterOpen);
         mainAgentIdRef.current = agentId;
-        await ensureAgent(agentId);
-        await setWorkspace(s.cwd, s.id);
-        try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
-        } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
-        }
+        await resumeBoundSession(s);
       } finally {
         ignoreReplay.current = false;
       }
@@ -582,13 +609,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       void refreshUsage(s.id, "split");
       ignoreSplitReplay.current = true;
       try {
-        await ensureAgent(agentId);
-        await setWorkspace(s.cwd, s.id);
-        try {
-          await rpc("session/resume", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
-        } catch {
-          await rpc("session/load", { sessionId: s.id, cwd: s.cwd || undefined, mcpServers: [] }, { agentId });
-        }
+        await resumeBoundSession(s);
       } finally {
         ignoreSplitReplay.current = false;
       }
