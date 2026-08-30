@@ -855,6 +855,13 @@ Write the procedure here.
     tokio::fs::write(&path, body)
         .await
         .map_err(|e| AppError::Message(e.to_string()))?;
+    if input.scope != "project" {
+        if let Some(canonical) = path.parent() {
+            let home = dirs_home();
+            let flags = [("grok", true), ("kimi", true), ("claude", true), ("codex", true)];
+            let _ = crate::skill_sync::sync_skill_to_agents(canonical, &home, &name, &flags);
+        }
+    }
     Ok(json!({ "path": path.display().to_string() }))
 }
 
