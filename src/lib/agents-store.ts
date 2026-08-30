@@ -1,4 +1,4 @@
-import type { AgentId } from "./agent-id";
+import { AGENT_IDS, type AgentId } from "./agent-id";
 
 export type McpTransport = "stdio" | "http" | "sse";
 
@@ -92,4 +92,51 @@ export function parseMcpJson(raw: unknown): McpServer[] {
     out.push(row);
   }
   return out;
+}
+
+export function skillMarkdown(name: string, description: string): string {
+  return `---
+name: ${name}
+description: ${description}
+user-invocable: true
+---
+
+# ${name}
+`;
+}
+
+export function stringifyMcpJson(servers: McpServer[]): string {
+  return `${JSON.stringify({ servers }, null, 2)}\n`;
+}
+
+export function stringifySyncJson(sync: AgentsSync): string {
+  return `${JSON.stringify(sync, null, 2)}\n`;
+}
+
+function parseFlags(raw: unknown): SyncFlags {
+  const out: SyncFlags = { grok: false, kimi: false, claude: false, codex: false };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const rec = raw as Record<string, unknown>;
+  for (const id of AGENT_IDS) {
+    if (typeof rec[id] === "boolean") out[id] = rec[id];
+  }
+  return out;
+}
+
+function parseFlagMap(raw: unknown): Record<string, SyncFlags> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const rec = raw as Record<string, unknown>;
+  const out: Record<string, SyncFlags> = {};
+  for (const [name, flags] of Object.entries(rec)) {
+    out[name] = parseFlags(flags);
+  }
+  return out;
+}
+
+export function parseSyncJson(raw: unknown): AgentsSync {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { skills: {}, mcp: {} };
+  }
+  const rec = raw as Record<string, unknown>;
+  return { skills: parseFlagMap(rec.skills), mcp: parseFlagMap(rec.mcp) };
 }

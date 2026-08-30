@@ -6,8 +6,12 @@ import {
   mcpServersForAgent,
   mergeMcpCatalog,
   parseMcpJson,
+  parseSyncJson,
   skillDir,
+  skillMarkdown,
   skillNameOk,
+  stringifyMcpJson,
+  stringifySyncJson,
   syncJsonPath,
   type McpServer,
 } from "./agents-store";
@@ -59,5 +63,52 @@ describe("mcp catalog", () => {
 describe("defaultSyncFlags", () => {
   it("enables every AgentId", () => {
     expect(defaultSyncFlags()).toEqual({ grok: true, kimi: true, claude: true, codex: true });
+  });
+});
+
+describe("skillMarkdown", () => {
+  it("writes the canonical SKILL.md front matter", () => {
+    expect(skillMarkdown("pdf-review", "Extract tables from PDFs")).toBe(
+      `---
+name: pdf-review
+description: Extract tables from PDFs
+user-invocable: true
+---
+
+# pdf-review
+`,
+    );
+  });
+});
+
+describe("stringify catalog files", () => {
+  it("pretty-prints mcp.json and sync.json with a trailing newline", () => {
+    const servers = [{ name: "git", transport: "stdio" as const, commandOrUrl: "uvx" }];
+    expect(stringifyMcpJson(servers)).toBe(`${JSON.stringify({ servers }, null, 2)}\n`);
+    const sync = {
+      skills: { pdf: { grok: true, kimi: false, claude: true, codex: true } },
+      mcp: {},
+    };
+    expect(stringifySyncJson(sync)).toBe(`${JSON.stringify(sync, null, 2)}\n`);
+  });
+});
+
+describe("parseSyncJson", () => {
+  it("returns empty maps for junk", () => {
+    expect(parseSyncJson(null)).toEqual({ skills: {}, mcp: {} });
+    expect(parseSyncJson([])).toEqual({ skills: {}, mcp: {} });
+    expect(parseSyncJson({ skills: [], mcp: "x" })).toEqual({ skills: {}, mcp: {} });
+  });
+
+  it("keeps only boolean AgentId flags", () => {
+    expect(
+      parseSyncJson({
+        skills: { pdf: { grok: true, kimi: 1, claude: false, extra: true } },
+        mcp: { git: { grok: true } },
+      }),
+    ).toEqual({
+      skills: { pdf: { grok: true, kimi: false, claude: false, codex: false } },
+      mcp: { git: { grok: true, kimi: false, claude: false, codex: false } },
+    });
   });
 });
