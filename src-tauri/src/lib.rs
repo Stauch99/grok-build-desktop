@@ -542,6 +542,9 @@ async fn stop_agent(state: State<'_, Arc<AppState>>) -> AppResult<()> {
 
 #[tauri::command]
 async fn send_raw(state: State<'_, Arc<AppState>>, payload: Value) -> AppResult<()> {
+    if !rpc_payload_allowed(&payload) {
+        return Err(AppError::Message("不允许的 RPC 方法".into()));
+    }
     let line = serde_json::to_string(&payload).map_err(|e| AppError::Message(e.to_string()))?;
     let guard = state.session.lock().await;
     let session = guard
