@@ -103,6 +103,10 @@ impl<T> AgentPool<T> {
     }
 }
 
+pub(crate) fn stamp_agent_id(raw: Option<&str>) -> AgentId {
+    raw.and_then(AgentId::parse).unwrap_or(AgentId::Grok)
+}
+
 pub(crate) fn parse_agent_id_arg(s: Option<&str>) -> Result<AgentId, String> {
     match s.map(str::trim).filter(|v| !v.is_empty()) {
         None => Ok(AgentId::Grok),
@@ -162,6 +166,13 @@ mod tests {
         assert_eq!(pool.remove(AgentId::Grok), Some(3));
         assert!(pool.get(AgentId::Grok).is_none());
         assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn stamps_missing_as_grok() {
+        assert_eq!(stamp_agent_id(None), AgentId::Grok);
+        assert_eq!(stamp_agent_id(Some("claude")), AgentId::Claude);
+        assert_eq!(stamp_agent_id(Some("nope")), AgentId::Grok);
     }
 
     #[test]
