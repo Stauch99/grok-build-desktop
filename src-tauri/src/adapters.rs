@@ -9,6 +9,17 @@ pub(crate) fn sessions_for(id: crate::agent_host::AgentId, grok: Vec<String>) ->
     }
 }
 
+pub(crate) fn spawn_argv(id: crate::agent_host::AgentId, grok_bin: Option<&Path>) -> Option<(PathBuf, Vec<String>)> {
+    use crate::agent_host::AgentId;
+    match id {
+        AgentId::Grok => grok_bin.map(|p| (p.to_path_buf(), vec!["agent".into(), "stdio".into()])),
+        other => {
+            let p = crate::agent_host::default_spawn_profile(other);
+            Some((PathBuf::from(p.command), p.args))
+        }
+    }
+}
+
 pub(crate) fn doctor_homes(
     user_home: &Path,
     grok_home: &Path,
@@ -39,5 +50,24 @@ mod tests {
         assert_eq!(homes[1], ("kimi", PathBuf::from("/Users/me/.kimi-code")));
         assert_eq!(homes[2], ("claude", PathBuf::from("/Users/me/.claude")));
         assert_eq!(homes[3], ("codex", PathBuf::from("/Users/me/.codex")));
+    }
+
+    #[test]
+    fn spawn_argv_per_adapter() {
+        let grok_bin = PathBuf::from("/Users/me/.grok/bin/grok");
+        assert_eq!(
+            spawn_argv(AgentId::Grok, Some(&grok_bin)),
+            Some((grok_bin.clone(), vec!["agent".into(), "stdio".into()]))
+        );
+        assert_eq!(spawn_argv(AgentId::Grok, None), None);
+        let (cmd, args) = spawn_argv(AgentId::Kimi, None).unwrap();
+        assert_eq!(cmd, PathBuf::from("kimi"));
+        assert_eq!(args, vec!["acp".to_string()]);
+        let (cmd, args) = spawn_argv(AgentId::Claude, None).unwrap();
+        assert_eq!(cmd, PathBuf::from("npx"));
+        assert!(args.contains(&"@agentclientprotocol/claude-agent-acp".into()));
+        let (cmd, args) = spawn_argv(AgentId::Codex, None).unwrap();
+        assert_eq!(cmd, PathBuf::from("npx"));
+        assert!(args.contains(&"@agentclientprotocol/codex-acp".into()));
     }
 }
