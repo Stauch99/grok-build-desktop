@@ -33,7 +33,6 @@ import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
-import { MAIN_PANE } from "../lib/pane-tree";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { agentIdForPaneDest, agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
@@ -45,6 +44,7 @@ import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from
 import { isDreamSession } from "../lib/memory-dream-acp";
 import { maybeFetchAcpSessionList } from "../lib/session-acp-list";
 
+const MAIN_PANE = "main";
 const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
 
 export function sessionIdFromNewResult(result: unknown): string {
