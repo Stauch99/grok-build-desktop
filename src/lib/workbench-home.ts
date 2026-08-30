@@ -9,6 +9,10 @@ export function workbenchJsonPath(wbHome: string): string {
   return `${wbHome}/workbench.json`;
 }
 
+export function workbenchMemoryRoot(wbHome: string): string {
+  return `${wbHome.replace(/\/+$/, "")}/memory`;
+}
+
 export function grokWebuiPath(grokHome: string): string {
   return `${grokHome}/webui.json`;
 }

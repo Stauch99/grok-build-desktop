@@ -6,7 +6,14 @@ import {
   migrateWebuiSessionMaps,
   shouldMigrateWebui,
   workbenchJsonPath,
+  workbenchMemoryRoot,
 } from "./workbench-home";
+
+describe("workbenchMemoryRoot", () => {
+  it("nests memory under the workbench home", () => {
+    expect(workbenchMemoryRoot("/Users/me/.acp-workbench/")).toBe("/Users/me/.acp-workbench/memory");
+  });
+});
 
 describe("workbench paths", () => {
   it("lives under ~/.acp-workbench", () => {
