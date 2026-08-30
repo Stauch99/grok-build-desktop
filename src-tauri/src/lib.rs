@@ -6,8 +6,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
 use walkdir::WalkDir;
 
@@ -25,10 +24,13 @@ mod adapters;
 mod skill_sync;
 mod session_scan;
 mod session_lookup;
+mod acp_loop;
+mod agent_registry;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use agent_host::{
-    parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
+    parse_agent_id_arg, AgentId, AgentPool,
 };
+use acp_loop::{spawn_reader, spawn_writer};
 use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 use cli_bridge::{
     create_skill, git_blame, git_branches, git_commit, git_log, git_status_untracked, hide_window, list_agents_dir, list_file_tree,
@@ -39,7 +41,7 @@ use cli_bridge::{
     stat_attachment,
 };
 
-const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
 
 const ALLOWED_CLI_PATCH_KEYS: &[&str] = &[
@@ -193,7 +195,7 @@ pub(crate) fn is_blocked_path(path: &Path) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum PathAccess {
+pub(crate) enum PathAccess {
     Read,
     Write,
 }
@@ -262,7 +264,7 @@ pub(crate) fn trusted_desktop_root(workspace: Option<&Path>, hint: Option<&str>)
     trusted_workspace_for_hint(workspace, hint).map(Some)
 }
 
-fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess) -> Result<PathBuf, String> {
+pub(crate) fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess) -> Result<PathBuf, String> {
     if raw.is_empty() { return Err("empty path".into()); }
     let requested = PathBuf::from(raw);
     if !requested.is_absolute() { return Err("path must be absolute".into()); }
@@ -288,198 +290,6 @@ fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess)
         if !is_under(&canon, &home) { return Err("trusted workspace is not set".into()); }
     }
     Ok(canon)
-}
-
-async fn write_line(stdin: &mut ChildStdin, line: &str) -> AppResult<()> {
-    stdin
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|e| AppError::Message(format!("write grok stdin: {e}")))?;
-    if !line.ends_with('\n') {
-        stdin
-            .write_all(b"\n")
-            .await
-            .map_err(|e| AppError::Message(format!("write grok stdin: {e}")))?;
-    }
-    stdin
-        .flush()
-        .await
-        .map_err(|e| AppError::Message(format!("flush grok stdin: {e}")))
-}
-
-fn handle_agent_request(
-    app: &AppHandle,
-    msg: &Value,
-    workspace: Option<&Path>,
-    agent_id: AgentId,
-    generation: u64,
-) -> Option<Value> {
-    let method = msg.get("method")?.as_str()?;
-    let id = msg.get("id")?.clone();
-    let params = msg.get("params").cloned().unwrap_or(json!({}));
-
-    match method {
-        "fs/read_text_file" | "x.ai/fs/read_file" => {
-            let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let limit = params.get("limit").and_then(|v| v.as_u64());
-            match resolve_allowed_path(path, workspace, PathAccess::Read) {
-                Ok(path) => match std::fs::read_to_string(&path) {
-                    Ok(mut content) => {
-                        if content.len() > MAX_FS_BYTES {
-                            content.truncate(MAX_FS_BYTES);
-                        }
-                        if let Some(n) = limit {
-                            content = content.lines().take(n as usize).collect::<Vec<_>>().join("\n");
-                        }
-                        Some(json!({ "jsonrpc": "2.0", "id": id, "result": { "content": content } }))
-                    }
-                    Err(e) => Some(json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": { "code": -32000, "message": e.to_string() }
-                    })),
-                },
-                Err(e) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32000, "message": e }
-                })),
-            }
-        }
-        "fs/write_text_file" | "x.ai/fs/write_file" => {
-            let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            if content.len() > MAX_FS_BYTES {
-                return Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32001, "message": "write too large" }
-                }));
-            }
-            match resolve_allowed_path(path, workspace, PathAccess::Write) {
-                Ok(path) => match std::fs::write(&path, content) {
-                    Ok(()) => Some(json!({ "jsonrpc": "2.0", "id": id, "result": {} })),
-                    Err(e) => Some(json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": { "code": -32000, "message": e.to_string() }
-                    })),
-                },
-                Err(e) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32000, "message": e }
-                })),
-            }
-        }
-        _ => {
-            let _ = app.emit(
-                "acp-request",
-                tagged_acp_event(agent_id, generation, msg.clone()),
-            );
-            None
-        }
-    }
-}
-
-fn spawn_reader(
-    app: AppHandle,
-    stdout: tokio::process::ChildStdout,
-    stderr: tokio::process::ChildStderr,
-    tx: mpsc::Sender<String>,
-    generation: u64,
-    agent_id: AgentId,
-) {
-    let app_out = app.clone();
-    let app_err = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    match serde_json::from_str::<Value>(&line) {
-                        Ok(msg) => {
-                            let is_request = msg.get("method").is_some() && msg.get("id").is_some();
-                            if is_request {
-                                let sid = msg
-                                    .get("params")
-                                    .and_then(|p| p.get("sessionId"))
-                                    .and_then(|v| v.as_str())
-                                    .map(str::to_string);
-                                let workspace = app_out.try_state::<Arc<AppState>>().and_then(|s| {
-                                    if let Some(id) = sid.as_deref() {
-                                        if let Ok(map) = s.workspaces.try_lock() {
-                                            if let Some(p) = map.get(id) {
-                                                return Some(p.clone());
-                                            }
-                                        }
-                                    }
-                                    s.workspace.try_lock().ok().and_then(|g| g.clone())
-                                });
-                                if let Some(reply) = handle_agent_request(
-                                    &app_out,
-                                    &msg,
-                                    workspace.as_deref(),
-                                    agent_id,
-                                    generation,
-                                ) {
-                                    let _ = tx.send(reply.to_string()).await;
-                                    continue;
-                                }
-                            }
-                            let _ = app_out.emit(
-                                "acp-message",
-                                tagged_acp_event(agent_id, generation, msg),
-                            );
-                        }
-                        Err(_) => {
-                            let _ = app_out.emit(
-                                "acp-log",
-                                tagged_acp_event(agent_id, generation, json!(line)),
-                            );
-                        }
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    let _ = app_out.emit(
-                        "acp-stderr",
-                        tagged_acp_event(agent_id, generation, json!(format!("stdout read error: {e}"))),
-                    );
-                    break;
-                }
-            }
-        }
-        let _ = app_out.emit(
-            "agent-exit",
-            tagged_acp_event(agent_id, generation, Value::Null),
-        );
-    });
-
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if !line.trim().is_empty() {
-                let _ = app_err.emit(
-                    "acp-stderr",
-                    tagged_acp_event(agent_id, generation, json!(line)),
-                );
-            }
-        }
-    });
-}
-
-fn spawn_writer(mut stdin: ChildStdin, mut rx: mpsc::Receiver<String>) {
-    tauri::async_runtime::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if write_line(&mut stdin, &line).await.is_err() {
-                break;
-            }
-        }
-    });
 }
 
 async fn stop_one(state: &AppState, id: AgentId) {
@@ -684,20 +494,12 @@ fn normalize_cwd(cwd: &str) -> String {
 }
 
 fn default_inbox_cwd() -> PathBuf {
-    dirs_home().join("Documents").join("Grok Chats")
+    dirs_home().join("Documents").join("Agent Chats")
 }
 
 pub(crate) fn find_session_dir(session_id: &str) -> Option<PathBuf> {
-    let root = grok_home().join("sessions");
-    if !root.is_dir() {
-        return None;
-    }
-    for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-        if entry.file_type().is_dir() && entry.file_name() == session_id {
-            return Some(entry.path().to_path_buf());
-        }
-    }
-    None
+    let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
+    crate::session_lookup::find_session_dir_in(session_id, &roots).map(|(_, p)| p)
 }
 
 fn encode_cwd(cwd: &str) -> String {
@@ -1136,6 +938,11 @@ fn webui_path() -> PathBuf {
 
 #[tauri::command]
 async fn load_webui_state() -> AppResult<Value> {
+    let registry = crate::agent_registry::agents_toml_path(&workbench_home());
+    if crate::agent_registry::should_write_default_registry(registry.is_file()) {
+        let _ = tokio::fs::create_dir_all(workbench_home()).await;
+        let _ = tokio::fs::write(&registry, crate::agent_registry::default_agents_toml()).await;
+    }
     let path = webui_path();
     let legacy = crate::agents_paths::grok_webui_path(&grok_home());
     if crate::workbench_state::should_copy_webui(path.is_file(), legacy.is_file()) {
@@ -1300,15 +1107,13 @@ async fn list_project_roots() -> AppResult<Vec<String>> {
 #[tauri::command]
 async fn delete_session(session_id: String) -> AppResult<()> {
     tokio::task::spawn_blocking(move || {
-        let root = grok_home().join("sessions");
-        for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-            if entry.file_type().is_dir() && entry.file_name() == session_id.as_str() {
-                std::fs::remove_dir_all(entry.path())
-                    .map_err(|e| AppError::Message(e.to_string()))?;
-                return Ok(());
+        let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
+        match crate::session_lookup::find_session_dir_in(&session_id, &roots) {
+            Some((_, path)) => {
+                std::fs::remove_dir_all(path).map_err(|e| AppError::Message(e.to_string()))
             }
+            None => Err(AppError::Message("session not found".into())),
         }
-        Err(AppError::Message("session not found".into()))
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
