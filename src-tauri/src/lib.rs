@@ -850,6 +850,31 @@ fn cached_sessions() -> Vec<SessionSummary> {
 async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
     tokio::task::spawn_blocking(move || {
         let mut out = cached_sessions();
+        let home = dirs_home();
+        let extra = [
+            crate::session_scan::scan_named_subdirs(&home.join(".kimi-code").join("sessions"), "kimi"),
+            crate::session_scan::scan_named_subdirs(&home.join(".claude").join("projects"), "claude"),
+            crate::session_scan::scan_named_subdirs(&home.join(".codex").join("sessions"), "codex"),
+        ];
+        for batch in extra {
+            for row in batch {
+                out.push(SessionSummary {
+                    id: row.id,
+                    agent_id: row.agent_id,
+                    cwd: String::new(),
+                    title: row.title,
+                    model: None,
+                    agent_name: None,
+                    updated_at: row.updated_at,
+                    created_at: String::new(),
+                    num_messages: 0,
+                    dir: Some(row.dir),
+                    session_kind: None,
+                    parent_session_id: None,
+                });
+            }
+        }
+        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         if let Some(want) = cwd.as_deref().filter(|s| !s.is_empty()) {
             out.retain(|row| row.cwd == want);
         }
