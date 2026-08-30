@@ -67,11 +67,15 @@ import { countNeedsYou } from "../lib/session-badge";
 import { fitLayout, loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { paneComposerTakeover, heroLayout, situationAutoCollapse } from "../lib/shell-ia";
 import { agentHealth } from "../lib/agent-health";
-import { classifyAuthKind, shouldPollBilling } from "../lib/auth-kind";
+import { shouldPollBilling } from "../lib/auth-kind";
+import { doctorAll } from "../lib/workbench-api";
+import { billingKindFromDoctors } from "../lib/agent-port";
+import { brandSessionList } from "../lib/session-list";
+import type { AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
-import { goalFromPlan } from "../lib/goal-bar";
+import { nextGoalView, type GoalView } from "../lib/goal-bar";
 import { turnStatsFromItems } from "../lib/usage-split";
 import { activityKey, stallNote } from "../lib/stall";
 import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "../lib/review-rail";
@@ -169,6 +173,7 @@ export function useAppModel() {
   const [showThinking, setShowThinking] = useState(true);
   const [chatWidth, setChatWidth] = useState(680);
   const [info, setInfo] = useState<DoctorInfo | null>(null);
+  const [doctors, setDoctors] = useState<AgentDoctor[]>([]);
   const [cli, setCli] = useState<CliSettings | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -232,6 +237,8 @@ export function useAppModel() {
   const queueRef = useRef<QueueState>(emptyQueue());
   const splitQueueRef = useRef<QueueState>(emptyQueue());
   const persistRef = useRef<(partial: WebuiState) => void>(() => {});
+  const doctorsRef = useRef<AgentDoctor[]>([]);
+  doctorsRef.current = doctors;
   const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
@@ -834,6 +841,7 @@ export function useAppModel() {
   useEffect(() => {
     void (async () => {
       try {
+        void doctorAll().then(setDoctors).catch(() => setDoctors([]));
         const [doc, state, roots, cliState] = await Promise.all([
           doctor(),
           loadWebuiState().catch(() => ({}) as WebuiState),
@@ -906,7 +914,7 @@ export function useAppModel() {
         setPinnedProjects(prunePinnedProjects(pinnedRaw, kept));
         const inbox = await ensureInbox(state.inboxCwd ?? null);
         setInboxCwd(inbox);
-        const all = await listSessions(null).catch(() => [] as SessionSummary[]);
+        const all = brandSessionList(await listSessions(null).catch(() => [] as SessionSummary[]));
         setInboxSessions(all.filter((s) => sameCwd(s.cwd, inbox)));
         setSessions(all.filter((s) => !sameCwd(s.cwd, inbox)));
         const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
@@ -925,10 +933,7 @@ export function useAppModel() {
   const refreshBillingRef = useRef<() => Promise<void>>(async () => {});
   refreshBillingRef.current = async () => {
     if (!readyRef.current || billingInflight.current) return;
-    const kind = classifyAuthKind({
-      hasSubscriptionSession: !!info?.authPresent,
-      hasApiKey: false,
-    });
+    const kind = billingKindFromDoctors(doctorsRef.current ?? [], "grok");
     if (!shouldPollBilling(kind)) return;
     billingInflight.current = true;
     try {
@@ -1019,7 +1024,7 @@ export function useAppModel() {
 
   async function refreshAllSessions(inbox = inboxCwd) {
     try {
-      const all = await listSessions(null);
+      const all = brandSessionList(await listSessions(null));
       setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
       setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
     } catch {
