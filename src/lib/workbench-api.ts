@@ -20,6 +20,14 @@ export async function importAgentsMcpFirstOpen(): Promise<string[]> {
   return invoke("import_agents_mcp_first_open");
 }
 
+export async function readAgentsFile(kind: string): Promise<string> {
+  return invoke("read_agents_file", { kind });
+}
+
+export async function writeAgentsFile(kind: string, text: string): Promise<void> {
+  return invoke("write_agents_file", { kind, text });
+}
+
 export function onTaggedAcpRequest(
   handler: (agentId: AgentId, msg: unknown) => void,
 ): Promise<import("@tauri-apps/api/event").UnlistenFn> {

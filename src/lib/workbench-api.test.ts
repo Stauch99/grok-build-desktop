@@ -43,6 +43,20 @@ describe("workbench-api", () => {
     expect(invoke).toHaveBeenCalledWith("import_agents_mcp_first_open");
   });
 
+  it("calls read_agents_file with kind", async () => {
+    const { readAgentsFile } = await import("./workbench-api");
+    invoke.mockResolvedValueOnce("# AGENTS");
+    await expect(readAgentsFile("agents")).resolves.toBe("# AGENTS");
+    expect(invoke).toHaveBeenCalledWith("read_agents_file", { kind: "agents" });
+  });
+
+  it("calls write_agents_file with kind and text", async () => {
+    const { writeAgentsFile } = await import("./workbench-api");
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(writeAgentsFile("rules", "# Rules\n")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith("write_agents_file", { kind: "rules", text: "# Rules\n" });
+  });
+
   it("onTaggedAcpRequest listens and forwards tagged payload", async () => {
     const unlisten = vi.fn();
     listen.mockResolvedValueOnce(unlisten);
