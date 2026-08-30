@@ -65,9 +65,15 @@ mod tests {
         assert_eq!(args, vec!["acp".to_string()]);
         let (cmd, args) = spawn_argv(AgentId::Claude, None).unwrap();
         assert_eq!(cmd, PathBuf::from("npx"));
-        assert!(args.contains(&"@agentclientprotocol/claude-agent-acp".into()));
+        assert_eq!(
+            args,
+            vec!["-y".to_string(), crate::agent_host::CLAUDE_ACP_PKG.to_string()]
+        );
         let (cmd, args) = spawn_argv(AgentId::Codex, None).unwrap();
         assert_eq!(cmd, PathBuf::from("npx"));
-        assert!(args.contains(&"@agentclientprotocol/codex-acp".into()));
+        assert_eq!(
+            args,
+            vec!["-y".to_string(), crate::agent_host::CODEX_ACP_PKG.to_string()]
+        );
     }
 }
