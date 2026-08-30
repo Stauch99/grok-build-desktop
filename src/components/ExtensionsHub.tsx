@@ -48,7 +48,6 @@ import {
   grokMcpEnable,
   grokMcpList,
   grokMcpRemove,
-  grokPluginInstall,
   mcpAddArgv,
   parseJsonList,
   parseJsonObject,
@@ -57,6 +56,7 @@ import {
   type McpTransport,
 } from "../lib/grok-cli";
 import { grokCliNote } from "../lib/grok-note";
+import { installMarketplaceSkill } from "../lib/workbench-api";
 import { HUB_TABS, type HubTab } from "../lib/commands";
 
 export type ExtensionsHubProps = {
@@ -430,14 +430,18 @@ export function ExtensionsHub({
               installSource={installSource}
               setInstallSource={setInstallSource}
               listing={marketText}
-              onAdd={() => void runNoted(() => grokMarketplaceAdd(marketSource, cwd || null))}
+              onAdd={() =>
+                void runNoted(() =>
+                  marketSource.startsWith("/") || marketSource.startsWith(".")
+                    ? installMarketplaceSkill(marketSource)
+                    : grokMarketplaceAdd(marketSource, cwd || null),
+                )
+              }
               onUpdate={() => void runNoted(() => grokMarketplaceUpdate(undefined, cwd || null))}
               onRemove={() =>
                 askDanger("market-rm", () => void runNoted(() => grokMarketplaceRemove(marketSource, cwd || null)))
               }
-              onInstall={(trust) =>
-                void runNoted(() => grokPluginInstall(installSource, trust, cwd || null))
-              }
+              onInstall={() => void runNoted(() => installMarketplaceSkill(installSource))}
               confirm={confirm}
             />
           )}
