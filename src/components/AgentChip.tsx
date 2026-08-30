@@ -1,5 +1,5 @@
 import { AGENT_IDS, type AgentId } from "../lib/agent-id";
-import { agentChipDisabled, agentChipLabel } from "../lib/agent-chip";
+import { agentChipClassName, agentChipDisabled, agentChipLabel } from "../lib/agent-chip";
 import { nextSelectedAgent } from "../lib/session-agent";
 
 export type AgentChipProps = {
@@ -17,7 +17,7 @@ export function AgentChip({ hasOpenSession, value, onChange }: AgentChipProps) {
         <button
           key={id}
           type="button"
-          className={`agent-chip${id === value ? " active" : ""}`}
+          className={agentChipClassName(id, value)}
           aria-pressed={id === value}
           disabled={disabled}
           onClick={() => onChange(nextSelectedAgent(hasOpenSession, value, id))}

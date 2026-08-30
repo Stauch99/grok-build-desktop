@@ -12,6 +12,8 @@ import {
   prunePinnedProjects,
   pruneSessionTokens,
   resolveLastWorkspace,
+  lastWorkspaceAfterOpen,
+  resumeWorkspaceCwd,
   statusBucket,
   timeBucket,
   toggleShow,
@@ -78,6 +80,28 @@ describe("resolveLastWorkspace", () => {
   it("falls back to first project then inbox", () => {
     expect(resolveLastWorkspace("/gone", ["/p"], "/inbox")).toBe("/p");
     expect(resolveLastWorkspace("/gone", [], "/inbox")).toBe("/inbox");
+  });
+});
+
+describe("resumeWorkspaceCwd", () => {
+  it("skips empty cwd so setWorkspace is not called", () => {
+    expect(resumeWorkspaceCwd("")).toBeNull();
+    expect(resumeWorkspaceCwd("   ")).toBeNull();
+    expect(resumeWorkspaceCwd("/tmp/work")).toBe("/tmp/work");
+  });
+});
+
+describe("lastWorkspaceAfterOpen", () => {
+  it("keeps the current last workspace when the session has no cwd", () => {
+    expect(lastWorkspaceAfterOpen("", "/inbox", "/proj")).toBe("/proj");
+  });
+
+  it("maps an inbox cwd to the inbox pin", () => {
+    expect(lastWorkspaceAfterOpen("/inbox", "/inbox", "/proj")).toBe(INBOX_PIN);
+  });
+
+  it("adopts a real session cwd", () => {
+    expect(lastWorkspaceAfterOpen("/other", "/inbox", "/proj")).toBe("/other");
   });
 });
 

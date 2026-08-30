@@ -97,6 +97,20 @@ export function resolveLastWorkspace(raw: string | undefined, projects: string[]
   return inboxCwd || "";
 }
 
+/** Empty imported CLI rows must not call setWorkspace(""). */
+export function resumeWorkspaceCwd(cwd: string | undefined | null): string | null {
+  const next = (cwd ?? "").trim();
+  return next ? next : null;
+}
+
+/** Opening a row with no cwd must not wipe lastWorkspace (breaks 新对话). */
+export function lastWorkspaceAfterOpen(sessionCwd: string, inboxCwd: string, currentLast: string): string {
+  const cwd = sessionCwd.trim();
+  if (!cwd) return currentLast;
+  if (cwd === INBOX_PIN || (inboxCwd && sameCwd(cwd, inboxCwd))) return INBOX_PIN;
+  return cwd;
+}
+
 export function projectForSession(cwd: string, projectPaths: string[], inboxCwd: string): { path: string; inbox: boolean } {
   if (inboxCwd && sameCwd(cwd, inboxCwd)) return { path: INBOX_PIN, inbox: true };
   const matches = projectPaths.filter((p) => sameCwd(cwd, p) || normalizeCwd(cwd).startsWith(normalizeCwd(p) + "/"));

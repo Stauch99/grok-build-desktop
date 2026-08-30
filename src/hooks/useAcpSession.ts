@@ -33,9 +33,9 @@ import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
-import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
+import { INBOX_PIN, lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
-import { agentIdForPaneDest, agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
+import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import {
   afterInitializeFetchSessionList,
@@ -574,7 +574,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
 
   async function resumeBoundSession(s: SessionSummary): Promise<AgentId> {
     const chip = selectedAgentIdRef.current;
-    await setWorkspace(s.cwd, s.id);
+    const work = resumeWorkspaceCwd(s.cwd);
+    if (work) await setWorkspace(work, s.id);
     return resumeOnSessionAgent({
       session: s,
       chip,
@@ -693,11 +694,25 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
 
   async function resumeSession(s: SessionSummary) {
     const d = depsRef.current;
-    const last = s.cwd === INBOX_PIN || (d.inboxCwd && sameCwd(s.cwd, d.inboxCwd)) ? INBOX_PIN : s.cwd;
-    d.setLastWorkspace(last);
-    d.persist({ lastWorkspace: last });
+    const planned = planOpenSession({
+      session: s,
+      alreadyBound: false,
+      currentChip: selectedAgentIdRef.current,
+    });
+    d.setSelectedAgentId(planned.selectedAfterOpen);
+    bindMainAgent(planned.selectedAfterOpen);
+    const last = lastWorkspaceAfterOpen(s.cwd, d.inboxCwd, d.lastWorkspace);
+    if (last !== d.lastWorkspace) {
+      d.setLastWorkspace(last);
+      d.persist({ lastWorkspace: last });
+    }
     const token = ++loadGen.current;
-    if (s.cwd !== d.cwd) d.setCwd(s.cwd);
+    const work = resumeWorkspaceCwd(s.cwd);
+    if (work) {
+      if (work !== d.cwd) d.setCwd(work);
+    } else if (d.inboxCwd && d.cwd !== d.inboxCwd) {
+      d.setCwd(d.inboxCwd);
+    }
     d.setOpenProjects((m) => ({ ...m, [projectForSession(s.cwd, d.projects, d.inboxCwd).path]: true }));
     adoptSession(s.id);
     d.setDraft(getDraft(d.sessionDrafts, s.id));
@@ -730,9 +745,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setLoadingSession(false);
       ignoreReplay.current = true;
       try {
-        const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
-        d.setSelectedAgentId(selectedAfterOpen);
-        bindMainAgent(agentId);
         await resumeBoundSession(s);
       } finally {
         ignoreReplay.current = false;

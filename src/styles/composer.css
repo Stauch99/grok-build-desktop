@@ -390,3 +390,46 @@
   background: var(--bg-input);
 }
 .attach-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+
+.agent-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.agent-chip {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 12px;
+  padding: 4px 6px;
+  min-height: 24px;
+  border-radius: var(--radius-xl);
+}
+.agent-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+.agent-chip.active {
+  color: var(--text);
+  font-weight: 500;
+  background: color-mix(in srgb, var(--text) 9%, var(--bg));
+}
+.agent-chip:disabled:not(.active) {
+  opacity: 0.55;
+}
+.agent-chip-kimi.active {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.agent-chip-claude.active {
+  color: color-mix(in srgb, var(--warn) 28%, var(--text));
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.agent-chip-codex.active {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.agent-chip-grok.active {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}

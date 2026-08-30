@@ -4,7 +4,9 @@ import {
   agentIdOfSession,
   canChangeSelectedAgent,
   hydrateLastAgent,
+  keepLiveAgentOnHydrate,
   nextSelectedAgent,
+  planOpenSession,
   selectedAgentAfterOpen,
   stampSessionAgent,
 } from "./session-agent";
@@ -42,6 +44,20 @@ describe("selectedAgentAfterOpen", () => {
   });
 });
 
+describe("planOpenSession", () => {
+  it("syncs the chip even when the pane is already bound", () => {
+    expect(
+      planOpenSession({ session: { agentId: "codex" }, alreadyBound: true, currentChip: "grok" }),
+    ).toEqual({ selectedAfterOpen: "codex", resume: false });
+  });
+
+  it("resumes and follows kimi on first open", () => {
+    expect(
+      planOpenSession({ session: { agentId: "kimi" }, alreadyBound: false, currentChip: "grok" }),
+    ).toEqual({ selectedAfterOpen: "kimi", resume: true });
+  });
+});
+
 describe("agentIdForPaneDest", () => {
   it("targets the extra pane agent while the chip is grok", () => {
     expect(
@@ -76,6 +92,13 @@ describe("agentIdForPaneDest", () => {
         hasOpenMainSession: false,
       }),
     ).toBe("claude");
+  });
+});
+
+describe("keepLiveAgentOnHydrate", () => {
+  it("does not let a stale disk snapshot overwrite a user or session pick", () => {
+    expect(keepLiveAgentOnHydrate(true, "grok", "kimi")).toBe("kimi");
+    expect(keepLiveAgentOnHydrate(false, "kimi", "grok")).toBe("kimi");
   });
 });
 

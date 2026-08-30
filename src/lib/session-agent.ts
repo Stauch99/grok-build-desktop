@@ -20,6 +20,18 @@ export function selectedAgentAfterOpen(
   return sessionAgent;
 }
 
+/** Focus or resume a sidebar row: always sync the chip; skip resume when already bound. */
+export function planOpenSession(args: {
+  session: { agentId?: string | null };
+  alreadyBound: boolean;
+  currentChip: AgentId;
+}): { selectedAfterOpen: AgentId; resume: boolean } {
+  return {
+    selectedAfterOpen: selectedAgentAfterOpen(agentIdOfSession(args.session), args.currentChip),
+    resume: !args.alreadyBound,
+  };
+}
+
 export function canChangeSelectedAgent(hasOpenSession: boolean): boolean {
   return !hasOpenSession;
 }
@@ -48,4 +60,13 @@ export function agentIdForPaneDest(args: {
 
 export function hydrateLastAgent(raw: unknown, fallback: AgentId = "grok"): AgentId {
   return typeof raw === "string" && isAgentId(raw) ? raw : fallback;
+}
+
+/** After the user or an open-session chip sync, ignore a late webui hydrate snapshot. */
+export function keepLiveAgentOnHydrate(
+  userPicked: boolean,
+  loaded: unknown,
+  current: AgentId,
+): AgentId {
+  return userPicked ? current : hydrateLastAgent(loaded);
 }

@@ -147,7 +147,7 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 import type { AgentId } from "../lib/agent-id";
-import { hydrateLastAgent } from "../lib/session-agent";
+import { keepLiveAgentOnHydrate, planOpenSession } from "../lib/session-agent";
 import { DEFAULT_MEMORY_SETTINGS, parseMemorySettings } from "../lib/memory-settings";
 
 export type AppConfirm = {
@@ -201,6 +201,9 @@ export function useAppModel() {
   const [mode, setMode] = useState<Mode>("agent");
   const [model, setModel] = useState("grok-4.6");
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId>("grok");
+  const selectedAgentIdLiveRef = useRef<AgentId>("grok");
+  selectedAgentIdLiveRef.current = selectedAgentId;
+  const agentPickedRef = useRef(false);
   const [showThinking, setShowThinking] = useState(true);
   const [chatWidth, setChatWidth] = useState(680);
   const [info, setInfo] = useState<DoctorInfo | null>(null);
@@ -302,6 +305,8 @@ export function useAppModel() {
   const notifyReviewOpened = useCallback(() => persistReviewOpened.current(), []);
 
   function setSelectedAgentIdPersist(id: AgentId) {
+    agentPickedRef.current = true;
+    selectedAgentIdLiveRef.current = id;
     setSelectedAgentId(id);
     persistRef.current({ lastAgent: id });
   }
@@ -967,6 +972,9 @@ export function useAppModel() {
           listProjectRoots().catch(() => [] as string[]),
           readCliSettings().catch(() => null),
         ]);
+        setSelectedAgentId(
+          keepLiveAgentOnHydrate(agentPickedRef.current, state.lastAgent, selectedAgentIdLiveRef.current),
+        );
         setInfo(doc);
         if (cliState) {
           setCli(cliState);
@@ -1012,7 +1020,6 @@ export function useAppModel() {
         setInjectUserMemory(memory.injectUserMemory);
         setDreamingEnabled(memory.dreamingEnabled);
         setDreamAgentId(memory.dreamAgentId);
-        setSelectedAgentId(hydrateLastAgent(state.lastAgent));
         setLocale(normalizeLocale(state.locale));
         if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
           setThemeFamily(state.themeFamily);
@@ -1310,7 +1317,14 @@ export function useAppModel() {
 
   async function openSession(s: SessionSummary) {
     const existing = paneOfSession(liveBindings(), s.id);
+    const planned = planOpenSession({
+      session: s,
+      alreadyBound: !!existing,
+      currentChip: selectedAgentId,
+    });
+    setSelectedAgentIdPersist(planned.selectedAfterOpen);
     if (existing) {
+      bindMainAgent(planned.selectedAfterOpen);
       focusPane(existing);
       return;
     }
