@@ -95,7 +95,7 @@ import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { brandSessionList } from "../lib/session-list";
 import { unionSessionsById } from "../lib/session-acp-list";
-import type { AgentDoctor } from "../lib/agent-doctor";
+import { agentSendBlockReason, type AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
@@ -147,7 +147,7 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 import type { AgentId } from "../lib/agent-id";
-import { keepLiveAgentOnHydrate, planOpenSession } from "../lib/session-agent";
+import { keepLiveAgentOnHydrate, planOpenSession, shouldWarmupOnChipSelect } from "../lib/session-agent";
 import { DEFAULT_MEMORY_SETTINGS, parseMemorySettings } from "../lib/memory-settings";
 
 export type AppConfirm = {
@@ -362,6 +362,7 @@ export function useAppModel() {
     onCancelPermission: (target) => permissionCancelRef.current(target),
     injectUserMemory,
     userMd: dream.userMd,
+    doctors,
   });
   const {
     sessionId,
@@ -2132,7 +2133,26 @@ export function useAppModel() {
     showToast,
     sessionId,
     selectedAgentId,
-    setSelectedAgentId: setSelectedAgentIdPersist,
+    setSelectedAgentId: (id: AgentId) => {
+      setSelectedAgentIdPersist(id);
+      void (async () => {
+        let rows = doctorsRef.current;
+        try {
+          rows = await doctorAll();
+          setDoctors(rows);
+        } catch {
+          /* keep last snapshot if the probe fails */
+        }
+        const blocked = agentSendBlockReason(id, rows);
+        if (blocked) {
+          showToast(blocked);
+          return;
+        }
+        if (shouldWarmupOnChipSelect()) {
+          await ensureAgent(id);
+        }
+      })().catch((e) => showToast(String(e)));
+    },
     sessionIdRef,
     chat,
     busy,

@@ -11,7 +11,7 @@ import {
 } from "./api";
 import { formatElapsed, liveWorkStatus } from "./lib/chat";
 import { sameCwd } from "./lib/inbox";
-import { agentChipLabel } from "./lib/agent-chip";
+import { agentChipLabel, connectingBannerText, restartAgentBannerText } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
 import { t } from "./lib/i18n";
 import { LocaleProvider } from "./lib/locale-context";
@@ -715,7 +715,7 @@ return (
                 void ensureAgent().catch((e) => showToast(String(e)));
               }}
             >
-              重启 grok agent
+              {restartAgentBannerText(selectedAgentId)}
             </button>
             <button
               type="button"
@@ -732,7 +732,7 @@ return (
           </div>
         )}
         {connecting && !ready && (
-          <div className="trust-banner" role="status">正在连接 grok agent…</div>
+          <div className="trust-banner" role="status">{connectingBannerText(selectedAgentId)}</div>
         )}
         {inspect && cwd && inspect.projectTrusted === false && (
           <div className="trust-banner" role="status">

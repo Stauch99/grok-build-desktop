@@ -62,6 +62,21 @@ export function hydrateLastAgent(raw: unknown, fallback: AgentId = "grok"): Agen
   return typeof raw === "string" && isAgentId(raw) ? raw : fallback;
 }
 
+/** 新对话 must drop the bound session before any CLI call so chips unlock if boot fails. */
+export function shouldUnbindBeforeNewChat(): boolean {
+  return true;
+}
+
+/** First send creates the ACP session; 新对话 must not re-lock the chip row. */
+export function shouldCreateAcpSessionOnNewChat(): boolean {
+  return false;
+}
+
+/** Chip pick starts that CLI so handshake/auth failure is visible before send. */
+export function shouldWarmupOnChipSelect(): boolean {
+  return true;
+}
+
 /** After the user or an open-session chip sync, ignore a late webui hydrate snapshot. */
 export function keepLiveAgentOnHydrate(
   userPicked: boolean,

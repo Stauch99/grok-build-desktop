@@ -12,3 +12,11 @@ export function agentChipLabel(id: AgentId): string {
 export function agentChipClassName(id: AgentId, value: AgentId): string {
   return `agent-chip agent-chip-${id}${id === value ? " active" : ""}`;
 }
+
+export function connectingBannerText(id: AgentId): string {
+  return `正在连接 ${agentChipLabel(id)} agent…`;
+}
+
+export function restartAgentBannerText(id: AgentId): string {
+  return `重启 ${agentChipLabel(id)} agent`;
+}

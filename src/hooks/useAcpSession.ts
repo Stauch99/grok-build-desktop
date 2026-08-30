@@ -33,9 +33,10 @@ import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
+import { agentSendBlockReason, type AgentDoctor } from "../lib/agent-doctor";
 import { INBOX_PIN, lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
-import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen } from "../lib/session-agent";
+import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import {
   afterInitializeFetchSessionList,
@@ -195,6 +196,7 @@ export type AcpSessionDeps = {
   onCancelPermission: (target: PaneDest) => Promise<void>;
   injectUserMemory: boolean;
   userMd: string | null;
+  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent">>;
 };
 
 export type AcpSession = {
@@ -353,6 +355,19 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function adoptSession(id: string | null) {
     sessionIdRef.current = id;
     setSessionId(id);
+  }
+
+  function clearMainComposer() {
+    if (!shouldUnbindBeforeNewChat()) return;
+    adoptSession(null);
+    bindMainAgent(selectedAgentIdRef.current);
+    setChat(emptyChat());
+    depsRef.current.setDraft("");
+    echoedUser.current = false;
+  }
+
+  function blockedSendToast(agentId: AgentId): string | null {
+    return agentSendBlockReason(agentId, depsRef.current.doctors);
   }
 
   function beginMainRun(sid: string) {
@@ -603,6 +618,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
 
   async function startInboxSession() {
     const d = depsRef.current;
+    clearMainComposer();
+    const blocked = blockedSendToast(selectedAgentIdRef.current);
+    if (blocked) {
+      d.showToast(blocked);
+      return;
+    }
     try {
       const inbox = await ensureInbox(d.inboxCwd || null);
       d.setInboxCwd(inbox);
@@ -611,9 +632,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setChat(emptyChat());
       d.setDraft("");
       echoedUser.current = false;
-      await ensureAgent();
-      await setWorkspace(inbox);
-      await createAcpSession(inbox);
+      if (shouldCreateAcpSessionOnNewChat()) {
+        await ensureAgent();
+        await setWorkspace(inbox);
+        await createAcpSession(inbox);
+      }
       d.setSettingsOpen(false);
     } catch (e) {
       d.showToast(String(e));
@@ -628,13 +651,18 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     if (work !== d.cwd) d.setCwd(work);
-    setChat(emptyChat());
-    d.setDraft("");
-    echoedUser.current = false;
+    clearMainComposer();
+    const blocked = blockedSendToast(selectedAgentIdRef.current);
+    if (blocked) {
+      d.showToast(blocked);
+      return;
+    }
     try {
-      await ensureAgent();
-      await setWorkspace(work);
-      await createAcpSession(work);
+      if (shouldCreateAcpSessionOnNewChat()) {
+        await ensureAgent();
+        await setWorkspace(work);
+        await createAcpSession(work);
+      }
       d.setSettingsOpen(false);
     } catch (e) {
       d.showToast(String(e));
@@ -947,6 +975,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (extra) {
       const pane = d.extraPanes[dest];
       if (!pane) return;
+      const extraAgent = paneAgent(dest);
+      const extraBlocked = blockedSendToast(extraAgent);
+      if (extraBlocked) {
+        d.showToast(extraBlocked);
+        return;
+      }
       const at = Date.now();
       echoedExtra.current[dest] = true;
       pendingPrompt.current = dest;
@@ -972,6 +1006,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         patchExtra(dest, (prev) => ({ ...prev, busy: false }));
         d.showToast(String(e));
       }
+      return;
+    }
+    const agentId = paneAgent(MAIN_PANE);
+    const blocked = blockedSendToast(agentId);
+    if (blocked) {
+      d.showToast(blocked);
       return;
     }
     echoedUser.current = true;

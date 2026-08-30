@@ -6,6 +6,9 @@ import {
   hydrateLastAgent,
   keepLiveAgentOnHydrate,
   nextSelectedAgent,
+  shouldUnbindBeforeNewChat,
+  shouldCreateAcpSessionOnNewChat,
+  shouldWarmupOnChipSelect,
   planOpenSession,
   selectedAgentAfterOpen,
   stampSessionAgent,
@@ -92,6 +95,24 @@ describe("agentIdForPaneDest", () => {
         hasOpenMainSession: false,
       }),
     ).toBe("claude");
+  });
+});
+
+describe("shouldUnbindBeforeNewChat", () => {
+  it("always clears the bound session so chips unlock if the next CLI fails", () => {
+    expect(shouldUnbindBeforeNewChat()).toBe(true);
+  });
+});
+
+describe("shouldCreateAcpSessionOnNewChat", () => {
+  it("leaves the composer unbound so chips stay switchable until first send", () => {
+    expect(shouldCreateAcpSessionOnNewChat()).toBe(false);
+  });
+});
+
+describe("shouldWarmupOnChipSelect", () => {
+  it("starts the selected CLI when the chip changes and no session is bound", () => {
+    expect(shouldWarmupOnChipSelect()).toBe(true);
   });
 });
 
