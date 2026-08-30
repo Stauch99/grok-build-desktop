@@ -3,6 +3,7 @@ import { formatMemoryLabel, selectRecent, type MemoryChange } from "../lib/memor
 
 type Props = {
   changes: MemoryChange[];
+  title?: string;
   onOpen: (path: string) => void;
   onDismiss: () => void;
 };
@@ -10,7 +11,7 @@ type Props = {
 const HOLD_MS = 3000;
 const FADE_MS = 400;
 
-export function MemoryDock({ changes, onOpen, onDismiss }: Props) {
+export function MemoryDock({ changes, title = "项目记忆已更新", onOpen, onDismiss }: Props) {
   const recent = selectRecent(changes, Date.now());
   const first = recent[0];
   const dismissRef = useRef(onDismiss);
@@ -26,7 +27,7 @@ export function MemoryDock({ changes, onOpen, onDismiss }: Props) {
 
   return (
     <div className="memory-dock">
-      <span>项目记忆已更新</span>
+      <span>{title}</span>
       <span>{formatMemoryLabel(first.path)}</span>
       <button type="button" onClick={() => onOpen(first.path)}>
         打开

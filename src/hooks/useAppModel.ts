@@ -113,6 +113,7 @@ import { BILLING_POLL_MS, scheduleIdle, shouldBlockComposer } from "../lib/agent
 import { useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { useAcpSession } from "./useAcpSession";
+import { useDreamJob } from "./useDreamJob";
 import { useGitWatcher } from "./useGitWatcher";
 import { usePermissionQueue } from "./usePermissionQueue";
 import { useCommandPalette } from "./useCommandPalette";
@@ -225,6 +226,7 @@ export function useAppModel() {
   const [injectUserMemory, setInjectUserMemory] = useState(DEFAULT_MEMORY_SETTINGS.injectUserMemory);
   const [dreamingEnabled, setDreamingEnabled] = useState(DEFAULT_MEMORY_SETTINGS.dreamingEnabled);
   const [dreamAgentId, setDreamAgentId] = useState<AgentId>(DEFAULT_MEMORY_SETTINGS.dreamAgentId);
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [unread, setUnread] = useState<UnreadMap>({});
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
   const [previewWidth, setPreviewWidth] = useState(PREVIEW.initial);
@@ -256,6 +258,16 @@ export function useAppModel() {
     setToast(msg);
     window.setTimeout(() => setToast(null), 2800);
   };
+
+  const dream = useDreamJob({
+    enabled: dreamingEnabled,
+    dreamAgentId,
+    selectedAgentId,
+    doctors,
+    locale,
+    settingsHydrated,
+    showToast,
+  });
 
   const acp = useAcpSession({
     cwd,
@@ -301,7 +313,7 @@ export function useAppModel() {
     onLocalSlash: (cmd, rest, dest) => runSlashRef.current(cmd, rest, dest),
     onCancelPermission: (target) => permissionCancelRef.current(target),
     injectUserMemory,
-    userMd: null,
+    userMd: dream.userMd,
   });
   const {
     sessionId,
@@ -944,6 +956,8 @@ export function useAppModel() {
         void refreshModels();
       } catch (e) {
         showToast(String(e));
+      } finally {
+        setSettingsHydrated(true);
       }
     })();
   }, []);
@@ -1484,7 +1498,7 @@ export function useAppModel() {
     removeSession,
     restoreGenerated,
     beginEditTitle,
-    onDreamNow: () => {},
+    onDreamNow: dream.onDreamNow,
   });
   runSlashRef.current = runSlash;
 
@@ -1834,5 +1848,12 @@ export function useAppModel() {
     hasOpenSession: !!acp.sessionId,
     injectedSessions,
     dismissInjectedSession,
+    dreamDiary: dream.diary,
+    dreamStatus: dream.status,
+    dreamCorpus: dream.corpus,
+    dreamUserMdPath: dream.userMdPath,
+    onDreamNow: dream.onDreamNow,
+    profileUpdated: dream.profileUpdated,
+    dismissProfileUpdated: dream.dismissProfileUpdated,
   };
 }

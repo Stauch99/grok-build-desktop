@@ -199,6 +199,13 @@ export function App() {
     injectUserMemory,
     injectedSessions,
     dismissInjectedSession,
+    dreamDiary,
+    dreamStatus,
+    dreamCorpus,
+    dreamUserMdPath,
+    onDreamNow,
+    profileUpdated,
+    dismissProfileUpdated,
     setInjectUserMemory,
     dreamingEnabled,
     setDreamingEnabled,
@@ -761,6 +768,17 @@ return (
                 }}
               />
             )}
+            {profileUpdated && dreamUserMdPath ? (
+              <MemoryDock
+                title={t(locale, "memory.dockUpdated")}
+                changes={[{ path: dreamUserMdPath, mtime: Date.now() }]}
+                onOpen={() => {
+                  setExtraPage("memory");
+                  dismissProfileUpdated();
+                }}
+                onDismiss={dismissProfileUpdated}
+              />
+            ) : null}
             {subagentCards.map((s) =>
               s.status ? (
                 <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
@@ -1216,10 +1234,11 @@ return (
         agentsPath={agentsMdPath}
         cwd={cwd || inboxCwd}
         locale={locale}
-        diary={[]}
-        status={{ kind: "idle", lastAt: null }}
-        corpus={null}
-        onDreamNow={() => {}}
+        diary={dreamDiary}
+        status={dreamStatus}
+        corpus={dreamCorpus}
+        onDreamNow={onDreamNow}
+        userMdPath={dreamUserMdPath || undefined}
         usagePoints={usageHistory}
         usageDays={usageDays}
         onUsageDays={setUsageDays}
