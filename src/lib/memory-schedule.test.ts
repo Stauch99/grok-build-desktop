@@ -7,6 +7,12 @@ describe("nextLocalHour", () => {
     const next = nextLocalHour(now, "UTC", 3);
     expect(next).toBe(Date.parse("2026-08-31T03:00:00Z"));
   });
+
+  it("returns local 03:00 in Asia/Kolkata (UTC+5:30)", () => {
+    const now = Date.parse("2026-08-30T04:00:00Z");
+    const next = nextLocalHour(now, "Asia/Kolkata", 3);
+    expect(next).toBe(Date.parse("2026-08-30T21:30:00Z"));
+  });
 });
 
 describe("shouldCatchUp", () => {

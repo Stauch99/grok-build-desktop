@@ -1,16 +1,26 @@
 import { localDayStamp } from "./memory-clock";
 
-function hourInZone(ms: number, timeZone: string): number {
-  const raw = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(new Date(ms));
+function partInZone(ms: number, timeZone: string, part: "hour" | "minute" | "second"): number {
+  const raw = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    [part]: "numeric",
+    ...(part === "hour" ? { hour12: false } : {}),
+  }).format(new Date(ms));
   return Number.parseInt(raw, 10);
+}
+
+function alignToLocalHour(ms: number, timeZone: string): number {
+  const minute = partInZone(ms, timeZone, "minute");
+  const second = partInZone(ms, timeZone, "second");
+  return ms - minute * 60 * 1000 - second * 1000 - (ms % 1000);
 }
 
 export function nextLocalHour(now: number, timeZone: string, hour: number): number {
   let t = now + 60 * 60 * 1000;
   for (let i = 0; i < 48; i++) {
-    if (hourInZone(t, timeZone) === hour) {
-      const floored = t - (t % (60 * 60 * 1000));
-      return floored;
+    if (partInZone(t, timeZone, "hour") === hour) {
+      const aligned = alignToLocalHour(t, timeZone);
+      if (aligned > now) return aligned;
     }
     t += 60 * 60 * 1000;
   }
