@@ -361,6 +361,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function clearMainComposer() {
     if (!shouldUnbindBeforeNewChat()) return;
     adoptSession(null);
+    runningSessionIdRef.current = null;
+    setRunningSessionId(null);
+    busyRef.current = false;
+    setBusy(false);
     bindMainAgent(selectedAgentIdRef.current);
     setChat(emptyChat());
     depsRef.current.setDraft("");

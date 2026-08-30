@@ -447,6 +447,7 @@ export function shouldKeepSessionUpdate(
   currentId: string | null,
   incomingId: string | null,
 ): boolean {
-  if (!incomingId || !currentId) return true;
+  if (!currentId) return false;
+  if (!incomingId) return true;
   return incomingId === currentId;
 }

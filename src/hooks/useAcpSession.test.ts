@@ -44,9 +44,12 @@ describe("sessionUpdateDest", () => {
     expect(sessionUpdateDest({ main: "main", split: "p2" }, "other")).toBe("drop");
   });
 
-  it("keeps updates for the current session or unknown ids", () => {
+  it("keeps updates for the bound main session", () => {
     expect(sessionUpdateDest({ main: "main" }, "main")).toBe("main");
-    expect(sessionUpdateDest({}, "x")).toBe("main");
+  });
+
+  it("drops sid-scoped updates when no pane is bound", () => {
+    expect(sessionUpdateDest({}, "x")).toBe("drop");
   });
 
   it("drops updates for a remembered dream sid", () => {
@@ -54,7 +57,7 @@ describe("sessionUpdateDest", () => {
     expect(sessionUpdateDest({ main: "main" }, "dream-sid")).toBe("drop");
     expect(sessionUpdateDest({}, "dream-sid")).toBe("drop");
     forgetDreamSession("dream-sid");
-    expect(sessionUpdateDest({}, "dream-sid")).toBe("main");
+    expect(sessionUpdateDest({}, "dream-sid")).toBe("drop");
   });
 });
 

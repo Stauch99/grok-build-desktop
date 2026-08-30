@@ -25,8 +25,8 @@ describe("shouldKeepSessionUpdate", () => {
   it("drops updates for another session when one is selected", () => {
     expect(shouldKeepSessionUpdate("aaa", "bbb")).toBe(false);
   });
-  it("keeps updates when current id is empty (before adopt this used to swallow first click)", () => {
-    expect(shouldKeepSessionUpdate(null, "bbb")).toBe(true);
+  it("drops sid-scoped updates when the composer is unbound", () => {
+    expect(shouldKeepSessionUpdate(null, "bbb")).toBe(false);
   });
   it("keeps matching session", () => {
     expect(shouldKeepSessionUpdate("aaa", "aaa")).toBe(true);
