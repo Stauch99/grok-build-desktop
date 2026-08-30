@@ -25,6 +25,7 @@ import {
 } from "../lib/chat";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
+import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, type QueueState } from "../lib/prompt-queue";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
@@ -73,6 +74,7 @@ export type AcpSessionDeps = {
   projects: string[];
   lastWorkspace: string;
   mode: Mode;
+  selectedAgentId: AgentId;
   sessionDrafts: Record<string, string>;
   titles: Record<string, string>;
   split: AcpSplitState | null;
@@ -171,6 +173,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const depsRef = useRef(deps);
   depsRef.current = deps;
   busyRef.current = busy;
+  const selectedAgentIdRef = useRef(deps.selectedAgentId);
+  selectedAgentIdRef.current = deps.selectedAgentId;
 
   function adoptSession(id: string | null) {
     sessionIdRef.current = id;
@@ -194,7 +198,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
     return new Promise((resolve, reject) => {
       pendingRpc.current.set(id, { resolve, reject });
-      void sendRaw({ jsonrpc: "2.0", id, method, params }).catch((e) => {
+      void sendRaw({ jsonrpc: "2.0", id, method, params }, selectedAgentIdRef.current).catch((e) => {
         pendingRpc.current.delete(id);
         pendingDest.current.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
@@ -235,7 +239,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     setConnecting(true);
     agentBoot = (async () => {
-      await startAgent();
+      await startAgent(selectedAgentIdRef.current);
       await rpc("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
@@ -684,7 +688,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const sid = target === "split" ? d.split?.id : runningSessionIdRef.current;
     try {
-      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } });
+      if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } }, selectedAgentIdRef.current);
       await d.onCancelPermission(target);
     } finally {
       if (target === "split") d.setSplitBusy(false);

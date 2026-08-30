@@ -207,6 +207,8 @@ export function App() {
     titleInputRef,
     showToast,
     sessionId,
+    selectedAgentId,
+    setSelectedAgentId,
     sessionIdRef,
     chat,
     ready,
@@ -674,6 +676,9 @@ return (
             onSessionModel={applySessionModel}
             onOpenSettings={openSettings}
             onManageSkills={() => openHub("skills")}
+            selectedAgentId={selectedAgentId}
+            onSelectedAgent={setSelectedAgentId}
+            hasOpenSession={!!sessionId}
             queue={queue}
             onRemoveQueued={(id) => setQueue((q) => removeQueued(q, id))}
             onReorderQueued={(from, to) => setQueue((q) => reorderQueue(q, from, to))}
@@ -936,6 +941,9 @@ return (
               onSessionModel={applySessionModel}
               onOpenSettings={openSettings}
               onManageSkills={() => openHub("skills")}
+              selectedAgentId={selectedAgentId}
+              onSelectedAgent={setSelectedAgentId}
+              hasOpenSession={!!sessionId}
               queue={splitQueue}
               onRemoveQueued={(id) => setSplitQueue((q) => removeQueued(q, id))}
               onReorderQueued={(from, to) => setSplitQueue((q) => reorderQueue(q, from, to))}

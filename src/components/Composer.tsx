@@ -9,8 +9,10 @@ import {
   type KeyboardEvent,
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { AgentChip } from "./AgentChip";
 import { AttachStrip } from "./AttachStrip";
 import { ComposerChips } from "./ComposerChips";
+import type { AgentId } from "../lib/agent-id";
 import { MentionMenu } from "./MentionMenu";
 import { QueueStrip } from "./QueueStrip";
 import { SlashMenu } from "./SlashMenu";
@@ -124,6 +126,10 @@ export type ComposerProps = {
   workspaceLabel?: string;
   workspaceOptions?: Array<{ path: string; label: string }>;
   onWorkspace?: (path: string) => void;
+
+  selectedAgentId: AgentId;
+  onSelectedAgent: (id: AgentId) => void;
+  hasOpenSession: boolean;
 };
 
 function growArea(el: HTMLTextAreaElement | null, max = 200) {
@@ -181,6 +187,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     workspaceLabel,
     workspaceOptions,
     onWorkspace,
+    selectedAgentId,
+    onSelectedAgent,
+    hasOpenSession,
   },
   ref,
 ) {
@@ -656,6 +665,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             ) : null}
           </div>
           <div className="right">
+            <div className="composer-chips">
+            <AgentChip hasOpenSession={hasOpenSession} value={selectedAgentId} onChange={onSelectedAgent} />
             <ComposerChips
               mode={mode}
               onMode={(next) => {
@@ -706,6 +717,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 onOpenSettings();
               }}
             />
+            </div>
 
             {busy && onAlt && altLabel && (
               <button

@@ -119,6 +119,7 @@ import { useCommandPalette } from "./useCommandPalette";
 import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
+import type { AgentId } from "../lib/agent-id";
 
 export type AppConfirm = {
   title: string;
@@ -170,6 +171,7 @@ export function useAppModel() {
   const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsage | null>(null);
   const [mode, setMode] = useState<Mode>("agent");
   const [model, setModel] = useState("grok-4.6");
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentId>("grok");
   const [showThinking, setShowThinking] = useState(true);
   const [chatWidth, setChatWidth] = useState(680);
   const [info, setInfo] = useState<DoctorInfo | null>(null);
@@ -257,6 +259,7 @@ export function useAppModel() {
     projects,
     lastWorkspace,
     mode,
+    selectedAgentId,
     sessionDrafts,
     titles,
     split,
@@ -1802,5 +1805,8 @@ export function useAppModel() {
     turnStats,
     splitTurnStats,
     splitPermission,
+    selectedAgentId,
+    setSelectedAgentId,
+    hasOpenSession: !!acp.sessionId,
   };
 }
