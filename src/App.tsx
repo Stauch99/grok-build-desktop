@@ -14,18 +14,29 @@ import { sameCwd } from "./lib/inbox";
 import { agentChipLabel } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
 import { t } from "./lib/i18n";
+import { LocaleProvider } from "./lib/locale-context";
+import { normalizeChatFontSize } from "./lib/chat-font";
+import { chatWidthCss } from "./lib/chat-width";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
 import { maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
-import { busyComposerHint, SIDEBAR_RAIL } from "./lib/shell-ia";
+import { busyComposerHint, paneComposerTakeover, SIDEBAR_RAIL } from "./lib/shell-ia";
 import { GROK_LOGIN_CMD } from "./lib/agent-health";
 import { forkAtSlash } from "./lib/turn-files";
+import { RecapCard } from "./components/RecapCard";
 import { GoalBar } from "./components/GoalBar";
+import { ComposerDock } from "./components/ComposerDock";
 import { StatsLineView } from "./components/StatsLineView";
 import { MillerPicker } from "./components/MillerPicker";
 import { Resizer } from "./components/Resizer";
 import { persistReviewOpen } from "./lib/review-rail";
 import { displayTitle } from "./lib/projects";
+import { MAIN_PANE } from "./lib/pane-tree";
+import { selectPaneMentionSource } from "./lib/pane-mentions";
+import { derivePermissionView } from "./lib/permission-view";
+import { turnStatsFromItems } from "./lib/usage-split";
+import { PaneLayout } from "./components/PaneLayout";
+import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
 import { INBOX_PIN } from "./lib/sidebar-list";
 import { allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
@@ -37,12 +48,15 @@ import { PendingRequestCard } from "./components/PendingRequestCard";
 import { FilePanel } from "./components/FilePanel";
 import { PreviewPane } from "./components/PreviewPane";
 import { ReviewRail } from "./components/ReviewRail";
+import { ExplorerPane } from "./components/ExplorerPane";
+import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryDock } from "./components/MemoryDock";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
 import { handleMdClick, ThreadColumn, WaitPill } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
-import { GitHistory } from "./components/GitHistory";
+import { GitChip } from "./components/GitBar";
+import { GitPane } from "./components/GitPane";
 import { DiffSummary } from "./components/DiffSummary";
 import { PlanCompleteCard } from "./components/PlanCompleteCard";
 import { SubagentCard } from "./components/SubagentCard";
@@ -50,16 +64,15 @@ import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
 import { Composer } from "./components/Composer";
 import { CommandPalette } from "./components/CommandPalette";
-import { ChangesPanel } from "./components/ChangesPanel";
-import { GitBar } from "./components/GitBar";
 import { EmptyState } from "./components/EmptyState";
 import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
 import { snapshotMtimes } from "./lib/memory-dock";
 import { basename } from "./lib/text";
-import { IconGrokClose, IconGrokMore, IconGrokSidebar } from "./grok-icons";
+import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
 import { IconChevron, IconGitFork } from "./icons";
 import { TodoMark } from "./components/TodoMark";
+import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
 
 export function App() {
@@ -76,8 +89,6 @@ export function App() {
     setLocale,
     themeFamily,
     setThemeFamily,
-    density,
-    setDensity,
     hideToTray,
     setHideToTray,
     defaultRail,
@@ -85,6 +96,7 @@ export function App() {
     shortcuts,
     setShortcuts,
     inspect,
+    skillCommands,
     modelCatalog,
     extraPage,
     setExtraPage,
@@ -101,8 +113,6 @@ export function App() {
     jumpTurnId,
     doctorNote,
     setDoctorNote,
-    threadView,
-    setThreadView,
     sidebarCollapsed,
     setSidebarCollapsed,
     millerOpen,
@@ -116,6 +126,8 @@ export function App() {
     chatFontSize,
     setChatFontSize,
     cwd,
+    reviewCwd,
+    reviewPlan,
     setCwd,
     projects,
     openProjects,
@@ -138,15 +150,18 @@ export function App() {
     toast,
     atBottom,
     setAtBottom,
-    split,
-    setSplit,
-    splitDraft,
-    setSplitDraft,
-    splitBusy,
-    setSplitBusy,
-    splitAtBottom,
-    setSplitAtBottom,
-    splitBusyAt,
+    paneTree,
+    focusedPaneId,
+    extraPanes,
+    paneDrag,
+    paneCount,
+    openIds,
+    focusedSessionId,
+    workColRef,
+    extraChatEls,
+    extraComposerRefs,
+    extraMentionData,
+    extraBusyStartRef,
     clock,
     picking,
     titles,
@@ -190,10 +205,12 @@ export function App() {
     rewindTarget,
     setRewindTarget,
     worktreeBusy,
+    gitBusy,
+    pullGit,
+    pushGit,
+    discardChange,
     queue,
     setQueue,
-    splitQueue,
-    setSplitQueue,
     steerByDefault,
     setSteerByDefault,
     injectUserMemory,
@@ -219,9 +236,7 @@ export function App() {
     setPreviewWidth,
     winWidth,
     chatEl,
-    splitChatEl,
     composerRef,
-    splitComposerRef,
     focusedPermissionPaneRef,
     titleInputRef,
     showToast,
@@ -235,10 +250,17 @@ export function App() {
     loadingSession,
     ensureAgent,
     startInboxSession,
-    startNewChat,
+    newChatInFocus,
     startSession,
-    resumeSession,
-    openSplit,
+    openSession,
+    splitRight,
+    closePaneLeaf,
+    beginPaneDrag,
+    focusPane,
+    onPaneRatio,
+    onExtraDraftChange,
+    onExtraAtBottom,
+    onExtraQueue,
     mainPaneBusy,
     review,
     reviewOpen,
@@ -251,6 +273,7 @@ export function App() {
     changes,
     gitCommits,
     gitBranchList,
+    gitWorktrees,
     refreshGit,
     answerPermission,
     refreshInspect,
@@ -280,18 +303,21 @@ export function App() {
     cancelTurn,
     onDraftChange,
     newWorktreeSession,
+    switchWorktree,
+    checkoutBranch,
     applyRewind,
     toggleExpand,
+    current,
     currentTitle,
     sessionModel,
+    recapText,
+    showRecap,
+    dismissRecap,
+    copyAllConversation,
     cwdLocked,
     menuSession,
     usage,
-    plan,
-    splitSession,
-    splitTitle,
     userTurns,
-    splitTurns,
     urlChips,
     openSettings,
     allSessions,
@@ -308,10 +334,8 @@ export function App() {
     agentsMdPath,
     mainPermission,
     mainPermissionView,
-    splitPermissionView,
-    splitMentions,
+    panePermissions,
     takeover,
-    splitTakeover,
     hero,
     turnFiles,
     terminalTools,
@@ -319,19 +343,270 @@ export function App() {
     reconciledReviewTab,
     jobs,
     catalog,
-    goal,
+    goalView,
     health,
     runStatus,
     turnStats,
-    splitTurnStats,
-    splitPermission,
   } = useAppModel();
 
+  function renderSplitLeaf(paneId: string) {
+    const extra = paneId === MAIN_PANE ? null : extraPanes[paneId];
+    const sid = extra?.sessionId ?? sessionId;
+    const paneCwd = extra?.cwd ?? cwd;
+    const paneChat = extra?.chat ?? chat;
+    const paneDraft = extra?.draft ?? draft;
+    const paneBusy = extra ? extra.busy : mainPaneBusy;
+    const paneQueue = extra?.queue ?? queue;
+    const paneAtBottom = extra ? extra.atBottom : atBottom;
+    const paneSession = sid
+      ? sessions.find((s) => s.id === sid) ?? inboxSessions.find((s) => s.id === sid) ?? null
+      : paneId === MAIN_PANE ? current : null;
+    const paneTitle = paneSession ? displayTitle(paneSession, titles) : "新会话";
+    const mentions = extra
+      ? selectPaneMentionSource(extra.cwd, extraMentionData[paneId] ?? null)
+      : { dirs: workspaceEntries.filter((e) => e.kind === "dir").map((e) => e.name), changes: changes.map((c) => c.path) };
+    const perm = panePermissions[paneId] ?? null;
+    const permView = derivePermissionView({
+      request: perm,
+      mainSessionId: sessionId,
+      runningMainSessionId: sessionId,
+      splitSessionId: extra?.sessionId ?? null,
+      mainBusy: mainPaneBusy,
+      splitBusy: extra?.busy ?? false,
+      extraPanes: Object.entries(extraPanes).map(([id, pane]) => ({ id, sessionId: pane.sessionId, busy: pane.busy })),
+    });
+    const paneTakeover = paneComposerTakeover({
+      pane: paneId,
+      pendingPane: permView.pane,
+      pendingKind: permView.kind,
+      plan: paneId === MAIN_PANE && planComplete,
+    });
+    const paneTurns = paneChat.items.filter((i): i is Extract<typeof i, { kind: "user" }> => i.kind === "user");
+    const paneStats = turnStatsFromItems(paneChat.items, paneChat.usage?.output, {
+      now: Date.now(),
+      live: paneBusy,
+    });
+    const busyAt = extra ? extraBusyStartRef.current[paneId] ?? null : null;
+    const paneChatRef = paneId === MAIN_PANE
+      ? chatEl
+      : {
+          get current() {
+            return extraChatEls.current[paneId] ?? null;
+          },
+          set current(el: HTMLDivElement | null) {
+            extraChatEls.current[paneId] = el;
+          },
+        };
+    return (
+      <div
+        className={`pane${focusedPaneId === paneId ? " is-focused" : ""}`}
+        onPointerDown={() => focusPane(paneId)}
+        onFocusCapture={() => {
+          focusedPermissionPaneRef.current = paneId;
+          focusPane(paneId);
+        }}
+      >
+        <header
+          className="workspace-head"
+          onPointerDown={(e) => {
+            if (!paneSession) return;
+            if ((e.target as HTMLElement).closest("button, input, [data-menu-trigger]")) return;
+            beginPaneDrag(e, paneSession);
+          }}
+        >
+          <div className="title-wrap">
+            <span className="crumb-cwd" title={paneCwd}>
+              {inboxCwd && paneCwd && sameCwd(paneCwd, inboxCwd) ? "无目录" : basename(paneCwd || "")}
+            </span>
+            <span className="crumb-sep">/</span>
+            {editingTitleId && sid && editingTitleId === sid ? (
+              <input
+                ref={titleInputRef}
+                className="title-input"
+                value={titleDraft}
+                maxLength={80}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTitle(titleDraft);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEditTitle();
+                  }
+                }}
+                onBlur={() => {
+                  if (titleDraft.trim() && titleDraft.trim() !== paneTitle) commitTitle(titleDraft);
+                  else cancelEditTitle();
+                }}
+              />
+            ) : sid ? (
+              <>
+                <button type="button" className="session-title-btn" title={paneTitle} onClick={() => beginEditTitle(sid)}>
+                  {paneTitle}
+                </button>
+                <button type="button" className="icon-btn" title="复制全部对话" aria-label="复制全部对话" onClick={() => copyAllConversation(paneChat.items)}>
+                  <IconGrokCopy size={16} />
+                </button>
+                <button type="button" className="icon-btn" data-menu-trigger aria-label="会话操作" onClick={(e) => openMenu("header", sid, e.currentTarget)}>
+                  <IconGrokMore size={18} />
+                </button>
+              </>
+            ) : (
+              <span className="title-static">新会话</span>
+            )}
+          </div>
+          <div className="head-actions">
+            <button
+              type="button"
+              className="icon-btn shortcut-host"
+              title="Dashboard"
+              aria-label="Dashboard"
+              aria-expanded={reviewOpen}
+              onClick={() => {
+                const next = !reviewOpen;
+                review.toggle(defaultRail);
+                persist(persistReviewOpen(next));
+              }}
+            >
+              <IconGrokSidebar size={18} mirror />
+              <ShortcutKbd id="review" />
+            </button>
+            {paneCount > 1 ? (
+              <button type="button" className="icon-btn" title={t(locale, "pane.close")} aria-label={t(locale, "pane.close")} onClick={() => closePaneLeaf(paneId)}>
+                <IconGrokClose size={16} />
+              </button>
+            ) : null}
+          </div>
+        </header>
+        <div className="chat-shell">
+          <ThreadColumn
+            paneId={paneId}
+            chat={paneChat}
+            chatWidth={chatWidth}
+            dark={theme === "dark"}
+            cwd={paneCwd}
+            showThinking={showThinking}
+            empty={paneChat.items.length === 0}
+            emptyTitle=""
+            sessionModel={paneSession?.model ?? null}
+            urlChips={[]}
+            busy={paneBusy}
+            onCancel={() => void cancelTurn(paneId)}
+            chatRef={paneChatRef}
+            onScroll={(el) => {
+              const at = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+              if (paneId === MAIN_PANE) setAtBottom(at);
+              else onExtraAtBottom(paneId, at);
+            }}
+            turns={paneTurns}
+            onResendUser={(text) => submitPrompt(text, paneId)}
+          />
+          {!paneAtBottom && paneChat.items.length > 0 && (
+            <button
+              type="button"
+              className="jump-bottom"
+              title="回到底部"
+              aria-label="回到底部"
+              onClick={() => {
+                if (paneId === MAIN_PANE) {
+                  setAtBottom(true);
+                  chatEl.current?.scrollTo({ top: chatEl.current.scrollHeight, behavior: "smooth" });
+                } else {
+                  onExtraAtBottom(paneId, true);
+                  extraChatEls.current[paneId]?.scrollTo({ top: extraChatEls.current[paneId]!.scrollHeight, behavior: "smooth" });
+                }
+              }}
+            >
+              <IconChevron size={16} />
+            </button>
+          )}
+        </div>
+        <Composer
+          ref={(el) => {
+            if (paneId === MAIN_PANE) composerRef.current = el;
+            else extraComposerRefs.current[paneId] = el;
+          }}
+          value={paneDraft}
+          onChange={(v) => (paneId === MAIN_PANE ? onDraftChange(v) : onExtraDraftChange(paneId, v))}
+          onSend={(text) => submitPrompt(text, paneId)}
+          onAlt={(text) => altSubmit(text, paneId)}
+          altLabel={steerByDefault ? t(locale, "composer.queue") : t(locale, "composer.steer")}
+          busy={paneBusy}
+          takeover={paneTakeover}
+          enterSends={enterSends}
+          threadWidth={chatWidthCss(chatWidth)}
+          commands={[...skillCommands, ...paneChat.commands]}
+          onRunSlash={(cmd, rest) => void runSlash(cmd, rest, paneId)}
+          cwd={paneCwd}
+          grokHome={info?.grokHome ?? ""}
+          listFiles={(q) => listProjectFiles(paneCwd, q)}
+          mentionDirs={mentions.dirs}
+          mentionChanges={mentions.changes}
+          mode={mode}
+          onMode={(m) => void applyMode(m, paneId)}
+          effort={effort}
+          onEffort={applyEffort}
+          effortReady={!!cli}
+          model={model}
+          sessionModel={paneSession?.model ?? null}
+          modelOptions={modelCatalog}
+          onModel={applyModel}
+          onSessionModel={applySessionModel}
+          onOpenSettings={openSettings}
+          selectedAgentId={selectedAgentId}
+          onSelectedAgent={setSelectedAgentId}
+          hasOpenSession={!!sessionId}
+          queue={paneQueue}
+          onRemoveQueued={(id) => {
+            if (paneId === MAIN_PANE) setQueue((q) => removeQueued(q, id));
+            else onExtraQueue(paneId, (q) => removeQueued(q, id));
+          }}
+          onReorderQueued={(from, to) => {
+            if (paneId === MAIN_PANE) setQueue((q) => reorderQueue(q, from, to));
+            else onExtraQueue(paneId, (q) => reorderQueue(q, from, to));
+          }}
+          onOverflow={showToast}
+          footer={<StatsLineView stats={paneStats} sessionTokens={paneChat.usage?.used} usageHistory={usageHistory} />}
+          metaActions={<UsageRing usage={paneChat.usage ?? {}} compactPercent={cli?.compactPercent ?? 85} />}
+        >
+          <ComposerDock>
+            {paneBusy && (
+              <WaitPill
+                status={liveWorkStatus(paneChat.items)}
+                elapsed={busyAt != null ? formatElapsed(Date.now() - busyAt + clock * 0) : "0秒"}
+                onStop={() => void cancelTurn(paneId)}
+              />
+            )}
+          </ComposerDock>
+          {perm && permView.kind && (paneId === MAIN_PANE ? permView.mainVisible : permView.splitVisible) && (
+            <PendingRequestCard
+              kind={permView.kind}
+              title={perm.title}
+              options={perm.options}
+              onPick={(id) => void answerPermission(perm, id)}
+              onAlwaysAllow={permView.kind === "permission" ? () => {
+                const id = perm.sessionId || sid;
+                const tool = parseToolName(perm.title, perm.toolKind);
+                if (id) setAllowedTools((prev) => allowForSession(prev, id, tool));
+                const pick = findAlwaysOption(perm.options) ?? pickAllowOption(perm.options);
+                if (pick) void answerPermission(perm, pick);
+              } : undefined}
+            />
+          )}
+        </Composer>
+      </div>
+    );
+  }
+
 return (
+    <ShortcutProvider shortcuts={shortcuts}>
+    <LocaleProvider locale={locale}>
     <div
       className="app"
+      lang={locale === "en" ? "en" : "zh-CN"}
       style={{
-        ["--md-size" as string]: `${chatFontSize}px`,
+        ["--md-size" as string]: `${normalizeChatFontSize(chatFontSize)}px`,
         ["--sidebar-w" as string]: `${sidebarCollapsed ? SIDEBAR_RAIL : sidebarWidth}px`,
       }}
     >
@@ -346,7 +621,7 @@ return (
         searchHits={searchHits}
         onOpenHit={(id) => {
           const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
-          if (s) void resumeSession(s);
+          if (s) void openSession(s);
         }}
         onClearHits={() => setSearchHits(null)}
         openProjects={openProjects}
@@ -360,14 +635,16 @@ return (
           persist({ pinnedProjects: next });
         }}
         sessionId={sessionId}
-        splitId={split?.id}
+        openIds={openIds}
+        focusedId={focusedSessionId}
         titles={titles}
         expandedIds={expandedIds}
         collapsedIds={collapsedIds}
         onToggleExpand={toggleExpand}
-        onOpenSession={(s) => void resumeSession(s)}
+        onOpenSession={(s) => void openSession(s)}
         onSessionMenu={(id, el, point) => openMenu("row", id, el, point)}
-        onNewChat={() => void startNewChat()}
+        onNewChat={() => void newChatInFocus()}
+        onDragSession={beginPaneDrag}
         onAddProject={() => void addProject()}
         picking={picking}
         statusFor={statusFor}
@@ -420,14 +697,15 @@ return (
         className="sidebar-resizer"
         value={sidebarWidth}
         min={SIDEBAR.min}
-        max={maxFor(SIDEBAR, winWidth, previewPath && !split ? previewWidth : 0)}
+        max={maxFor(SIDEBAR, winWidth, reviewOpen ? previewWidth : 0)}
         resetTo={SIDEBAR.initial}
         onChange={setSidebarWidth}
         onCommit={(n) => persist({ sidebarWidth: n })}
       />
       )}
 
-      <main className={`workspace${split ? " split" : ""}${!sessionId || hero.hero ? " new-chat-hero" : ""}`}>
+      <div className="workspace-stage">
+      <main className={`workspace${paneCount > 1 ? " split" : ""}${!sessionId || hero.hero ? " new-chat-hero" : ""}`}>
         {health === "disconnected" && (
           <div className="trust-banner" role="alert">
             <button
@@ -464,7 +742,7 @@ return (
               onClick={() => {
                 void trustFolder(cwd, true).then(() => {
                   void refreshInspect();
-                  showToast("已信任此文件夹");
+                  showToast(t(locale, "trust.done"));
                 });
               }}
             >
@@ -472,9 +750,10 @@ return (
             </button>
           </div>
         )}
-        <div className={split ? "pane" : "pane solo"}>
+        {paneCount === 1 ? (
+        <div className="pane solo">
           <div className="pane-body">
-          <div className="work-col">
+          <div className="work-col" ref={workColRef}>
           <header className="workspace-head" data-tauri-drag-region>
             <div className="title-wrap">
               <MenuSelect
@@ -522,6 +801,15 @@ return (
                   >
                     {currentTitle}
                   </button>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    title="复制全部对话"
+                    aria-label="复制全部对话"
+                    onClick={() => copyAllConversation(chat.items)}
+                  >
+                    <IconGrokCopy size={16} />
+                  </button>
                   <DiffSummary
                     items={chat.items}
                     onOpen={() => openReview("changed-file")}
@@ -541,15 +829,9 @@ return (
               )}
             </div>
             <div className="head-actions">
-              {!split && (
-                <GitBar
-                  status={git}
-                  busy={worktreeBusy}
-                  onOpenChanges={() => openReview("changed-file")}
-                  onNewWorktree={() => void newWorktreeSession()}
-                  onCommitted={() => void refreshGit()}
-                />
-              )}
+              {git?.isRepo ? (
+                <GitChip status={git} onClick={() => openReview("changed-file")} />
+              ) : null}
               {jobs.length > 0 && (
                 <div className="chip-wrap">
                   <button type="button" className="btn ghost" aria-expanded={jobsOpen} onClick={() => setJobsOpen((o) => !o)}>
@@ -578,12 +860,12 @@ return (
                   ) : null}
                 </div>
               )}
-              {!split && (
+              {(
                 <button
                   type="button"
-                  className="icon-btn"
-                  title="审阅"
-                  aria-label="审阅"
+                  className="icon-btn shortcut-host"
+                  title="Dashboard"
+                  aria-label="Dashboard"
                   aria-expanded={reviewOpen}
                   onClick={() => {
                     const next = !reviewOpen;
@@ -592,6 +874,7 @@ return (
                   }}
                 >
                   <IconGrokSidebar size={18} mirror />
+                  <ShortcutKbd id="review" />
                 </button>
               )}
             </div>
@@ -615,18 +898,14 @@ return (
                   onInbox={() => void startInboxSession()}
                   onCopyLogin={() => {
                     void navigator.clipboard.writeText(GROK_LOGIN_CMD);
-                    showToast("已复制 grok login");
+                    showToast(t(locale, "toast.copiedLogin"));
                   }}
                   onBrowseWorkspace={() => setMillerOpen(true)}
                 />
               }
               urlChips={urlChips}
-              plan={plan}
               busy={mainPaneBusy}
               onCancel={() => void cancelTurn("main")}
-              onOpenPlan={split ? null : () => {
-                openReview("plan");
-              }}
               sessionModel={sessionModel}
               chatRef={chatEl}
               onScroll={(el) => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)}
@@ -635,13 +914,9 @@ return (
               rewindFor={rewindForItem}
               onForkTurn={() => void sendPrompt(forkAtSlash())}
               onInspectTool={review.inspectTool}
-              onPreviewPath={split ? undefined : (p) => void openPreview(p)}
+              onPreviewPath={(p) => void openPreview(p)}
               highlightQuery={searchJump}
               jumpId={jumpTurnId}
-              threadView={threadView}
-              onThreadView={setThreadView}
-              turnFiles={turnFiles}
-              onOpenTurnFile={(path) => void review.openTurnFile(path)}
             />
             {!atBottom && chat.items.length > 0 && (
               <button
@@ -661,7 +936,7 @@ return (
           {loadingSession && (
             <div className="overlay">
               <div className="spinner" />
-              <div>正在载入会话…</div>
+              <div>{t(locale, "toast.loadingSession")}</div>
             </div>
           )}
           <Composer
@@ -670,16 +945,17 @@ return (
             onChange={onDraftChange}
             onSend={(text) => submitPrompt(text)}
             onAlt={(text) => altSubmit(text)}
-            altLabel={steerByDefault ? "排队" : "改向"}
+            altLabel={steerByDefault ? t(locale, "composer.queue") : t(locale, "composer.steer")}
             busy={mainPaneBusy}
             blocked={hero.blocked || loadingSession}
             takeover={takeover}
-            busyHint={busyComposerHint(steerByDefault)}
+            busyHint={busyComposerHint(steerByDefault, locale)}
             enterSends={enterSends}
-            threadWidth={`${chatWidth}px`}
-            commands={chat.commands}
+            threadWidth={chatWidthCss(chatWidth)}
+            commands={[...skillCommands, ...chat.commands]}
             onRunSlash={(cmd, rest) => void runSlash(cmd, rest)}
             cwd={cwd}
+            grokHome={info?.grokHome ?? ""}
             listFiles={(q) => listProjectFiles(cwd, q)}
             mentionDirs={workspaceEntries.filter((e) => e.kind === "dir").map((e) => e.name)}
             mentionChanges={changes.map((c) => c.path)}
@@ -694,7 +970,6 @@ return (
             onModel={applyModel}
             onSessionModel={applySessionModel}
             onOpenSettings={openSettings}
-            onManageSkills={() => openHub("skills")}
             selectedAgentId={selectedAgentId}
             onSelectedAgent={setSelectedAgentId}
             hasOpenSession={!!sessionId}
@@ -703,7 +978,7 @@ return (
             onReorderQueued={(from, to) => setQueue((q) => reorderQueue(q, from, to))}
             onEditQueued={(id, text) => setQueue((q) => editQueued(q, id, text))}
             onOverflow={showToast}
-            workspaceLabel={inboxCwd && cwd && sameCwd(cwd, inboxCwd) ? "独立对话" : cwd ? basename(cwd) : ""}
+            workspaceLabel={inboxCwd && cwd && sameCwd(cwd, inboxCwd) ? t(locale, "sidebar.inbox") : cwd ? basename(cwd) : ""}
             workspaceOptions={[
               ...(inboxCwd ? [{ path: INBOX_PIN, label: "独立对话" }] : []),
               ...projects.map((p) => ({ path: p, label: basename(p) })),
@@ -739,55 +1014,60 @@ return (
               </>
             }
           >
-            <RunStatusRegion status={runStatus} />
-            {goal ? <GoalBar goal={goal} /> : null}
-            {sessionId && injectedSessions.has(sessionId) ? (
-              <MemoryInjectChip
-                locale={locale}
-                onOpen={() => setExtraPage("memory")}
-                onDismiss={() => dismissInjectedSession(sessionId)}
-              />
-            ) : null}
-            {memoryChanges.length > 0 && (
-              <MemoryDock
-                changes={memoryChanges}
-                onOpen={(p) => {
-                  void openPreview(p);
-                  memoryBaseline.current = {
-                    ...memoryBaseline.current,
-                    ...snapshotMtimes(memoryChanges),
-                  };
-                  setMemoryChanges([]);
-                }}
-                onDismiss={() => {
-                  memoryBaseline.current = {
-                    ...memoryBaseline.current,
-                    ...snapshotMtimes(memoryChanges),
-                  };
-                  setMemoryChanges([]);
-                }}
-              />
-            )}
-            {profileUpdated && dreamUserMdPath ? (
-              <MemoryDock
-                title={t(locale, "memory.dockUpdated")}
-                changes={[{ path: dreamUserMdPath, mtime: Date.now() }]}
-                onOpen={() => {
-                  setExtraPage("memory");
-                  dismissProfileUpdated();
-                }}
-                onDismiss={dismissProfileUpdated}
-              />
-            ) : null}
-            {subagentCards.map((s) =>
-              s.status ? (
-                <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
-              ) : null,
-            )}
+            <ComposerDock>
+              {showRecap ? <RecapCard text={recapText} onDismiss={dismissRecap} /> : null}
+              {sessionId && injectedSessions.has(sessionId) ? (
+                <MemoryInjectChip
+                  locale={locale}
+                  onOpen={() => setExtraPage("memory")}
+                  onDismiss={() => dismissInjectedSession(sessionId)}
+                />
+              ) : null}
+              {memoryChanges.length > 0 && (
+                <MemoryDock
+                  changes={memoryChanges}
+                  onOpen={(p) => {
+                    void openPreview(p);
+                    memoryBaseline.current = {
+                      ...memoryBaseline.current,
+                      ...snapshotMtimes(memoryChanges),
+                    };
+                    setMemoryChanges([]);
+                  }}
+                  onDismiss={() => {
+                    memoryBaseline.current = {
+                      ...memoryBaseline.current,
+                      ...snapshotMtimes(memoryChanges),
+                    };
+                    setMemoryChanges([]);
+                  }}
+                />
+              )}
+              {profileUpdated && dreamUserMdPath ? (
+                <MemoryDock
+                  title={t(locale, "memory.dockUpdated")}
+                  changes={[{ path: dreamUserMdPath, mtime: Date.now() }]}
+                  onOpen={() => {
+                    setExtraPage("memory");
+                    dismissProfileUpdated();
+                  }}
+                  onDismiss={dismissProfileUpdated}
+                />
+              ) : null}
+              <RunStatusRegion status={runStatus} />
+              {subagentCards.map((s) =>
+                s.status ? (
+                  <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
+                ) : null,
+              )}
+              {goalView ? (
+                <GoalBar goal={goalView.text} startedAt={goalView.startedAt} live={mainPaneBusy} />
+              ) : null}
+            </ComposerDock>
             {planComplete ? (
               <PlanCompleteCard
                 onApprove={() => void applyMode("agent")}
-                onReject={() => showToast("已拒绝执行计划")}
+                onReject={() => showToast(t(locale, "toast.planRejected"))}
                 onFeedback={(text) => void sendPrompt(text)}
               />
             ) : null}
@@ -797,7 +1077,7 @@ return (
                 title={mainPermission.title}
                 options={mainPermission.options}
                 timedOut={mainPermission.timedOut}
-                timeoutNotice={permissionTimeoutNotice()}
+                timeoutNotice={permissionTimeoutNotice(locale)}
                 onPick={(id) => void answerPermission(mainPermission, id)}
                 onAlwaysAllow={mainPermissionView.kind === "permission" ? () => {
                   const sid = mainPermission.sessionId || sessionId;
@@ -810,216 +1090,86 @@ return (
             )}
           </Composer>
           </div>
-
-          {!split && reviewOpen ? (
-            <>
-              <Resizer
-                ariaLabel="调整审阅栏宽度" value={previewWidth} min={PREVIEW.min}
-                max={maxFor(PREVIEW, winWidth, sidebarWidth)} resetTo={PREVIEW.initial} direction={-1}
-                onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
-              />
-              <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
-                width={previewWidth}
-                onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
-                {{
-                  progress: plan.length > 0 ? <ul className="todo">{plan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} />{e.content}</li>)}</ul> : <p className="float-empty">本轮还没有进度。</p>,
-                  files: turnFiles.length > 0 ? <FilePanel artifacts={turnFiles.map((path) => ({ path }))} cwd={cwd} onOpenPath={(p) => void review.revealPath(p)} onPreview={(p) => void openPreview(p)} /> : <p className="float-empty">本轮还没有文件。</p>,
-                  changes: <div className="review-stack"><ChangesPanel changes={changes} isRepo={!!git?.isRepo} onPreview={(p) => void openPreview(p)} onReveal={(p) => void review.revealPath(p)} onRefresh={() => void refreshGit()} /><GitHistory commits={gitCommits} branches={gitBranchList} /></div>,
-                  preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={cwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onFollowLink={(e) => handleMdClick(e, cwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, cwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast("已保存"); void refreshGit(); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">选择文件后在此预览。</p>,
-                  terminal: (
-                    <div className="review-stack">
-                      <button type="button" className="btn primary" disabled={!cwd} onClick={() => {
-                        if (!cwd) return;
-                        void openInTerminal(cwd).catch((e) => showToast(String(e)));
-                      }}>在终端打开项目</button>
-                      {terminalTools.length === 0 ? (
-                        <p className="float-empty">本会话还没有终端工具输出</p>
-                      ) : terminalTools.map((tool) => (
-                        <button key={tool.id} type="button" className="file-item" onClick={() => review.inspectTool(tool)}>{tool.title}</button>
-                      ))}
-                    </div>
-                  ),
-                }}
-              </ReviewRail>
-            </>
-          ) : null}
           </div>
         </div>
-
-        {split && (
-          <div className="pane" onFocusCapture={() => { focusedPermissionPaneRef.current = "main"; }}>
-            <header className="workspace-head" data-tauri-drag-region>
-              <div className="title-wrap">
-                <span className="crumb-cwd" title={split.cwd}>
-                  {inboxCwd && sameCwd(split.cwd, inboxCwd) ? "无目录" : basename(split.cwd)}
-                </span>
-                <span className="crumb-sep">/</span>
-                {editingTitleId === split.id ? (
-                  <input
-                    ref={titleInputRef}
-                    className="title-input"
-                    value={titleDraft}
-                    maxLength={80}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitTitle(titleDraft);
-                      } else if (e.key === "Escape") {
-                        e.preventDefault();
-                        cancelEditTitle();
-                      }
-                    }}
-                    onBlur={() => {
-                      if (titleDraft.trim() && titleDraft.trim() !== splitTitle) commitTitle(titleDraft);
-                      else cancelEditTitle();
-                    }}
-                  />
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="session-title-btn"
-                      title={splitTitle}
-                      onClick={() => beginEditTitle(split.id)}
-                    >
-                      {splitTitle}
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      data-menu-trigger
-                      aria-label="会话操作"
-                      onClick={(e) => openMenu("header", split.id, e.currentTarget)}
-                    >
-                      <IconGrokMore size={18} />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div className="head-actions">
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="关闭"
-                  aria-label="关闭"
-                  onClick={() => {
-                    setSplit(null);
-                    setSplitDraft("");
-                    setSplitBusy(false);
-                  }}
-                >
-                  <IconGrokClose size={16} />
-                </button>
-              </div>
-            </header>
-            <div className="chat-shell">
-              <ThreadColumn
-                paneId="split"
-                chat={split.chat}
-                chatWidth={chatWidth}
-                dark={theme === "dark"}
-                cwd={split.cwd}
-                showThinking={showThinking}
-                empty={split.chat.items.length === 0}
-                emptyTitle="并列会话"
-                sessionModel={splitSession?.model ?? null}
-                urlChips={[]}
-                plan={split.chat.plan}
-                busy={splitBusy}
-                onCancel={() => void cancelTurn("split")}
-                onOpenPlan={null}
-                chatRef={splitChatEl}
-                onScroll={(el) => setSplitAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)}
-                turns={splitTurns}
-                onResendUser={(text) => submitPrompt(text, "split")}
-              />
-              {!splitAtBottom && split.chat.items.length > 0 && (
-                <button
-                  type="button"
-                  className="jump-bottom"
-                  title="回到底部"
-                  aria-label="回到底部"
-                  onClick={() => {
-                    setSplitAtBottom(true);
-                    splitChatEl.current?.scrollTo({ top: splitChatEl.current.scrollHeight, behavior: "smooth" });
-                  }}
-                >
-                  <IconChevron size={16} />
-                </button>
-              )}
-            </div>
-            <Composer
-              ref={splitComposerRef}
-              value={splitDraft}
-              onChange={setSplitDraft}
-              onSend={(text) => submitPrompt(text, "split")}
-              onAlt={(text) => altSubmit(text, "split")}
-              altLabel={steerByDefault ? "排队" : "改向"}
-              busy={splitBusy}
-              takeover={splitTakeover}
-              enterSends={enterSends}
-              threadWidth={`${chatWidth}px`}
-              commands={split.chat.commands}
-              onRunSlash={(cmd, rest) => void runSlash(cmd, rest, "split")}
-              cwd={split.cwd}
-              listFiles={(q) => listProjectFiles(split.cwd, q)}
-              mentionDirs={splitMentions.dirs}
-              mentionChanges={splitMentions.changes}
-              mode={mode}
-              onMode={(m) => void applyMode(m, "split")}
-              effort={effort}
-              onEffort={applyEffort}
-              effortReady={!!cli}
-              model={model}
-              sessionModel={splitSession?.model ?? null}
-              modelOptions={modelCatalog}
-              onModel={applyModel}
-              onSessionModel={applySessionModel}
-              onOpenSettings={openSettings}
-              onManageSkills={() => openHub("skills")}
-              selectedAgentId={selectedAgentId}
-              onSelectedAgent={setSelectedAgentId}
-              hasOpenSession={!!sessionId}
-              queue={splitQueue}
-              onRemoveQueued={(id) => setSplitQueue((q) => removeQueued(q, id))}
-              onReorderQueued={(from, to) => setSplitQueue((q) => reorderQueue(q, from, to))}
-              onOverflow={showToast}
-              footer={<StatsLineView stats={splitTurnStats} sessionTokens={split.chat.usage?.used} usageHistory={usageHistory} />}
-              metaActions={
-                <UsageRing
-                  usage={split.chat.usage ?? {}}
-                  compactPercent={cli?.compactPercent ?? 85}
-                />
-              }
-            >
-              {splitBusy && (
-                <WaitPill
-                  status={liveWorkStatus(split.chat.items)}
-                  elapsed={splitBusyAt != null ? formatElapsed(Date.now() - splitBusyAt + clock * 0) : "0秒"}
-                  onStop={() => void cancelTurn("split")}
-                />
-              )}
-              {splitPermission && splitPermissionView.splitVisible && splitPermissionView.kind && (
-                <PendingRequestCard
-                  kind={splitPermissionView.kind}
-                  title={splitPermission.title}
-                  options={splitPermission.options}
-                  onPick={(id) => void answerPermission(splitPermission, id)}
-                  onAlwaysAllow={splitPermissionView.kind === "permission" ? () => {
-                    const sid = splitPermission.sessionId || split.id;
-                    const tool = parseToolName(splitPermission.title, splitPermission.toolKind);
-                    if (sid) setAllowedTools((prev) => allowForSession(prev, sid, tool));
-                    const pick = findAlwaysOption(splitPermission.options) ?? pickAllowOption(splitPermission.options);
-                    if (pick) void answerPermission(splitPermission, pick);
-                  } : undefined}
-                />
-              )}
-            </Composer>
+        ) : (
+          <div className="work-panes" ref={workColRef}>
+            <PaneLayout tree={paneTree} onRatio={onPaneRatio} renderLeaf={renderSplitLeaf} />
           </div>
         )}
+        {paneDrag ? (
+          <PaneDropOverlay
+            title={paneDrag.title}
+            subtitle={paneDrag.subtitle}
+            x={paneDrag.x}
+            y={paneDrag.y}
+            preview={paneDrag.preview}
+            allowed={paneDrag.allowed}
+          />
+        ) : null}
 
       </main>
+      {reviewOpen ? (
+        <>
+          <Resizer
+            ariaLabel={t(locale, "rail.resize")} value={previewWidth} min={PREVIEW.min}
+            max={maxFor(PREVIEW, winWidth, sidebarWidth)} resetTo={PREVIEW.initial} direction={-1}
+            onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
+          />
+          <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
+            width={previewWidth}
+            onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
+            {{
+              progress: reviewPlan.length > 0 ? <ul className="todo">{reviewPlan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} /><span className="todo-text">{e.content}</span></li>)}</ul> : <p className="float-empty">{t(locale, "rail.emptyProgress")}</p>,
+              files: turnFiles.length > 0 ? <FilePanel artifacts={turnFiles.map((path) => ({ path }))} cwd={reviewCwd} onOpenPath={(p) => void review.revealPath(p)} onPreview={(p) => void openPreview(p)} /> : <p className="float-empty">{t(locale, "rail.emptyFiles")}</p>,
+              git: (
+                <GitPane
+                  status={git}
+                  changes={changes}
+                  commits={gitCommits}
+                  branches={gitBranchList}
+                  worktrees={gitWorktrees}
+                  cwd={reviewCwd}
+                  busy={worktreeBusy || gitBusy}
+                  onNewWorktree={() => void newWorktreeSession()}
+                  onSwitchWorktree={(path) => void switchWorktree(path)}
+                  onCheckout={checkoutBranch}
+                  onCommitted={() => void refreshGit()}
+                  onToast={showToast}
+                  onPreview={(p) => void openPreview(p)}
+                  onReveal={(p) => void review.revealPath(p)}
+                  onRefresh={() => void refreshGit()}
+                  onPull={pullGit}
+                  onPush={pushGit}
+                  onDiscard={(path) => void discardChange(path)}
+                />
+              ),
+              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
+              explorer: (
+                <ExplorerPane
+                  cwd={reviewCwd}
+                  onPreview={(p) => void openPreview(p)}
+                  onReveal={(p) => void review.revealPath(p)}
+                />
+              ),
+              terminal: (
+                <div className="review-stack">
+                  <button type="button" className="btn primary" disabled={!reviewCwd} onClick={() => {
+                    if (!reviewCwd) return;
+                    void openInTerminal(reviewCwd).catch((e) => showToast(String(e)));
+                  }}> {t(locale, "rail.openProject")}</button>
+                  {terminalTools.length === 0 ? (
+                    <p className="float-empty">{t(locale, "rail.emptyTerminal")}</p>
+                  ) : terminalTools.map((tool) => (
+                    <BashCommandRow key={tool.id} title={tool.title} onInspect={() => review.inspectTool(tool)} />
+                  ))}
+                </div>
+              ),
+            }}
+          </ReviewRail>
+        </>
+      ) : null}
+      </div>
 
       {menu && menuSession && (
         <SessionMenu
@@ -1030,13 +1180,13 @@ return (
           onRename={() => {
             const id = menuSession.id;
             setMenu(null);
-            if (id === sessionIdRef.current || id === split?.id) {
+            if (id === sessionIdRef.current || openIds.includes(id)) {
               beginEditTitle(id);
               return;
             }
             void (async () => {
               const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
-              if (s) await resumeSession(s);
+              if (s) await openSession(s);
               beginEditTitle(id);
             })();
           }}
@@ -1064,23 +1214,24 @@ return (
           onCopyId={() => {
             void navigator.clipboard.writeText(menuSession.id);
             setMenu(null);
-            showToast("已复制");
+            showToast(t(locale, "toast.copied"));
           }}
           onCopyCwd={() => {
             void navigator.clipboard.writeText(menuSession.cwd);
             setMenu(null);
-            showToast("已复制");
+            showToast(t(locale, "toast.copied"));
           }}
-          onSplit={
-            menuSession.id !== sessionId && menuSession.id !== split?.id
-              ? () => void openSplit(menuSession)
-              : null
-          }
+          onSplit={() => {
+            setMenu(null);
+            if (openIds.includes(menuSession.id)) void openSession(menuSession);
+            else void splitRight(menuSession);
+          }}
+          onSplitLabel={openIds.includes(menuSession.id) ? t(locale, "pane.reveal") : t(locale, "pane.splitRight")}
           onFork={() => {
             const target = menuSession;
             setMenu(null);
             void (async () => {
-              if (target.id !== sessionIdRef.current) await resumeSession(target);
+              if (target.id !== sessionIdRef.current) await openSession(target);
               await sendPrompt("/fork");
             })();
           }}
@@ -1121,8 +1272,6 @@ return (
               onLocale={(l) => { setLocale(l); persist({ locale: l }); }}
               themeFamily={themeFamily}
               onThemeFamily={(f) => { setThemeFamily(f); persist({ themeFamily: f }); }}
-              density={density}
-              onDensity={(d) => { setDensity(d); persist({ density: d }); }}
               hideToTray={hideToTray}
               onHideToTray={(v) => { setHideToTray(v); persist({ hideToTray: v }); }}
               defaultRail={defaultRail}
@@ -1224,7 +1373,7 @@ return (
         onOpenSession={(id) => {
           setExtraPage(null);
           const s = allSessions.find((x) => x.id === id);
-          if (s) void resumeSession(s);
+          if (s) void openSession(s);
         }}
         images={imagineImages}
         videos={imagineVideos}
@@ -1272,7 +1421,7 @@ return (
                 className={id === sessionId ? "on" : ""}
                 onClick={() => {
                   setMruOpen(false);
-                  void resumeSession(s);
+                  void openSession(s);
                 }}
               >
                 {i + 1} {displayTitle(s, titles)}
@@ -1306,7 +1455,7 @@ return (
                 palette.setOpen(false);
                 if (hits.length === 1) {
                   const s = allSessions.find((x) => x.id === hits[0].sessionId);
-                  if (s) void resumeSession(s);
+                  if (s) void openSession(s);
                 }
               })
               .catch((e) => {
@@ -1326,15 +1475,29 @@ return (
           onClose={() => setMillerOpen(false)}
         />
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status">
+          <span>{toast.message}</span>
+          {toast.actionLabel && toast.onAction ? (
+            <>
+              <span className="toast-sep" aria-hidden="true">·</span>
+              <button type="button" className="toast-action" onClick={toast.onAction}>
+                {toast.actionLabel}
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
       <AppModal
         open={!!appConfirm}
         title={appConfirm?.title ?? ""}
         body={appConfirm?.body ?? ""}
-        confirmLabel={appConfirm?.confirmLabel ?? "确定"}
+        confirmLabel={appConfirm?.confirmLabel ?? t(locale, "common.ok")}
         onConfirm={confirmAppModal}
         onCancel={cancelAppModal}
       />
     </div>
+    </LocaleProvider>
+    </ShortcutProvider>
   );
 }

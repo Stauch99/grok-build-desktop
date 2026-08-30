@@ -46,14 +46,37 @@ import {
   readManagedConfig,
   readUsageHistory,
 } from "../api";
-import { emptyChat, formatElapsed, type ChatItem, type ChatState } from "../lib/chat";
+import { emptyChat, formatElapsed, type ChatItem } from "../lib/chat";
 import type { Mode } from "../lib/mode";
 import { normalizeEffort } from "../lib/effort";
 import { canMoveInboxSession, sameCwd } from "../lib/inbox";
 import { filterCommands, type CommandDef, type HubTab } from "../lib/commands";
-import { normalizeLocale, type Locale } from "../lib/i18n";
+import { normalizeLocale, t, type Locale } from "../lib/i18n";
 import { mergeModelCatalog, modelsFromCache, parseModelsList } from "../lib/models";
-import { parseInspect, type InspectReport } from "../lib/inspect";
+import { parseInspect, skillSlashCommands, type InspectReport } from "../lib/inspect";
+import {
+  MAIN_PANE,
+  applyDrop,
+  canSplit,
+  closePane,
+  dragStarted,
+  dropZone,
+  ensureMainLeaf,
+  hitPane,
+  layoutRects,
+  leafIds,
+  paneOfSession,
+  previewRect,
+  resolveDrop,
+  setRatio,
+  singlePane,
+  type Bindings,
+  type PaneNode,
+  type Rect,
+  type ResolvedDrop,
+} from "../lib/pane-tree";
+import { openIdsFromBindings } from "../lib/session-presence";
+import { recapIdentity, shouldShowSessionRecap } from "../lib/session-recap";
 import { exportTranscript } from "../lib/session-local";
 import { firstHitIndex } from "../lib/search-highlight";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
@@ -75,7 +98,7 @@ import type { AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
-import { goalFromPlan } from "../lib/goal-bar";
+import { nextGoalView, type GoalView } from "../lib/goal-bar";
 import { turnStatsFromItems } from "../lib/usage-split";
 import { activityKey, stallNote } from "../lib/stall";
 import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "../lib/review-rail";
@@ -83,7 +106,7 @@ import { bashTools } from "../lib/tool-render";
 import { deriveRunStatus, mainPaneIsBusy } from "../lib/run-status";
 import { derivePermissionView, type PermissionPane } from "../lib/permission-view";
 import { selectPanePermissions } from "../lib/permission-queue";
-import { selectPaneMentionSource, type PaneMentionData } from "../lib/pane-mentions";
+import { type PaneMentionData } from "../lib/pane-mentions";
 import {
   clearUnread,
   deriveStatus,
@@ -110,11 +133,13 @@ import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "../lib/m
 import { isTextPreviewable } from "../lib/preview";
 import { parseWeeklyUsage, type WeeklyUsage } from "../lib/weekly-usage";
 import { BILLING_POLL_MS, scheduleIdle, shouldBlockComposer } from "../lib/agent-warmup";
-import { useReviewController } from "./useReviewController";
+import { reviewOwnerKey, useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
-import { useAcpSession } from "./useAcpSession";
+import { useAcpSession, type ExtraPaneState } from "./useAcpSession";
 import { useDreamJob } from "./useDreamJob";
 import { useGitWatcher } from "./useGitWatcher";
+import { useGitActions } from "./useGitActions";
+import { useToast } from "./useToast";
 import { usePermissionQueue } from "./usePermissionQueue";
 import { useCommandPalette } from "./useCommandPalette";
 import { useSlashCommands } from "./useSlashCommands";
@@ -179,14 +204,21 @@ export function useAppModel() {
   const [info, setInfo] = useState<DoctorInfo | null>(null);
   const [doctors, setDoctors] = useState<AgentDoctor[]>([]);
   const [cli, setCli] = useState<CliSettings | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
-  const [split, setSplit] = useState<{ id: string; cwd: string; chat: ChatState } | null>(null);
-  const [splitDraft, setSplitDraft] = useState("");
-  const [splitBusy, setSplitBusy] = useState(false);
-  const [splitAtBottom, setSplitAtBottom] = useState(true);
+  const [paneTree, setPaneTree] = useState<PaneNode>(() => singlePane());
+  const [focusedPaneId, setFocusedPaneId] = useState(MAIN_PANE);
+  const [extraPanes, setExtraPanes] = useState<Record<string, ExtraPaneState>>({});
+  const [paneDrag, setPaneDrag] = useState<{
+    sessionId: string;
+    title: string;
+    subtitle?: string;
+    x: number;
+    y: number;
+    preview: Rect | null;
+    allowed: boolean;
+    resolved: ResolvedDrop | null;
+  } | null>(null);
   const [, setMainBusyAt] = useState<number | null>(null);
-  const [splitBusyAt, setSplitBusyAt] = useState<number | null>(null);
   const [clock, setClock] = useState(0);
   const [picking, setPicking] = useState(false);
   const [titles, setTitles] = useState<Record<string, string>>({});
@@ -210,17 +242,19 @@ export function useAppModel() {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [allowedTools, setAllowedTools] = useState<Set<string>>(() => new Set());
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
-  const [splitMentionData, setSplitMentionData] = useState<PaneMentionData | null>(null);
+  const [extraMentionData, setExtraMentionData] = useState<Record<string, PaneMentionData>>({});
+  const [dismissedRecap, setDismissedRecap] = useState<string | null>(null);
   const [memoryChanges, setMemoryChanges] = useState<MemoryChange[]>([]);
   const memoryBaseline = useRef<Record<string, number> | null>(null);
   const [searchHits, setSearchHits] = useState<SessionSearchHit[] | null>(null);
   const [mruOpen, setMruOpen] = useState(false);
   const [planFile, setPlanFile] = useState<PlanFile | null>(null);
+  const [goalView, setGoalView] = useState<GoalView | null>(null);
+  const goalSessionRef = useRef<string | null>(null);
   const [rules, setRules] = useState<RuleFile[]>([]);
   const [rewindTarget, setRewindTarget] = useState<number | null>(null);
   const [worktreeBusy, setWorktreeBusy] = useState(false);
   const [queue, setQueue] = useState<QueueState>(emptyQueue);
-  const [splitQueue, setSplitQueue] = useState<QueueState>(emptyQueue);
   const [focused, setFocused] = useState(true);
   const [steerByDefault, setSteerByDefault] = useState(false);
   const [injectUserMemory, setInjectUserMemory] = useState(DEFAULT_MEMORY_SETTINGS.injectUserMemory);
@@ -232,32 +266,37 @@ export function useAppModel() {
   const [previewWidth, setPreviewWidth] = useState(PREVIEW.initial);
   const [winWidth, setWinWidth] = useState(() => window.innerWidth);
   const chatEl = useRef<HTMLDivElement>(null);
-  const splitChatEl = useRef<HTMLDivElement>(null);
+  const extraChatEls = useRef<Record<string, HTMLDivElement | null>>({});
   const composerRef = useRef<ComposerHandle>(null);
-  const splitComposerRef = useRef<ComposerHandle>(null);
-  const focusedPermissionPaneRef = useRef<PermissionPane | null>(null);
+  const extraComposerRefs = useRef<Record<string, ComposerHandle | null>>({});
+  const focusedPermissionPaneRef = useRef<PermissionPane | null>(MAIN_PANE);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const focusedRef = useRef(true);
   const busyStartRef = useRef<number | null>(null);
-  const splitBusyStartRef = useRef<number | null>(null);
+  const extraBusyStartRef = useRef<Record<string, number>>({});
   const currentTitleRef = useRef("会话");
   const lastActivityRef = useRef(Date.now());
   const queueRef = useRef<QueueState>(emptyQueue());
-  const splitQueueRef = useRef<QueueState>(emptyQueue());
   const persistRef = useRef<(partial: WebuiState) => void>(() => {});
   const doctorsRef = useRef<AgentDoctor[]>([]);
   doctorsRef.current = doctors;
   const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
-  const runSlashRef = useRef<(cmd: CommandDef, rest?: string, dest?: "main" | "split") => Promise<void>>(async () => {});
-  const permissionCancelRef = useRef<(target: "main" | "split") => Promise<void>>(async () => {});
+  const runSlashRef = useRef<(cmd: CommandDef, rest?: string, dest?: string) => Promise<void>>(async () => {});
+  const permissionCancelRef = useRef<(target: string) => Promise<void>>(async () => {});
+  const workColRef = useRef<HTMLDivElement>(null);
+  const extraPanesRef = useRef(extraPanes);
+  extraPanesRef.current = extraPanes;
+  const focusedPaneIdRef = useRef(focusedPaneId);
+  focusedPaneIdRef.current = focusedPaneId;
+  const paneTreeRef = useRef(paneTree);
+  paneTreeRef.current = paneTree;
+  const paneDragRef = useRef(paneDrag);
+  paneDragRef.current = paneDrag;
   const notifyReviewOpened = useCallback(() => persistReviewOpened.current(), []);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 2800);
-  };
+  const { toast, showToast } = useToast();
 
   const dream = useDreamJob({
     enabled: dreamingEnabled,
@@ -278,7 +317,7 @@ export function useAppModel() {
     selectedAgentId,
     sessionDrafts,
     titles,
-    split,
+    extraPanes,
     persist: (partial) => persistRef.current(partial),
     showToast,
     setCwd,
@@ -291,25 +330,17 @@ export function useAppModel() {
     setCollapsedIds,
     setExpandedIds,
     setUnread,
-    setSplit,
-    setSplitDraft,
-    setSplitBusy,
-    setSplitAtBottom,
+    setExtraPanes,
     onOpenSplit: () => {
       setMenu(null);
-      reviewCloseRef.current();
-      persistRef.current(persistReviewOpen(false));
     },
     onSessionsNeedRefresh: (inbox) => refreshSessionsRef.current(inbox),
     setSawExit,
     lastActivityRef,
-    splitBusy,
     steerByDefault,
     setSessionDrafts,
     queueRef,
-    splitQueueRef,
     setQueue,
-    setSplitQueue,
     onLocalSlash: (cmd, rest, dest) => runSlashRef.current(cmd, rest, dest),
     onCancelPermission: (target) => permissionCancelRef.current(target),
     injectUserMemory,
@@ -334,9 +365,10 @@ export function useAppModel() {
     adoptSession,
     startInboxSession,
     startNewChat,
+    startNewInPane,
     startSession,
     resumeSession,
-    openSplit,
+    openInPane,
     sendSlashToAgent,
     sendPrompt,
     submitPrompt,
@@ -347,20 +379,25 @@ export function useAppModel() {
     dismissInjectedSession,
   } = acp;
 
+  const paneCount = leafIds(paneTree).length;
+  const focusedExtra = focusedPaneId !== MAIN_PANE ? extraPanes[focusedPaneId] : undefined;
+  const reviewCwd = focusedExtra?.cwd || cwd;
+  const reviewSessionId = focusedExtra?.sessionId ?? sessionId;
+  const extraBusy = Object.values(extraPanes).some((p) => p.busy);
   const mainPaneBusy = mainPaneIsBusy({ busy, sessionId, runningSessionId });
   const review = useReviewController({
-    cwd,
-    ownerKey: (sessionId || "") + "|" + cwd,
-    disabled: !!split,
+    cwd: reviewCwd,
+    ownerKey: reviewOwnerKey(reviewSessionId, reviewCwd),
+    disabled: false,
     readTextFile: async (path, allowRoot) => {
-      if (cwd) await setWorkspace(cwd, sessionId);
+      if (reviewCwd) await setWorkspace(reviewCwd, reviewSessionId);
       return readTextFile(path, allowRoot);
     },
     openReviewPath: async (path, allowRoot) => {
-      if (cwd) await setWorkspace(cwd, sessionId);
+      if (reviewCwd) await setWorkspace(reviewCwd, reviewSessionId);
       return openReviewPath(path, allowRoot);
     },
-    onError: (message) => { setToast(message); window.setTimeout(() => setToast(null), 2800); },
+    onError: showToast,
     isTextPreviewable,
     onOpened: notifyReviewOpened,
   });
@@ -393,7 +430,6 @@ export function useAppModel() {
     previewWidth,
     locale,
     themeFamily,
-    density,
     hideToTray,
     defaultRail,
     shortcuts,
@@ -405,21 +441,32 @@ export function useAppModel() {
   persistRef.current = persist;
   persistReviewOpened.current = () => persist(persistReviewOpen(true));
 
-  const { git, changes, commits: gitCommits, branches: gitBranchList, refresh: refreshGit } = useGitWatcher({
-    cwd,
-    historyKey: reviewTab,
+  const { git, changes, commits: gitCommits, branches: gitBranchList, worktrees: gitWorktrees, refresh: refreshGit } = useGitWatcher({
+    cwd: reviewCwd,
     onWorkspaceTouched: (dir) => {
       void listWorkspaceEntries(dir).then(setWorkspaceEntries).catch(() => {});
     },
   });
+  const { gitBusy, pullGit, pushGit, checkoutBranch, discardChange } = useGitActions({
+    cwd: reviewCwd,
+    git,
+    showToast,
+    refreshGit,
+  });
 
+  const extraPaneList = Object.entries(extraPanes).map(([id, pane]) => ({
+    id,
+    sessionId: pane.sessionId,
+    busy: pane.busy,
+  }));
   const { permissions, answerPermission, cancelPermission } = usePermissionQueue({
     allowedTools,
     sessionId,
     runningSessionId,
-    splitId: split?.id ?? null,
+    splitId: extraPaneList[0]?.sessionId ?? null,
     busy,
-    splitBusy,
+    splitBusy: extraBusy,
+    extraPanes: extraPaneList,
     focusedPaneRef: focusedPermissionPaneRef,
     focusedRef,
     currentTitleRef,
@@ -451,12 +498,12 @@ export function useAppModel() {
   }
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!reviewSessionId) {
       setPlanFile(null);
       return;
     }
     let cancelled = false;
-    void readPlan(sessionId)
+    void readPlan(reviewSessionId)
       .then((file) => {
         if (!cancelled) setPlanFile(file);
       })
@@ -466,15 +513,21 @@ export function useAppModel() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, chat.plan, reviewTab, reviewOpen]);
+  }, [reviewSessionId, focusedExtra?.chat.plan, chat.plan, reviewTab, reviewOpen]);
 
   useEffect(() => {
-    if (!cwd) {
+    const reset = goalSessionRef.current !== sessionId;
+    goalSessionRef.current = sessionId;
+    setGoalView((prev) => nextGoalView(chat.plan, reset ? null : prev, Date.now()));
+  }, [sessionId, chat.plan]);
+
+  useEffect(() => {
+    if (!reviewCwd) {
       setRules([]);
       return;
     }
     let cancelled = false;
-    void listProjectRules(cwd)
+    void listProjectRules(reviewCwd)
       .then((rows) => {
         if (!cancelled) setRules(rows);
       })
@@ -484,7 +537,7 @@ export function useAppModel() {
     return () => {
       cancelled = true;
     };
-  }, [cwd, reviewTab, reviewOpen]);
+  }, [reviewCwd, reviewTab, reviewOpen]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -502,7 +555,7 @@ export function useAppModel() {
       const last = sessionIdRef.current
         ? [...inboxSessions, ...sessions].find((s) => s.id === sessionIdRef.current)
         : [...inboxSessions, ...sessions][0];
-      if (last) void resumeSession(last);
+      if (last) void openSession(last);
     }).then((fn) => {
       off = fn;
     });
@@ -513,7 +566,7 @@ export function useAppModel() {
     let off: (() => void) | undefined;
     void onNotifyOpen((sid) => {
       const s = [...inboxSessions, ...sessions].find((x) => x.id === sid);
-      if (s) void resumeSession(s);
+      if (s) void openSession(s);
       window.setTimeout(() => {
         document.querySelector<HTMLElement>(".permission")?.focus();
       }, 200);
@@ -523,12 +576,36 @@ export function useAppModel() {
     return () => off?.();
   }, [inboxSessions, sessions]);
 
+  const extraCwdKey = Object.values(extraPanes).map((p) => p.cwd).join("|");
   useEffect(() => {
-    const sc = split?.cwd; if (!sc) { setSplitMentionData(null); return; }
-    let cancelled = false; setSplitMentionData(null);
-    void Promise.all([listWorkspaceEntries(sc), gitStatus(sc).then((status) => status.isRepo ? gitChanges(sc) : []).catch(() => [])]).then(([entries, cs]) => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: entries.filter((e) => e.kind === "dir").map((e) => e.name), changes: cs.map((c) => c.path) }); }).catch(() => { if (!cancelled) setSplitMentionData({ cwd: sc, dirs: [], changes: [] }); });
-    return () => { cancelled = true; };
-  }, [split?.cwd]);
+    const cwds = Object.entries(extraPanes).map(([id, pane]) => [id, pane.cwd] as const);
+    if (!cwds.length) {
+      setExtraMentionData({});
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      cwds.map(async ([id, sc]) => {
+        try {
+          const [entries, cs] = await Promise.all([
+            listWorkspaceEntries(sc),
+            gitStatus(sc).then((status) => (status.isRepo ? gitChanges(sc) : [])).catch(() => []),
+          ]);
+          return [
+            id,
+            { cwd: sc, dirs: entries.filter((e) => e.kind === "dir").map((e) => e.name), changes: cs.map((c) => c.path) },
+          ] as const;
+        } catch {
+          return [id, { cwd: sc, dirs: [], changes: [] }] as const;
+        }
+      }),
+    ).then((rows) => {
+      if (!cancelled) setExtraMentionData(Object.fromEntries(rows));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [extraCwdKey]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -600,9 +677,11 @@ export function useAppModel() {
   }, [chat.items, mainPaneBusy, atBottom]);
 
   useEffect(() => {
-    if (!split || !splitAtBottom) return;
-    splitChatEl.current?.scrollTo({ top: splitChatEl.current.scrollHeight });
-  }, [split?.chat.items, splitBusy, splitAtBottom, split]);
+    for (const [id, pane] of Object.entries(extraPanes)) {
+      if (!pane.atBottom) continue;
+      extraChatEls.current[id]?.scrollTo({ top: extraChatEls.current[id]!.scrollHeight });
+    }
+  }, [extraPanes]);
 
   useEffect(() => {
     if (busy) {
@@ -648,28 +727,30 @@ export function useAppModel() {
   }, [busy, refreshGit]);
 
   useEffect(() => {
-    if (splitBusy) {
-      if (splitBusyStartRef.current === null) splitBusyStartRef.current = Date.now();
-      setSplitBusyAt((t) => t ?? Date.now());
-      return;
+    const idle = Object.entries(extraPanes).filter(([, pane]) => !pane.busy);
+    for (const [id, pane] of idle) {
+      const started = extraBusyStartRef.current[id];
+      delete extraBusyStartRef.current[id];
+      if (started == null) continue;
+      const { next, rest } = dequeue(pane.queue);
+      if (!next) continue;
+      setExtraPanes((prev) => {
+        const cur = prev[id];
+        if (!cur) return prev;
+        return { ...prev, [id]: { ...cur, queue: rest } };
+      });
+      void sendPrompt(next.text, id);
     }
-    const started = splitBusyStartRef.current;
-    splitBusyStartRef.current = null;
-    setSplitBusyAt(null);
-    if (started === null) return;
-    const { next, rest } = dequeue(splitQueueRef.current);
-    if (next) {
-      setSplitQueue(rest);
-      splitQueueRef.current = rest;
-      void sendPrompt(next.text, "split");
+    for (const [id, pane] of Object.entries(extraPanes)) {
+      if (pane.busy && extraBusyStartRef.current[id] == null) extraBusyStartRef.current[id] = Date.now();
     }
-  }, [splitBusy]);
+  }, [extraPanes, sendPrompt]);
 
   useEffect(() => {
-    if (!busy && !splitBusy) return;
+    if (!busy && !extraBusy) return;
     const id = window.setInterval(() => setClock((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [busy, splitBusy]);
+  }, [busy, extraBusy]);
 
 
   // Any new token, tool update or status flip counts as the turn being alive.
@@ -692,10 +773,6 @@ export function useAppModel() {
   }, [queue]);
 
   useEffect(() => {
-    splitQueueRef.current = splitQueue;
-  }, [splitQueue]);
-
-  useEffect(() => {
     focusedRef.current = focused;
   }, [focused]);
 
@@ -707,11 +784,11 @@ export function useAppModel() {
 
   // Shrinking the window must never squeeze the conversation column away.
   useEffect(() => {
-    const open = reviewOpen && !split;
+    const open = reviewOpen;
     const fit = fitLayout(sidebarWidth, previewWidth, winWidth, open);
     if (fit.sidebar !== sidebarWidth) setSidebarWidth(fit.sidebar);
     if (fit.preview !== previewWidth) setPreviewWidth(fit.preview);
-  }, [winWidth, reviewOpen, split, sidebarWidth, previewWidth]);
+  }, [winWidth, reviewOpen, sidebarWidth, previewWidth]);
 
   useEffect(() => {
     if (situationAutoCollapse(winWidth)) {
@@ -744,8 +821,8 @@ export function useAppModel() {
   const awaitingId = permissions[0] ? permissions[0].sessionId || runningSessionId || sessionId : null;
 
   useEffect(() => {
-    void setTrayStatus(trayStatus(busy || splitBusy, permissions.length)).catch(() => {});
-  }, [busy, splitBusy, permissions.length]);
+    void setTrayStatus(trayStatus(busy || extraBusy, permissions.length)).catch(() => {});
+  }, [busy, extraBusy, permissions.length]);
 
   useEffect(() => {
     if (!editingTitleId) return;
@@ -924,7 +1001,8 @@ export function useAppModel() {
         if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
           setThemeFamily(state.themeFamily);
         }
-        if (state.density === "compact" || state.density === "comfortable") setDensity(state.density);
+        const persistedDensity = (state as WebuiState & { density?: string }).density;
+        if (persistedDensity === "compact" || persistedDensity === "comfortable") setDensity(persistedDensity);
         if (typeof state.hideToTray === "boolean") setHideToTray(state.hideToTray);
         if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
           setDefaultRail(state.defaultRail);
@@ -1111,15 +1189,271 @@ export function useAppModel() {
         adoptSession(null);
         setChat(emptyChat());
       }
-      if (split?.id === s.id) {
-        setSplit(null);
-        setSplitDraft("");
-        setSplitBusy(false);
-      }
+      const extraId = Object.entries(extraPanesRef.current).find(([, pane]) => pane.sessionId === s.id)?.[0];
+      if (extraId) closePaneLeaf(extraId);
       await refreshAllSessions();
     } catch (e) {
       showToast(String(e));
     }
+  }
+
+  function liveBindings(): Bindings {
+    const b: Bindings = { [MAIN_PANE]: sessionIdRef.current };
+    for (const [id, pane] of Object.entries(extraPanesRef.current)) b[id] = pane.sessionId;
+    return b;
+  }
+
+  function findSessionById(id: string): SessionSummary | null {
+    return sessions.find((s) => s.id === id) ?? inboxSessions.find((s) => s.id === id) ?? null;
+  }
+
+  function focusPane(paneId: string) {
+    setFocusedPaneId(paneId);
+    focusedPermissionPaneRef.current = paneId;
+    window.setTimeout(() => {
+      if (paneId === MAIN_PANE) composerRef.current?.focus();
+      else extraComposerRefs.current[paneId]?.focus();
+    }, 0);
+  }
+
+  function snapshotMain(): ExtraPaneState | null {
+    if (!sessionIdRef.current) return null;
+    return {
+      sessionId: sessionIdRef.current,
+      cwd,
+      chat,
+      draft,
+      busy,
+      atBottom,
+      queue: queueRef.current,
+    };
+  }
+
+  function applyMainFromExtra(extra: ExtraPaneState) {
+    adoptSession(extra.sessionId);
+    setChat(extra.chat);
+    setCwd(extra.cwd);
+    setDraft(extra.draft);
+    setAtBottom(extra.atBottom);
+    setQueue(extra.queue);
+    queueRef.current = extra.queue;
+  }
+
+  async function commitDrop(drop: ResolvedDrop) {
+    const tree = paneTreeRef.current;
+    const bindings = liveBindings();
+    const applied = applyDrop(tree, bindings, drop);
+    if (!applied) return;
+    const ensured = ensureMainLeaf(applied.tree, applied.bindings);
+    const snap = snapshotMain();
+    const nextExtras: Record<string, ExtraPaneState> = {};
+    const needsLoad: { paneId: string; sessionId: string }[] = [];
+    for (const [paneId, sid] of Object.entries(ensured.bindings)) {
+      if (!sid || paneId === MAIN_PANE) continue;
+      const existing = Object.values(extraPanesRef.current).find((p) => p.sessionId === sid);
+      if (existing) nextExtras[paneId] = existing;
+      else if (snap && snap.sessionId === sid) nextExtras[paneId] = snap;
+      else needsLoad.push({ paneId, sessionId: sid });
+    }
+    const mainSid = ensured.bindings[MAIN_PANE] ?? null;
+    if (mainSid && mainSid !== sessionIdRef.current) {
+      const fromExtra = Object.values(extraPanesRef.current).find((p) => p.sessionId === mainSid);
+      if (fromExtra) applyMainFromExtra(fromExtra);
+      else {
+        const s = findSessionById(mainSid);
+        if (s) await resumeSession(s);
+      }
+    } else if (!mainSid && sessionIdRef.current) {
+      adoptSession(null);
+      setChat(emptyChat());
+    }
+    setPaneTree(ensured.tree);
+    setExtraPanes(nextExtras);
+    const nextFocus = ensured.retargetFrom === applied.focus
+      ? MAIN_PANE
+      : (leafIds(ensured.tree).includes(applied.focus) ? applied.focus : MAIN_PANE);
+    focusPane(nextFocus);
+    for (const item of needsLoad) {
+      const s = findSessionById(item.sessionId);
+      if (s) await openInPane(item.paneId, s);
+    }
+  }
+
+  async function openSession(s: SessionSummary) {
+    const existing = paneOfSession(liveBindings(), s.id);
+    if (existing) {
+      focusPane(existing);
+      return;
+    }
+    await openInPane(focusedPaneIdRef.current, s);
+    focusPane(focusedPaneIdRef.current);
+  }
+
+  async function splitRight(s: SessionSummary) {
+    const bindings = liveBindings();
+    const existing = paneOfSession(bindings, s.id);
+    if (existing) {
+      focusPane(existing);
+      return;
+    }
+    const target = focusedPaneIdRef.current;
+    const work = workColRef.current?.getBoundingClientRect();
+    const outer: Rect = work
+      ? { left: work.left, top: work.top, right: work.right, bottom: work.bottom }
+      : { left: 0, top: 0, right: 960, bottom: 720 };
+    const hit = layoutRects(paneTreeRef.current, outer).find((leaf) => leaf.id === target);
+    const rect = hit?.rect ?? outer;
+    if (!canSplit(rect, "right")) {
+      showToast(t(locale, "pane.tooSmall"));
+      return;
+    }
+    const drop = resolveDrop({
+      tree: paneTreeRef.current,
+      bindings,
+      sessionId: s.id,
+      targetPane: target,
+      zone: "right",
+      targetRect: rect,
+    });
+    if (!drop.ok) {
+      showToast(t(locale, "pane.tooSmall"));
+      return;
+    }
+    await commitDrop(drop);
+  }
+
+  function closePaneLeaf(paneId: string) {
+    const tree = paneTreeRef.current;
+    if (leafIds(tree).length <= 1) return;
+    const closed = closePane(tree, paneId);
+    if (!closed) return;
+    const extras = { ...extraPanesRef.current };
+    if (paneId !== MAIN_PANE) delete extras[paneId];
+    const ensured = ensureMainLeaf(closed.tree, {
+      ...Object.fromEntries(leafIds(closed.tree).map((id) => [id, id === MAIN_PANE ? sessionIdRef.current : extras[id]?.sessionId ?? null])),
+    });
+    if (ensured.retargetFrom) {
+      const extra = extras[ensured.retargetFrom];
+      delete extras[ensured.retargetFrom];
+      if (extra) applyMainFromExtra(extra);
+    }
+    const keep = new Set(leafIds(ensured.tree));
+    for (const id of Object.keys(extras)) {
+      if (!keep.has(id)) delete extras[id];
+    }
+    setPaneTree(ensured.tree);
+    setExtraPanes(extras);
+    const nextFocus = leafIds(ensured.tree).includes(focusedPaneIdRef.current) && focusedPaneIdRef.current !== paneId
+      ? focusedPaneIdRef.current
+      : MAIN_PANE;
+    focusPane(nextFocus);
+  }
+
+  async function newChatInFocus() {
+    if (focusedPaneIdRef.current !== MAIN_PANE && extraPanesRef.current[focusedPaneIdRef.current]) {
+      await startNewInPane(focusedPaneIdRef.current);
+      return;
+    }
+    await startNewChat();
+  }
+
+  function onPaneRatio(splitId: string, ratio: number) {
+    setPaneTree((node) => setRatio(node, splitId, ratio));
+  }
+
+  function beginPaneDrag(e: { button: number; clientX: number; clientY: number }, s: SessionSummary) {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let started = false;
+    let last: ResolvedDrop | null = null;
+    const title = displayTitle(s, titles);
+    const subtitle = s.cwd ? basename(s.cwd) : undefined;
+    const onMove = (ev: PointerEvent) => {
+      if (!started && !dragStarted(ev.clientX - startX, ev.clientY - startY)) return;
+      if (!started) {
+        started = true;
+        document.documentElement.classList.add("pane-dragging");
+      }
+      const work = workColRef.current?.getBoundingClientRect();
+      if (!work) {
+        last = null;
+        setPaneDrag({ sessionId: s.id, title, subtitle, x: ev.clientX, y: ev.clientY, preview: null, allowed: false, resolved: null });
+        return;
+      }
+      const outer = { left: work.left, top: work.top, right: work.right, bottom: work.bottom };
+      const point = { x: ev.clientX, y: ev.clientY };
+      const hit = hitPane(paneTreeRef.current, outer, point);
+      if (!hit) {
+        last = null;
+        setPaneDrag({ sessionId: s.id, title, subtitle, x: ev.clientX, y: ev.clientY, preview: null, allowed: false, resolved: null });
+        return;
+      }
+      const zone = dropZone(point, hit.rect);
+      const resolved = resolveDrop({
+        tree: paneTreeRef.current,
+        bindings: liveBindings(),
+        sessionId: s.id,
+        targetPane: hit.id,
+        zone,
+        targetRect: hit.rect,
+      });
+      last = resolved.ok ? resolved : null;
+      setPaneDrag({
+        sessionId: s.id,
+        title,
+        subtitle,
+        x: ev.clientX,
+        y: ev.clientY,
+        preview: previewRect(hit.rect, zone),
+        allowed: resolved.ok,
+        resolved,
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.documentElement.classList.remove("pane-dragging");
+      const resolved = started ? last : null;
+      setPaneDrag(null);
+      if (resolved) void commitDrop(resolved);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function onExtraDraftChange(paneId: string, value: string) {
+    setExtraPanes((prev) => {
+      const cur = prev[paneId];
+      if (!cur) return prev;
+      return { ...prev, [paneId]: { ...cur, draft: value } };
+    });
+  }
+
+  function onExtraAtBottom(paneId: string, value: boolean) {
+    setExtraPanes((prev) => {
+      const cur = prev[paneId];
+      if (!cur || cur.atBottom === value) return prev;
+      return { ...prev, [paneId]: { ...cur, atBottom: value } };
+    });
+  }
+
+  function onExtraQueue(paneId: string, update: (queue: QueueState) => QueueState) {
+    setExtraPanes((prev) => {
+      const cur = prev[paneId];
+      if (!cur) return prev;
+      return { ...prev, [paneId]: { ...cur, queue: update(cur.queue) } };
+    });
+  }
+
+  function copyAllConversation(items: ChatItem[]) {
+    const text = exportTranscript(items);
+    void navigator.clipboard.writeText(text).then(() => showToast("已复制全部对话"));
+  }
+
+  async function switchWorktree(path: string) {
+    if (!path) return;
+    await selectProject(path);
   }
 
   async function newWorktreeSession() {
@@ -1228,14 +1562,9 @@ export function useAppModel() {
     persist({ sessionTokens: next });
   }, [sessionId, usage?.used, sessionTokens, persist]);
   const plan = chat.plan;
-  const splitSession = split
-    ? sessions.find((s) => s.id === split.id) ?? inboxSessions.find((s) => s.id === split.id) ?? null
-    : null;
-  const splitTitle = splitSession ? displayTitle(splitSession, titles) : "并列会话";
+  const reviewChat = focusedExtra?.chat ?? chat;
+  const reviewPlan = reviewChat.plan;
   const userTurns = chat.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user");
-  const splitTurns = split
-    ? split.chat.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user")
-    : [];
   const lastAssistant = [...chat.items].reverse().find((i) => i.kind === "assistant");
   const urlChips = lastAssistant && lastAssistant.kind === "assistant"
     ? Array.from(lastAssistant.text.matchAll(/https?:\/\/[^\s)]+/g)).map((m) => m[0]).slice(0, 3)
@@ -1266,7 +1595,7 @@ export function useAppModel() {
     onAction: (action) => {
       if (action.kind === "session") {
         const s = allSessions.find((x) => x.id === action.id);
-        if (s) void resumeSession(s);
+        if (s) void openSession(s);
         return;
       }
       if (action.kind === "project") {
@@ -1281,7 +1610,7 @@ export function useAppModel() {
       }
       switch (action.act) {
         case "new-chat":
-          void startNewChat();
+          void newChatInFocus();
           break;
         case "new-session":
           void startSession();
@@ -1363,9 +1692,11 @@ export function useAppModel() {
   const busyIds = useMemo(() => {
     const ids: string[] = [];
     if (busy && runningSessionId) ids.push(runningSessionId);
-    if (splitBusy && split?.id) ids.push(split.id);
+    for (const pane of Object.values(extraPanes)) {
+      if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
+    }
     return ids;
-  }, [busy, runningSessionId, splitBusy, split?.id]);
+  }, [busy, runningSessionId, extraPanes]);
 
   const statusFor = useCallback(
     (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId, unread }),
@@ -1415,7 +1746,7 @@ export function useAppModel() {
       const id = visibleHotkeySessions[i];
       if (!id) return;
       const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
-      if (s) void resumeSession(s);
+      if (s) void openSession(s);
     },
     onMru: () => setMruOpen((v) => !v),
   });
@@ -1464,15 +1795,16 @@ export function useAppModel() {
     chat,
     sessions,
     sessionId,
-    splitBusy,
+    extraPanes: Object.fromEntries(
+      Object.entries(extraPanes).map(([id, pane]) => [id, { sessionId: pane.sessionId, busy: pane.busy, draft: pane.draft }]),
+    ),
     mainPaneBusy,
-    splitId: split?.id ?? null,
     loadingSession,
     readyRef,
     sessionIdRef,
     currentTitleRef,
     composerRef,
-    splitComposerRef,
+    extraComposerRefs,
     rewindLastEdit: rewindIndex.lastEdit,
     cli,
     persist,
@@ -1481,9 +1813,8 @@ export function useAppModel() {
     setModel,
     setCli,
     setBusy,
-    setSplitBusy,
+    setExtraPanes,
     setDraft,
-    setSplitDraft,
     setExtraPage,
     setImagineImages,
     setImagineVideos,
@@ -1546,46 +1877,53 @@ export function useAppModel() {
 
   const memoryPath = rules.find((r) => r.name === "MEMORY.md")?.path;
   const agentsMdPath = rules.find((r) => r.name === "AGENTS.md")?.path;
-  const permissionContext = { mainSessionId: sessionId, runningMainSessionId: runningSessionId, splitSessionId: split?.id ?? null, mainBusy: busy, splitBusy };
+  const permissionContext = {
+    mainSessionId: sessionId,
+    runningMainSessionId: runningSessionId,
+    splitSessionId: extraPaneList[0]?.sessionId ?? null,
+    mainBusy: busy,
+    splitBusy: extraBusy,
+    extraPanes: extraPaneList,
+  };
   const panePermissions = selectPanePermissions(permissions, permissionContext);
-  const mainPermission = panePermissions.main; const splitPermission = panePermissions.split;
+  const mainPermission = panePermissions.main;
   permissionCancelRef.current = async (target) => {
     const selected = panePermissions[target];
     if (selected) await cancelPermission(selected);
   };
   const mainPermissionView = derivePermissionView({ ...permissionContext, request: mainPermission });
-  const splitPermissionView = derivePermissionView({ ...permissionContext, request: splitPermission });
-  const splitMentions = selectPaneMentionSource(split?.cwd ?? "", splitMentionData);
   const stallText = mainPaneBusy ? stallNote(Date.now() - lastActivityRef.current) : "";
   const takeover = paneComposerTakeover({ pane: "main", pendingPane: mainPermissionView.pane, pendingKind: mainPermissionView.kind, plan: !!planComplete });
-  const splitTakeover = paneComposerTakeover({ pane: "split", pendingPane: splitPermissionView.pane, pendingKind: splitPermissionView.kind, plan: false });
   const layout = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
   const hero = {
     ...layout,
     blocked: layout.blocked || shouldBlockComposer(connecting, ready),
   };
-  const turnFiles = lastTurnFiles(chat.items);
-  const terminalTools = bashTools(chat.items);
-  const reviewTabs = deriveReviewTabs({ planCount: plan.length, fileCount: turnFiles.length, changeCount: changes.length, contextCount: (planFile ? 1 : 0) + rules.length, hasDetails: !!detailsTool, hasPreview: !!previewPath, bashCount: terminalTools.length });
+  const turnFiles = lastTurnFiles(reviewChat.items);
+  const terminalTools = bashTools(reviewChat.items);
+  const reviewTabs = deriveReviewTabs({ planCount: reviewPlan.length, fileCount: turnFiles.length, changeCount: changes.length, contextCount: (planFile ? 1 : 0) + rules.length, hasDetails: !!detailsTool, hasPreview: !!previewPath, bashCount: terminalTools.length });
   const reconciledReviewTab = reconcileReviewTab(reviewTab, reviewTabs, defaultRail);
   useEffect(() => {
     if (reconciledReviewTab !== reviewTab) review.setTab(reconciledReviewTab);
   }, [reconciledReviewTab, reviewTab]);
   const jobs = headerJobs(chat.items);
   const catalog = subagentCatalog(chat.items);
-  const goal = goalFromPlan(plan);
+  const goal = goalView?.text ?? null;
   const health = agentHealth({ ready, connecting, sawExit });
   const runStatus = deriveRunStatus({ disconnected: health === "disconnected", trustRequired: !!(inspect && cwd && inspect.projectTrusted === false), pending: mainPermissionView.statusPending, running: mainPaneBusy, stalled: !!stallText, stallDetail: stallText, planComplete });
   const turnStats = turnStatsFromItems(chat.items, usage?.output, {
     now: Date.now(),
     live: mainPaneBusy,
   });
-  const splitTurnStats = split
-    ? turnStatsFromItems(split.chat.items, split.chat.usage?.output, {
-        now: Date.now(),
-        live: splitBusy,
-      })
-    : null;
+  const skillCommands = skillSlashCommands(inspect?.skills ?? []);
+  const recapText = (current?.lastTurnSummary ?? "").trim();
+  const recapKey = recapIdentity(current?.lastTurnSummaryPromptId, recapText);
+  const showRecap = shouldShowSessionRecap({ text: recapText, identity: recapKey, dismissed: dismissedRecap });
+  function dismissRecap() {
+    setDismissedRecap(recapKey);
+  }
+  const openIds = openIdsFromBindings(liveBindings());
+  const focusedSessionId = focusedPaneId === MAIN_PANE ? sessionId : extraPanes[focusedPaneId]?.sessionId ?? sessionId;
 
   return {
     theme,
@@ -1609,6 +1947,7 @@ export function useAppModel() {
     shortcuts,
     setShortcuts,
     inspect,
+    skillCommands,
     modelCatalog,
     extraPage,
     setExtraPage,
@@ -1640,6 +1979,8 @@ export function useAppModel() {
     chatFontSize,
     setChatFontSize,
     cwd,
+    reviewCwd,
+    reviewPlan,
     setCwd,
     projects,
     openProjects,
@@ -1662,15 +2003,18 @@ export function useAppModel() {
     toast,
     atBottom,
     setAtBottom,
-    split,
-    setSplit,
-    splitDraft,
-    setSplitDraft,
-    splitBusy,
-    setSplitBusy,
-    splitAtBottom,
-    setSplitAtBottom,
-    splitBusyAt,
+    paneTree,
+    focusedPaneId,
+    extraPanes,
+    paneDrag,
+    paneCount,
+    openIds,
+    focusedSessionId,
+    workColRef,
+    extraChatEls,
+    extraComposerRefs,
+    extraMentionData,
+    extraBusyStartRef,
     clock,
     picking,
     titles,
@@ -1716,10 +2060,12 @@ export function useAppModel() {
     rewindTarget,
     setRewindTarget,
     worktreeBusy,
+    gitBusy,
+    pullGit,
+    pushGit,
+    discardChange,
     queue,
     setQueue,
-    splitQueue,
-    setSplitQueue,
     steerByDefault,
     setSteerByDefault,
     injectUserMemory,
@@ -1737,13 +2083,13 @@ export function useAppModel() {
     setPreviewWidth,
     winWidth,
     chatEl,
-    splitChatEl,
     composerRef,
-    splitComposerRef,
     focusedPermissionPaneRef,
     titleInputRef,
     showToast,
     sessionId,
+    selectedAgentId,
+    setSelectedAgentId,
     sessionIdRef,
     chat,
     busy,
@@ -1752,10 +2098,19 @@ export function useAppModel() {
     loadingSession,
     ensureAgent,
     startInboxSession,
+    newChatInFocus,
     startNewChat,
     startSession,
     resumeSession,
-    openSplit,
+    openSession,
+    splitRight,
+    closePaneLeaf,
+    beginPaneDrag,
+    focusPane,
+    onPaneRatio,
+    onExtraDraftChange,
+    onExtraAtBottom,
+    onExtraQueue,
     mainPaneBusy,
     review,
     reviewOpen,
@@ -1768,6 +2123,7 @@ export function useAppModel() {
     changes,
     gitCommits,
     gitBranchList,
+    gitWorktrees,
     refreshGit,
     answerPermission,
     refreshInspect,
@@ -1797,19 +2153,22 @@ export function useAppModel() {
     cancelTurn,
     onDraftChange,
     newWorktreeSession,
+    switchWorktree,
+    checkoutBranch,
     applyRewind,
     toggleExpand,
     current,
     currentTitle,
     sessionModel,
+    recapText,
+    showRecap,
+    dismissRecap,
+    copyAllConversation,
     cwdLocked,
     menuSession,
     usage,
     plan,
-    splitSession,
-    splitTitle,
     userTurns,
-    splitTurns,
     urlChips,
     openSettings,
     allSessions,
@@ -1826,10 +2185,8 @@ export function useAppModel() {
     agentsMdPath,
     mainPermission,
     mainPermissionView,
-    splitPermissionView,
-    splitMentions,
+    panePermissions,
     takeover,
-    splitTakeover,
     hero,
     turnFiles,
     terminalTools,
@@ -1838,13 +2195,10 @@ export function useAppModel() {
     jobs,
     catalog,
     goal,
+    goalView,
     health,
     runStatus,
     turnStats,
-    splitTurnStats,
-    splitPermission,
-    selectedAgentId,
-    setSelectedAgentId,
     hasOpenSession: !!acp.sessionId,
     injectedSessions,
     dismissInjectedSession,
