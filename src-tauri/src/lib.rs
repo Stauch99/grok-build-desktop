@@ -100,6 +100,8 @@ impl Default for AppState {
 #[serde(rename_all = "camelCase")]
 struct SessionSummary {
     id: String,
+    #[serde(default = "default_grok_agent")]
+    agent_id: String,
     cwd: String,
     title: String,
     model: Option<String>,
@@ -111,6 +113,8 @@ struct SessionSummary {
     session_kind: Option<String>,
     parent_session_id: Option<String>,
 }
+
+fn default_grok_agent() -> String { "grok".into() }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -509,6 +513,27 @@ async fn doctor() -> DoctorInfo {
     }
 }
 
+fn env_nonempty(name: &str) -> bool {
+    std::env::var(name).ok().map(|s| !s.trim().is_empty()).unwrap_or(false)
+}
+
+#[tauri::command]
+async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
+    let home = dirs_home();
+    let grok_h = grok_home();
+    let grok_sub = grok_h.join("auth.json").is_file();
+    let grok_key = env_nonempty("XAI_API_KEY") || env_nonempty("GROK_API_KEY");
+    let kimi_h = home.join(".kimi-code");
+    let claude_json = home.join(".claude.json");
+    let codex_h = home.join(".codex");
+    vec![
+        crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, None, false),
+        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), kimi_h.join("auth.json").is_file(), env_nonempty("KIMI_API_KEY"), None, false),
+        crate::agent_doctor::doctor_from_evidence("claude", home.join(".claude").display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), None, false),
+        crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), None, false),
+    ]
+}
+
 #[tauri::command]
 async fn set_workspace(
     app: AppHandle,
@@ -705,6 +730,7 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
     }
     Some(SessionSummary {
         id,
+        agent_id: "grok".into(),
         cwd: info
             .get("cwd")
             .and_then(|v| v.as_str())
@@ -1080,20 +1106,47 @@ async fn pick_directory(app: AppHandle) -> AppResult<Option<String>> {
     Ok(rx.await.unwrap_or(None))
 }
 
+fn workbench_home() -> PathBuf {
+    crate::agents_paths::workbench_home_from(
+        &dirs_home(),
+        std::env::var("ACP_WORKBENCH_HOME").ok().as_deref(),
+    )
+}
 fn webui_path() -> PathBuf {
-    grok_home().join("webui.json")
+    crate::agents_paths::workbench_json_path(&workbench_home())
 }
 
 #[tauri::command]
 async fn load_webui_state() -> AppResult<Value> {
     let path = webui_path();
+    let legacy = crate::agents_paths::grok_webui_path(&grok_home());
+    if crate::workbench_state::should_copy_webui(path.is_file(), legacy.is_file()) {
+        let text = tokio::fs::read_to_string(&legacy).await.map_err(|e| AppError::Message(e.to_string()))?;
+        let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+        let migrated = crate::workbench_state::migrate_workbench_doc(raw);
+        if let Some(parent) = path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+        return Ok(migrated);
+    }
     if !path.is_file() {
         return Ok(json!({ "projects": [], "theme": "light", "model": "", "showThinking": true }));
     }
-    let text = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?;
+    let text = tokio::fs::read_to_string(path).await.map_err(|e| AppError::Message(e.to_string()))?;
     serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))
+}
+
+#[tauri::command]
+async fn install_marketplace_skill(source: String) -> AppResult<String> {
+    let src = PathBuf::from(source);
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    tokio::task::spawn_blocking(move || crate::marketplace::install_marketplace_skill_inner(&src, &agents))
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?
+        .map_err(AppError::Message)
 }
 
 #[tauri::command]
@@ -2652,6 +2705,7 @@ pub fn run() {
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
             doctor,
+            doctor_all,
             set_workspace,
             start_agent,
             stop_agent,
@@ -2703,6 +2757,7 @@ pub fn run() {
             list_models_text,
             trust_folder,
             create_skill,
+            install_marketplace_skill,
             patch_skills_disabled,
             patch_compat,
             list_session_spills,

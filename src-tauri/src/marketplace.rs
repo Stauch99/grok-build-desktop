@@ -47,6 +47,13 @@ fn copy_dir_skip_symlinks(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn install_marketplace_skill_inner(source: &Path, agents_home: &Path) -> Result<String, String> {
+    let name = skill_folder_name(source).ok_or_else(|| "invalid".to_string())?;
+    let dest = agents_home.join("skills").join(&name);
+    install_skill_folder(source, &dest)?;
+    Ok(dest.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +91,23 @@ mod tests {
             "# pdf\n"
         );
         assert_eq!(install_skill_folder(&src, &dest).unwrap_err(), "exists");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn install_inner_copies_into_agents_home_skills() {
+        let root = uniq_dir();
+        let src = root.join("pdf-review");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("SKILL.md"), "# pdf\n").unwrap();
+        let agents = root.join("agents-home");
+        let dest = install_marketplace_skill_inner(&src, &agents).unwrap();
+        let expected = agents.join("skills").join("pdf-review");
+        assert_eq!(dest, expected.display().to_string());
+        assert_eq!(
+            fs::read_to_string(expected.join("SKILL.md")).unwrap(),
+            "# pdf\n"
+        );
         fs::remove_dir_all(root).ok();
     }
 }
