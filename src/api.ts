@@ -7,6 +7,8 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import type { AcpRecord } from "./lib/acp-events";
+import type { AgentId } from "./lib/agent-id";
+import { acpMessageFromEvent, resolveStartAgentId } from "./lib/acp-host";
 
 export type SessionSummary = {
   id: string;
@@ -129,11 +131,16 @@ export type JsonRpc = {
 };
 
 export const doctor = () => invoke<DoctorInfo>("doctor");
-export const startAgent = () => invoke<{ ok: boolean; grok: string }>("start_agent");
+export const startAgent = (agentId?: AgentId) =>
+  invoke<{ ok: boolean; grok?: string; agentId?: string }>("start_agent", {
+    agentId: resolveStartAgentId(agentId),
+  });
 export const setWorkspace = (cwd: string, sessionId?: string | null) =>
   invoke<void>("set_workspace", { cwd, sessionId: sessionId ?? null });
-export const stopAgent = () => invoke<void>("stop_agent");
-export const sendRaw = (payload: JsonRpc) => invoke<void>("send_raw", { payload });
+export const stopAgent = (agentId?: AgentId | null) =>
+  invoke<void>("stop_agent", { agentId: agentId ?? null });
+export const sendRaw = (payload: JsonRpc, agentId?: AgentId) =>
+  invoke<void>("send_raw", { payload, agentId: resolveStartAgentId(agentId) });
 export const nextRpcId = () => invoke<number>("next_rpc_id");
 export const listSessions = (cwd?: string | null) =>
   invoke<SessionSummary[]>("list_sessions", { cwd: cwd ?? null });
@@ -356,11 +363,23 @@ export const onWindowFocus = (handler: (focused: boolean) => void): Promise<Unli
   getCurrentWindow().onFocusChanged(({ payload }) => handler(payload));
 
 export const onAcpMessage = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
-  listen<JsonRpc>("acp-message", (e) => handler(e.payload));
+  listen<unknown>("acp-message", (e) => {
+    handler(acpMessageFromEvent(e.payload).payload as JsonRpc);
+  });
 export const onAcpRequest = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
-  listen<JsonRpc>("acp-request", (e) => handler(e.payload));
+  listen<unknown>("acp-request", (e) => {
+    handler(acpMessageFromEvent(e.payload).payload as JsonRpc);
+  });
 export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn> =>
-  listen<string>("acp-stderr", (e) => handler(e.payload));
+  listen<unknown>("acp-stderr", (e) => {
+    const raw = e.payload;
+    if (typeof raw === "string") {
+      handler(raw);
+      return;
+    }
+    const inner = acpMessageFromEvent(raw).payload;
+    handler(typeof inner === "string" ? inner : String(inner ?? ""));
+  });
 export const onAgentExit = (handler: () => void): Promise<UnlistenFn> =>
   listen("agent-exit", () => handler());
 export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
