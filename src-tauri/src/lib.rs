@@ -23,7 +23,9 @@ mod workbench_state;
 mod agent_doctor;
 mod adapters;
 mod skill_sync;
+mod memory_host;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
+use memory_host::{read_memory_host, write_memory_host};
 use agent_host::{
     parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
 };
@@ -2822,7 +2824,9 @@ pub fn run() {
             watch_workspace,
             workspace_mtime,
             read_usage_history,
-            read_token_turns
+            read_token_turns,
+            read_memory_host,
+            write_memory_host
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
