@@ -1154,6 +1154,24 @@ async fn sync_agent_skill(name: String, enabled: Vec<(String, bool)>) -> AppResu
 }
 
 #[tauri::command]
+async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let mcp_path = agents.join("mcp.json");
+    let claude = home.join(".claude.json");
+    let kimi = home.join(".kimi-code").join("mcp.json");
+    tokio::task::spawn_blocking(move || {
+        let canon = std::fs::read_to_string(&mcp_path).unwrap_or_default();
+        let live_c = std::fs::read_to_string(&claude).unwrap_or_default();
+        let live_k = std::fs::read_to_string(&kimi).unwrap_or_default();
+        let (out, conflicts) = crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k]);
+        if let Some(p) = mcp_path.parent() { let _ = std::fs::create_dir_all(p); }
+        std::fs::write(&mcp_path, out).map_err(|e| AppError::Message(e.to_string()))?;
+        Ok(conflicts)
+    }).await.map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
 async fn save_webui_state(state: Value) -> AppResult<()> {
     let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
     {
@@ -2761,6 +2779,7 @@ pub fn run() {
             list_models_text,
             trust_folder,
             create_skill,
+            import_agents_mcp_first_open,
             sync_agent_skill,
             install_marketplace_skill,
             patch_skills_disabled,
