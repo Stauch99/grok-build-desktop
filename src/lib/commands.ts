@@ -22,6 +22,7 @@ export type CommandDef = {
     | "imagine-video"
     | "agents"
     | "memory"
+    | "dream"
     | "rewind";
   hubTab?: HubTab;
 };
@@ -60,7 +61,7 @@ export const SLASH_COMMANDS: CommandDef[] = [
   { name: "/remember", hint: "写入一条记忆" },
   { name: "/memory", hint: "记忆", local: "memory" },
   { name: "/flush", hint: "立刻写入记忆" },
-  { name: "/dream", hint: "整理记忆" },
+  { name: "/dream", hint: "整理记忆", local: "dream" },
   { name: "/skills", hint: "技能列表", local: "hub", hubTab: "skills" },
   { name: "/mcps", hint: "MCP 服务器", local: "hub", hubTab: "mcp" },
   { name: "/hooks", hint: "Hooks", local: "hub", hubTab: "hooks" },

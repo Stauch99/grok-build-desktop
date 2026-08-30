@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { IconGrokClose } from "../grok-icons";
+import type { Locale } from "../lib/i18n";
+import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
 import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
 import { ImagineGallery } from "./ImagineGallery";
@@ -37,6 +39,12 @@ export type ExtraOverlayProps = {
   memoryPath?: string;
   agentsPath?: string;
   cwd?: string;
+  locale?: Locale;
+  diary?: DiaryEntry[];
+  status?: OverlayStatus;
+  corpus?: string | null;
+  onDreamNow?: () => void;
+  userMdPath?: string;
   usagePoints: { at: number; used: number; size: number }[];
   usageDays: 7 | 30;
   onUsageDays: (d: 7 | 30) => void;
@@ -59,6 +67,12 @@ export function ExtraOverlay({
   memoryPath,
   agentsPath,
   cwd,
+  locale = "zh",
+  diary = [],
+  status = { kind: "idle", lastAt: null },
+  corpus = null,
+  onDreamNow,
+  userMdPath,
   usagePoints,
   usageDays,
   onUsageDays,
@@ -105,6 +119,12 @@ export function ExtraOverlay({
               cwd={cwd}
               onOpen={onOpenPath}
               onEdit={onOpenPath}
+              diary={diary}
+              status={status}
+              corpus={corpus}
+              onDreamNow={onDreamNow}
+              onOpenUserMd={userMdPath ? () => onOpenPath(userMdPath) : undefined}
+              locale={locale}
             />
           ) : null}
           {page === "usage" ? (

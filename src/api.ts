@@ -160,6 +160,26 @@ export const readTextFile = (path: string, allowRoot?: string | null) =>
   invoke<TextFilePreview>("read_text_file", { path, allowRoot: allowRoot ?? null });
 export type MemoryChangeRow = { path: string; mtime: number };
 export const listMemoryChanges = () => invoke<MemoryChangeRow[]>("list_memory_changes");
+
+export type MemoryHostSnapshot = {
+  userMd: string;
+  dreamsMd: string;
+  dailyMd: string;
+  stateJson: string;
+  memoryRoot: string;
+};
+
+export type MemoryHostPatch = {
+  userMd?: string;
+  dreamsMd?: string;
+  dailyMd?: string;
+  dailyDay?: string;
+  stateJson?: string;
+};
+
+export const readMemoryHost = () => invoke<MemoryHostSnapshot>("read_memory_host");
+export const writeMemoryHost = (patch: MemoryHostPatch) =>
+  invoke<void>("write_memory_host", { patch });
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const openReviewPath = (path: string, allowRoot: string) => invoke<void>("open_review_path", { path, allowRoot });
 export type SessionUpdates = {
@@ -384,8 +404,10 @@ export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn
     const inner = acpMessageFromEvent(raw).payload;
     handler(typeof inner === "string" ? inner : String(inner ?? ""));
   });
-export const onAgentExit = (handler: () => void): Promise<UnlistenFn> =>
-  listen("agent-exit", () => handler());
+export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("agent-exit", (e) => {
+    handler(acpMessageFromEvent(e.payload).agentId);
+  });
 export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
   listen("tray-open-last", () => handler());
 

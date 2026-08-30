@@ -34,4 +34,8 @@ describe("daily file", () => {
     const text = formatDailyFile("2026-08-30", lines);
     expect(parseDailyFile(text)).toEqual(lines);
   });
+
+  it("parseDailyFile is empty for untagged model prose", () => {
+    expect(parseDailyFile("# 2026-08-30\njust a summary of the day\n")).toEqual([]);
+  });
 });

@@ -1128,6 +1128,104 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 }
 .memory-dock button:hover { background: var(--bg-hover); }
 
+.memory-inject-chip {
+  width: min(100%, var(--thread, 680px));
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  color: var(--muted);
+  font-size: var(--ui-small);
+}
+.memory-inject-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+}
+.memory-inject-chip button:hover { background: var(--bg-hover); }
+
+.memory-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+.memory-dream-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
+  gap: 20px;
+  min-height: 0;
+  align-items: start;
+}
+.memory-dream-left { min-width: 0; }
+.memory-dream-left h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.memory-dream-body {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.memory-dream-status,
+.memory-dream-corpus {
+  margin: 0 0 8px;
+  font-size: var(--ui-small);
+  color: var(--muted);
+}
+.memory-dream-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.memory-dream-actions .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.memory-dream-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.memory-dream-timeline button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  min-height: 32px;
+  border-radius: var(--radius-xl);
+  font-size: var(--ui-small);
+  color: var(--muted);
+}
+.memory-dream-timeline button.active,
+.memory-dream-timeline button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.memory-project-files {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.memory-project-files summary {
+  cursor: pointer;
+  font-size: var(--ui-small);
+  color: var(--muted);
+  padding: 6px 0;
+}
+.memory-project-files summary:hover { color: var(--text); }
+
 .preview-pane {
   flex: 0 0 auto;
   min-width: 0;

@@ -27,6 +27,32 @@ export function nextLocalHour(now: number, timeZone: string, hour: number): numb
   return now + 24 * 60 * 60 * 1000;
 }
 
+export function armRecurringLocalHour(args: {
+  hour: number;
+  timeZone: string;
+  now: () => number;
+  onFire: () => void;
+  setTimeout: (fn: () => void, ms: number) => unknown;
+  clearTimeout: (id: unknown) => void;
+}): () => void {
+  let tid: unknown;
+  let cleared = false;
+  const arm = () => {
+    if (cleared) return;
+    const now = args.now();
+    const delay = Math.max(50, nextLocalHour(now, args.timeZone, args.hour) - now);
+    tid = args.setTimeout(() => {
+      args.onFire();
+      arm();
+    }, delay);
+  };
+  arm();
+  return () => {
+    cleared = true;
+    args.clearTimeout(tid);
+  };
+}
+
 export function shouldCatchUp(args: { now: number; lastDeepAt: number | null; timeZone: string }): boolean {
   if (args.lastDeepAt == null) return true;
   return localDayStamp(args.lastDeepAt, args.timeZone) < localDayStamp(args.now, args.timeZone);

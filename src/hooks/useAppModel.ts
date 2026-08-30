@@ -113,6 +113,7 @@ import { BILLING_POLL_MS, scheduleIdle, shouldBlockComposer } from "../lib/agent
 import { useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { useAcpSession } from "./useAcpSession";
+import { useDreamJob } from "./useDreamJob";
 import { useGitWatcher } from "./useGitWatcher";
 import { usePermissionQueue } from "./usePermissionQueue";
 import { useCommandPalette } from "./useCommandPalette";
@@ -120,6 +121,7 @@ import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import { basename } from "../lib/text";
 import type { AgentId } from "../lib/agent-id";
+import { DEFAULT_MEMORY_SETTINGS, parseMemorySettings } from "../lib/memory-settings";
 
 export type AppConfirm = {
   title: string;
@@ -221,6 +223,10 @@ export function useAppModel() {
   const [splitQueue, setSplitQueue] = useState<QueueState>(emptyQueue);
   const [focused, setFocused] = useState(true);
   const [steerByDefault, setSteerByDefault] = useState(false);
+  const [injectUserMemory, setInjectUserMemory] = useState(DEFAULT_MEMORY_SETTINGS.injectUserMemory);
+  const [dreamingEnabled, setDreamingEnabled] = useState(DEFAULT_MEMORY_SETTINGS.dreamingEnabled);
+  const [dreamAgentId, setDreamAgentId] = useState<AgentId>(DEFAULT_MEMORY_SETTINGS.dreamAgentId);
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [unread, setUnread] = useState<UnreadMap>({});
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
   const [previewWidth, setPreviewWidth] = useState(PREVIEW.initial);
@@ -252,6 +258,16 @@ export function useAppModel() {
     setToast(msg);
     window.setTimeout(() => setToast(null), 2800);
   };
+
+  const dream = useDreamJob({
+    enabled: dreamingEnabled,
+    dreamAgentId,
+    selectedAgentId,
+    doctors,
+    locale,
+    settingsHydrated,
+    showToast,
+  });
 
   const acp = useAcpSession({
     cwd,
@@ -296,6 +312,8 @@ export function useAppModel() {
     setSplitQueue,
     onLocalSlash: (cmd, rest, dest) => runSlashRef.current(cmd, rest, dest),
     onCancelPermission: (target) => permissionCancelRef.current(target),
+    injectUserMemory,
+    userMd: dream.userMd,
   });
   const {
     sessionId,
@@ -325,6 +343,8 @@ export function useAppModel() {
     altSubmit,
     cancelTurn,
     onDraftChange,
+    injectedSessions,
+    dismissInjectedSession,
   } = acp;
 
   const mainPaneBusy = mainPaneIsBusy({ busy, sessionId, runningSessionId });
@@ -365,6 +385,9 @@ export function useAppModel() {
     autoArchiveDays,
     filePanelOpen: reviewOpen,
     steerByDefault,
+    injectUserMemory,
+    dreamingEnabled,
+    dreamAgentId,
     unread,
     sidebarWidth,
     previewWidth,
@@ -893,6 +916,10 @@ export function useAppModel() {
           review.hydrateLegacy({ open: state.filePanelOpen });
         }
         if (typeof state.steerByDefault === "boolean") setSteerByDefault(state.steerByDefault);
+        const memory = parseMemorySettings(state);
+        setInjectUserMemory(memory.injectUserMemory);
+        setDreamingEnabled(memory.dreamingEnabled);
+        setDreamAgentId(memory.dreamAgentId);
         setLocale(normalizeLocale(state.locale));
         if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
           setThemeFamily(state.themeFamily);
@@ -929,6 +956,8 @@ export function useAppModel() {
         void refreshModels();
       } catch (e) {
         showToast(String(e));
+      } finally {
+        setSettingsHydrated(true);
       }
     })();
   }, []);
@@ -1469,6 +1498,7 @@ export function useAppModel() {
     removeSession,
     restoreGenerated,
     beginEditTitle,
+    onDreamNow: dream.onDreamNow,
   });
   runSlashRef.current = runSlash;
 
@@ -1692,6 +1722,13 @@ export function useAppModel() {
     setSplitQueue,
     steerByDefault,
     setSteerByDefault,
+    injectUserMemory,
+    setInjectUserMemory,
+    dreamingEnabled,
+    setDreamingEnabled,
+    dreamAgentId,
+    setDreamAgentId,
+    doctors,
     unread,
     setUnread,
     sidebarWidth,
@@ -1809,5 +1846,14 @@ export function useAppModel() {
     selectedAgentId,
     setSelectedAgentId,
     hasOpenSession: !!acp.sessionId,
+    injectedSessions,
+    dismissInjectedSession,
+    dreamDiary: dream.diary,
+    dreamStatus: dream.status,
+    dreamCorpus: dream.corpus,
+    dreamUserMdPath: dream.userMdPath,
+    onDreamNow: dream.onDreamNow,
+    profileUpdated: dream.profileUpdated,
+    dismissProfileUpdated: dream.dismissProfileUpdated,
   };
 }

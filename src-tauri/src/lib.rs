@@ -26,7 +26,9 @@ mod session_scan;
 mod session_lookup;
 mod acp_loop;
 mod agent_registry;
+mod memory_host;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
+use memory_host::{read_memory_host, write_memory_host};
 use agent_host::{
     parse_agent_id_arg, AgentId, AgentPool,
 };
@@ -2692,7 +2694,9 @@ pub fn run() {
             watch_workspace,
             workspace_mtime,
             read_usage_history,
-            read_token_turns
+            read_token_turns,
+            read_memory_host,
+            write_memory_host
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

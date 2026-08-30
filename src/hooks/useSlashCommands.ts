@@ -67,6 +67,7 @@ export type SlashCommandDeps = {
   removeSession: (s: SessionSummary) => Promise<void>;
   restoreGenerated: (id: string) => void;
   beginEditTitle: () => void;
+  onDreamNow: () => void;
 };
 
 export type SlashCommands = {
@@ -227,6 +228,11 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     if (cmd.local === "memory") {
       d.setDraft("");
       d.setExtraPage("memory");
+      return;
+    }
+    if (cmd.local === "dream") {
+      d.setDraft("");
+      d.onDreamNow?.();
       return;
     }
     if (cmd.local === "plan") {

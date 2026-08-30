@@ -11,6 +11,8 @@ import {
 } from "./api";
 import { formatElapsed, liveWorkStatus } from "./lib/chat";
 import { sameCwd } from "./lib/inbox";
+import { agentChipLabel } from "./lib/agent-chip";
+import { isAgentId } from "./lib/agent-id";
 import { t } from "./lib/i18n";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
@@ -37,6 +39,7 @@ import { PreviewPane } from "./components/PreviewPane";
 import { ReviewRail } from "./components/ReviewRail";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryDock } from "./components/MemoryDock";
+import { MemoryInjectChip } from "./components/MemoryInjectChip";
 import { handleMdClick, ThreadColumn, WaitPill } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitHistory } from "./components/GitHistory";
@@ -193,6 +196,22 @@ export function App() {
     setSplitQueue,
     steerByDefault,
     setSteerByDefault,
+    injectUserMemory,
+    injectedSessions,
+    dismissInjectedSession,
+    dreamDiary,
+    dreamStatus,
+    dreamCorpus,
+    dreamUserMdPath,
+    onDreamNow,
+    profileUpdated,
+    dismissProfileUpdated,
+    setInjectUserMemory,
+    dreamingEnabled,
+    setDreamingEnabled,
+    dreamAgentId,
+    setDreamAgentId,
+    doctors,
     setUnread,
     sidebarWidth,
     setSidebarWidth,
@@ -722,6 +741,13 @@ return (
           >
             <RunStatusRegion status={runStatus} />
             {goal ? <GoalBar goal={goal} /> : null}
+            {sessionId && injectedSessions.has(sessionId) ? (
+              <MemoryInjectChip
+                locale={locale}
+                onOpen={() => setExtraPage("memory")}
+                onDismiss={() => dismissInjectedSession(sessionId)}
+              />
+            ) : null}
             {memoryChanges.length > 0 && (
               <MemoryDock
                 changes={memoryChanges}
@@ -742,6 +768,17 @@ return (
                 }}
               />
             )}
+            {profileUpdated && dreamUserMdPath ? (
+              <MemoryDock
+                title={t(locale, "memory.dockUpdated")}
+                changes={[{ path: dreamUserMdPath, mtime: Date.now() }]}
+                onOpen={() => {
+                  setExtraPage("memory");
+                  dismissProfileUpdated();
+                }}
+                onDismiss={dismissProfileUpdated}
+              />
+            ) : null}
             {subagentCards.map((s) =>
               s.status ? (
                 <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
@@ -1130,6 +1167,20 @@ return (
               onAutoArchiveDays={(n) => { setAutoArchiveDays(n); persist({ autoArchiveDays: n }); }}
               steerByDefault={steerByDefault}
               onSteerByDefault={(v) => { setSteerByDefault(v); persist({ steerByDefault: v }); }}
+              injectUserMemory={injectUserMemory}
+              onInjectUserMemory={(v) => { setInjectUserMemory(v); persist({ injectUserMemory: v }); }}
+              dreamingEnabled={dreamingEnabled}
+              onDreamingEnabled={(v) => { setDreamingEnabled(v); persist({ dreamingEnabled: v }); }}
+              dreamAgentId={dreamAgentId}
+              onDreamAgentId={(id) => {
+                if (!isAgentId(id)) return;
+                setDreamAgentId(id);
+                persist({ dreamAgentId: id });
+              }}
+              dreamAgentOptions={doctors.filter((d) => d.authPresent).map((d) => ({
+                id: d.agentId,
+                label: agentChipLabel(d.agentId),
+              }))}
               cli={cli}
               onCli={(next) => {
                 setCli(next);
@@ -1182,6 +1233,12 @@ return (
         memoryPath={memoryPath}
         agentsPath={agentsMdPath}
         cwd={cwd || inboxCwd}
+        locale={locale}
+        diary={dreamDiary}
+        status={dreamStatus}
+        corpus={dreamCorpus}
+        onDreamNow={onDreamNow}
+        userMdPath={dreamUserMdPath || undefined}
         usagePoints={usageHistory}
         usageDays={usageDays}
         onUsageDays={setUsageDays}
