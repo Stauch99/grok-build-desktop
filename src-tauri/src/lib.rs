@@ -15,6 +15,10 @@ mod cli_bridge;
 mod rpc_allowlist;
 mod agent_host;
 pub(crate) use rpc_allowlist::rpc_payload_allowed;
+use agent_host::{
+    default_spawn_profile, parse_agent_id_arg, tagged_acp_event, AgentId, AgentPool,
+};
+use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 use cli_bridge::{
     create_skill, git_blame, git_branches, git_commit, git_log, git_status_untracked, hide_window, list_agents_dir, list_file_tree,
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
@@ -58,12 +62,14 @@ struct AgentSession {
     tx: mpsc::Sender<String>,
     #[allow(dead_code)]
     generation: u64,
+    #[allow(dead_code)]
+    agent_id: AgentId,
 }
 
 pub(crate) struct AppState {
     next_id: AtomicU64,
     generation: AtomicU64,
-    session: Mutex<Option<AgentSession>>,
+    children: Mutex<AgentPool<AgentSession>>,
     workspace: Mutex<Option<PathBuf>>,
     workspaces: Mutex<HashMap<String, PathBuf>>,
     pub(crate) hide_on_close: Mutex<bool>,
@@ -76,7 +82,7 @@ impl Default for AppState {
         Self {
             next_id: AtomicU64::new(1),
             generation: AtomicU64::new(1),
-            session: Mutex::new(None),
+            children: Mutex::new(AgentPool::new()),
             workspace: Mutex::new(None),
             workspaces: Mutex::new(HashMap::new()),
             hide_on_close: Mutex::new(true),
@@ -286,7 +292,13 @@ async fn write_line(stdin: &mut ChildStdin, line: &str) -> AppResult<()> {
         .map_err(|e| AppError::Message(format!("flush grok stdin: {e}")))
 }
 
-fn handle_agent_request(app: &AppHandle, msg: &Value, workspace: Option<&Path>) -> Option<Value> {
+fn handle_agent_request(
+    app: &AppHandle,
+    msg: &Value,
+    workspace: Option<&Path>,
+    agent_id: AgentId,
+    generation: u64,
+) -> Option<Value> {
     let method = msg.get("method")?.as_str()?;
     let id = msg.get("id")?.clone();
     let params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -346,7 +358,10 @@ fn handle_agent_request(app: &AppHandle, msg: &Value, workspace: Option<&Path>) 
             }
         }
         _ => {
-            let _ = app.emit("acp-request", msg);
+            let _ = app.emit(
+                "acp-request",
+                tagged_acp_event(agent_id, generation, msg.clone()),
+            );
             None
         }
     }
@@ -358,6 +373,7 @@ fn spawn_reader(
     stderr: tokio::process::ChildStderr,
     tx: mpsc::Sender<String>,
     generation: u64,
+    agent_id: AgentId,
 ) {
     let app_out = app.clone();
     let app_err = app.clone();
@@ -388,35 +404,54 @@ fn spawn_reader(
                                     }
                                     s.workspace.try_lock().ok().and_then(|g| g.clone())
                                 });
-                                if let Some(reply) =
-                                    handle_agent_request(&app_out, &msg, workspace.as_deref())
-                                {
+                                if let Some(reply) = handle_agent_request(
+                                    &app_out,
+                                    &msg,
+                                    workspace.as_deref(),
+                                    agent_id,
+                                    generation,
+                                ) {
                                     let _ = tx.send(reply.to_string()).await;
                                     continue;
                                 }
                             }
-                            let _ = app_out.emit("acp-message", &msg);
+                            let _ = app_out.emit(
+                                "acp-message",
+                                tagged_acp_event(agent_id, generation, msg),
+                            );
                         }
                         Err(_) => {
-                            let _ = app_out.emit("acp-log", line);
+                            let _ = app_out.emit(
+                                "acp-log",
+                                tagged_acp_event(agent_id, generation, json!(line)),
+                            );
                         }
                     }
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    let _ = app_out.emit("acp-stderr", format!("stdout read error: {e}"));
+                    let _ = app_out.emit(
+                        "acp-stderr",
+                        tagged_acp_event(agent_id, generation, json!(format!("stdout read error: {e}"))),
+                    );
                     break;
                 }
             }
         }
-        let _ = app_out.emit("agent-exit", json!({ "generation": generation }));
+        let _ = app_out.emit(
+            "agent-exit",
+            tagged_acp_event(agent_id, generation, Value::Null),
+        );
     });
 
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if !line.trim().is_empty() {
-                let _ = app_err.emit("acp-stderr", line);
+                let _ = app_err.emit(
+                    "acp-stderr",
+                    tagged_acp_event(agent_id, generation, json!(line)),
+                );
             }
         }
     });
@@ -432,8 +467,16 @@ fn spawn_writer(mut stdin: ChildStdin, mut rx: mpsc::Receiver<String>) {
     });
 }
 
+async fn stop_one(state: &AppState, id: AgentId) {
+    if let Some(mut session) = state.children.lock().await.remove(id) {
+        let _ = session.child.start_kill();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), session.child.wait()).await;
+    }
+}
+
 async fn stop_agent_inner(state: &AppState) {
-    if let Some(mut session) = state.session.lock().await.take() {
+    let sessions = state.children.lock().await.drain();
+    for (_, mut session) in sessions {
         let _ = session.child.start_kill();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), session.child.wait()).await;
     }
@@ -484,72 +527,123 @@ async fn set_workspace(
 }
 
 #[tauri::command]
-async fn start_agent(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppResult<Value> {
-    stop_agent_inner(&state).await;
-
-    let grok = resolve_grok().ok_or_else(|| {
-        AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
-    })?;
-
-    let mut cmd = Command::new(&grok);
-    cmd.args(["agent", "stdio"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    let mut path = std::env::var("PATH").unwrap_or_default();
-    let extra = grok_home().join("bin");
-    if !path.split(':').any(|p| Path::new(p) == extra) {
-        path = format!("{}:{path}", extra.display());
-    }
-    cmd.env("PATH", path);
-    cmd.env("HOME", dirs_home());
-    cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Message(format!("启动 grok agent 失败: {e}")))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::Message("grok stdout missing".into()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| AppError::Message("grok stderr missing".into()))?;
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Message("grok stdin missing".into()))?;
+async fn start_agent(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    agent_id: Option<String>,
+) -> AppResult<Value> {
+    let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+    stop_one(&state, id).await;
 
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = mpsc::channel::<String>(64);
-    spawn_reader(app, stdout, stderr, tx.clone(), generation);
+
+    let (mut child, grok_path) = if id == AgentId::Grok {
+        let grok = resolve_grok().ok_or_else(|| {
+            AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
+        })?;
+
+        let mut cmd = Command::new(&grok);
+        cmd.args(["agent", "stdio"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        let mut path = std::env::var("PATH").unwrap_or_default();
+        let extra = grok_home().join("bin");
+        if !path.split(':').any(|p| Path::new(p) == extra) {
+            path = format!("{}:{path}", extra.display());
+        }
+        cmd.env("PATH", path);
+        cmd.env("HOME", dirs_home());
+        cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
+
+        let child = cmd
+            .spawn()
+            .map_err(|e| AppError::Message(format!("启动 grok agent 失败: {e}")))?;
+        (child, Some(grok))
+    } else {
+        let profile = default_spawn_profile(id);
+        let mut cmd = Command::new(&profile.command);
+        cmd.args(&profile.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .env("HOME", dirs_home());
+
+        let child = cmd.spawn().map_err(|e| {
+            AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str()))
+        })?;
+        (child, None)
+    };
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Message("agent stdout missing".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Message("agent stderr missing".into()))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::Message("agent stdin missing".into()))?;
+
+    spawn_reader(app, stdout, stderr, tx.clone(), generation, id);
     spawn_writer(stdin, rx);
-    *state.session.lock().await = Some(AgentSession {
-        child,
-        tx,
-        generation,
+    state.children.lock().await.insert(
+        id,
+        AgentSession {
+            child,
+            tx,
+            generation,
+            agent_id: id,
+        },
+    );
+
+    let mut result = json!({
+        "ok": true,
+        "agentId": id.as_str(),
+        "generation": generation,
     });
-    Ok(json!({ "ok": true, "grok": grok.display().to_string(), "generation": generation }))
+    if let Some(grok) = grok_path {
+        result["grok"] = json!(grok.display().to_string());
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-async fn stop_agent(state: State<'_, Arc<AppState>>) -> AppResult<()> {
-    stop_agent_inner(&state).await;
+async fn stop_agent(
+    state: State<'_, Arc<AppState>>,
+    agent_id: Option<String>,
+) -> AppResult<()> {
+    if agent_id.is_none() {
+        stop_agent_inner(&state).await;
+    } else {
+        let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+        stop_one(&state, id).await;
+    }
     Ok(())
 }
 
 #[tauri::command]
-async fn send_raw(state: State<'_, Arc<AppState>>, payload: Value) -> AppResult<()> {
-    if !rpc_payload_allowed(&payload) {
+async fn send_raw(
+    state: State<'_, Arc<AppState>>,
+    payload: Value,
+    agent_id: Option<String>,
+) -> AppResult<()> {
+    let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+    let caps = caps_for_agent(id);
+    if !rpc_payload_allowed_for(&payload, &caps) {
         return Err(AppError::Message("不允许的 RPC 方法".into()));
     }
     let line = serde_json::to_string(&payload).map_err(|e| AppError::Message(e.to_string()))?;
-    let guard = state.session.lock().await;
+    let guard = state.children.lock().await;
     let session = guard
-        .as_ref()
+        .get(id)
         .ok_or_else(|| AppError::Message("agent 未启动".into()))?;
     session
         .tx
