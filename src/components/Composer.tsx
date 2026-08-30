@@ -43,6 +43,11 @@ import {
   type MentionHit,
 } from "../lib/mentions";
 import { type QueueState } from "../lib/prompt-queue";
+import {
+  applyImeComposition,
+  emptyImeEnterState,
+  imeBlocksEnter,
+} from "../lib/ime-enter";
 
 export type ComposerHandle = {
   focus: () => void;
@@ -187,6 +192,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const mentionQueryRef = useRef("");
   const mentionVisibleRef = useRef(false);
   const mentionOwnerRef = useRef(cwd);
+  const imeRef = useRef(emptyImeEnterState());
   const mentionEffectOwnerRef = useRef(cwd);
   mentionOwnerRef.current = cwd;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -462,6 +468,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       return;
     }
     if (e.key !== "Enter" || e.shiftKey) return;
+    if (
+      imeBlocksEnter(
+        { key: e.key, isComposing: e.nativeEvent.isComposing, keyCode: e.nativeEvent.keyCode },
+        imeRef.current,
+        Date.now(),
+      )
+    ) {
+      return;
+    }
 
     const mod = e.metaKey || e.ctrlKey;
     const sendKey = enterSends ? !mod : mod;
@@ -612,6 +627,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           aria-label="输入提示词"
           onChange={(e) => void handleChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onCompositionStart={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+          }}
+          onCompositionEnd={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+          }}
         />
         <div className="composer-foot">
           <div className="left">

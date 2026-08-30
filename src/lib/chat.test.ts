@@ -69,6 +69,12 @@ describe("applyChatUpdate", () => {
     expect(s.items[0]).toMatchObject({ kind: "tool", id: "c1", status: "completed", title: "Read file" });
   });
 
+  it("applies usage_update even without a context window size", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("usage_update", { input: 10, output: 4 }));
+    expect(s.usage).toMatchObject({ input: 10, output: 4, used: 14 });
+  });
+
   it("does not drop streamed text on turn_completed usage", () => {
     let s = emptyChat();
     s = applyChatUpdate(s, upd("agent_message_chunk", { content: { text: "Hello" } }));
@@ -324,7 +330,10 @@ describe("trailingWorkStartedAt", () => {
 
   it("is undefined when the trailing items have no clock", () => {
     expect(trailingWorkStartedAt([{ kind: "tool", id: "k", title: "read", status: "pending" }])).toBeUndefined();
-    expect(trailingWorkStartedAt([{ kind: "user", id: "u", text: "hi", at: 1 }])).toBeUndefined();
+  });
+
+  it("uses the user send time while waiting for the first work item", () => {
+    expect(trailingWorkStartedAt([{ kind: "user", id: "u", text: "hi", at: 1 }])).toBe(1);
   });
 });
 

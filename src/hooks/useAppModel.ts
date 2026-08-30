@@ -75,7 +75,7 @@ import { turnStatsFromItems } from "../lib/usage-split";
 import { activityKey, stallNote } from "../lib/stall";
 import { deriveReviewTabs, persistReviewOpen, reconcileReviewTab } from "../lib/review-rail";
 import { bashTools } from "../lib/tool-render";
-import { deriveRunStatus } from "../lib/run-status";
+import { deriveRunStatus, mainPaneIsBusy } from "../lib/run-status";
 import { derivePermissionView, type PermissionPane } from "../lib/permission-view";
 import { selectPanePermissions } from "../lib/permission-queue";
 import { selectPaneMentionSource, type PaneMentionData } from "../lib/pane-mentions";
@@ -316,7 +316,7 @@ export function useAppModel() {
     onDraftChange,
   } = acp;
 
-  const mainPaneBusy = busy && !!sessionId && sessionId === runningSessionId;
+  const mainPaneBusy = mainPaneIsBusy({ busy, sessionId, runningSessionId });
   const review = useReviewController({
     cwd,
     ownerKey: (sessionId || "") + "|" + cwd,
@@ -1531,8 +1531,16 @@ export function useAppModel() {
   const goal = goalFromPlan(plan);
   const health = agentHealth({ ready, connecting, sawExit });
   const runStatus = deriveRunStatus({ disconnected: health === "disconnected", trustRequired: !!(inspect && cwd && inspect.projectTrusted === false), pending: mainPermissionView.statusPending, running: mainPaneBusy, stalled: !!stallText, stallDetail: stallText, planComplete });
-  const turnStats = turnStatsFromItems(chat.items, usage?.output);
-  const splitTurnStats = split ? turnStatsFromItems(split.chat.items, split.chat.usage?.output) : null;
+  const turnStats = turnStatsFromItems(chat.items, usage?.output, {
+    now: Date.now(),
+    live: mainPaneBusy,
+  });
+  const splitTurnStats = split
+    ? turnStatsFromItems(split.chat.items, split.chat.usage?.output, {
+        now: Date.now(),
+        live: splitBusy,
+      })
+    : null;
 
   return {
     theme,

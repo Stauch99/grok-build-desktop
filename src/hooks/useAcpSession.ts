@@ -180,6 +180,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function beginMainRun(sid: string) {
     runningSessionIdRef.current = sid;
     setRunningSessionId(sid);
+    busyRef.current = true;
     setBusy(true);
   }
 
@@ -281,7 +282,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
         pendingDest.current.delete(id);
         if (dest === "split") d.setSplitBusy(false);
-        else setBusy(false);
+        else {
+          busyRef.current = false;
+          setBusy(false);
+        }
         pendingPrompt.current = null;
       }
     }
@@ -590,7 +594,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function submitPrompt(text: string, dest: "main" | "split" = "main") {
     const d = depsRef.current;
     if (!text.trim()) return;
-    const paneBusy = dest === "split" ? d.splitBusy : (busy && !!sessionIdRef.current && sessionIdRef.current === runningSessionIdRef.current);
+    const paneBusy = dest === "split" ? d.splitBusy : busyRef.current;
     if (!paneBusy) {
       void sendPrompt(text, dest);
       return;
@@ -609,7 +613,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const toSplit = dest === "split";
     if (!text.trim() || loadingSession) return;
-    if (toSplit ? d.splitBusy : busy) return;
+    if (toSplit ? d.splitBusy : busyRef.current) return;
     if (!toSplit && text.startsWith("/")) {
       const name = text.split(/\s/)[0];
       const found = filterCommands(name, chat.commands).find((c) => c.name === name);
@@ -656,14 +660,21 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     d.setAtBottom(true);
     pendingPrompt.current = "main";
+    const existing = sessionIdRef.current;
+    if (existing) beginMainRun(existing);
+    else {
+      busyRef.current = true;
+      setBusy(true);
+    }
     try {
       await ensureAgent();
       let sid = sessionIdRef.current;
       if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
-      beginMainRun(sid);
+      if (sid !== existing) beginMainRun(sid);
       if (d.cwd) await setWorkspace(d.cwd, sid);
       await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest: "main" });
     } catch (e) {
+      busyRef.current = false;
       setBusy(false);
       d.showToast(String(e));
     }
@@ -677,7 +688,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await d.onCancelPermission(target);
     } finally {
       if (target === "split") d.setSplitBusy(false);
-      else setBusy(false);
+      else {
+        busyRef.current = false;
+        setBusy(false);
+      }
     }
   }
 

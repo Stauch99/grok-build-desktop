@@ -67,11 +67,37 @@ describe("turnStatsFromItems", () => {
         [
           { kind: "user", at: 1000 },
           { kind: "assistant", at: 1300, until: 2000 },
-          { kind: "user", at: 3000 },
         ],
         50,
       ),
     ).toEqual({ ttftMs: 300, toksPerSec: 50 });
+  });
+
+  it("tracks the open turn after a new user message instead of the previous reply", () => {
+    expect(
+      turnStatsFromItems(
+        [
+          { kind: "user", at: 1000 },
+          { kind: "assistant", at: 1300, until: 2000 },
+          { kind: "user", at: 3000 },
+        ],
+        50,
+        { now: 3600, live: true },
+      ),
+    ).toEqual({ ttftMs: 600, toksPerSec: 0 });
+  });
+
+  it("uses now as the end time while the current turn is streaming", () => {
+    expect(
+      turnStatsFromItems(
+        [
+          { kind: "user", at: 1000 },
+          { kind: "assistant", at: 1300, until: 1500 },
+        ],
+        40,
+        { now: 2000, live: true },
+      ),
+    ).toEqual({ ttftMs: 300, toksPerSec: 40 });
   });
 });
 
@@ -82,9 +108,9 @@ describe("formatStatsFooter", () => {
     );
   });
 
-  it("collapses long TTFT into minutes", () => {
+  it("collapses long TTFT into minutes and hides a zero rate", () => {
     expect(formatStatsFooter({ ttftMs: 342000, toksPerSec: 0, sessionTokens: 847 })).toBe(
-      "TTFT 5.7m · 0 tok/s · 847 tok",
+      "TTFT 5.7m · — tok/s · 847 tok",
     );
   });
 

@@ -13,3 +13,14 @@ export function deriveRunStatus(input: RunStatusInput): RunStatus {
   else if (input.planComplete) kind = "plan-complete";
   return kind === "stalled" && input.stallDetail ? { kind, label: LABELS[kind], detail: input.stallDetail } : { kind, label: LABELS[kind] };
 }
+
+/** Running chrome for this pane, including the gap after send before session ids catch up. */
+export function mainPaneIsBusy(opts: {
+  busy: boolean;
+  sessionId: string | null;
+  runningSessionId: string | null;
+}): boolean {
+  if (!opts.busy) return false;
+  if (opts.runningSessionId && opts.sessionId && opts.sessionId !== opts.runningSessionId) return false;
+  return true;
+}

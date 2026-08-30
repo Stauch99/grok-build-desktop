@@ -78,25 +78,34 @@ export function statsLine(opts: {
 export function turnStatsFromItems(
   items: { kind: string; at?: number; until?: number }[],
   outputTokens?: number,
+  opts?: { now?: number; live?: boolean },
 ): StatsLine | null {
-  let assistant: { at?: number; until?: number } | undefined;
-  let user: { at?: number } | undefined;
+  let userIdx = -1;
   for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (!assistant) {
-      if (it.kind === "assistant") assistant = it;
-      continue;
-    }
-    if (it.kind === "user") {
-      user = it;
+    if (items[i].kind === "user") {
+      userIdx = i;
       break;
     }
   }
+  if (userIdx < 0) return null;
+  const user = items[userIdx];
+  let firstAt: number | undefined;
+  let lastUntil: number | undefined;
+  for (let i = userIdx + 1; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind !== "assistant" && it.kind !== "thought") continue;
+    if (firstAt == null && it.at != null) firstAt = it.at;
+    if (it.until != null) lastUntil = it.until;
+    else if (it.at != null) lastUntil = it.at;
+  }
+  const live = opts?.live === true;
+  const now = opts?.now;
+  if (firstAt == null && !live) return null;
   return statsLine({
-    startedAt: user?.at,
-    firstTokenAt: assistant?.at,
-    endedAt: assistant?.until,
-    outputTokens,
+    startedAt: user.at,
+    firstTokenAt: firstAt ?? now,
+    endedAt: live ? now : lastUntil,
+    outputTokens: firstAt == null ? 0 : outputTokens,
   });
 }
 
@@ -108,7 +117,7 @@ export type StatsFooter = {
 
 export function formatStatsFooter(s: StatsFooter): string {
   const ttft = s.ttftMs == null ? "—" : compactLatency(s.ttftMs);
-  const rate = s.toksPerSec == null ? "—" : String(Math.round(s.toksPerSec));
+  const rate = s.toksPerSec == null || s.toksPerSec <= 0 ? "—" : String(Math.round(s.toksPerSec));
   const tok = s.sessionTokens == null ? "—" : compactCount(s.sessionTokens);
   return `TTFT ${ttft} · ${rate} tok/s · ${tok} tok`;
 }

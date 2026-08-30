@@ -120,7 +120,10 @@ export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
   let start: number | undefined;
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
-    if (it.kind === "user") break;
+    if (it.kind === "user") {
+      if (start == null) start = it.at;
+      break;
+    }
     if (it.at != null) start = it.at;
   }
   return start;
@@ -160,7 +163,15 @@ function usageFromUpdate(
   const kind = String(update.sessionUpdate ?? "");
   if (kind === "usage_update") {
     const next = parseUsageSplit(update, prev);
-    if (!next.size) return prev;
+    if (
+      next.used == null &&
+      next.size == null &&
+      next.input == null &&
+      next.output == null &&
+      next.cache == null
+    ) {
+      return prev;
+    }
     return next;
   }
   if (kind === "auto_compact_started") {
