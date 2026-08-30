@@ -67,6 +67,7 @@ import { countNeedsYou } from "../lib/session-badge";
 import { fitLayout, loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { paneComposerTakeover, heroLayout, situationAutoCollapse } from "../lib/shell-ia";
 import { agentHealth } from "../lib/agent-health";
+import { classifyAuthKind, shouldPollBilling } from "../lib/auth-kind";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
@@ -133,7 +134,6 @@ export function useAppModel() {
   const [hubTab, setHubTab] = useState<HubTab>("skills");
   const [locale, setLocale] = useState<Locale>("zh");
   const [themeFamily, setThemeFamily] = useState<"default" | "paper" | "ink">("default");
-  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [hideToTray, setHideToTray] = useState(true);
   const [defaultRail, setDefaultRail] = useState<"tasks" | "changes" | "context">("tasks");
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
@@ -924,6 +924,11 @@ export function useAppModel() {
   const refreshBillingRef = useRef<() => Promise<void>>(async () => {});
   refreshBillingRef.current = async () => {
     if (!readyRef.current || billingInflight.current) return;
+    const kind = classifyAuthKind({
+      hasSubscriptionSession: !!info?.authPresent,
+      hasApiKey: false,
+    });
+    if (!shouldPollBilling(kind)) return;
     billingInflight.current = true;
     try {
       const raw = await rpc("_x.ai/billing", {}, { timeoutMs: 8000 });

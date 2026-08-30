@@ -14,3 +14,7 @@ export function classifyAuthKind(evidence: AuthEvidence): AuthKind {
 export function shouldShowUsageRing(kind: AuthKind): boolean {
   return kind === "subscription";
 }
+
+export function shouldPollBilling(kind: AuthKind): boolean {
+  return shouldShowUsageRing(kind);
+}

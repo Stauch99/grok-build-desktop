@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyAuthKind, shouldShowUsageRing } from "./auth-kind";
+import { classifyAuthKind, shouldPollBilling, shouldShowUsageRing } from "./auth-kind";
 
 describe("classifyAuthKind", () => {
   it("returns none when neither login nor key exists", () => {
@@ -24,5 +24,13 @@ describe("shouldShowUsageRing", () => {
     expect(shouldShowUsageRing("subscription")).toBe(true);
     expect(shouldShowUsageRing("api")).toBe(false);
     expect(shouldShowUsageRing("none")).toBe(false);
+  });
+});
+
+describe("shouldPollBilling", () => {
+  it("matches shouldShowUsageRing for subscription, api, and none", () => {
+    for (const kind of ["subscription", "api", "none"] as const) {
+      expect(shouldPollBilling(kind)).toBe(shouldShowUsageRing(kind));
+    }
   });
 });
