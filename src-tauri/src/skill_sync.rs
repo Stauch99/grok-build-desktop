@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
@@ -66,6 +66,36 @@ fn apply_skill_link_unix(
         }
     }
     Ok("kept")
+}
+
+pub(crate) fn skill_dest(user_home: &Path, agent: &str, name: &str) -> Option<PathBuf> {
+    let subdir = match agent {
+        "grok" => ".grok/skills",
+        "kimi" => ".kimi-code/skills",
+        "claude" => ".claude/skills",
+        "codex" => ".codex/skills",
+        _ => return None,
+    };
+    Some(user_home.join(subdir).join(name))
+}
+
+pub(crate) fn sync_skill_to_agents(
+    canonical: &Path,
+    user_home: &Path,
+    name: &str,
+    enabled: &[(&str, bool)],
+) -> Vec<(String, Result<&'static str, String>)> {
+    enabled
+        .iter()
+        .filter_map(|&(agent, on)| {
+            skill_dest(user_home, agent, name).map(|dest| {
+                (
+                    agent.to_string(),
+                    apply_skill_link(canonical, &dest, on),
+                )
+            })
+        })
+        .collect()
 }
 
 #[cfg(all(test, unix))]
@@ -185,5 +215,75 @@ mod tests {
             apply_skill_link(&canonical, &missing, false).unwrap(),
             "noop"
         );
+    }
+
+    #[test]
+    fn skill_dest_maps_known_agents() {
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            skill_dest(&home, "grok", "pdf"),
+            Some(home.join(".grok/skills/pdf"))
+        );
+        assert_eq!(
+            skill_dest(&home, "kimi", "pdf"),
+            Some(home.join(".kimi-code/skills/pdf"))
+        );
+        assert_eq!(
+            skill_dest(&home, "claude", "pdf"),
+            Some(home.join(".claude/skills/pdf"))
+        );
+        assert_eq!(
+            skill_dest(&home, "codex", "pdf"),
+            Some(home.join(".codex/skills/pdf"))
+        );
+        assert_eq!(skill_dest(&home, "unknown", "pdf"), None);
+    }
+
+    #[test]
+    fn sync_skill_to_agents_links_grok_when_enabled() {
+        let root = temp_root("batch_link");
+        let home = root.join("home");
+        let canonical = root.join("store/pdf");
+        fs::create_dir_all(&canonical).unwrap();
+
+        let results = sync_skill_to_agents(&canonical, &home, "pdf", &[("grok", true)]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "grok");
+        assert_eq!(*results[0].1.as_ref().unwrap(), "linked");
+
+        let dest = home.join(".grok/skills/pdf");
+        assert!(dest.is_symlink());
+        assert_eq!(fs::read_link(&dest).unwrap(), canonical);
+    }
+
+    #[test]
+    fn sync_skill_to_agents_unlinks_grok_when_disabled() {
+        let root = temp_root("batch_unlink");
+        let home = root.join("home");
+        let canonical = root.join("store/pdf");
+        fs::create_dir_all(&canonical).unwrap();
+
+        sync_skill_to_agents(&canonical, &home, "pdf", &[("grok", true)]);
+        let dest = home.join(".grok/skills/pdf");
+        assert!(dest.is_symlink());
+
+        let results = sync_skill_to_agents(&canonical, &home, "pdf", &[("grok", false)]);
+        assert_eq!(*results[0].1.as_ref().unwrap(), "unlinked");
+        assert!(!dest_exists(&dest));
+    }
+
+    #[test]
+    fn sync_skill_to_agents_reports_conflict_for_real_folder() {
+        let root = temp_root("batch_conflict");
+        let home = root.join("home");
+        let canonical = root.join("store/pdf");
+        let dest = home.join(".grok/skills/pdf");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("SKILL.md"), "# skill").unwrap();
+
+        let results = sync_skill_to_agents(&canonical, &home, "pdf", &[("grok", true)]);
+        assert_eq!(*results[0].1.as_ref().unwrap(), "conflict");
+        assert!(dest.is_dir());
     }
 }
