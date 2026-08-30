@@ -30,6 +30,9 @@ const base: WebuiSnapshot = {
   pinnedProjects: [],
   sessionTokens: {},
   sidebarList: DEFAULT_SIDEBAR_LIST,
+  injectUserMemory: true,
+  dreamingEnabled: true,
+  dreamAgentId: "grok",
 };
 
 describe("buildWebuiState", () => {
@@ -43,6 +46,10 @@ describe("buildWebuiState", () => {
 
   it("keeps filePanelOpen from the snapshot when the partial omits it", () => {
     expect(buildWebuiState({ ...base, filePanelOpen: true }, { unread: { s1: "done" } }).filePanelOpen).toBe(true);
+  });
+
+  it("keeps memory settings on the snapshot", () => {
+    expect(buildWebuiState({ ...base, injectUserMemory: false, dreamAgentId: "claude" }, {}).dreamAgentId).toBe("claude");
   });
 });
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { saveWebuiState, type WebuiState } from "../api";
+import type { AgentId } from "../lib/agent-id";
 import type { Locale } from "../lib/i18n";
 import { WEBUI_PERSIST_MS } from "../lib/persist-cache";
 import type { Mode } from "../lib/mode";
@@ -36,6 +37,9 @@ export type WebuiSnapshot = {
   pinnedProjects: string[];
   sessionTokens: Record<string, number>;
   sidebarList: SidebarListPrefs;
+  injectUserMemory?: boolean;
+  dreamingEnabled?: boolean;
+  dreamAgentId?: AgentId;
 };
 
 export function buildWebuiState(snapshot: WebuiSnapshot, partial: WebuiState = {}): WebuiState {

@@ -22,6 +22,11 @@ describe("i18n", () => {
     expect(Object.keys(ZH).sort()).toEqual(Object.keys(EN).sort());
   });
 
+  it("has user-memory settings copy", () => {
+    expect(t("zh", "settings.injectUserMemory")).toBe("用户画像注入");
+    expect(t("en", "settings.dreamAgentId")).toBe("Dream with");
+  });
+
   it("differs on at least 20 chrome keys", () => {
     const differed = Object.keys(ZH).filter((key) => t("en", key) !== t("zh", key));
     expect(differed.length).toBeGreaterThanOrEqual(20);

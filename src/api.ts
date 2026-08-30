@@ -71,6 +71,9 @@ export type WebuiState = {
     statusFilter?: Array<"needs-you" | "unread" | "working" | "done">;
     includeArchived?: boolean;
   };
+  injectUserMemory?: boolean;
+  dreamingEnabled?: boolean;
+  dreamAgentId?: AgentId;
 };
 
 export type WorkspaceEntry = {
