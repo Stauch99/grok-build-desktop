@@ -1,8 +1,23 @@
 export const BILLING_POLL_MS = 120_000;
 export const IDLE_PRELOAD_TIMEOUT_MS = 2000;
 
+/** initialize must fail faster than the generic 180s RPC timeout so chip pick is honest. */
+export function initializeTimeoutMs(): number {
+  return 20_000;
+}
+
 export function shouldBlockComposer(connecting: boolean, initialized: boolean): boolean {
   return connecting || !initialized;
+}
+
+/** Unbound 新对话: allow type/send so first send can boot the selected CLI. */
+export function shouldBlockIdleComposer(
+  connecting: boolean,
+  initialized: boolean,
+  hasOpenSession: boolean,
+): boolean {
+  if (!hasOpenSession) return connecting;
+  return shouldBlockComposer(connecting, initialized);
 }
 
 /** session/list is best-effort catalog. It must not keep `connecting` after initialize. */

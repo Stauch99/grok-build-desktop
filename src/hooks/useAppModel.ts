@@ -133,7 +133,7 @@ import type { ComposerHandle } from "../components/Composer";
 import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "../lib/memory-dock";
 import { isTextPreviewable } from "../lib/preview";
 import { parseWeeklyUsage, type WeeklyUsage } from "../lib/weekly-usage";
-import { BILLING_POLL_MS, scheduleIdle, shouldBlockComposer } from "../lib/agent-warmup";
+import { BILLING_POLL_MS, scheduleIdle, shouldBlockIdleComposer } from "../lib/agent-warmup";
 import { reviewOwnerKey, useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { useAcpSession, type ExtraPaneState } from "./useAcpSession";
@@ -398,6 +398,15 @@ export function useAppModel() {
     mainAgentIdRef,
     bindMainAgent,
   } = acp;
+
+  const ensureAgentRef = useRef(ensureAgent);
+  ensureAgentRef.current = ensureAgent;
+  useEffect(() => {
+    if (sessionId || doctors.length === 0) return;
+    if (agentSendBlockReason(selectedAgentId, doctors)) return;
+    if (!shouldWarmupOnChipSelect()) return;
+    void ensureAgentRef.current(selectedAgentId).catch((e) => showToast(String(e)));
+  }, [selectedAgentId, doctors, sessionId, showToast]);
 
   const paneCount = leafIds(paneTree).length;
   const focusedExtra = focusedPaneId !== MAIN_PANE ? extraPanes[focusedPaneId] : undefined;
@@ -1941,7 +1950,7 @@ export function useAppModel() {
   const layout = heroLayout({ hasMessages: chat.items.length > 0, hasCwd: !!cwd });
   const hero = {
     ...layout,
-    blocked: layout.blocked || shouldBlockComposer(connecting, ready),
+    blocked: layout.blocked || shouldBlockIdleComposer(connecting, ready, !!sessionId),
   };
   const turnFiles = lastTurnFiles(reviewChat.items);
   const terminalTools = bashTools(reviewChat.items);

@@ -9,6 +9,8 @@ import {
   shouldBlockComposer,
   shouldHoldConnectingForSessionList,
   shouldStartWarmup,
+  initializeTimeoutMs,
+  shouldBlockIdleComposer,
 } from "./agent-warmup";
 
 describe("shouldBlockComposer", () => {
@@ -108,6 +110,21 @@ describe("shouldAdoptInFlightBoot", () => {
 
   it("does not adopt when no boot is in flight", () => {
     expect(shouldAdoptInFlightBoot(false, false)).toBe(false);
+  });
+});
+
+describe("shouldBlockIdleComposer", () => {
+  it("lets the user type on an unbound chip even if that CLI is not ready yet", () => {
+    expect(shouldBlockIdleComposer(false, false, false)).toBe(false);
+    expect(shouldBlockIdleComposer(true, false, false)).toBe(true);
+    expect(shouldBlockIdleComposer(false, false, true)).toBe(true);
+  });
+});
+
+describe("initializeTimeoutMs", () => {
+  it("fails a hung CLI handshake before the generic 180s RPC timeout", () => {
+    expect(initializeTimeoutMs()).toBe(20_000);
+    expect(initializeTimeoutMs()).toBeLessThan(180_000);
   });
 });
 

@@ -41,6 +41,7 @@ import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import {
   afterInitializeFetchSessionList,
   flagsAfterWarmup,
+  initializeTimeoutMs,
   shouldAdoptInFlightBoot,
   shouldStartWarmup,
 } from "../lib/agent-warmup";
@@ -439,7 +440,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
-      }, { agentId: id });
+      }, { agentId: id, timeoutMs: initializeTimeoutMs() });
       applyWarmupFlags(id, true);
       setConnecting(false);
       await afterInitializeFetchSessionList(async () => {

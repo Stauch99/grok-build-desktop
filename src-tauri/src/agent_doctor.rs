@@ -1,4 +1,16 @@
+use std::path::Path;
+
 use serde::Serialize;
+
+pub(crate) fn nonempty_auth_file(path: &Path) -> bool {
+    path.is_file() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
+}
+
+/** Kimi stores OAuth under credentials/kimi-code.json, not auth.json. */
+pub(crate) fn kimi_subscription_present(home: &Path) -> bool {
+    nonempty_auth_file(&home.join("auth.json"))
+        || nonempty_auth_file(&home.join("credentials").join("kimi-code.json"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthKind {
@@ -90,6 +102,17 @@ mod tests {
         let d = doctor_from_evidence("grok", "/home/.grok".into(), true, false, None, false);
         assert_eq!(d.auth_kind, "subscription");
         assert!(d.auth_present);
+    }
+
+    #[test]
+    fn kimi_credentials_count_as_subscription() {
+        let root = std::env::temp_dir().join(format!("kimi-doctor-{}", std::process::id()));
+        let creds = root.join("credentials");
+        std::fs::create_dir_all(&creds).unwrap();
+        assert!(!kimi_subscription_present(&root));
+        std::fs::write(creds.join("kimi-code.json"), "{\"access_token\":\"x\"}").unwrap();
+        assert!(kimi_subscription_present(&root));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

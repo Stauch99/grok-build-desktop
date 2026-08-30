@@ -347,7 +347,7 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
     let codex_h = home.join(".codex");
     vec![
         crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, None, false),
-        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), kimi_h.join("auth.json").is_file(), env_nonempty("KIMI_API_KEY"), None, false),
+        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), crate::agent_doctor::kimi_subscription_present(&kimi_h), env_nonempty("KIMI_API_KEY"), None, false),
         crate::agent_doctor::doctor_from_evidence("claude", home.join(".claude").display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), None, false),
         crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), None, false),
     ]
