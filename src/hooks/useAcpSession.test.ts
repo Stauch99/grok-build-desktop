@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { emptyChat } from "../lib/chat";
+import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
 import {
   isPromptStopResult,
   sessionIdFromNewResult,
   sessionUpdateDest,
+  shouldClearBusyOnPromptResult,
   withEchoedUser,
 } from "./useAcpSession";
 
@@ -38,6 +40,22 @@ describe("sessionUpdateDest", () => {
   it("keeps updates for the current session or unknown ids", () => {
     expect(sessionUpdateDest("main", "split", "main")).toBe("main");
     expect(sessionUpdateDest(null, null, "x")).toBe("main");
+  });
+
+  it("drops updates for a remembered dream sid", () => {
+    rememberDreamSession("dream-sid");
+    expect(sessionUpdateDest(null, null, "dream-sid")).toBe("drop");
+    expect(sessionUpdateDest("live", null, "dream-sid")).toBe("drop");
+    forgetDreamSession("dream-sid");
+    expect(sessionUpdateDest(null, null, "dream-sid")).toBe("main");
+  });
+});
+
+describe("shouldClearBusyOnPromptResult", () => {
+  it("clears busy only when a live waiter owns the rpc id", () => {
+    expect(shouldClearBusyOnPromptResult({ stopReason: "end_turn" }, true)).toBe(true);
+    expect(shouldClearBusyOnPromptResult({ stopReason: "end_turn" }, false)).toBe(false);
+    expect(shouldClearBusyOnPromptResult({ sessionId: "x" }, true)).toBe(false);
   });
 });
 

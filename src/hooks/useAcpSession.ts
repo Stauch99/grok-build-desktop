@@ -35,6 +35,7 @@ import { flagsAfterWarmup, shouldAdoptInFlightBoot, shouldStartWarmup } from "..
 import { asRecord, surfaceStderr } from "../lib/text";
 import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
+import { isDreamSession } from "../lib/memory-dream-acp";
 
 let agentBoot: Promise<void> | null = null;
 
@@ -48,6 +49,10 @@ export function isPromptStopResult(result: unknown): boolean {
   return !!result && typeof result === "object" && "stopReason" in result;
 }
 
+export function shouldClearBusyOnPromptResult(result: unknown, hadLiveWaiter: boolean): boolean {
+  return hadLiveWaiter && isPromptStopResult(result);
+}
+
 export type SessionUpdateDest = "main" | "split" | "drop";
 
 export function sessionUpdateDest(
@@ -55,6 +60,7 @@ export function sessionUpdateDest(
   splitSessionId: string | null,
   updateSessionId: string | null,
 ): SessionUpdateDest {
+  if (isDreamSession(updateSessionId)) return "drop";
   if (splitSessionId && updateSessionId && updateSessionId === splitSessionId) return "split";
   if (!shouldKeepSessionUpdate(currentSessionId, updateSessionId)) return "drop";
   return "main";
@@ -287,12 +293,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (msg.id !== undefined && (msg.result !== undefined || msg.error)) {
       const id = Number(msg.id);
       const waiter = pendingRpc.current.get(id);
+      const hadLiveWaiter = !!waiter || pendingDest.current.has(id);
       if (waiter) {
         pendingRpc.current.delete(id);
         if (msg.error) waiter.reject(new Error(msg.error.message || "rpc error"));
         else waiter.resolve(msg.result);
       }
-      if (isPromptStopResult(msg.result)) {
+      if (shouldClearBusyOnPromptResult(msg.result, hadLiveWaiter)) {
         const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
         pendingDest.current.delete(id);
         if (dest === "split") d.setSplitBusy(false);
@@ -306,6 +313,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (msg.method === "session/update" || msg.method === "_x.ai/session/update") {
       const params = asRecord(msg.params);
       const sid = typeof params.sessionId === "string" ? params.sessionId : null;
+      if (isDreamSession(sid)) return;
       const dest = sessionUpdateDest(sessionIdRef.current, d.split?.id ?? null, sid);
       if (dest === "drop") return;
       const forSplit = dest === "split";
@@ -337,7 +345,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const msg = surfaceStderr(line);
         if (msg) depsRef.current.showToast(msg);
       });
-      const exit = await onAgentExit(() => {
+      const exit = await onAgentExit((eventAgent) => {
+        if (eventAgent !== selectedAgentIdRef.current) return;
         if (busyRef.current && runningSessionIdRef.current) {
           const id = runningSessionIdRef.current;
           depsRef.current.setUnread((prev) => markUnread(prev, id, "error"));

@@ -404,8 +404,10 @@ export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn
     const inner = acpMessageFromEvent(raw).payload;
     handler(typeof inner === "string" ? inner : String(inner ?? ""));
   });
-export const onAgentExit = (handler: () => void): Promise<UnlistenFn> =>
-  listen("agent-exit", () => handler());
+export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("agent-exit", (e) => {
+    handler(acpMessageFromEvent(e.payload).agentId);
+  });
 export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
   listen("tray-open-last", () => handler());
 

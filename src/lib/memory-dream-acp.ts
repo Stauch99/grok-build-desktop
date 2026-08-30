@@ -8,6 +8,29 @@ import { onTaggedAcpRequest } from "./workbench-api";
 const RPC_TIMEOUT_MS = 180_000;
 const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
 
+const dreamSessions = new Set<string>();
+const startedDreamAgents = new Set<AgentId>();
+
+export function rememberDreamSession(sessionId: string): void {
+  if (sessionId) dreamSessions.add(sessionId);
+}
+
+export function forgetDreamSession(sessionId: string): void {
+  dreamSessions.delete(sessionId);
+}
+
+export function isDreamSession(sessionId: string | null | undefined): boolean {
+  return !!sessionId && dreamSessions.has(sessionId);
+}
+
+export function rememberDreamAgent(agentId: AgentId): void {
+  startedDreamAgents.add(agentId);
+}
+
+export function dreamAlreadyRunning(selectedAgentId: AgentId, dreamAgentId: AgentId): boolean {
+  return selectedAgentId === dreamAgentId || startedDreamAgents.has(dreamAgentId);
+}
+
 export function unwrapFence(text: string): string {
   const trimmed = text.replace(/^\uFEFF/, "");
   const m = trimmed.match(/^```(?:\w+)?\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?$/);
@@ -121,6 +144,7 @@ export async function openDreamAcp(opts: {
   };
 
   const dispose = () => {
+    if (sessionId) forgetDreamSession(sessionId);
     offs.forEach((fn) => {
       try {
         fn();
@@ -144,8 +168,10 @@ export async function openDreamAcp(opts: {
         RPC_TIMEOUT_MS,
       ).catch(() => undefined);
     }
+    rememberDreamAgent(opts.agentId);
     const created = await rpc("session/new", { cwd: opts.memoryRoot || ".", mcpServers: [] }, RPC_TIMEOUT_MS);
     sessionId = sessionIdFromNew(created);
+    rememberDreamSession(sessionId);
     await setWorkspace(opts.memoryRoot || ".", sessionId);
   } catch (e) {
     dispose();

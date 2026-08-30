@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   appendDreamsAppendix,
+  dreamAlreadyRunning,
   dreamAssistantDelta,
+  forgetDreamSession,
+  isDreamSession,
   loggedInAgentIds,
+  rememberDreamAgent,
+  rememberDreamSession,
   unwrapFence,
 } from "./memory-dream-acp";
 
@@ -60,5 +65,26 @@ describe("loggedInAgentIds", () => {
         { agentId: "kimi", authPresent: true },
       ]),
     ).toEqual(["grok", "kimi"]);
+  });
+});
+
+describe("isDreamSession", () => {
+  it("remembers and forgets a dream sid", () => {
+    expect(isDreamSession("dream-sid")).toBe(false);
+    rememberDreamSession("dream-sid");
+    expect(isDreamSession("dream-sid")).toBe(true);
+    expect(isDreamSession("live-sid")).toBe(false);
+    expect(isDreamSession(null)).toBe(false);
+    forgetDreamSession("dream-sid");
+    expect(isDreamSession("dream-sid")).toBe(false);
+  });
+});
+
+describe("dreamAlreadyRunning", () => {
+  it("is true when selected matches or that CLI was already started", () => {
+    expect(dreamAlreadyRunning("grok", "kimi")).toBe(false);
+    expect(dreamAlreadyRunning("kimi", "kimi")).toBe(true);
+    rememberDreamAgent("claude");
+    expect(dreamAlreadyRunning("grok", "claude")).toBe(true);
   });
 });

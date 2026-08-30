@@ -13,12 +13,12 @@ import { t, type Locale } from "../lib/i18n";
 import { memoryCursorKey, localDayStamp } from "../lib/memory-clock";
 import { evaluateDreamGates, type DreamTrigger } from "../lib/memory-gates";
 import { parseDailyFile } from "../lib/memory-ingest";
-import { appendDreamsAppendix, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
+import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
 import { runDreamSweep, type DreamIo } from "../lib/memory-dream";
 import { applyGrokIngest } from "../lib/memory-grok-turns";
 import { dailyMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
 import { phasePrompt } from "../lib/memory-phase-prompt";
-import { nextLocalHour, shouldCatchUp } from "../lib/memory-schedule";
+import { armRecurringLocalHour, shouldCatchUp } from "../lib/memory-schedule";
 import { emptyMemoryState, parseMemoryState } from "../lib/memory-state";
 import { corpusLine, overlayStatus, parseDreamsMd, type DiaryEntry, type OverlayStatus } from "../lib/memory-view";
 import { brandSessionList } from "../lib/session-list";
@@ -173,7 +173,7 @@ export function useDreamJob(opts: DreamJobOpts) {
             acp.handle = await openDreamAcp({
               agentId: o.dreamAgentId,
               memoryRoot: snap.memoryRoot,
-              alreadyRunning: o.selectedAgentId === o.dreamAgentId,
+              alreadyRunning: dreamAlreadyRunning(o.selectedAgentId, o.dreamAgentId),
             });
           }
           const text = await acp.handle.prompt(phasePrompt(phase, next));
@@ -235,11 +235,16 @@ export function useDreamJob(opts: DreamJobOpts) {
   useEffect(() => {
     if (!opts.settingsHydrated || !opts.enabled) return;
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const delay = Math.max(50, nextLocalHour(Date.now(), tz, 3) - Date.now());
-    const tid = window.setTimeout(() => {
-      void runSweep("schedule");
-    }, delay);
-    return () => window.clearTimeout(tid);
+    return armRecurringLocalHour({
+      hour: 3,
+      timeZone: tz,
+      now: () => Date.now(),
+      onFire: () => {
+        void runSweep("schedule");
+      },
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (id) => window.clearTimeout(id as number),
+    });
   }, [opts.settingsHydrated, opts.enabled, opts.dreamAgentId, runSweep]);
 
   return {
