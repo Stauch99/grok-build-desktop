@@ -22,6 +22,7 @@ export type SessionSummary = {
   dir?: string | null;
   sessionKind?: string | null;
   parentSessionId?: string | null;
+  agentId?: string | null;
 };
 
 export type DoctorInfo = {
@@ -384,3 +385,5 @@ export const onAgentExit = (handler: () => void): Promise<UnlistenFn> =>
   listen("agent-exit", () => handler());
 export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
   listen("tray-open-last", () => handler());
+
+export { doctorAll, installMarketplaceSkill } from "./lib/workbench-api";
