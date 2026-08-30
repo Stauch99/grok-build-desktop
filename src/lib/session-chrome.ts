@@ -14,6 +14,14 @@ export function isArchived(archived: string[], id: string): boolean {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Grok composer stubs are 0-message with no disk dir. Imported CLI rows stay listed. */
+export function isEmptyDraft(s: SessionSummary): boolean {
+  if ((s.numMessages ?? 0) > 0) return false;
+  if (s.dir) return false;
+  if (s.agentId && s.agentId !== "grok") return false;
+  return true;
+}
+
 function isStale(
   updatedAt: string,
   autoArchiveDays: number,
@@ -39,7 +47,7 @@ export function visibleSessions(
 ): SessionSummary[] {
   const { pinned, archived, view, autoArchiveDays, now } = opts;
   return sessions.filter((s) => {
-    if (s.numMessages === 0) return false;
+    if (isEmptyDraft(s)) return false;
     const archivedId = isArchived(archived, s.id);
     const auto =
       !isPinned(pinned, s.id) && isStale(s.updatedAt, autoArchiveDays, now);

@@ -53,6 +53,19 @@ describe("visibleSessions", () => {
     expect(list.map((x) => x.id)).toEqual(["live"]);
   });
 
+  it("keeps imported CLI sessions that still report zero messages", () => {
+    const kimi = s({ id: "session_kimi", numMessages: 0, agentId: "kimi", updatedAt: recent });
+    const disk = s({ id: "session_disk", numMessages: 0, dir: "/tmp/s", updatedAt: recent });
+    const list = visibleSessions([kimi, disk], {
+      pinned: [],
+      archived: [],
+      view: "active",
+      autoArchiveDays: 0,
+      now,
+    });
+    expect(list.map((x) => x.id)).toEqual(["session_kimi", "session_disk"]);
+  });
+
   it("hides archived ids from active view", () => {
     const list = visibleSessions(
       [s({ id: "a", updatedAt: recent }), s({ id: "b", updatedAt: recent })],
