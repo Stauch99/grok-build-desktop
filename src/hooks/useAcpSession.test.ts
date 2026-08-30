@@ -35,25 +35,25 @@ describe("isPromptStopResult", () => {
 });
 
 describe("sessionUpdateDest", () => {
-  it("routes a matching split session to split", () => {
-    expect(sessionUpdateDest("main", "split", "split")).toBe("split");
+  it("routes a matching extra pane by session id", () => {
+    expect(sessionUpdateDest({ main: "main", split: "p2" }, "split")).toBe("p2");
   });
 
   it("drops updates for a different main session", () => {
-    expect(sessionUpdateDest("main", "split", "other")).toBe("drop");
+    expect(sessionUpdateDest({ main: "main", split: "p2" }, "other")).toBe("drop");
   });
 
   it("keeps updates for the current session or unknown ids", () => {
-    expect(sessionUpdateDest("main", "split", "main")).toBe("main");
-    expect(sessionUpdateDest(null, null, "x")).toBe("main");
+    expect(sessionUpdateDest({ main: "main" }, "main")).toBe("main");
+    expect(sessionUpdateDest({}, "x")).toBe("main");
   });
 
   it("drops updates for a remembered dream sid", () => {
     rememberDreamSession("dream-sid");
-    expect(sessionUpdateDest(null, null, "dream-sid")).toBe("drop");
-    expect(sessionUpdateDest("live", null, "dream-sid")).toBe("drop");
+    expect(sessionUpdateDest({ main: "main" }, "dream-sid")).toBe("drop");
+    expect(sessionUpdateDest({}, "dream-sid")).toBe("drop");
     forgetDreamSession("dream-sid");
-    expect(sessionUpdateDest(null, null, "dream-sid")).toBe("main");
+    expect(sessionUpdateDest({}, "dream-sid")).toBe("main");
   });
 });
 

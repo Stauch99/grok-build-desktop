@@ -16,19 +16,24 @@ import {
 } from "../api";
 import {
   afterByteFor,
-  applyChatUpdate,
   applySessionPage,
   emptyChat,
   shouldKeepSessionUpdate,
   type ChatState,
   type SessionUpdateCursor,
 } from "../lib/chat";
+import {
+  foldSessionUpdates,
+  scheduleSessionUpdateFlush,
+  shouldFlushSessionUpdateNow,
+} from "../lib/session-update-batch";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
 import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
-import { enqueue, type QueueState } from "../lib/prompt-queue";
+import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
+import { MAIN_PANE } from "../lib/pane-tree";
 import { INBOX_PIN, projectForSession, resolveLastWorkspace } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { agentIdOfSession, selectedAgentAfterOpen } from "../lib/session-agent";
@@ -56,17 +61,19 @@ export function shouldClearBusyOnPromptResult(result: unknown, hadLiveWaiter: bo
   return hadLiveWaiter && isPromptStopResult(result);
 }
 
-export type SessionUpdateDest = "main" | "split" | "drop";
+export type SessionUpdateDest = string | "drop";
 
 export function sessionUpdateDest(
-  currentSessionId: string | null,
-  splitSessionId: string | null,
+  openBySession: Readonly<Record<string, string>>,
   updateSessionId: string | null,
+  fallbackPane = "main",
 ): SessionUpdateDest {
   if (isDreamSession(updateSessionId)) return "drop";
-  if (splitSessionId && updateSessionId && updateSessionId === splitSessionId) return "split";
-  if (!shouldKeepSessionUpdate(currentSessionId, updateSessionId)) return "drop";
-  return "main";
+  if (updateSessionId && openBySession[updateSessionId]) return openBySession[updateSessionId];
+  const fallbackSession =
+    Object.entries(openBySession).find(([, pane]) => pane === fallbackPane)?.[0] ?? null;
+  if (!shouldKeepSessionUpdate(fallbackSession, updateSessionId)) return "drop";
+  return fallbackPane;
 }
 
 export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, at: number): ChatState {
@@ -115,12 +122,12 @@ export async function resumeOnSessionAgent(args: {
 }
 
 export function paneAgentForEvent(
-  dest: SessionUpdateDest,
+  dest: string,
   mainAgent: AgentId,
-  splitAgent?: AgentId | null,
+  extraAgent?: AgentId | null,
 ): AgentId {
-  if (dest === "split") return splitAgent ?? mainAgent;
-  return mainAgent;
+  if (dest === MAIN_PANE || dest === "main") return mainAgent;
+  return extraAgent ?? mainAgent;
 }
 
 export function shouldIgnoreAcpEvent(
@@ -131,7 +138,20 @@ export function shouldIgnoreAcpEvent(
   return shouldDropAcpEvent(paneAgent, eventAgent);
 }
 
-export type AcpSplitState = { id: string; cwd: string; chat: ChatState; agentId?: AgentId };
+export type ExtraPaneState = {
+  sessionId: string;
+  cwd: string;
+  chat: ChatState;
+  draft: string;
+  busy: boolean;
+  atBottom: boolean;
+  queue: QueueState;
+  agentId?: AgentId;
+};
+
+export type AcpSplitState = ExtraPaneState;
+
+export type PaneDest = string;
 
 export type AcpSessionDeps = {
   cwd: string;
@@ -143,7 +163,7 @@ export type AcpSessionDeps = {
   setSelectedAgentId: (id: AgentId) => void;
   sessionDrafts: Record<string, string>;
   titles: Record<string, string>;
-  split: AcpSplitState | null;
+  extraPanes: Record<string, ExtraPaneState>;
   persist: (partial: WebuiState) => void;
   showToast: (msg: string) => void;
   setCwd: (cwd: string) => void;
@@ -156,24 +176,18 @@ export type AcpSessionDeps = {
   setCollapsedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setExpandedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setUnread: React.Dispatch<React.SetStateAction<UnreadMap>>;
-  setSplit: React.Dispatch<React.SetStateAction<AcpSplitState | null>>;
-  setSplitDraft: (value: string) => void;
-  setSplitBusy: React.Dispatch<React.SetStateAction<boolean>>;
-  setSplitAtBottom: (value: boolean) => void;
+  setExtraPanes: React.Dispatch<React.SetStateAction<Record<string, ExtraPaneState>>>;
   onOpenSplit: () => void;
   onSessionsNeedRefresh: (inbox?: string) => Promise<void>;
   onAcpSessionList: (agentId: AgentId, rows: SessionSummary[]) => void;
   setSawExit: (value: boolean) => void;
   lastActivityRef: React.MutableRefObject<number>;
-  splitBusy: boolean;
   steerByDefault: boolean;
   setSessionDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   queueRef: React.MutableRefObject<QueueState>;
-  splitQueueRef: React.MutableRefObject<QueueState>;
   setQueue: React.Dispatch<React.SetStateAction<QueueState>>;
-  setSplitQueue: React.Dispatch<React.SetStateAction<QueueState>>;
-  onLocalSlash: (cmd: CommandDef, rest: string, dest: "main" | "split") => Promise<void>;
-  onCancelPermission: (target: "main" | "split") => Promise<void>;
+  onLocalSlash: (cmd: CommandDef, rest: string, dest: PaneDest) => Promise<void>;
+  onCancelPermission: (target: PaneDest) => Promise<void>;
   injectUserMemory: boolean;
   userMd: string | null;
 };
@@ -194,26 +208,26 @@ export type AcpSession = {
   readyRef: React.MutableRefObject<boolean>;
   busyRef: React.MutableRefObject<boolean>;
   echoedUser: React.MutableRefObject<boolean>;
-  echoedSplitUser: React.MutableRefObject<boolean>;
-  pendingPrompt: React.MutableRefObject<"main" | "split" | null>;
-  rpc: (method: string, params: unknown, opts?: { timeoutMs?: number; dest?: "main" | "split"; agentId?: AgentId }) => Promise<unknown>;
+  pendingPrompt: React.MutableRefObject<PaneDest | null>;
+  rpc: (method: string, params: unknown, opts?: { timeoutMs?: number; dest?: PaneDest; agentId?: AgentId }) => Promise<unknown>;
   ensureAgent: (agentId?: AgentId) => Promise<void>;
   adoptSession: (id: string | null) => void;
   beginMainRun: (sid: string) => void;
   createAcpSession: (work: string) => Promise<string>;
   startInboxSession: () => Promise<void>;
   startNewChat: () => Promise<void>;
+  startNewInPane: (paneId: string) => Promise<void>;
   startSession: (workDir?: string) => Promise<void>;
   resumeSession: (s: SessionSummary) => Promise<void>;
-  openSplit: (s: SessionSummary) => Promise<void>;
-  sendSlashToAgent: (text: string, dest?: "main" | "split") => Promise<void>;
-  refreshUsage: (id: string, dest?: "main" | "split") => Promise<void>;
-  sendPrompt: (text: string, dest?: "main" | "split") => Promise<void>;
-  steerPrompt: (text: string, dest?: "main" | "split") => Promise<void>;
-  queuePrompt: (text: string, dest?: "main" | "split") => void;
-  submitPrompt: (text: string, dest?: "main" | "split") => void;
-  altSubmit: (text: string, dest?: "main" | "split") => void;
-  cancelTurn: (target?: "main" | "split") => Promise<void>;
+  openInPane: (paneId: string, s: SessionSummary) => Promise<void>;
+  sendSlashToAgent: (text: string, dest?: PaneDest) => Promise<void>;
+  refreshUsage: (id: string, dest?: PaneDest) => Promise<void>;
+  sendPrompt: (text: string, dest?: PaneDest) => Promise<void>;
+  steerPrompt: (text: string, dest?: PaneDest) => Promise<void>;
+  queuePrompt: (text: string, dest?: PaneDest) => void;
+  submitPrompt: (text: string, dest?: PaneDest) => void;
+  altSubmit: (text: string, dest?: PaneDest) => void;
+  cancelTurn: (target?: PaneDest) => Promise<void>;
   onDraftChange: (value: string) => void;
   injectedSessions: Set<string>;
   dismissInjectedSession: (sessionId: string) => void;
@@ -235,23 +249,84 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const busyRef = useRef(false);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
   const echoedUser = useRef(false);
-  const echoedSplitUser = useRef(false);
+  const echoedExtra = useRef<Record<string, boolean>>({});
   const loadGen = useRef(0);
   const ignoreReplay = useRef(false);
-  const ignoreSplitReplay = useRef(false);
-  const pendingPrompt = useRef<"main" | "split" | null>(null);
+  const ignoreExtraReplay = useRef<Record<string, boolean>>({});
+  const pendingPrompt = useRef<PaneDest | null>(null);
   const [injectedSessions, setInjectedSessions] = useState<Set<string>>(() => new Set());
   const injectedRef = useRef(injectedSessions);
   injectedRef.current = injectedSessions;
   const startedRef = useRef(new Set<string>());
-  const pendingDest = useRef(new Map<number, "main" | "split">());
+  const pendingDest = useRef(new Map<number, PaneDest>());
   const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
+  const pendingByPane = useRef<Record<string, Record<string, unknown>[]>>({});
+  const cancelFlush = useRef<(() => void) | null>(null);
+  const drainRef = useRef<() => void>(() => {});
   const depsRef = useRef(deps);
   depsRef.current = deps;
   busyRef.current = busy;
   const selectedAgentIdRef = useRef(deps.selectedAgentId);
   selectedAgentIdRef.current = deps.selectedAgentId;
   const mainAgentIdRef = useRef<AgentId>(deps.selectedAgentId);
+
+  function patchExtra(paneId: string, patch: (prev: ExtraPaneState) => ExtraPaneState) {
+    depsRef.current.setExtraPanes((prev) => {
+      const cur = prev[paneId];
+      if (!cur) return prev;
+      return { ...prev, [paneId]: patch(cur) };
+    });
+  }
+
+  function sessionPaneMap(): Record<string, string> {
+    const d = depsRef.current;
+    const map: Record<string, string> = {};
+    if (sessionIdRef.current) map[sessionIdRef.current] = MAIN_PANE;
+    for (const [paneId, pane] of Object.entries(d.extraPanes)) {
+      if (pane.sessionId) map[pane.sessionId] = paneId;
+    }
+    return map;
+  }
+
+  function drainPending() {
+    const batches = pendingByPane.current;
+    pendingByPane.current = {};
+    for (const [paneId, updates] of Object.entries(batches)) {
+      if (!updates.length) continue;
+      if (paneId === MAIN_PANE) {
+        setChat((prev) => foldSessionUpdates(prev, updates, { skipUser: echoedUser.current }));
+        continue;
+      }
+      const skipUser = !!echoedExtra.current[paneId];
+      patchExtra(paneId, (prev) => ({
+        ...prev,
+        chat: foldSessionUpdates(prev.chat, updates, { skipUser }),
+      }));
+    }
+  }
+  drainRef.current = drainPending;
+
+  function applyPendingNow() {
+    cancelFlush.current?.();
+    cancelFlush.current = null;
+    drainPending();
+  }
+
+  function schedulePendingFlush() {
+    if (cancelFlush.current) return;
+    cancelFlush.current = scheduleSessionUpdateFlush(() => {
+      cancelFlush.current = null;
+      drainRef.current();
+    });
+  }
+
+  function enqueueSessionUpdate(params: Record<string, unknown>, dest: PaneDest) {
+    const bucket = pendingByPane.current[dest] ?? [];
+    bucket.push(params);
+    pendingByPane.current[dest] = bucket;
+    if (shouldFlushSessionUpdateNow(params)) applyPendingNow();
+    else schedulePendingFlush();
+  }
 
   function adoptSession(id: string | null) {
     sessionIdRef.current = id;
@@ -268,7 +343,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   async function rpc(
     method: string,
     params: unknown,
-    opts?: { timeoutMs?: number; dest?: "main" | "split"; agentId?: AgentId },
+    opts?: { timeoutMs?: number; dest?: PaneDest; agentId?: AgentId },
   ): Promise<unknown> {
     const agentId = targetAgentId(opts?.agentId, selectedAgentIdRef.current);
     const id = await nextRpcId();
@@ -349,12 +424,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     return agentBoots[id];
   }
 
-  async function refreshUsage(id: string, dest: "main" | "split" = "main") {
+  async function refreshUsage(id: string, dest: PaneDest = MAIN_PANE) {
     try {
       const usage = await readSessionUsage(id);
       if (!usage) return;
-      if (dest === "split") {
-        depsRef.current.setSplit((prev) => (prev && prev.id === id ? { ...prev, chat: { ...prev.chat, usage } } : prev));
+      if (dest !== MAIN_PANE) {
+        patchExtra(dest, (prev) => (prev.sessionId === id ? { ...prev, chat: { ...prev.chat, usage } } : prev));
         return;
       }
       if (sessionIdRef.current === id) {
@@ -379,7 +454,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (shouldClearBusyOnPromptResult(msg.result, hadLiveWaiter)) {
         const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
         pendingDest.current.delete(id);
-        if (dest === "split") d.setSplitBusy(false);
+        if (dest && dest !== MAIN_PANE) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
         else {
           busyRef.current = false;
           setBusy(false);
@@ -391,24 +466,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const params = asRecord(msg.params);
       const sid = typeof params.sessionId === "string" ? params.sessionId : null;
       if (isDreamSession(sid)) return;
-      const dest = sessionUpdateDest(sessionIdRef.current, d.split?.id ?? null, sid);
+      const dest = sessionUpdateDest(sessionPaneMap(), sid);
       if (dest === "drop") return;
-      const paneAgent = paneAgentForEvent(dest, mainAgentIdRef.current, d.split?.agentId);
+      const extra = dest !== MAIN_PANE;
+      const paneAgent = paneAgentForEvent(
+        dest,
+        mainAgentIdRef.current,
+        extra ? d.extraPanes[dest]?.agentId : undefined,
+      );
       if (shouldIgnoreAcpEvent(paneAgent, eventAgent)) return;
-      const forSplit = dest === "split";
-      if (ignoreReplay.current && !forSplit) return;
-      if (forSplit && ignoreSplitReplay.current) return;
-      const update = asRecord(params.update);
-      const kind = String(update.sessionUpdate ?? "");
-      if (kind === "turn_completed" || kind === "auto_compact_started" || kind === "auto_compact_completed") {
-        const id = sid || (forSplit ? d.split?.id ?? null : sessionIdRef.current);
-        if (id) void refreshUsage(id, forSplit ? "split" : "main");
+      if (ignoreReplay.current && !extra) return;
+      if (extra && ignoreExtraReplay.current[dest]) return;
+      enqueueSessionUpdate(params, dest);
+      if (shouldFlushSessionUpdateNow(params)) {
+        const id = sid || (extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current);
+        if (id) void refreshUsage(id, dest);
       }
-      if (forSplit) {
-        d.setSplit((prev) => prev ? { ...prev, chat: applyChatUpdate(prev.chat, params, { skipUser: echoedSplitUser.current }) } : prev);
-        return;
-      }
-      setChat((prev) => applyChatUpdate(prev, params, { skipUser: echoedUser.current }));
     }
   }
 
@@ -436,12 +509,19 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         setReady(false);
         depsRef.current.setSawExit(true);
         setBusy(false);
-        depsRef.current.setSplitBusy(false);
+        depsRef.current.setExtraPanes((prev) => {
+          const next: Record<string, ExtraPaneState> = {};
+          for (const [id, pane] of Object.entries(prev)) next[id] = { ...pane, busy: false };
+          return next;
+        });
         setConnecting(false);
         pendingPrompt.current = null;
       });
       if (cancelled) {
         a(); c(); exit();
+        cancelFlush.current?.();
+        cancelFlush.current = null;
+        drainRef.current();
         return;
       }
       offs.push(a, c, exit);
@@ -454,6 +534,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     return () => {
       cancelled = true;
       offs.forEach((fn) => fn());
+      cancelFlush.current?.();
+      cancelFlush.current = null;
+      drainRef.current();
     };
   }, []);
 
@@ -541,13 +624,48 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     await startSession(work);
   }
 
+  async function startNewInPane(paneId: string) {
+    if (paneId === MAIN_PANE) {
+      await startNewChat();
+      return;
+    }
+    const d = depsRef.current;
+    const work = resolveLastWorkspace(d.lastWorkspace, d.projects, d.inboxCwd);
+    if (!work) {
+      d.showToast("先在输入栏选一个项目目录");
+      return;
+    }
+    try {
+      await ensureAgent();
+      const inbox = d.inboxCwd && sameCwd(work, d.inboxCwd);
+      const dir = inbox ? d.inboxCwd || work : work;
+      await setWorkspace(dir);
+      const meta: Record<string, unknown> = {};
+      if (d.mode === "yolo") meta.yoloMode = true;
+      const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }));
+      const sid = sessionIdFromNewResult(result);
+      echoedExtra.current[paneId] = false;
+      d.setExtraPanes((prev) => ({
+        ...prev,
+        [paneId]: {
+          sessionId: sid,
+          cwd: dir,
+          chat: emptyChat(),
+          draft: "",
+          busy: false,
+          atBottom: true,
+          queue: emptyQueue(),
+          agentId: selectedAgentIdRef.current,
+        },
+      }));
+      window.setTimeout(() => void d.onSessionsNeedRefresh(), 500);
+    } catch (e) {
+      d.showToast(String(e));
+    }
+  }
+
   async function resumeSession(s: SessionSummary) {
     const d = depsRef.current;
-    if (d.split?.id === s.id) {
-      d.setSplit(null);
-      d.setSplitDraft("");
-      d.setSplitBusy(false);
-    }
     const last = s.cwd === INBOX_PIN || (d.inboxCwd && sameCwd(s.cwd, d.inboxCwd)) ? INBOX_PIN : s.cwd;
     d.setLastWorkspace(last);
     d.persist({ lastWorkspace: last });
@@ -600,46 +718,59 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
-  async function openSplit(s: SessionSummary) {
+  async function openInPane(paneId: string, s: SessionSummary) {
     const d = depsRef.current;
+    if (paneId === MAIN_PANE) {
+      await resumeSession(s);
+      return;
+    }
     if (s.id === sessionIdRef.current) {
       d.showToast("已在当前窗口");
       return;
     }
     d.onOpenSplit();
-    d.setSplitDraft("");
-    d.setSplitBusy(false);
-    d.setSplitAtBottom(true);
-    echoedSplitUser.current = false;
+    echoedExtra.current[paneId] = false;
+    ignoreExtraReplay.current[paneId] = true;
     try {
       const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null);
       const next = applySessionPage(updateCursors.current, s.id, page);
       const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
       d.setSelectedAgentId(selectedAfterOpen);
-      d.setSplit({ id: s.id, cwd: s.cwd, chat: next, agentId });
+      d.setExtraPanes((prev) => ({
+        ...prev,
+        [paneId]: {
+          sessionId: s.id,
+          cwd: s.cwd,
+          chat: next,
+          draft: prev[paneId]?.draft ?? "",
+          busy: false,
+          atBottom: true,
+          queue: prev[paneId]?.queue ?? { items: [], nextId: 1 },
+          agentId,
+        },
+      }));
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
-      void refreshUsage(s.id, "split");
-      ignoreSplitReplay.current = true;
+      void refreshUsage(s.id, paneId);
       try {
         await resumeBoundSession(s);
       } finally {
-        ignoreSplitReplay.current = false;
+        ignoreExtraReplay.current[paneId] = false;
       }
     } catch (e) {
       d.showToast(String(e));
     }
   }
 
-  async function sendSlashToAgent(text: string, dest: "main" | "split" = "main") {
+  async function sendSlashToAgent(text: string, dest: PaneDest = MAIN_PANE) {
     await ensureAgent();
-    if (dest === "split") {
-      const sid = depsRef.current.split?.id;
-      if (!sid) return;
-      depsRef.current.setSplitBusy(true);
+    if (dest !== MAIN_PANE) {
+      const pane = depsRef.current.extraPanes[dest];
+      if (!pane) return;
+      patchExtra(dest, (prev) => ({ ...prev, busy: true }));
       await rpc(
         "session/prompt",
-        { sessionId: sid, prompt: [{ type: "text", text }] },
-        { dest: "split" },
+        { sessionId: pane.sessionId, prompt: [{ type: "text", text }] },
+        { dest },
       );
       return;
     }
@@ -659,18 +790,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
    * refuses a second prompt on a live session we fall back to the queue rather
    * than losing the message.
    */
-  async function steerPrompt(text: string, dest: "main" | "split" = "main") {
+  async function steerPrompt(text: string, dest: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
-    const sid = dest === "split" ? d.split?.id : sessionIdRef.current;
+    const extra = dest !== MAIN_PANE ? d.extraPanes[dest] : null;
+    const sid = extra ? extra.sessionId : sessionIdRef.current;
     if (!sid) {
       queuePrompt(text, dest);
       return;
     }
     const at = Date.now();
-    if (dest === "split") {
-      echoedSplitUser.current = true;
-      d.setSplit((prev) => (prev ? { ...prev, chat: withEchoedUser(prev.chat, text, "u-steer", at) } : prev));
-      d.setSplitDraft("");
+    if (extra) {
+      echoedExtra.current[dest] = true;
+      patchExtra(dest, (prev) => ({
+        ...prev,
+        chat: withEchoedUser(prev.chat, text, "u-steer", at),
+        draft: "",
+      }));
     } else {
       echoedUser.current = true;
       setChat((prev) => withEchoedUser(prev, text, "u-steer", at));
@@ -684,17 +819,17 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
-  function queuePrompt(text: string, dest: "main" | "split" = "main") {
+  function queuePrompt(text: string, dest: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
-    if (dest === "split") {
-      const next = enqueue(d.splitQueueRef.current, text);
-      if (next === d.splitQueueRef.current) {
+    if (dest !== MAIN_PANE) {
+      const pane = d.extraPanes[dest];
+      if (!pane) return;
+      const next = enqueue(pane.queue, text);
+      if (next === pane.queue) {
         d.showToast("队列已满，等这一轮结束");
         return;
       }
-      d.splitQueueRef.current = next;
-      d.setSplitQueue(next);
-      d.setSplitDraft("");
+      patchExtra(dest, (prev) => ({ ...prev, queue: next, draft: "" }));
       return;
     }
     const next = enqueue(d.queueRef.current, text);
@@ -712,10 +847,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
-  function submitPrompt(text: string, dest: "main" | "split" = "main") {
+  function submitPrompt(text: string, dest: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
     if (!text.trim()) return;
-    const paneBusy = dest === "split" ? d.splitBusy : busyRef.current;
+    const paneBusy = dest !== MAIN_PANE ? !!d.extraPanes[dest]?.busy : busyRef.current;
     if (!paneBusy) {
       void sendPrompt(text, dest);
       return;
@@ -724,37 +859,37 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     else queuePrompt(text, dest);
   }
 
-  function altSubmit(text: string, dest: "main" | "split" = "main") {
+  function altSubmit(text: string, dest: PaneDest = MAIN_PANE) {
     if (!text.trim()) return;
     if (depsRef.current.steerByDefault) queuePrompt(text, dest);
     else void steerPrompt(text, dest);
   }
 
-  async function sendPrompt(text: string, dest: "main" | "split" = "main") {
+  async function sendPrompt(text: string, dest: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
-    const toSplit = dest === "split";
+    const extra = dest !== MAIN_PANE;
     if (!text.trim() || loadingSession) return;
-    if (toSplit ? d.splitBusy : busyRef.current) return;
-    if (!toSplit && text.startsWith("/")) {
+    if (extra ? d.extraPanes[dest]?.busy : busyRef.current) return;
+    if (!extra && text.startsWith("/")) {
       const name = text.split(/\s/)[0];
       const found = filterCommands(name, chat.commands).find((c) => c.name === name);
       if (found?.local) {
         d.setDraft("");
-        return d.onLocalSlash(found, text.slice(name.length).trimStart(), "main");
+        return d.onLocalSlash(found, text.slice(name.length).trimStart(), MAIN_PANE);
       }
     }
-    if (toSplit && text.startsWith("/")) {
+    if (extra && text.startsWith("/")) {
       const name = text.split(/\s/)[0];
-      const found = filterCommands(name, d.split?.chat.commands ?? []).find((c) => c.name === name);
+      const found = filterCommands(name, d.extraPanes[dest]?.chat.commands ?? []).find((c) => c.name === name);
       if (found?.local) {
-        d.setSplitDraft("");
-        return d.onLocalSlash(found, text.slice(name.length).trimStart(), "split");
+        patchExtra(dest, (prev) => ({ ...prev, draft: "" }));
+        return d.onLocalSlash(found, text.slice(name.length).trimStart(), dest);
       }
     }
     let acpText = text;
     let wrapInjected = false;
     try {
-      const sidGuess = dest === "split" ? d.split?.id : sessionIdRef.current;
+      const sidGuess = extra ? d.extraPanes[dest]?.sessionId : sessionIdRef.current;
       const wrap = resolveOutgoingPrompt({
         sessionId: sidGuess || "pending",
         alreadyInjected: sidGuess ? startedRef.current.has(sidGuess) : false,
@@ -767,28 +902,31 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     } catch {
       acpText = text;
     }
-    if (toSplit) {
-      const sid = d.split?.id;
-      if (!sid) return;
+    if (extra) {
+      const pane = d.extraPanes[dest];
+      if (!pane) return;
       const at = Date.now();
-      d.setSplit((prev) => (prev ? { ...prev, chat: withEchoedUser(prev.chat, text, "u-local", at) } : prev));
-      d.setSplitDraft("");
-      d.setSplitBusy(true);
-      d.setSplitAtBottom(true);
-      echoedSplitUser.current = true;
-      pendingPrompt.current = "split";
+      echoedExtra.current[dest] = true;
+      pendingPrompt.current = dest;
+      patchExtra(dest, (prev) => ({
+        ...prev,
+        chat: withEchoedUser(prev.chat, text, "u-local", at),
+        draft: "",
+        busy: true,
+        atBottom: true,
+      }));
       try {
         await ensureAgent();
-        if (d.split?.cwd) await setWorkspace(d.split.cwd, sid);
-        await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "split" });
-        startedRef.current = markStarted(startedRef.current, sid);
+        if (pane.cwd) await setWorkspace(pane.cwd, pane.sessionId);
+        await rpc("session/prompt", { sessionId: pane.sessionId, prompt: [{ type: "text", text: acpText }] }, { dest });
+        startedRef.current = markStarted(startedRef.current, pane.sessionId);
         if (wrapInjected) {
-          const next = markInjected(injectedRef.current, sid, true);
+          const next = markInjected(injectedRef.current, pane.sessionId, true);
           injectedRef.current = next;
           setInjectedSessions(next);
         }
       } catch (e) {
-        d.setSplitBusy(false);
+        patchExtra(dest, (prev) => ({ ...prev, busy: false }));
         d.showToast(String(e));
       }
       return;
@@ -835,14 +973,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     setInjectedSessions(next);
   }
 
-  async function cancelTurn(target: "main" | "split" = "main") {
+  async function cancelTurn(target: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
-    const sid = target === "split" ? d.split?.id : runningSessionIdRef.current;
+    const sid = target !== MAIN_PANE ? d.extraPanes[target]?.sessionId : runningSessionIdRef.current;
     try {
       if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } }, selectedAgentIdRef.current);
       await d.onCancelPermission(target);
     } finally {
-      if (target === "split") d.setSplitBusy(false);
+      if (target !== MAIN_PANE) patchExtra(target, (prev) => ({ ...prev, busy: false }));
       else {
         busyRef.current = false;
         setBusy(false);
@@ -874,7 +1012,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     readyRef,
     busyRef,
     echoedUser,
-    echoedSplitUser,
     pendingPrompt,
     rpc,
     ensureAgent,
@@ -883,9 +1020,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     createAcpSession,
     startInboxSession,
     startNewChat,
+    startNewInPane,
     startSession,
     resumeSession,
-    openSplit,
+    openInPane,
     sendSlashToAgent,
     refreshUsage,
     sendPrompt,
