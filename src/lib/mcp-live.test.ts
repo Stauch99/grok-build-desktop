@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { McpServer } from "./agents-store";
 import {
+  firstOpenMcpImport,
   mcpServerToClaude,
   mergeClaudeMcpDoc,
   mergeCodexMcpTables,
@@ -104,5 +105,45 @@ describe("parseClaudeMcpDoc", () => {
       { name: "docs", transport: "http", commandOrUrl: "https://x" },
     ]);
     expect(parseClaudeMcpDoc(null)).toEqual([]);
+  });
+});
+
+describe("mcpServerToClaude headers", () => {
+  it("keeps headers on stdio and http", () => {
+    const keyed: McpServer = {
+      name: "git",
+      transport: "stdio",
+      commandOrUrl: "uvx",
+      headers: ["X-A=1", "X-B=2"],
+    };
+    expect(mcpServerToClaude(keyed).headers).toEqual({ "X-A": "1", "X-B": "2" });
+    expect(
+      mcpServerToClaude({ name: "docs", transport: "http", commandOrUrl: "https://x", headers: ["Auth=tok"] }).headers,
+    ).toEqual({ Auth: "tok" });
+  });
+});
+
+describe("parseClaudeMcpDoc headers", () => {
+  it("round-trips headers object to K=V", () => {
+    const rows = parseClaudeMcpDoc({
+      mcpServers: { git: { command: "uvx", headers: { "X-B": "2", "X-A": "1" } } },
+    });
+    expect(rows[0]?.headers).toEqual(["X-A=1", "X-B=2"]);
+  });
+});
+
+describe("firstOpenMcpImport", () => {
+  it("unions missing names and reports conflicts without overwriting", () => {
+    const canonical: McpServer[] = [{ name: "git", transport: "stdio", commandOrUrl: "uvx" }];
+    const live: McpServer[] = [
+      { name: "git", transport: "stdio", commandOrUrl: "npx" },
+      { name: "docs", transport: "http", commandOrUrl: "https://x" },
+    ];
+    const next = firstOpenMcpImport(canonical, live);
+    expect(next.catalog).toEqual([
+      { name: "git", transport: "stdio", commandOrUrl: "uvx" },
+      { name: "docs", transport: "http", commandOrUrl: "https://x" },
+    ]);
+    expect(next.conflicts).toEqual(["git"]);
   });
 });
