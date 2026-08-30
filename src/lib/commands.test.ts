@@ -45,6 +45,12 @@ describe("filterCommands", () => {
       "/config-agents",
     ]));
   });
+
+  it("aliases /plugins to the skills hub tab", () => {
+    const plugins = SLASH_COMMANDS.find((c) => c.name === "/plugins");
+    expect(plugins?.local).toBe("hub");
+    expect(plugins?.hubTab).toBe("skills");
+  });
 });
 
 describe("parseRenameArgs", () => {

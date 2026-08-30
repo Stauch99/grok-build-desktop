@@ -63,7 +63,7 @@ export const SLASH_COMMANDS: CommandDef[] = [
   { name: "/skills", hint: "技能列表", local: "hub", hubTab: "skills" },
   { name: "/mcps", hint: "MCP 服务器", local: "hub", hubTab: "mcp" },
   { name: "/hooks", hint: "Hooks", local: "hub", hubTab: "hooks" },
-  { name: "/plugins", hint: "插件", local: "hub", hubTab: "plugins" },
+  { name: "/plugins", hint: "技能", local: "hub", hubTab: "skills" },
   { name: "/marketplace", hint: "市场", local: "hub", hubTab: "marketplace" },
   { name: "/imagine", hint: "图片", local: "imagine" },
   { name: "/imagine-video", hint: "视频", local: "imagine-video" },
