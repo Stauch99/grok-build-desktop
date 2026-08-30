@@ -16,7 +16,7 @@ export function shouldBlockIdleComposer(
   initialized: boolean,
   hasOpenSession: boolean,
 ): boolean {
-  if (!hasOpenSession) return connecting;
+  if (!hasOpenSession) return false;
   return shouldBlockComposer(connecting, initialized);
 }
 

@@ -116,8 +116,11 @@ describe("shouldAdoptInFlightBoot", () => {
 describe("shouldBlockIdleComposer", () => {
   it("lets the user type on an unbound chip even if that CLI is not ready yet", () => {
     expect(shouldBlockIdleComposer(false, false, false)).toBe(false);
-    expect(shouldBlockIdleComposer(true, false, false)).toBe(true);
     expect(shouldBlockIdleComposer(false, false, true)).toBe(true);
+  });
+
+  it("does not lock the unbound composer while that CLI is connecting", () => {
+    expect(shouldBlockIdleComposer(true, false, false)).toBe(false);
   });
 });
 
