@@ -13,6 +13,14 @@ describe("headerJobs", () => {
     ];
     expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
   });
+
+  it("excludes Claude Task tools from the jobs header", () => {
+    const items: ChatItem[] = [
+      { kind: "tool", id: "t1", title: "bash ls", status: "in_progress" },
+      { kind: "tool", id: "t2", title: "Task: 中文技巧", status: "in_progress" },
+    ];
+    expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
+  });
 });
 
 describe("goalFromPlan", () => {

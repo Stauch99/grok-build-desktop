@@ -1,4 +1,4 @@
-import { subagentStatusFromTool, type SubagentStatus } from "./subagent";
+import { subagentDisplayName, subagentStatusFromTool, type SubagentStatus } from "./subagent";
 import type { ChatItem } from "./chat";
 
 export function subagentCatalog(
@@ -9,7 +9,7 @@ export function subagentCatalog(
     if (it.kind !== "tool") continue;
     const status = subagentStatusFromTool(it.title, it.status);
     if (!status) continue;
-    const name = it.title.replace(/spawn_subagent\s*/i, "").trim() || it.title;
+    const name = subagentDisplayName(it.title);
     out.push({ id: it.id, name, status });
   }
   return out;
