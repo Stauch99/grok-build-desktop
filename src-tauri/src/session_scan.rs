@@ -126,7 +126,7 @@ fn scan_session_children(wrapper: &ScannedSession) -> Vec<ScannedSession> {
             continue;
         }
         let meta = read_kimi_state(&path.join("state.json"));
-        rows.push(ScannedSession {
+        let row = ScannedSession {
             agent_id: wrapper.agent_id.clone(),
             id: name,
             title: meta.title.unwrap_or_else(|| wrapper.title.clone()),
@@ -137,6 +137,40 @@ fn scan_session_children(wrapper: &ScannedSession) -> Vec<ScannedSession> {
             cwd: meta.cwd.unwrap_or_default(),
             parent_session_id: None,
             session_kind: None,
+        };
+        rows.extend(scan_kimi_agents(&row));
+        rows.push(row);
+    }
+    rows
+}
+
+fn scan_kimi_agents(parent: &ScannedSession) -> Vec<ScannedSession> {
+    let agents = Path::new(&parent.dir).join("agents");
+    if !agents.is_dir() {
+        return Vec::new();
+    }
+    let Ok(entries) = fs::read_dir(&agents) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "main" || name.starts_with('.') {
+            continue;
+        }
+        rows.push(ScannedSession {
+            agent_id: parent.agent_id.clone(),
+            id: name.clone(),
+            title: name,
+            updated_at: parent.updated_at.clone(),
+            dir: path.to_string_lossy().into_owned(),
+            cwd: parent.cwd.clone(),
+            parent_session_id: Some(parent.id.clone()),
+            session_kind: Some("subagent".into()),
         });
     }
     rows
@@ -649,6 +683,28 @@ mod tests {
         };
         assert_eq!(row.parent_session_id.as_deref(), Some("parent-uuid"));
         assert_eq!(row.session_kind.as_deref(), Some("subagent"));
+    }
+
+    #[test]
+    fn kimi_agents_dir_nests_subagents_under_session() {
+        let root = uniq();
+        let sid = "session_parent";
+        let inner = root.join("wd_x").join(sid);
+        fs::create_dir_all(inner.join("agents").join("main")).unwrap();
+        fs::create_dir_all(inner.join("agents").join("researcher")).unwrap();
+        fs::write(inner.join("state.json"), r#"{"title":"调研","cwd":"/work/proj","updatedAt":"9"}"#).unwrap();
+        fs::write(inner.join("agents").join("main").join("wire.jsonl"), "{}\n").unwrap();
+        fs::write(inner.join("agents").join("researcher").join("wire.jsonl"), "{}\n").unwrap();
+        let rows = scan_agent_sessions(&root, "kimi", ScanMode::ImmediateDirs);
+        let parent = rows.iter().find(|r| r.id == sid).unwrap();
+        assert_eq!(parent.parent_session_id, None);
+        let kids: Vec<_> = rows.iter().filter(|r| r.parent_session_id.as_deref() == Some(sid)).collect();
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].id, "researcher");
+        assert_eq!(kids[0].session_kind.as_deref(), Some("subagent"));
+        assert_eq!(kids[0].cwd, "/work/proj");
+        assert!(!rows.iter().any(|r| r.id == "main"));
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]
