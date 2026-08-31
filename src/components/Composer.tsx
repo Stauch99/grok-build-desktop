@@ -3,11 +3,13 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
-  type DragEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AgentChip } from "./AgentChip";
 import { AttachStrip } from "./AttachStrip";
@@ -16,21 +18,24 @@ import type { AgentId } from "../lib/agent-id";
 import { MentionMenu } from "./MentionMenu";
 import { QueueStrip } from "./QueueStrip";
 import { SlashMenu } from "./SlashMenu";
-import { IconGrokPlus } from "../grok-icons";
 import { IconChevron, IconUp } from "../icons";
+import { useShortcutState } from "./ShortcutHint";
 import {
   addAttachments,
   ATTACHMENT_CAP,
+  clipboardAttachHits,
   formatAttachmentsPrompt,
   isFileDrag,
-  pathsFromDataTransfer,
+  pasteFileExt,
   pathsFromTauriDrop,
+  rejectAttachment,
   resolveAttachPath,
   type Attachment,
+  type ClipboardAttachHit,
 } from "../lib/attachments";
-import { readTextFile, statAttachment } from "../api";
+import { dropPointHitsZone } from "../lib/drop-hit";
+import { readTextFile, importDroppedFile, savePasteBytes, statAttachment } from "../api";
 import { filterCommands, type CommandDef } from "../lib/commands";
-import { type Effort } from "../lib/effort";
 import { modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
 import type { SlashCommand } from "../lib/chat";
 import {
@@ -45,11 +50,17 @@ import {
   type MentionHit,
 } from "../lib/mentions";
 import { type QueueState } from "../lib/prompt-queue";
+import { useT } from "../lib/locale-context";
 import {
   applyImeComposition,
   emptyImeEnterState,
   imeBlocksEnter,
 } from "../lib/ime-enter";
+import {
+  composerMetaHide,
+  sameMetaHide,
+  type ComposerMetaHide,
+} from "../lib/composer-meta";
 
 export type ComposerHandle = {
   focus: () => void;
@@ -70,14 +81,14 @@ export type ComposerProps = {
   /** No workspace yet, or the session is still loading. */
   blocked?: boolean;
   enterSends: boolean;
-  placeholder?: string;
-  /** CSS measure for the column. Always the chatWidth cap — never 100% on split. */
+  /** CSS measure for the column. Fill is 100% of this pane, including split. */
   threadWidth: string;
 
   commands: SlashCommand[];
   onRunSlash: (cmd: CommandDef, rest: string) => void;
 
   cwd: string;
+  grokHome?: string;
   listFiles: (query: string) => Promise<string[]>;
   /** Optional file reader for “附带内容”. Falls back to `readTextFile`. */
   readFile?: (path: string) => Promise<string>;
@@ -89,18 +100,19 @@ export type ComposerProps = {
   mode: Mode;
   onMode: (next: Mode) => void;
 
-  effort: Effort;
-  onEffort: (next: Effort) => void;
-  /** When false, effort chip shows default but does not persist yet. */
+  effort: string;
+  onEffort: (next: string) => void;
+  /** When false, effort chip is hidden or inert. */
   effortReady?: boolean;
+  effortOptions?: string[];
 
   model: string;
   /** Model this session actually runs on, when it differs from the default. */
   sessionModel?: string | null;
   modelOptions: string[];
+  modelLabels?: Record<string, string>;
   onModel: (next: string) => void;
   onOpenSettings: () => void;
-  onManageSkills?: () => void;
   /** Session-level /model. Falls back to onModel when omitted. */
   onSessionModel?: (next: string) => void;
 
@@ -134,8 +146,8 @@ export type ComposerProps = {
 
 function growArea(el: HTMLTextAreaElement | null, max = 200) {
   if (!el) return;
-  el.style.height = "auto";
-  el.style.height = `${Math.min(Math.max(el.scrollHeight, 42), max)}px`;
+  el.style.height = "0";
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, 24), max)}px`;
 }
 
 /**
@@ -153,11 +165,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     busy,
     blocked = false,
     enterSends,
-    placeholder = "回复…",
     threadWidth,
     commands,
     onRunSlash,
     cwd,
+    grokHome = "",
     listFiles,
     readFile,
     mentionDirs,
@@ -167,12 +179,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     effort,
     onEffort,
     effortReady = true,
+    effortOptions = [],
     model,
     sessionModel,
     modelOptions,
+    modelLabels,
     onModel,
     onOpenSettings,
-    onManageSkills,
     onSessionModel,
     queue,
     onRemoveQueued,
@@ -193,6 +206,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   },
   ref,
 ) {
+  const { held, mac } = useShortcutState();
+  const t = useT();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const fileDragDepthRef = useRef(0);
@@ -201,8 +216,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const mentionQueryRef = useRef("");
   const mentionVisibleRef = useRef(false);
   const mentionOwnerRef = useRef(cwd);
-  const imeRef = useRef(emptyImeEnterState());
   const mentionEffectOwnerRef = useRef(cwd);
+  const imeRef = useRef(emptyImeEnterState());
   mentionOwnerRef.current = cwd;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -213,10 +228,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [mentionActive, setMentionActive] = useState(0);
   const [includeContent, setIncludeContent] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [modeArmed, setModeArmed] = useState<Mode | null>(null);
   const [effortOpen, setEffortOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
+  const metaRowRef = useRef<HTMLDivElement>(null);
+  const [metaHide, setMetaHide] = useState<ComposerMetaHide>({
+    cwd: false,
+    stats: false,
+    ring: false,
+  });
 
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
@@ -255,10 +277,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   );
 
   const ingestPaths = useCallback(
-    async (paths: { path: string; kind: "file" | "dir"; bytes?: number }[]) => {
+    async (paths: { path: string; kind: "file" | "dir"; bytes?: number; name?: string }[]) => {
       const incoming: Attachment[] = [];
       for (const p of paths) {
-        const result = await resolveAttachPath(p, (path) => statAttachment(path, cwd || null));
+        const result = await resolveAttachPath(
+          p,
+          (path) => statAttachment(path, cwd || null),
+          (path) => importDroppedFile(path),
+        );
         if ("reason" in result) {
           onOverflow?.(result.reason);
           continue;
@@ -270,12 +296,48 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     [cwd, mergeAttachments, onOverflow],
   );
 
-  const pointInWrap = useCallback((x: number, y: number) => {
-    const el = wrapRef.current;
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  const ingestClipboardHits = useCallback(
+    async (hits: ClipboardAttachHit[]) => {
+      const incoming: { path: string; kind: "file" | "dir"; bytes?: number; name?: string }[] = [];
+      for (const hit of hits) {
+        if (hit.kind === "path") {
+          incoming.push({ path: hit.path, kind: hit.fileKind, bytes: hit.bytes });
+          continue;
+        }
+        const name = hit.file.name.trim() || "image.png";
+        const reason = rejectAttachment({ name, bytes: hit.file.size });
+        if (reason) {
+          onOverflow?.(reason);
+          continue;
+        }
+        try {
+          const buf = new Uint8Array(await hit.file.arrayBuffer());
+          const saved = await savePasteBytes(Array.from(buf), pasteFileExt(name, hit.file.type), name);
+          incoming.push({ path: saved.path, kind: "file", bytes: saved.bytes, name: saved.name || name });
+        } catch (err) {
+          const text = err instanceof Error && err.message.trim() ? err.message : "无法保存粘贴的附件";
+          onOverflow?.(text);
+        }
+      }
+      await ingestPaths(incoming);
+    },
+    [ingestPaths, onOverflow],
+  );
+
+  const dropZoneEl = useCallback((): Element | null => {
+    const wrap = wrapRef.current;
+    if (!wrap) return null;
+    return wrap.closest(".work-col") ?? wrap.closest(".pane") ?? wrap;
   }, []);
+
+  const pointInWrap = useCallback(
+    (x: number, y: number) => {
+      const zone = dropZoneEl();
+      if (!zone) return false;
+      return dropPointHitsZone(x, y, zone.getBoundingClientRect(), window.devicePixelRatio || 1);
+    },
+    [dropZoneEl],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -284,12 +346,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         const { payload } = event;
-        const scale = window.devicePixelRatio || 1;
 
         if (payload.type === "enter" || payload.type === "over") {
-          const x = payload.position.x / scale;
-          const y = payload.position.y / scale;
-          setFileDragOver(pointInWrap(x, y));
+          setFileDragOver(pointInWrap(payload.position.x, payload.position.y));
           return;
         }
 
@@ -305,9 +364,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           return;
         }
 
-        const x = payload.position.x / scale;
-        const y = payload.position.y / scale;
-        if (!pointInWrap(x, y)) return;
+        if (!pointInWrap(payload.position.x, payload.position.y)) return;
 
         const incoming = pathsFromTauriDrop(payload.paths);
         void ingestPaths(incoming.map((a) => ({ path: a.path, kind: a.kind, bytes: a.bytes })));
@@ -327,7 +384,56 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, [ingestPaths, pointInWrap]);
 
   useEffect(() => {
-    if (!modeOpen && !effortOpen && !modelOpen && !wsOpen) return;
+    const zone = dropZoneEl();
+    if (!zone) return;
+
+    const onEnter = (e: Event) => {
+      const ev = e as DragEvent;
+      if (!isFileDrag(ev.dataTransfer)) return;
+      ev.preventDefault();
+      fileDragDepthRef.current += 1;
+      setFileDragOver(true);
+    };
+    const onLeave = (e: Event) => {
+      e.preventDefault();
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (fileDragDepthRef.current === 0) setFileDragOver(false);
+    };
+    const onOver = (e: Event) => {
+      const ev = e as DragEvent;
+      if (!isFileDrag(ev.dataTransfer)) return;
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+      setFileDragOver(true);
+    };
+    const onDrop = (e: Event) => {
+      const ev = e as DragEvent;
+      if (!isFileDrag(ev.dataTransfer)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      fileDragDepthRef.current = 0;
+      setFileDragOver(false);
+      html5DropRef.current = false;
+      const hits = clipboardAttachHits(ev.dataTransfer);
+      if (hits.length === 0) return;
+      html5DropRef.current = true;
+      void ingestClipboardHits(hits);
+    };
+
+    zone.addEventListener("dragenter", onEnter);
+    zone.addEventListener("dragleave", onLeave);
+    zone.addEventListener("dragover", onOver);
+    zone.addEventListener("drop", onDrop);
+    return () => {
+      zone.removeEventListener("dragenter", onEnter);
+      zone.removeEventListener("dragleave", onLeave);
+      zone.removeEventListener("dragover", onOver);
+      zone.removeEventListener("drop", onDrop);
+    };
+  }, [dropZoneEl, ingestClipboardHits]);
+
+  useEffect(() => {
+    if (!modeOpen && !effortOpen && !modelOpen && !wsOpen && !agentOpen) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target;
       if (t instanceof Element && t.closest(".chip-wrap")) return;
@@ -335,6 +441,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setEffortOpen(false);
       setModelOpen(false);
       setWsOpen(false);
+      setAgentOpen(false);
     };
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -343,6 +450,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setEffortOpen(false);
       setModelOpen(false);
       setWsOpen(false);
+      setAgentOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -350,7 +458,32 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [modeOpen, effortOpen, modelOpen, wsOpen]);
+  }, [modeOpen, effortOpen, modelOpen, wsOpen, agentOpen]);
+
+  useLayoutEffect(() => {
+    const row = metaRowRef.current;
+    if (!row) return;
+    const apply = () => {
+      const next = composerMetaHide({
+        available: row.clientWidth,
+        cwd: row.querySelector<HTMLElement>(".composer-meta-cwd")?.offsetWidth ?? 0,
+        stats: row.querySelector<HTMLElement>(".composer-meta-stats")?.offsetWidth ?? 0,
+        ring: row.querySelector<HTMLElement>(".usage-chip")?.offsetWidth ?? 0,
+        keep:
+          (row.querySelector<HTMLElement>(".composer-chips")?.offsetWidth ?? 0) +
+          (row.querySelector<HTMLElement>(".fork-btn")?.offsetWidth ?? 0),
+      });
+      setMetaHide((prev) => (sameMetaHide(prev, next) ? prev : next));
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [workspaceLabel, footer, metaActions, takeover]);
+
+  useEffect(() => {
+    if (metaHide.cwd) setWsOpen(false);
+  }, [metaHide.cwd]);
 
   async function handleChange(next: string) {
     onChange(next);
@@ -386,13 +519,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setMentionOn(false);
   }
 
-  function openSlashPalette() {
-    onChange("/");
-    setSlashOn(true);
-    setSlashHits(filterCommands("/", commands));
-    taRef.current?.focus();
-  }
-
   function runSlash(cmd: CommandDef, rest = "") {
     setSlashOn(false);
     onRunSlash(cmd, rest);
@@ -417,42 +543,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setAttachments((prev) => prev.filter((a) => a.path !== path));
   }
 
-  function onFileDragEnter(e: DragEvent) {
-    if (!isFileDrag(e.dataTransfer)) return;
+  function onPasteFiles(e: ClipboardEvent<HTMLDivElement>) {
+    const hits = clipboardAttachHits(e.clipboardData);
+    if (hits.length === 0) return;
     e.preventDefault();
-    fileDragDepthRef.current += 1;
-    setFileDragOver(true);
-  }
-
-  function onFileDragLeave(e: DragEvent) {
-    if (!isFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-    if (fileDragDepthRef.current === 0) setFileDragOver(false);
-  }
-
-  function onFileDragOver(e: DragEvent) {
-    if (!isFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setFileDragOver(true);
-  }
-
-  async function onFileDrop(e: DragEvent) {
-    if (!isFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    fileDragDepthRef.current = 0;
-    setFileDragOver(false);
-    html5DropRef.current = true;
-
-    const paths = await pathsFromDataTransfer(e.dataTransfer);
-    if (paths.length > 0) {
-      void ingestPaths(paths);
-      return;
-    }
-
-    html5DropRef.current = false;
+    void ingestClipboardHits(hits);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -553,35 +648,36 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     taRef.current?.focus();
   }
 
-  const sendKbd = enterSends ? "↩" : "⌘↩";
-  const altKbd = enterSends ? "⌘↩" : "↩";
-  const idleSendTitle = `发送（${sendKbd}）`;
-  const busySendTitle = altLabel === "改向" ? `排队发送（${sendKbd}）` : `立即改向（${sendKbd}）`;
+  const modGlyph = mac ? "⌘" : "Ctrl+";
+  const sendKbd = enterSends ? "↩" : `${modGlyph}↩`;
+  const altKbd = enterSends ? `${modGlyph}↩` : "↩";
+  const idleSendTitle = t("composer.sendKbd", { k: sendKbd });
+  const busySendTitle = altLabel === t("composer.steer")
+    ? t("composer.queueSend", { k: sendKbd })
+    : t("composer.steerNow", { k: sendKbd });
   const busyAltTitle =
-    altLabel === "改向"
-      ? `改向（${altKbd}）`
+    altLabel === t("composer.steer")
+      ? t("composer.steerKbd", { k: altKbd })
       : altLabel
-        ? `排队（${altKbd}）`
+        ? t("composer.queueKbd", { k: altKbd })
         : undefined;
 
   const canSend = (!!value.trim() || attachments.length > 0) && !blocked;
+  const overlayHost = fileDragOver ? dropZoneEl() : null;
 
   return (
     <div
       ref={wrapRef}
       className={`composer-wrap${fileDragOver ? " file-drag-over" : ""}${takeover !== "bar" ? " composer-takeover" : ""}`}
       style={{ ["--thread" as string]: threadWidth }}
-      onDragEnter={onFileDragEnter}
-      onDragLeave={onFileDragLeave}
-      onDragOver={onFileDragOver}
-      onDrop={(e) => void onFileDrop(e)}
+      onPaste={onPasteFiles}
     >
       {children}
 
       {modeArmed ? (
-        <div className="permission" role="alertdialog" aria-label="确认始终批准">
-          <h4>始终批准</h4>
-          <p className="permission-hint">会跳过本轮许可卡。危险命令仍可能被 hooks / 沙箱拦住。</p>
+        <div className="permission" role="alertdialog" aria-label={t("composer.confirmYolo")}>
+          <h4>{t("composer.yolo")}</h4>
+          <p className="permission-hint">{t("composer.yoloHint")}</p>
           <div className="set-actions">
             <button
               type="button"
@@ -592,20 +688,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 onMode(next);
               }}
             >
-              继续
+              {t("composer.continue")}
             </button>
             <button type="button" className="btn ghost" onClick={() => setModeArmed(null)}>
-              取消
+              {t("composer.cancel")}
             </button>
           </div>
         </div>
       ) : null}
 
-      {fileDragOver && (
-        <div className="drop-overlay" aria-hidden>
-          松开以添加文件
-        </div>
-      )}
+      {overlayHost &&
+        createPortal(
+          <div className="drop-overlay" aria-hidden>
+            {t("composer.drop")}
+          </div>,
+          overlayHost,
+        )}
 
       <QueueStrip
         queue={queue}
@@ -628,132 +726,66 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
       {takeover === "bar" ? (
       <div className="composer">
-        <AttachStrip items={attachments} onRemove={removeAttachment} cwd={cwd} />
-        <textarea
-          ref={taRef}
-          value={value}
-          placeholder={busy ? "排队下一条…" : placeholder}
-          aria-label="输入提示词"
-          onChange={(e) => void handleChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onCompositionStart={() => {
-            imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
-          }}
-          onCompositionEnd={() => {
-            imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
-          }}
-        />
-        <div className="composer-foot">
-          <div className="left">
-            <button
-              type="button"
-              className="plus-btn"
-              onClick={openSlashPalette}
-              title="命令（/）"
-              aria-label="命令（/）"
-            >
-              <IconGrokPlus size={18} />
-            </button>
-            {onManageSkills ? (
-              <button
-                type="button"
-                className="btn ghost manage-skills"
-                onClick={onManageSkills}
-              >
-                管理技能
-              </button>
-            ) : null}
-          </div>
-          <div className="right">
-            <div className="composer-chips">
-            <AgentChip hasOpenSession={hasOpenSession} value={selectedAgentId} onChange={onSelectedAgent} />
-            <ComposerChips
-              mode={mode}
-              onMode={(next) => {
-                setModeOpen(false);
-                onMode(next);
-              }}
-              modeOpen={modeOpen}
-              onToggleMode={() => {
-                setEffortOpen(false);
-                setModelOpen(false);
-                setWsOpen(false);
-                setModeOpen((o) => !o);
-              }}
-              onArmMode={(next) => {
-                setModeOpen(false);
-                setModeArmed(next);
-              }}
-              effort={effort}
-              onEffort={(next) => {
-                setEffortOpen(false);
-                onEffort(next);
-              }}
-              effortReady={effortReady}
-              effortOpen={effortOpen}
-              onToggleEffort={() => {
-                if (!effortReady) return;
-                setModeOpen(false);
-                setModelOpen(false);
-                setWsOpen(false);
-                setEffortOpen((o) => !o);
-              }}
-              model={model}
-              sessionModel={sessionModel}
-              modelOptions={modelOptions}
-              modelOpen={modelOpen}
-              onToggleModel={() => {
-                setModeOpen(false);
-                setEffortOpen(false);
-                setWsOpen(false);
-                setModelOpen((o) => !o);
-              }}
-              onPickModel={(m) => {
-                setModelOpen(false);
-                (onSessionModel ?? onModel)(m);
-              }}
-              onOpenSettings={() => {
-                setModelOpen(false);
-                onOpenSettings();
-              }}
-            />
-            </div>
-
+        <AttachStrip items={attachments} onRemove={removeAttachment} cwd={cwd} grokHome={grokHome} />
+        <div className="composer-main">
+          <textarea
+            ref={taRef}
+            rows={1}
+            value={value}
+            aria-label={t("composer.input")}
+            onChange={(e) => void handleChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            onCompositionStart={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+            }}
+            onCompositionEnd={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+            }}
+          />
+          <div className="composer-actions">
             {busy && onAlt && altLabel && (
               <button
                 type="button"
-                className="alt-send"
+                className={`alt-send${held && enterSends ? " shortcut-host" : ""}`}
                 disabled={!canSend}
                 title={
                   busyAltTitle ??
-                  (altLabel === "改向"
-                    ? "把这条注入正在跑的这一轮，不打断已完成的工具调用"
-                    : "排到这一轮结束后再发")
+                  (altLabel === t("composer.steer")
+                    ? t("composer.steerHint")
+                    : t("composer.queueHint"))
                 }
                 onClick={() => dispatchSend(onAlt)}
               >
                 {altLabel}
+                {held && enterSends ? <kbd className="shortcut-kbd">{altKbd}</kbd> : null}
               </button>
             )}
             <button
               type="button"
-              className="send-btn"
+              className={`send-btn${held && !enterSends ? " shortcut-host" : ""}`}
               disabled={!canSend}
               title={busy ? busySendTitle : idleSendTitle}
               aria-label={busy ? busySendTitle : idleSendTitle}
               onClick={() => dispatchSend(onSend)}
             >
-              <IconUp />
+              <IconUp size={14} />
+              {held && !enterSends ? <kbd className="shortcut-kbd">{sendKbd}</kbd> : null}
             </button>
           </div>
         </div>
       </div>
       ) : null}
-      {workspaceOptions || metaActions || footer ? (
-        <div className="composer-meta-row">
+      {workspaceOptions || metaActions || footer || takeover === "bar" ? (
+        <div
+          className="composer-meta-row"
+          ref={metaRowRef}
+          data-hide-cwd={metaHide.cwd ? "" : undefined}
+          data-hide-stats={metaHide.stats ? "" : undefined}
+          data-hide-ring={metaHide.ring ? "" : undefined}
+        >
           <div className="composer-meta-left">
             {workspaceOptions ? (
-              <div className="chip-wrap">
+              <div className="chip-wrap composer-meta-cwd">
                 <button
                   type="button"
                   className="cwd-chip"
@@ -764,6 +796,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     setModeOpen(false);
                     setEffortOpen(false);
                     setModelOpen(false);
+                    setAgentOpen(false);
                     setWsOpen((o) => !o);
                   }}
                 >
@@ -788,10 +821,85 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 ) : null}
               </div>
             ) : null}
+            {footer ? <div className="composer-meta-stats">{footer}</div> : null}
           </div>
           <div className="composer-meta-right">
+            {takeover === "bar" ? (
+              <div className="composer-chips">
+                <AgentChip
+                  hasOpenSession={hasOpenSession}
+                  value={selectedAgentId}
+                  onChange={(id) => {
+                    setAgentOpen(false);
+                    onSelectedAgent(id);
+                  }}
+                  open={agentOpen}
+                  onToggle={() => {
+                    setModeOpen(false);
+                    setEffortOpen(false);
+                    setModelOpen(false);
+                    setWsOpen(false);
+                    setAgentOpen((o) => !o);
+                  }}
+                />
+                <ComposerChips
+                  mode={mode}
+                  onMode={(next) => {
+                    setModeOpen(false);
+                    onMode(next);
+                  }}
+                  modeOpen={modeOpen}
+                  onToggleMode={() => {
+                    setEffortOpen(false);
+                    setModelOpen(false);
+                    setWsOpen(false);
+                    setAgentOpen(false);
+                    setModeOpen((o) => !o);
+                  }}
+                  onArmMode={(next) => {
+                    setModeOpen(false);
+                    setModeArmed(next);
+                  }}
+                  effort={effort}
+                  onEffort={(next) => {
+                    setEffortOpen(false);
+                    onEffort(next);
+                  }}
+                  effortReady={effortReady}
+                  effortOptions={effortOptions}
+                  effortOpen={effortOpen}
+                  onToggleEffort={() => {
+                    if (!effortReady) return;
+                    setModeOpen(false);
+                    setModelOpen(false);
+                    setWsOpen(false);
+                    setAgentOpen(false);
+                    setEffortOpen((o) => !o);
+                  }}
+                  model={model}
+                  sessionModel={sessionModel}
+                  modelOptions={modelOptions}
+                  modelLabels={modelLabels}
+                  modelOpen={modelOpen}
+                  onToggleModel={() => {
+                    setModeOpen(false);
+                    setEffortOpen(false);
+                    setWsOpen(false);
+                    setAgentOpen(false);
+                    setModelOpen((o) => !o);
+                  }}
+                  onPickModel={(m) => {
+                    setModelOpen(false);
+                    (onSessionModel ?? onModel)(m);
+                  }}
+                  onOpenSettings={() => {
+                    setModelOpen(false);
+                    onOpenSettings();
+                  }}
+                />
+              </div>
+            ) : null}
             {metaActions}
-            {footer}
           </div>
         </div>
       ) : null}

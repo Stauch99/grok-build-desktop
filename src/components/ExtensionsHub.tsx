@@ -324,7 +324,7 @@ export function ExtensionsHub({
             </button>
           </div>
         ) : null}
-        <div className="hub-body" role="tabpanel" id={`hub-panel-${tab}`} aria-labelledby={`hub-tab-${tab}`}>
+        <div className="hub-body pane-in" key={tab} role="tabpanel" id={`hub-panel-${tab}`} aria-labelledby={`hub-tab-${tab}`}>
           {tab === "skills" && (
             <SkillsTab
               locale={locale}
@@ -446,17 +446,19 @@ export function ExtensionsHub({
               setInstallSource={setInstallSource}
               listing={marketText}
               onAdd={() =>
-                void runNoted(() =>
-                  marketSource.startsWith("/") || marketSource.startsWith(".")
-                    ? installMarketplaceSkill(marketSource)
-                    : grokMarketplaceAdd(marketSource, cwd || null),
-                )
+                void runNoted(async () => {
+                  if (marketSource.startsWith("/") || marketSource.startsWith(".")) {
+                    await installMarketplaceSkill(marketSource);
+                    return;
+                  }
+                  return grokMarketplaceAdd(marketSource, cwd || null);
+                })
               }
               onUpdate={() => void runNoted(() => grokMarketplaceUpdate(undefined, cwd || null))}
               onRemove={() =>
                 askDanger("market-rm", () => void runNoted(() => grokMarketplaceRemove(marketSource, cwd || null)))
               }
-              onInstall={() => void runNoted(() => installMarketplaceSkill(installSource))}
+              onInstall={() => void runNoted(async () => { await installMarketplaceSkill(installSource); })}
               confirm={confirm}
             />
           )}

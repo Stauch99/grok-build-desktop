@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { isAllowOption, pickAllowOption, type PermissionOption } from "../lib/permission-allow";
 import { t, type Locale } from "../lib/i18n";
+import { permissionTimeoutNotice } from "../lib/permission-copy";
 import { rejectCountdownLabel, secondsUntilReject } from "../lib/permission-queue";
 
 export type PermissionCardProps = {
@@ -13,6 +14,24 @@ export type PermissionCardProps = {
   locale?: Locale;
   receivedAt?: number;
 };
+
+export type PermissionPickContext = {
+  options: PermissionOption[];
+  remember: boolean;
+  timedOut?: boolean;
+  onPick: (id: string) => void;
+  onAlwaysAllow: () => void;
+};
+
+/** Timeout is notice-only; Allow / Deny stay available. */
+export function applyPermissionPick(id: string, ctx: PermissionPickContext): void {
+  const opt = ctx.options.find((o) => o.optionId === id);
+  if (ctx.remember && opt && isAllowOption(opt)) {
+    ctx.onAlwaysAllow();
+    return;
+  }
+  ctx.onPick(id);
+}
 
 /**
  * Permission prompt. Options are equal-weight rows — the highlight is a
@@ -48,30 +67,24 @@ export function PermissionCard({
   }, [timedOut]);
 
   const left = timedOut ? 0 : secondsUntilReject(startedAt, now);
-  const expired = timedOut || left <= 0;
+  const showTimeoutNotice = timedOut || left <= 0;
+  const pickCtx: PermissionPickContext = { options, remember, timedOut, onPick, onAlwaysAllow };
 
   const allowOnce = () => {
-    if (expired) return;
     if (remember) {
       onAlwaysAllow();
       return;
     }
     const pick = pickAllowOption(options);
-    if (pick) onPick(pick);
+    if (pick) applyPermissionPick(pick, pickCtx);
   };
 
   const handlePick = (id: string) => {
-    if (expired) return;
-    const opt = options.find((o) => o.optionId === id);
-    if (remember && opt && isAllowOption(opt)) {
-      onAlwaysAllow();
-      return;
-    }
-    onPick(id);
+    applyPermissionPick(id, pickCtx);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (options.length === 0 || expired) return;
+    if (options.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopPropagation();
@@ -104,10 +117,10 @@ export function PermissionCard({
       onKeyDown={onKeyDown}
     >
       <h4>{t(locale, "perm.title")}</h4>
-      <pre className="permission-cmd">{title}</pre>
-      {expired ? (
+      <pre className="permission-cmd" title={title}>{title}</pre>
+      {showTimeoutNotice ? (
         <p className="permission-timeout" role="status">
-          {timeoutNotice || t(locale, "perm.timeout")}
+          {timeoutNotice || permissionTimeoutNotice()}
         </p>
       ) : (
         <>
@@ -121,7 +134,6 @@ export function PermissionCard({
         <input
           type="checkbox"
           checked={remember}
-          disabled={expired}
           onChange={(e) => setRemember(e.target.checked)}
         />
         {" "}
@@ -138,7 +150,6 @@ export function PermissionCard({
               data-hotkey={hotkey}
               data-option-index={i}
               aria-current={i === index ? "true" : undefined}
-              disabled={expired}
               onClick={() => handlePick(opt.optionId)}
               onMouseEnter={() => setIndex(i)}
             >
@@ -151,7 +162,6 @@ export function PermissionCard({
           type="button"
           className="perm-always"
           data-always-allow="true"
-          disabled={expired}
           onClick={allowOnce}
         >
           {t(locale, "perm.allowOnce")}

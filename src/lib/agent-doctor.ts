@@ -9,7 +9,6 @@ export type AgentDoctor = {
   home: string;
   authPresent: boolean;
   authKind: AuthKind;
-  acpSpawnOk: boolean;
   loginHint: string[];
 };
 
@@ -20,17 +19,48 @@ export function defaultAgentHome(home: string, id: AgentId): string {
   return `${root}/${folder}`;
 }
 
-export function defaultLoginHint(_id: AgentId): string[] {
-  return ["login"];
+export function defaultLoginHint(id: AgentId): string[] {
+  if (id === "grok") return ["grok auth login"];
+  if (id === "kimi") return ["kimi login"];
+  if (id === "claude") return ["claude auth login"];
+  return ["codex login"];
+}
+
+export function defaultInstallHint(id: AgentId): string[] {
+  if (id === "grok") return ["Install Grok CLI to ~/.grok/bin/grok"];
+  if (id === "kimi") return ["Install Kimi Code CLI and put kimi on PATH"];
+  if (id === "claude") return ["npm i -g @anthropic-ai/claude-code"];
+  return ["npm i -g @openai/codex"];
+}
+
+export function doctorActionHint(
+  d: Pick<AgentDoctor, "agentId" | "binary" | "authPresent" | "loginHint">,
+): string[] {
+  if (!d.binary) return defaultInstallHint(d.agentId);
+  if (!d.authPresent) return d.loginHint.length ? d.loginHint : defaultLoginHint(d.agentId);
+  return [];
 }
 
 export function agentSendBlockReason(
   agentId: AgentId,
-  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent">>,
+  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary">>,
 ): string | null {
   const row = doctors.find((d) => d.agentId === agentId);
-  if (!row || row.authPresent) return null;
-  return `${agentChipLabel(agentId)} 未登录`;
+  if (!row) return null;
+  if (!row.binary) return `${agentChipLabel(agentId)} 未安装`;
+  if (!row.authPresent) return `${agentChipLabel(agentId)} 未登录`;
+  return null;
+}
+
+export function blockedAgentToast(
+  agentId: AgentId,
+  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>,
+): string | null {
+  const reason = agentSendBlockReason(agentId, doctors);
+  if (!reason) return null;
+  const row = doctors.find((d) => d.agentId === agentId);
+  const hint = row ? doctorActionHint(row)[0] : undefined;
+  return hint ? `${reason} · ${hint}` : reason;
 }
 
 export function emptyDoctor(id: AgentId, userHome: string): AgentDoctor {
@@ -41,7 +71,6 @@ export function emptyDoctor(id: AgentId, userHome: string): AgentDoctor {
     home: defaultAgentHome(userHome, id),
     authPresent: false,
     authKind: "none",
-    acpSpawnOk: false,
     loginHint: defaultLoginHint(id),
   };
 }

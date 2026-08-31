@@ -7,6 +7,19 @@ export type ProjectNode = {
   sessions: SessionSummary[];
 };
 
+/**
+ * Projects are an allow-list the user adds. Session-scan discovery used to
+ * merge every historical cwd into that list; `manualProjects` marks the
+ * cutover so we do not keep those auto-imported folders.
+ */
+export function adoptManualProjects(
+  saved: string[] | undefined,
+  alreadyManual: boolean | undefined,
+): { projects: string[]; reset: boolean } {
+  if (alreadyManual) return { projects: Array.isArray(saved) ? saved : [], reset: false };
+  return { projects: [], reset: true };
+}
+
 export function mergeProjectPaths(saved: string[], discovered: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -99,6 +112,19 @@ export function setTitleOverride(
     return next;
   }
   return { ...titles, [id]: t };
+}
+
+export type TitleCommit =
+  | { action: "cancel" }
+  | { action: "reject-auto" }
+  | { action: "apply"; id: string; title: string };
+
+export function decideTitleCommit(raw: string, editingTitleId: string | null): TitleCommit {
+  if (!editingTitleId) return { action: "cancel" };
+  const t = raw.trim();
+  if (t === "--auto") return { action: "reject-auto" };
+  if (!t) return { action: "cancel" };
+  return { action: "apply", id: editingTitleId, title: t };
 }
 
 export function filterProjectTree(

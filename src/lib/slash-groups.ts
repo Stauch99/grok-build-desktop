@@ -46,10 +46,17 @@ const BUILTIN = new Set([
   "hooks-trust",
 ]);
 
+const SKILL_PREFIXES = new Set(["user", "local", "repo", "cwd", "plugin", "compat"]);
+
 export function commandGroup(cmd: CommandDef): SlashGroup {
   const bare = cmd.name.replace(/^\//, "");
   if (cmd.local) return "builtin";
-  if (bare.includes(":")) return "plugin";
+  const colon = bare.indexOf(":");
+  if (colon > 0) {
+    const prefix = bare.slice(0, colon);
+    if (SKILL_PREFIXES.has(prefix)) return "skill";
+    return "plugin";
+  }
   if (BUILTIN.has(bare)) return "builtin";
   if (cmd.hint.toLowerCase().includes("plugin")) return "plugin";
   return "skill";

@@ -1,3 +1,5 @@
+import { t, type Locale } from "./i18n";
+
 export const SIDEBAR_RAIL = 90;
 
 export function tasksSections(opts: { planCount: number; turnFileCount: number }): {
@@ -48,12 +50,12 @@ export function contextSummary(opts: {
   };
 }
 
-export function busyComposerHint(steerByDefault: boolean): string {
-  return steerByDefault ? "忙碌时回车会改向" : "忙碌时回车会排队";
+export function busyComposerHint(steerByDefault: boolean, locale: Locale = "zh"): string {
+  return t(locale, steerByDefault ? "composer.hintSteer" : "composer.hintQueue");
 }
 
-export function trayMenuLabels(): string[] {
-  return ["显示窗口", "打开上次会话", "退出"];
+export function trayMenuLabels(locale: Locale = "zh"): string[] {
+  return [t(locale, "tray.show"), t(locale, "tray.last"), t(locale, "tray.quit")];
 }
 
 export function messageFeedbackSupported(): boolean {
@@ -64,6 +66,6 @@ export function packagedRuntimeOk(opts: { grokBin: boolean }): boolean {
   return opts.grokBin;
 }
 
-export function paneComposerTakeover(opts: { pane: "main" | "split"; pendingPane: "main" | "split" | null; pendingKind: "permission" | "question" | null; plan: boolean }): TakeoverKind {
+export function paneComposerTakeover(opts: { pane: string; pendingPane: string | null; pendingKind: "permission" | "question" | null; plan: boolean }): TakeoverKind {
   return composerTakeover({ permission: opts.pendingPane === opts.pane && opts.pendingKind === "permission", question: opts.pendingPane === opts.pane && opts.pendingKind === "question", plan: opts.plan });
 }

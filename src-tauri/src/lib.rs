@@ -24,23 +24,26 @@ mod adapters;
 mod skill_sync;
 mod session_scan;
 mod session_lookup;
+mod session_replay;
 mod acp_loop;
 mod agent_registry;
+mod agent_models;
 mod memory_host;
-pub(crate) use rpc_allowlist::rpc_payload_allowed;
 use memory_host::{read_memory_host, write_memory_host};
+use agent_models::{patch_agent_model_settings, read_agent_model_source};
 use agent_host::{
     extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool,
 };
 use acp_loop::{spawn_reader, spawn_writer};
 use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 use cli_bridge::{
-    create_skill, git_blame, git_branches, git_commit, git_log, git_status_untracked, hide_window, list_agents_dir, list_file_tree,
+    create_skill, git_blame, git_branches, git_commit, git_discard, git_log, git_pull, git_push,
+    git_status_untracked, hide_window, list_agents_dir, list_file_tree,
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
     read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
     trust_folder, watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
-    stat_attachment,
+    save_paste_bytes, import_dropped_file, stat_attachment,
 };
 
 pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
@@ -123,6 +126,8 @@ struct SessionSummary {
     dir: Option<String>,
     session_kind: Option<String>,
     parent_session_id: Option<String>,
+    last_turn_summary: Option<String>,
+    last_turn_summary_prompt_id: Option<String>,
 }
 
 fn default_grok_agent() -> String { "grok".into() }
@@ -156,6 +161,38 @@ mod grok_asset_tests {
         assert_eq!(root.file_name().unwrap(), "sessions");
         assert_eq!(root, grok_home().join("sessions"));
         assert_ne!(root, grok_home());
+    }
+
+    #[test]
+    fn parse_summary_reads_grok_last_turn_recap() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-summary-recap-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("summary.json");
+        std::fs::write(
+            &path,
+            r#"{
+              "info": { "id": "sess-1", "cwd": "/work" },
+              "generated_title": "文件夹整理",
+              "session_summary": "文件夹整理",
+              "last_turn_summary": "五套按用途落地；标准材料仍作终版出口",
+              "last_turn_summary_prompt_id": "prompt-9"
+            }"#,
+        )
+        .unwrap();
+        let row = parse_summary(&path).expect("summary");
+        assert_eq!(row.id, "sess-1");
+        assert_eq!(row.title, "文件夹整理");
+        assert_eq!(
+            row.last_turn_summary.as_deref(),
+            Some("五套按用途落地；标准材料仍作终版出口")
+        );
+        assert_eq!(row.last_turn_summary_prompt_id.as_deref(), Some("prompt-9"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -284,12 +321,12 @@ pub(crate) fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: 
         if !canon.starts_with(&root) { return Err("path is outside the workspace".into()); }
         return Ok(canon);
     }
-    if let Some(root) = workspace {
-        let root = root.canonicalize().map_err(|e| e.to_string())?;
-        if !canon.starts_with(&root) { return Err("path is outside the workspace".into()); }
-    } else {
-        let home = grok_home().canonicalize().map_err(|e| e.to_string())?;
-        if !is_under(&canon, &home) { return Err("trusted workspace is not set".into()); }
+    let allow_root = match workspace {
+        Some(root) => Some(root.canonicalize().map_err(|e| e.to_string())?),
+        None => None,
+    };
+    if !allow_acp_read(&canon, allow_root.as_deref()) {
+        return Err("path is outside the workspace".into());
     }
     Ok(canon)
 }
@@ -336,20 +373,61 @@ fn env_nonempty(name: &str) -> bool {
     std::env::var(name).ok().map(|s| !s.trim().is_empty()).unwrap_or(false)
 }
 
+async fn cli_version_of(path: &Path) -> Option<String> {
+    let fut = Command::new(path).arg("--version").output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(2), fut)
+        .await
+        .ok()?
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let raw = if !stdout.trim().is_empty() {
+        stdout.as_ref()
+    } else {
+        stderr.as_ref()
+    };
+    let line = raw.lines().next()?.trim();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line.chars().take(80).collect())
+    }
+}
+
+async fn probe_agent_binary(name: &str) -> (Option<String>, Option<String>) {
+    let path = if name == "grok" {
+        resolve_grok()
+    } else {
+        which_on_path(name)
+    };
+    match path {
+        Some(p) => (Some(p.display().to_string()), cli_version_of(&p).await),
+        None => (None, None),
+    }
+}
+
 #[tauri::command]
 async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
     let home = dirs_home();
     let grok_h = grok_home();
     let grok_sub = grok_h.join("auth.json").is_file();
     let grok_key = env_nonempty("XAI_API_KEY") || env_nonempty("GROK_API_KEY");
-    let kimi_h = home.join(".kimi-code");
+    let homes = crate::adapters::doctor_homes(&home, &grok_h);
+    let kimi_h = &homes[1].1;
+    let claude_h = &homes[2].1;
+    let codex_h = &homes[3].1;
     let claude_json = home.join(".claude.json");
-    let codex_h = home.join(".codex");
+    let (grok_bin, kimi_bin, claude_bin, codex_bin) = tokio::join!(
+        probe_agent_binary("grok"),
+        probe_agent_binary("kimi"),
+        probe_agent_binary("claude"),
+        probe_agent_binary("codex"),
+    );
     vec![
-        crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, None, false),
-        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), crate::agent_doctor::kimi_subscription_present(&kimi_h), env_nonempty("KIMI_API_KEY"), None, false),
-        crate::agent_doctor::doctor_from_evidence("claude", home.join(".claude").display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), None, false),
-        crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), None, false),
+        crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, grok_bin.0, grok_bin.1),
+        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), crate::agent_doctor::kimi_subscription_present(kimi_h), env_nonempty("KIMI_API_KEY"), kimi_bin.0, kimi_bin.1),
+        crate::agent_doctor::doctor_from_evidence("claude", claude_h.display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), claude_bin.0, claude_bin.1),
+        crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), codex_bin.0, codex_bin.1),
     ]
 }
 
@@ -387,7 +465,8 @@ async fn start_agent(
     let (tx, rx) = mpsc::channel::<String>(64);
 
     let grok_bin = if id == AgentId::Grok { resolve_grok() } else { None };
-    let (cmd_path, args) = crate::adapters::spawn_argv(id, grok_bin.as_deref()).ok_or_else(|| {
+    let registry = std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
+    let (cmd_path, args) = crate::adapters::spawn_argv(id, grok_bin.as_deref(), registry.as_deref()).ok_or_else(|| {
         if id == AgentId::Grok {
             AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
         } else {
@@ -576,6 +655,16 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .get("parent_session_id")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        last_turn_summary: value
+            .get("last_turn_summary")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        last_turn_summary_prompt_id: value
+            .get("last_turn_summary_prompt_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -658,41 +747,24 @@ fn cached_sessions() -> Vec<SessionSummary> {
 async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
     tokio::task::spawn_blocking(move || {
         let mut out = cached_sessions();
-        let home = dirs_home();
-        let extra = [
-            crate::session_scan::scan_agent_sessions(
-                &home.join(".kimi-code").join("sessions"),
-                "kimi",
-                crate::session_scan::ScanMode::ImmediateDirs,
-            ),
-            crate::session_scan::scan_agent_sessions(
-                &home.join(".claude").join("projects"),
-                "claude",
-                crate::session_scan::ScanMode::Skip,
-            ),
-            crate::session_scan::scan_agent_sessions(
-                &home.join(".codex").join("sessions"),
-                "codex",
-                crate::session_scan::ScanMode::ImmediateDirs,
-            ),
-        ];
-        for batch in extra {
-            for row in batch {
-                out.push(SessionSummary {
-                    id: row.id,
-                    agent_id: row.agent_id,
-                    cwd: row.cwd,
-                    title: row.title,
-                    model: None,
-                    agent_name: None,
-                    updated_at: row.updated_at,
-                    created_at: String::new(),
-                    num_messages: 0,
-                    dir: Some(row.dir),
-                    session_kind: None,
-                    parent_session_id: None,
-                });
-            }
+        let extra = crate::session_scan::scan_vendor_homes(&dirs_home());
+        for row in extra {
+            out.push(SessionSummary {
+                id: row.id,
+                agent_id: row.agent_id,
+                cwd: row.cwd,
+                title: row.title,
+                model: None,
+                agent_name: None,
+                updated_at: row.updated_at,
+                created_at: String::new(),
+                num_messages: 0,
+                dir: Some(row.dir),
+                session_kind: None,
+                parent_session_id: None,
+                last_turn_summary: None,
+                last_turn_summary_prompt_id: None,
+            });
         }
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         let want = cwd.as_deref().unwrap_or("");
@@ -879,19 +951,42 @@ pub(crate) fn session_updates_for_dir(
     if !crate::session_lookup::replay_path_or_empty(dir) {
         return Ok(empty_session_updates());
     }
-    read_updates_jsonl(&dir.join("updates.jsonl"), after_byte)
+    if let Some(transcript) = crate::session_replay::resolve_transcript(dir) {
+        if transcript
+            .file_name()
+            .and_then(|n| n.to_str())
+            == Some("updates.jsonl")
+        {
+            return read_updates_jsonl(&transcript, after_byte);
+        }
+        let page = crate::session_replay::replay_session(dir, after_byte)
+            .map_err(AppError::Message)?;
+        return Ok(SessionUpdates {
+            rows: page.rows,
+            next_byte: page.next_byte,
+            truncated: page.truncated,
+        });
+    }
+    Ok(empty_session_updates())
 }
 
 #[tauri::command]
 async fn read_session_updates(
     session_id: String,
     after_byte: Option<u64>,
+    dir: Option<String>,
 ) -> AppResult<SessionUpdates> {
     tokio::task::spawn_blocking(move || {
-        let Some(dir) = find_session_dir(&session_id) else {
+        let hinted = dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        let Some(path) = hinted.or_else(|| find_session_dir(&session_id)) else {
             return Ok(empty_session_updates());
         };
-        session_updates_for_dir(&dir, after_byte)
+        session_updates_for_dir(&path, after_byte)
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -1125,6 +1220,11 @@ async fn list_project_roots() -> AppResult<Vec<String>> {
             if !row.cwd.is_empty() {
                 set.insert(row.cwd);
             }
+        }
+        for cwd in crate::session_scan::collect_cwds(&crate::session_scan::scan_vendor_homes(
+            &dirs_home(),
+        )) {
+            set.insert(cwd);
         }
         Ok(set.into_iter().collect())
     })
@@ -1436,6 +1536,32 @@ fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: b
 
 fn allow_text_read(canon: &Path, allow_root: Option<&Path>) -> bool {
     allow_text_read_candidate(canon, allow_root, canon.is_file())
+}
+
+/// ACP reads follow the preview allowlist, plus user skill/agent homes that
+/// live outside the project (`~/.agents`, and the same roots other CLIs use).
+fn extra_skill_read_root(canon: &Path) -> bool {
+    if is_blocked_path(canon) || !canon.is_file() {
+        return false;
+    }
+    let home = dirs_home();
+    let roots = [
+        home.join(".agents"),
+        home.join(".claude"),
+        home.join(".codex"),
+        home.join(".kimi-code"),
+    ];
+    roots.iter().any(|root| {
+        if let Ok(root) = root.canonicalize() {
+            is_under(canon, &root)
+        } else {
+            is_under(canon, root)
+        }
+    })
+}
+
+fn allow_acp_read(canon: &Path, allow_root: Option<&Path>) -> bool {
+    allow_text_read(canon, allow_root) || extra_skill_read_root(canon)
 }
 
 const PREVIEW_MAX_BYTES: usize = 256 * 1024;
@@ -2447,6 +2573,69 @@ async fn git_create_worktree(cwd: String, name: String) -> AppResult<String> {
     Ok(target_arg)
 }
 
+fn is_valid_git_ref(name: &str) -> bool {
+    let n = name.trim();
+    let len = n.chars().count();
+    if len == 0 || len > 200 {
+        return false;
+    }
+    if n.starts_with('-') || n.starts_with("remotes/") || n.contains("..") {
+        return false;
+    }
+    n.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'))
+}
+
+#[cfg(test)]
+mod git_ref_tests {
+    use super::is_valid_git_ref;
+
+    #[test]
+    fn accepts_local_branch_names() {
+        assert!(is_valid_git_ref("main"));
+        assert!(is_valid_git_ref("feat/foo-bar"));
+        assert!(is_valid_git_ref("v1.2"));
+    }
+
+    #[test]
+    fn rejects_option_injection_and_remotes() {
+        assert!(!is_valid_git_ref(""));
+        assert!(!is_valid_git_ref("-b"));
+        assert!(!is_valid_git_ref("remotes/origin/main"));
+        assert!(!is_valid_git_ref("foo..bar"));
+        assert!(!is_valid_git_ref("foo;rm"));
+    }
+}
+
+#[tauri::command]
+async fn git_list_worktrees(cwd: String) -> AppResult<String> {
+    let Some(root) = git_repo_root(&cwd).await else {
+        return Ok(String::new());
+    };
+    Ok(git_stdout(&root, &["worktree", "list", "--porcelain"])
+        .await
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+async fn git_checkout(cwd: String, branch: String) -> AppResult<Value> {
+    let Some(root) = git_repo_root(&cwd).await else {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "当前目录不是 git 仓库" }));
+    };
+    let branch = branch.trim().to_string();
+    if !is_valid_git_ref(&branch) {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "无效的分支名" }));
+    }
+    let Some(out) = git_output(&root, &["checkout", &branch], GIT_TIMEOUT_SECS).await else {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "git checkout 超时" }));
+    };
+    Ok(json!({
+        "ok": out.status.success(),
+        "code": out.status.code().unwrap_or(-1),
+        "stderr": String::from_utf8_lossy(&out.stderr).trim().to_string(),
+    }))
+}
+
 /// Canonicalizes the closest existing ancestor so a missing file (or missing parent) can still be
 /// restored without letting a symlinked component escape the allow root.
 fn resolve_write_target(raw: &Path) -> Option<PathBuf> {
@@ -2681,6 +2870,8 @@ pub fn run() {
             git_status,
             git_changes,
             git_create_worktree,
+            git_list_worktrees,
+            git_checkout,
             restore_text_file,
             set_tray_status,
             run_grok,
@@ -2688,10 +2879,15 @@ pub fn run() {
             read_config_text,
             write_config_text,
             write_allowed_text,
+            save_paste_bytes,
+            import_dropped_file,
             stat_attachment,
             git_log,
             git_branches,
             git_commit,
+            git_pull,
+            git_push,
+            git_discard,
             git_blame,
             git_status_untracked,
             list_file_tree,
@@ -2699,6 +2895,8 @@ pub fn run() {
             set_hide_on_close,
             read_models_cache,
             list_models_text,
+            read_agent_model_source,
+            patch_agent_model_settings,
             trust_folder,
             create_skill,
             import_agents_mcp_first_open,
@@ -2902,6 +3100,41 @@ mod final_review_tests {
         let existing = root.join("secret.txt");
         std::fs::write(&existing, "ok").unwrap();
         assert!(resolve_allowed_path(existing.to_str().unwrap(), None, PathAccess::Read).is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn acp_read_allows_home_skill_and_temp_files_outside_workspace() {
+        let root = acp_path_root();
+        let stamp = format!(
+            "grok-acp-skill-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        );
+        let temp_skill = std::env::temp_dir().join(format!("{stamp}.md"));
+        std::fs::write(&temp_skill, "---\nname: demo\n---\n").unwrap();
+        let temp_canon = temp_skill.canonicalize().unwrap();
+        assert_eq!(
+            resolve_allowed_path(temp_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            temp_canon
+        );
+
+        let home_skill_dir = dirs_home().join(".agents").join("skills").join(&stamp);
+        std::fs::create_dir_all(&home_skill_dir).unwrap();
+        let home_skill = home_skill_dir.join("SKILL.md");
+        std::fs::write(&home_skill, "---\nname: demo\n---\n").unwrap();
+        let home_canon = home_skill.canonicalize().unwrap();
+        assert_eq!(
+            resolve_allowed_path(home_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            home_canon
+        );
+        assert_eq!(
+            resolve_allowed_path(home_skill.to_str().unwrap(), None, PathAccess::Read).unwrap(),
+            home_canon
+        );
+
+        let _ = std::fs::remove_file(&temp_skill);
+        let _ = std::fs::remove_dir_all(home_skill_dir);
         let _ = std::fs::remove_dir_all(root);
     }
 

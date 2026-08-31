@@ -49,6 +49,7 @@ const ALWAYS_RPC_METHODS: &[&str] = &[
     "session/cancel",
 ];
 
+#[cfg(test)]
 pub(crate) fn rpc_payload_allowed(payload: &Value) -> bool {
     rpc_payload_allowed_for(payload, &AgentRpcCaps::grok_legacy())
 }

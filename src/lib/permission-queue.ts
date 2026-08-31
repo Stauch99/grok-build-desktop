@@ -1,5 +1,6 @@
 import { t, type Locale } from "./i18n";
-import { derivePermissionView, type PermissionPane, type PermissionViewInput } from "./permission-view";
+import { derivePermissionView, type PermissionViewInput } from "./permission-view";
+import type { AgentId } from "./agent-id";
 import { asRecord } from "./text";
 
 export const PERMISSION_TIMEOUT_MS = 90_000;
@@ -37,7 +38,7 @@ export function secondsUntilReject(
 }
 
 export function rejectCountdownLabel(seconds: number, locale: Locale): string {
-  return t(locale, "perm.rejectIn").replace("{n}", String(seconds));
+  return t(locale, "perm.rejectIn", { n: seconds });
 }
 
 
@@ -49,25 +50,28 @@ export type QueuedPermission = {
   sessionId?: string | null;
   receivedAt: number;
   timedOut: boolean;
+  agentId: AgentId;
 };
 export type PermissionContext = Omit<PermissionViewInput, "request">;
 const sameRequest = (a: QueuedPermission, b: QueuedPermission) => a.rpcId === b.rpcId && (a.sessionId ?? null) === (b.sessionId ?? null);
 export const enqueuePermission = (queue: QueuedPermission[], request: QueuedPermission) => queue.some((item) => sameRequest(item, request)) ? queue : [...queue, request];
 export const removePermission = (queue: QueuedPermission[], request: QueuedPermission) => queue.filter((item) => !sameRequest(item, request));
 export const markPermissionTimedOut = (queue: QueuedPermission[], request: QueuedPermission) => queue.map((item) => sameRequest(item, request) ? { ...item, timedOut: true } : item);
-export function selectPanePermissions(queue: QueuedPermission[], context: PermissionContext): Record<PermissionPane, QueuedPermission | null> {
-  const result: Record<PermissionPane, QueuedPermission | null> = { main: null, split: null };
+export function selectPanePermissions(queue: QueuedPermission[], context: PermissionContext): Record<string, QueuedPermission | null> {
+  const result: Record<string, QueuedPermission | null> = { main: null, split: null };
+  for (const pane of context.extraPanes ?? []) result[pane.id] = null;
   for (const request of queue) {
     const pane = derivePermissionView({ ...context, request }).pane;
+    if (pane && result[pane] === undefined) result[pane] = null;
     if (pane && !result[pane]) result[pane] = request;
   }
   return result;
 }
 /** Number shortcuts target the focused pane; if focus is unknown or both are visible, main wins. */
-export function selectShortcutPermission(queue: QueuedPermission[], context: PermissionContext, focusedPane: PermissionPane | null): QueuedPermission | null {
+export function selectShortcutPermission(queue: QueuedPermission[], context: PermissionContext, focusedPane: string | null): QueuedPermission | null {
   const selected = selectPanePermissions(queue, context);
   if (focusedPane && selected[focusedPane]) return selected[focusedPane];
-  return selected.main ?? selected.split;
+  return selected.main ?? Object.values(selected).find(Boolean) ?? null;
 }
 
 export type AcpPermissionMessage = {
@@ -76,7 +80,11 @@ export type AcpPermissionMessage = {
   params?: unknown;
 };
 
-export function permissionFromAcpRequest(msg: AcpPermissionMessage, now = Date.now()): QueuedPermission | null {
+export function permissionFromAcpRequest(
+  msg: AcpPermissionMessage,
+  agentId: AgentId,
+  now = Date.now(),
+): QueuedPermission | null {
   if (msg.method !== "session/request_permission" || msg.id === undefined) return null;
   const params = asRecord(msg.params);
   const tool = asRecord(params.toolCall);
@@ -92,5 +100,6 @@ export function permissionFromAcpRequest(msg: AcpPermissionMessage, now = Date.n
     sessionId: typeof params.sessionId === "string" ? params.sessionId : null,
     receivedAt: now,
     timedOut: false,
+    agentId,
   };
 }

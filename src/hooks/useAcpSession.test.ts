@@ -3,7 +3,12 @@ import type { AgentId } from "../lib/agent-id";
 import { emptyChat } from "../lib/chat";
 import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
 import { agentIdForPaneDest } from "../lib/session-agent";
+import { emptyQueue } from "../lib/prompt-queue";
 import {
+  agentExitToastText,
+  extraPanesAfterAgentExit,
+  extraPanesAfterAgentStderr,
+  extraPanesHitAgent,
   ignoreAcpHistoryDuringResume,
   isAgentReady,
   isPromptStopResult,
@@ -14,11 +19,13 @@ import {
   shouldClearBusyOnPromptError,
   shouldClearBusyOnPromptResult,
   shouldIgnoreAcpEvent,
+  stderrToastText,
   targetAgentId,
   withEchoedUser,
   withPromptFail,
   isAbandonedPromptError,
   abandonPendingForDest,
+  type ExtraPaneState,
 } from "./useAcpSession";
 
 describe("sessionIdFromNewResult", () => {
@@ -225,5 +232,64 @@ describe("prompt and cancel target the pane agent, not the chip", () => {
         hasOpenMainSession: false,
       }),
     ).toBe("codex");
+  });
+});
+
+function extraPane(over: Partial<ExtraPaneState> = {}): ExtraPaneState {
+  return {
+    sessionId: "sid",
+    cwd: "/work",
+    chat: emptyChat(),
+    draft: "",
+    busy: true,
+    atBottom: true,
+    queue: emptyQueue(),
+    agentId: "claude",
+    ...over,
+  };
+}
+
+describe("cross-agent stderr", () => {
+  it("labels toast with the emitting CLI and ignores other panes", () => {
+    expect(stderrToastText("claude", "Authentication required")).toBe("Claude · Authentication required");
+    expect(shouldIgnoreAcpEvent("grok", "claude")).toBe(true);
+    expect(shouldIgnoreAcpEvent("claude", "claude")).toBe(false);
+  });
+
+  it("clears only the claude extra pane when claude stderr fires while grok is on main", () => {
+    const prev = {
+      split: extraPane({ agentId: "claude", busy: true }),
+      p2: extraPane({ agentId: "grok", busy: true }),
+    };
+    const next = extraPanesAfterAgentStderr(prev, "claude", "Authentication required", 9);
+    expect(next.split?.busy).toBe(false);
+    expect(next.split?.chat.items[0]).toMatchObject({ status: "failed", detail: "Authentication required" });
+    expect(next.p2?.busy).toBe(true);
+    expect(next.p2?.chat.items).toHaveLength(0);
+  });
+});
+
+describe("cross-agent process exit", () => {
+  it("clears the claude extra pane and leaves a busy grok extra running", () => {
+    const prev = {
+      split: extraPane({ agentId: "claude", busy: true }),
+      p2: extraPane({ agentId: "grok", busy: true }),
+    };
+    const next = extraPanesAfterAgentExit(prev, "claude");
+    expect(next.split?.busy).toBe(false);
+    expect(next.p2?.busy).toBe(true);
+    expect(extraPanesHitAgent(prev, "claude")).toBe(true);
+    expect(extraPanesHitAgent(prev, "kimi")).toBe(false);
+    expect(agentExitToastText("claude")).toBe("Claude 已退出");
+  });
+
+  it("clears grok extras without touching a busy claude pane", () => {
+    const prev = {
+      split: extraPane({ agentId: "claude", busy: true }),
+      p2: extraPane({ agentId: "grok", busy: true }),
+    };
+    const next = extraPanesAfterAgentExit(prev, "grok");
+    expect(next.split?.busy).toBe(true);
+    expect(next.p2?.busy).toBe(false);
   });
 });

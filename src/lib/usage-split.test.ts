@@ -7,6 +7,8 @@ import {
   statsLine,
   turnStatsFromItems,
   usageBreakdownLines,
+  usageHoverLines,
+  usageRingDash,
   usageRingPercents,
   usageTrend,
 } from "./usage-split";
@@ -40,6 +42,30 @@ describe("usageBreakdownLines", () => {
 
   it("omits missing slices", () => {
     expect(usageBreakdownLines({ used: 10, size: 100 })).toEqual([]);
+  });
+});
+
+describe("usageHoverLines", () => {
+  it("leads with compact used/size and percent, then named slices", () => {
+    expect(usageHoverLines({ input: 100, output: 20, cache: 5, used: 12500, size: 200000 })).toEqual([
+      "上下文 12.5k / 200k · 6%",
+      "input 100",
+      "output 20",
+      "cache 5",
+    ]);
+  });
+
+  it("dashes missing counts", () => {
+    expect(usageHoverLines({})).toEqual(["上下文 — / — · 0%"]);
+  });
+});
+
+describe("usageRingDash", () => {
+  it("maps percent onto the circle circumference", () => {
+    const full = usageRingDash(100, 5);
+    const half = usageRingDash(50, 5);
+    expect(full.dash).toBeCloseTo(full.circumference);
+    expect(half.dash).toBeCloseTo(full.circumference / 2);
   });
 });
 
@@ -104,18 +130,24 @@ describe("turnStatsFromItems", () => {
 describe("formatStatsFooter", () => {
   it("joins compact latency, rate, and session tokens", () => {
     expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 })).toBe(
-      "TTFT 300ms · 50 tok/s · 12.4k tok",
+      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
     );
   });
 
   it("collapses long TTFT into minutes and hides a zero rate", () => {
     expect(formatStatsFooter({ ttftMs: 342000, toksPerSec: 0, sessionTokens: 847 })).toBe(
-      "TTFT 5.7m · — tok/s · 847 tok",
+      "首字 5.7m · 速率 — · 已用 847",
     );
   });
 
   it("uses dashes when a value is missing", () => {
-    expect(formatStatsFooter({})).toBe("TTFT — · — tok/s · — tok");
+    expect(formatStatsFooter({})).toBe("首字 — · 速率 — · 已用 —");
+  });
+
+  it("switches labels with locale", () => {
+    expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 }, "en")).toBe(
+      "TTFT 300ms · Rate 50 tok/s · Used 12.4k",
+    );
   });
 });
 

@@ -1,34 +1,86 @@
-export type ReviewTab = "home" | "progress" | "files" | "changes" | "context" | "details" | "preview" | "terminal";
+import type { ChatItem } from "./chat";
+import { t, type Locale } from "./i18n";
+
+export type ReviewTab = "home" | "progress" | "files" | "changes" | "git" | "context" | "details" | "preview" | "terminal" | "explorer";
 export type ReviewOpenAction = "plan" | "turn-file" | "changed-file" | "context" | "tool-detail" | "preview-path";
 export type LegacyReviewTab = "tasks" | "changes" | "context";
+export type ReviewPeerPane = "review" | "git" | "preview" | "explorer";
 
 export const REVIEW_TABS: ReadonlyArray<{ id: ReviewTab; label: string }> = [
   { id: "progress", label: "进度" },
   { id: "files", label: "文件" },
-  { id: "changes", label: "改动" },
   { id: "terminal", label: "终端" },
+  { id: "git", label: "Git" },
   { id: "preview", label: "预览" },
+  { id: "explorer", label: "文件管理" },
 ];
 
-export const REVIEW_SUBTABS: ReadonlySet<ReviewTab> = new Set(["progress", "files", "changes", "terminal"]);
+export const REVIEW_SUBTABS: ReadonlySet<ReviewTab> = new Set(["progress", "files", "terminal"]);
 
-export const RESTORE_ON_TOGGLE: ReadonlySet<ReviewTab> = new Set(["changes", "files", "preview", "terminal", "progress"]);
+export const REVIEW_PEERS: ReadonlyArray<{ id: ReviewPeerPane; label: string }> = [
+  { id: "review", label: "Dashboard" },
+  { id: "git", label: "Git" },
+  { id: "preview", label: "预览" },
+  { id: "explorer", label: "文件管理" },
+];
+
+export const RESTORE_ON_TOGGLE: ReadonlySet<ReviewTab> = new Set(["git", "files", "preview", "terminal", "progress", "explorer"]);
+
+/** Persisted `changes` is the Git pane; keep the old id only as a legacy alias. */
+export function normalizeReviewTab(tab: ReviewTab): ReviewTab {
+  return tab === "changes" ? "git" : tab;
+}
+
+export function reviewPeerPane(tab: ReviewTab): ReviewPeerPane {
+  const id = normalizeReviewTab(tab);
+  if (id === "git") return "git";
+  if (id === "preview") return "preview";
+  if (id === "explorer") return "explorer";
+  return "review";
+}
 
 /** Layout toggle lands on the last content tab, never the 2×2 home grid. */
 export function reviewLandingTab(tab: ReviewTab, defaultTab?: LegacyReviewTab): ReviewTab {
-  if (tab !== "home" && RESTORE_ON_TOGGLE.has(tab)) return tab;
+  const normalized = normalizeReviewTab(tab);
+  if (normalized !== "home" && RESTORE_ON_TOGGLE.has(normalized)) return normalized;
   return reviewTabFromLegacy(defaultTab);
 }
 
 const ACTION_TAB: Record<ReviewOpenAction, ReviewTab> = {
-  plan: "progress", "turn-file": "files", "changed-file": "changes",
-  context: "progress", "tool-detail": "changes", "preview-path": "preview",
+  plan: "progress", "turn-file": "files", "changed-file": "git",
+  context: "progress", "tool-detail": "git", "preview-path": "preview",
 };
 
 export function reviewTabForAction(action: ReviewOpenAction): ReviewTab { return ACTION_TAB[action]; }
 
+export function reviewTabLabel(locale: Locale, id: ReviewTab): string {
+  if (id === "home" || id === "details" || id === "context") return "Dashboard";
+  const key = id === "changes" ? "git" : id;
+  return t(locale, `rail.${key}`);
+}
+
+export function reviewPaneLabel(locale: Locale, id: ReviewPeerPane): string {
+  return t(locale, `rail.${id}`);
+}
+
 export function persistReviewOpen(open: boolean): { filePanelOpen: boolean } {
   return { filePanelOpen: open };
+}
+
+export type ReviewTabMemory = Record<string, ReviewTab>;
+
+/** Store the last rail tab a session used. Empty keys are ignored. */
+export function rememberReviewTab(memory: ReviewTabMemory, ownerKey: string, tab: ReviewTab): ReviewTabMemory {
+  if (!ownerKey) return memory;
+  const next = normalizeReviewTab(tab);
+  if (memory[ownerKey] === next) return memory;
+  return { ...memory, [ownerKey]: next };
+}
+
+/** Recall a session's last rail tab, or the fallback if it has never been opened. */
+export function recalledReviewTab(memory: ReviewTabMemory, ownerKey: string, fallback: ReviewTab): ReviewTab {
+  const hit = ownerKey ? memory[ownerKey] : undefined;
+  return normalizeReviewTab(hit ?? fallback);
 }
 
 export function reviewPersistsOpen(action: ReviewAction["type"]): boolean {
@@ -36,7 +88,7 @@ export function reviewPersistsOpen(action: ReviewAction["type"]): boolean {
 }
 
 export function reviewTabFromLegacy(tab?: LegacyReviewTab): ReviewTab {
-  if (tab === "changes") return tab;
+  if (tab === "changes") return "git";
   return "progress";
 }
 
@@ -48,10 +100,12 @@ export function deriveReviewTabs(data: ReviewData): ReviewTabState[] {
     progress: data.planCount,
     files: data.fileCount,
     changes: data.changeCount,
+    git: data.changeCount,
     context: data.contextCount,
     details: data.hasDetails ? 1 : 0,
     preview: data.hasPreview ? 1 : 0,
     terminal: data.bashCount,
+    explorer: 0,
   };
   return REVIEW_TABS.map((tab) => ({
     ...tab,
@@ -60,22 +114,22 @@ export function deriveReviewTabs(data: ReviewData): ReviewTabState[] {
       tab.id === "terminal" ||
       tab.id === "files" ||
       tab.id === "preview" ||
-      tab.id === "changes" ||
+      tab.id === "git" ||
+      tab.id === "explorer" ||
       tab.id === "progress" ||
       counts[tab.id] > 0,
   }));
 }
 
 export function reconcileReviewTab(active: ReviewTab, tabs: readonly ReviewTabState[], preferred?: LegacyReviewTab): ReviewTab {
-  if (tabs.some((tab) => tab.id === active && tab.available)) return active;
+  const normalized = normalizeReviewTab(active);
+  if (tabs.some((tab) => tab.id === normalized && tab.available)) return normalized;
   const fallback = reviewTabFromLegacy(preferred);
   return tabs.find((tab) => tab.id === fallback && tab.available)?.id
     ?? tabs.find((tab) => tab.available)?.id
-    ?? active;
+    ?? normalized;
 }
 
-
-import type { ChatItem } from "./chat";
 
 export type ReviewDetailsTool = Extract<ChatItem, { kind: "tool" }>;
 export type ReviewPreviewState = {
@@ -93,7 +147,7 @@ export type ReviewState = {
 };
 export const initialReviewState: ReviewState = {
   open: false,
-  tab: "changes",
+  tab: "git",
   detailsTool: null,
   preview: { path: null, text: null, truncated: false, error: null, requestId: 0 },
 };
@@ -109,7 +163,7 @@ export type ReviewAction =
   | { type: "preview-success"; path: string; text: string; truncated: boolean; requestId: number }
   | { type: "preview-error"; error: string; requestId: number }
   | { type: "preview-text"; path: string; requestId: number; text: string }
-  | { type: "owner-change"; requestId: number; disabled: boolean };
+  | { type: "owner-change"; requestId: number; disabled: boolean; tab?: ReviewTab };
 
 export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewState {
   switch (action.type) {
@@ -129,7 +183,7 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
       return state.open
         ? { ...state, open: false }
         : { ...state, open: true, tab: reviewLandingTab(state.tab, action.defaultTab) };
-    case "tab": return { ...state, tab: action.tab };
+    case "tab": return { ...state, tab: normalizeReviewTab(action.tab) };
     case "hydrate-legacy": {
       const open = action.open ?? state.open;
       const tab = action.defaultTab ? reviewTabFromLegacy(action.defaultTab) : state.tab;
@@ -159,6 +213,7 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
     case "owner-change": return {
       ...state,
       open: action.disabled ? false : state.open,
+      tab: action.tab ?? state.tab,
       detailsTool: null,
       preview: { path: null, text: null, truncated: false, error: null, requestId: action.requestId },
     };

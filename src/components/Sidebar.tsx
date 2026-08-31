@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { SessionSearchHit, SessionSummary } from "../api";
+import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
 import { IconClose, IconFolder, IconFolderOpen, IconFolderPlus } from "../icons";
 import { nestByParent } from "../lib/projects";
+import { useT } from "../lib/locale-context";
 import type { SessionStatus } from "../lib/session-status";
 import {
   INBOX_PIN,
+  SIDEBAR_BAND_LABEL,
+  groupSidebarBands,
+  isSidebarBandId,
   type SidebarListPrefs,
   type SidebarRow,
   type SidebarSection,
 } from "../lib/sidebar-list";
 import { AccountMenu } from "./AccountMenu";
+import { ShortcutKbd } from "./ShortcutHint";
 import { SessionBranch } from "./SessionBranch";
 import { SidebarListMenu } from "./SidebarListMenu";
 import type { WeeklyUsage } from "../lib/weekly-usage";
@@ -28,7 +33,8 @@ export type SidebarProps = {
   onToggleProject: (path: string) => void;
   onPinProject: (path: string) => void;
   sessionId: string | null;
-  splitId?: string;
+  openIds?: readonly string[];
+  focusedId?: string | null;
   titles: Record<string, string>;
   expandedIds: Set<string>;
   collapsedIds: Set<string>;
@@ -39,8 +45,8 @@ export type SidebarProps = {
   onAddProject: () => void;
   picking: boolean;
   statusFor: (id: string) => SessionStatus;
-  width: number;
   collapsed?: boolean;
+  width?: number;
   onToggleCollapsed?: () => void;
   signedIn: boolean;
   weeklyUsage?: WeeklyUsage | null;
@@ -58,6 +64,7 @@ export type SidebarProps = {
   onDeleteSessions?: (ids: string[]) => void;
   onMarkReadSessions?: (ids: string[]) => void;
   onArchiveSessions?: (ids: string[]) => void;
+  onDragSession?: (e: import("react").PointerEvent<HTMLElement>, s: SessionSummary) => void;
 };
 
 function rowMetaMap(rows: SidebarRow[]): Map<string, SidebarRow> {
@@ -80,7 +87,8 @@ export function Sidebar({
   onToggleProject,
   onPinProject,
   sessionId,
-  splitId,
+  openIds,
+  focusedId,
   titles,
   expandedIds,
   collapsedIds,
@@ -91,7 +99,6 @@ export function Sidebar({
   onAddProject,
   picking,
   statusFor,
-  width,
   collapsed = false,
   onToggleCollapsed,
   signedIn,
@@ -108,7 +115,9 @@ export function Sidebar({
   onDeleteSessions,
   onMarkReadSessions,
   onArchiveSessions,
+  onDragSession,
 }: SidebarProps) {
+  const t = useT();
   const [projectMenu, setProjectMenu] = useState<{
     path: string;
     pinned: boolean;
@@ -126,7 +135,7 @@ export function Sidebar({
       if (e.target instanceof Element && (e.target.closest(".menu") || e.target.closest("[data-menu-trigger]"))) return;
       setProjectMenu(null);
     };
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") setProjectMenu(null);
     };
     window.addEventListener("mousedown", onDown);
@@ -210,7 +219,8 @@ export function Sidebar({
 
   const branchProps = {
     sessionId,
-    splitId,
+    openIds,
+    focusedId,
     titles: displayTitles,
     expandedIds,
     collapsedIds,
@@ -232,28 +242,39 @@ export function Sidebar({
     statusFor,
     showStatus,
     showTokens,
+    onDragSession,
   };
 
   return (
-    <aside className={`sidebar${collapsed ? " rail" : ""}`} style={{ width }}>
-      <div className="side-traffic" data-tauri-drag-region>
+    <aside className={`sidebar${collapsed ? " rail" : ""}`}>
+      <div
+        className="side-traffic"
+        data-tauri-drag-region
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          if ((e.target as Element).closest("button, a, input, [role='button']")) return;
+          beginWindowDrag();
+        }}
+      >
+        <div className="side-traffic-drag" data-tauri-drag-region />
         {collapsed ? null : (
           <div className="side-actions">
             <button
               type="button"
-              className="icon-btn"
-              aria-label="搜索"
-              title="搜索"
+              className="icon-btn shortcut-host"
+              aria-label={t("sidebar.search")}
+              title={t("sidebar.search")}
               onClick={onSearch}
             >
               <IconGrokSearch size={18} />
+              <ShortcutKbd id="palette" />
             </button>
             {onToggleCollapsed ? (
               <button
                 type="button"
                 className="icon-btn"
-                aria-label="折叠侧栏"
-                title="折叠侧栏"
+                aria-label={t("sidebar.collapse")}
+                title={t("sidebar.collapse")}
                 onClick={onToggleCollapsed}
               >
                 <IconGrokSidebar size={18} />
@@ -269,34 +290,37 @@ export function Sidebar({
             <button
               type="button"
               className="icon-btn"
-              aria-label="展开侧栏"
-              title="展开侧栏"
+              aria-label={t("sidebar.expand")}
+              title={t("sidebar.expand")}
               onClick={onToggleCollapsed}
             >
               <IconGrokSidebar size={18} />
             </button>
           ) : null}
-          <button type="button" className="icon-btn" aria-label="搜索" title="搜索" onClick={onSearch}>
+          <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.search")} title={t("sidebar.search")} onClick={onSearch}>
             <IconGrokSearch size={18} />
+            <ShortcutKbd id="palette" />
           </button>
-          <button type="button" className="icon-btn" aria-label="新对话" title="新对话" onClick={onNewChat}>
+          <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.newChat")} title={t("sidebar.newChat")} onClick={onNewChat}>
             <IconGrokPlus size={18} />
+            <ShortcutKbd id="new-chat" />
           </button>
         </div>
       ) : null}
 
       <div className="side-content">
-        <button type="button" className="new-task new-chat" onClick={onNewChat}>
+        <button type="button" className="new-task new-chat shortcut-host" onClick={onNewChat}>
           <IconGrokPlus size={18} />
-          新对话
+          {t("sidebar.newChat")}
+          <ShortcutKbd id="new-chat" />
         </button>
       </div>
 
       {searchHits !== null ? (
         <div className="session-list inbox-list" style={{ flex: "0 0 auto", maxHeight: 160 }}>
           <div className="section-label ws-hits">
-            搜索结果
-            <button type="button" className="icon-btn" onClick={onClearHits} aria-label="清除搜索结果" title="清除">
+            {t("sidebar.searchResults")}
+            <button type="button" className="icon-btn" onClick={onClearHits} aria-label={t("sidebar.clearSearch")} title={t("sidebar.clear")}>
               <IconClose size={16} />
             </button>
           </div>
@@ -314,13 +338,13 @@ export function Sidebar({
       ) : null}
 
       <div className="section-label ws-head">
-        工作区
+        {t("sidebar.workspace")}
         <span className="ws-head-actions">
           <button
             type="button"
             className="icon-btn"
-            title={picking ? "选择文件夹…" : "添加项目"}
-            aria-label={picking ? "选择文件夹…" : "添加项目"}
+            title={picking ? t("sidebar.pickingFolder") : t("sidebar.addProject")}
+            aria-label={picking ? t("sidebar.pickingFolder") : t("sidebar.addProject")}
             disabled={picking}
             onClick={onAddProject}
           >
@@ -336,8 +360,8 @@ export function Sidebar({
       </div>
 
       {selectedIds.length > 0 ? (
-        <div className="session-batch" role="toolbar" aria-label="批量操作">
-          <span className="hint">已选 {selectedIds.length}</span>
+        <div className="session-batch" role="toolbar" aria-label={t("sidebar.batch")}>
+          <span className="hint">{t("sidebar.selected", { n: selectedIds.length })}</span>
           <button
             type="button"
             className="btn"
@@ -347,7 +371,7 @@ export function Sidebar({
               clearSelection();
             }}
           >
-            标为已读
+            {t("sidebar.markRead")}
           </button>
           <button
             type="button"
@@ -358,7 +382,7 @@ export function Sidebar({
               clearSelection();
             }}
           >
-            归档
+            {t("sidebar.archive")}
           </button>
           <button
             type="button"
@@ -369,10 +393,10 @@ export function Sidebar({
               clearSelection();
             }}
           >
-            删除
+            {t("hub.delete")}
           </button>
-          <button type="button" className="icon-btn" onClick={clearSelection} aria-label="取消选择">
-            取消
+          <button type="button" className="icon-btn" onClick={clearSelection} aria-label={t("sidebar.deselect")}>
+            {t("sidebar.cancel")}
           </button>
         </div>
       ) : null}
@@ -380,7 +404,7 @@ export function Sidebar({
       <div
         className={`session-list${selectedIds.length ? " is-batching" : ""}`}
         role="list"
-        aria-label="会话"
+        aria-label={t("sidebar.sessions")}
         onKeyDown={onSessionTreeKeyDown}
         onDoubleClick={(e) => {
           const target = e.target;
@@ -391,15 +415,24 @@ export function Sidebar({
         }}
       >
         {sections.length === 0 ? (
-          <p className="footnote">没有符合筛选的会话</p>
+          <p className="footnote">{t("sidebar.empty")}</p>
         ) : null}
-        {sections.map((section) => {
+        {groupSidebarBands(sections).map((band) => {
+          const labeled = isSidebarBandId(band.id);
+          return (
+            <div key={band.id} className={labeled ? `ws-band ws-band-${band.id}` : undefined}>
+              {labeled ? (
+                <div className="ws-band-label" tabIndex={0} data-group-tab>
+                  {t(`sidebar.${band.id}`)}
+                </div>
+              ) : null}
+              {band.sections.map((section) => {
           const meta = rowMetaMap(section.rows);
           if (section.kind === "project") {
             const path = section.projectPath ?? INBOX_PIN;
             const open = !!openProjects[path];
-            const pinned = section.rows.some((row) => row.projectPinned);
-            const rowKind = path === INBOX_PIN ? "inbox" : "project";
+            const pinned = section.rows.some((row) => row.projectPinned) || section.band === "pin";
+            const rowKind = "project";
             return (
               <div
                 key={section.id}
@@ -431,8 +464,8 @@ export function Sidebar({
                     type="button"
                     className="more"
                     data-menu-trigger
-                    aria-label="项目操作"
-                    title="项目操作"
+                    aria-label={t("sidebar.projectActions")}
+                    title={t("sidebar.projectActions")}
                     onClick={(e) => {
                       e.stopPropagation();
                       openProjectMenu(path, pinned, e.currentTarget);
@@ -441,8 +474,8 @@ export function Sidebar({
                     <IconGrokMore size={16} />
                   </button>
                 </div>
-                {open ? (
-                  <div className="project-sessions">
+                <div className={`project-sessions${open ? " open" : ""}`}>
+                    <div className="project-sessions-inner" inert={!open}>
                     {nestByParent(section.rows.map((row) => row.session)).map((node) => (
                       <SessionBranch
                         key={node.session.id}
@@ -454,12 +487,13 @@ export function Sidebar({
                         hideProjectSubtitle
                       />
                     ))}
+                    </div>
                   </div>
-                ) : null}
               </div>
             );
           }
 
+          const inbox = section.kind === "inbox";
           return (
             <div
               key={section.id}
@@ -468,24 +502,41 @@ export function Sidebar({
               aria-label={section.label}
               data-session-group
             >
-              <div
-                className={section.kind === "pin" ? "pin-label" : "section-label"}
-                tabIndex={0}
-                data-group-tab
-              >
-                {section.label}
-              </div>
-              {section.rows.map((row) => (
-                <SessionBranch
-                  key={row.session.id}
-                  node={{ session: row.session, children: [] }}
-                  depth={row.indent}
-                  rowKind={row.subtitle === "独立对话" ? "inbox" : "project"}
-                  projectPinned={row.projectPinned}
-                  rowMeta={meta}
-                  {...branchProps}
-                />
-              ))}
+              {labeled ? null : (
+                <div
+                  className={section.kind === "pin" ? "pin-label" : "section-label"}
+                  tabIndex={0}
+                  data-group-tab
+                >
+                  {section.label}
+                </div>
+              )}
+              {inbox
+                ? nestByParent(section.rows.map((row) => row.session)).map((node) => (
+                    <SessionBranch
+                      key={node.session.id}
+                      node={node}
+                      depth={0}
+                      rowKind="inbox"
+                      rowMeta={meta}
+                      {...branchProps}
+                      hideProjectSubtitle
+                    />
+                  ))
+                : section.rows.map((row) => (
+                    <SessionBranch
+                      key={row.session.id}
+                      node={{ session: row.session, children: [] }}
+                      depth={row.indent}
+                      rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
+                      projectPinned={row.projectPinned}
+                      rowMeta={meta}
+                      {...branchProps}
+                    />
+                  ))}
+            </div>
+          );
+              })}
             </div>
           );
         })}

@@ -1,4 +1,5 @@
 import { frecencyScore, type FrecencyMap } from "./frecency";
+import { t, type Locale } from "./i18n";
 import { basename } from "./text";
 import { displayTitle } from "./projects";
 
@@ -39,11 +40,11 @@ const CORE_ACTIONS: PaletteItem[] = [
   { id: "act:hub-hooks", label: "扩展中心 · Hooks", group: "操作", hint: "/hooks" },
   { id: "act:hub-market", label: "扩展中心 · 市场", group: "操作", hint: "/marketplace" },
   { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
-  { id: "act:export", label: "导出会话", group: "操作", hint: "/export" },
+  { id: "act:export", label: "复制全部对话", group: "操作", hint: "/export" },
   { id: "act:theme", label: "切换浅色 / 深色", group: "操作" },
-  { id: "act:panel", label: "审阅", group: "操作" },
+  { id: "act:panel", label: "Dashboard", group: "操作", hint: "当前会话实时状态" },
   { id: "act:context", label: "计划与规则", group: "操作" },
-  { id: "act:dashboard", label: "会话总览", group: "操作" },
+  { id: "act:dashboard", label: "会话总览", group: "操作", hint: "跨会话浏览" },
   { id: "act:imagine", label: "图片", group: "操作" },
   { id: "act:agents", label: "代理", group: "操作" },
   { id: "act:memory", label: "记忆", group: "操作" },
@@ -51,12 +52,46 @@ const CORE_ACTIONS: PaletteItem[] = [
   { id: "act:add-project", label: "添加项目…", group: "操作" },
 ];
 
-export function buildPaletteItems(source: PaletteSources): PaletteItem[] {
-  const out: PaletteItem[] = [...CORE_ACTIONS];
+const ACTION_I18N: Record<string, { label: string; hint?: string }> = {
+  "act:new-chat": { label: "palette.newChat", hint: "palette.newChatHint" },
+  "act:new-session": { label: "palette.newSession" },
+  "act:settings": { label: "palette.settings" },
+  "act:hub-skills": { label: "palette.hubSkills" },
+  "act:hub-mcp": { label: "palette.hubMcp" },
+  "act:hub-plugins": { label: "palette.hubPlugins" },
+  "act:hub-hooks": { label: "palette.hubHooks" },
+  "act:hub-market": { label: "palette.hubMarket" },
+  "act:fork": { label: "palette.fork" },
+  "act:export": { label: "palette.export" },
+  "act:theme": { label: "palette.theme" },
+  "act:panel": { label: "palette.panel", hint: "palette.panelHint" },
+  "act:context": { label: "palette.context" },
+  "act:dashboard": { label: "palette.dashboard", hint: "palette.dashboardHint" },
+  "act:imagine": { label: "palette.imagine" },
+  "act:agents": { label: "palette.agents" },
+  "act:memory": { label: "palette.memory" },
+  "act:usage": { label: "palette.usage" },
+  "act:add-project": { label: "palette.addProject" },
+  "act:worktree": { label: "palette.worktree" },
+  "act:finder": { label: "palette.finder" },
+};
+
+function localizePaletteItem(item: PaletteItem, locale: Locale): PaletteItem {
+  const keys = ACTION_I18N[item.id];
+  if (!keys) return item;
+  return {
+    ...item,
+    label: t(locale, keys.label),
+    hint: keys.hint ? t(locale, keys.hint) : item.hint,
+  };
+}
+
+export function buildPaletteItems(source: PaletteSources, locale: Locale = "zh"): PaletteItem[] {
+  const out: PaletteItem[] = CORE_ACTIONS.map((item) => localizePaletteItem(item, locale));
   if (source.isRepo) {
-    out.push({ id: "act:worktree", label: "在新 worktree 里开会话", group: "操作" });
+    out.push(localizePaletteItem({ id: "act:worktree", label: "在新 worktree 里开会话", group: "操作" }, locale));
   }
-  if (source.cwd) out.push({ id: "act:finder", label: "在访达中打开工作目录", group: "操作" });
+  if (source.cwd) out.push(localizePaletteItem({ id: "act:finder", label: "在访达中打开工作目录", group: "操作" }, locale));
   for (const s of source.sessions.slice(0, 60)) {
     out.push({
       id: `session:${s.id}`,

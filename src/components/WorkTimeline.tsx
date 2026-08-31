@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { openPath } from "../api";
 import { formatElapsed, type WorkItem } from "../lib/chat";
 import { thoughtLineLabel } from "../lib/time";
-import { classifyTool, toolLineCopy } from "../lib/tool-render";
+import { classifyTool, compressLabel, compressTimeline, toolLineCopy } from "../lib/tool-render";
 import {
   IconEdit,
   IconFileSearch,
@@ -116,56 +116,95 @@ export function WorkTimeline({
     void openPath(target);
   };
 
+  const toolRow = (item: Extract<WorkItem, { kind: "tool" }>) => {
+    const { verb, detail } = toolLineCopy(item.title, item.toolKind);
+    const kind = classifyTool(item.title, item.toolKind);
+    const hasBody = !!(item.diff || item.detail);
+    const label = detail ? `${verb} ${detail}` : verb;
+    return (
+      <SpineRow
+        key={item.id}
+        icon={<ToolIcon kind={kind} />}
+        expandable={hasBody}
+        failed={item.status === "failed" || item.status === "cancelled"}
+        onActivate={!hasBody && onInspectTool ? () => onInspectTool(item) : undefined}
+        label={label}
+        body={
+          hasBody ? (
+            <ToolResult
+              title={item.title}
+              toolKind={item.toolKind}
+              status={item.status}
+              detail={item.detail}
+              diff={item.diff}
+              onOpenPath={openPathAbs}
+            />
+          ) : null
+        }
+      >
+        <span className="spine-verb">{verb}</span>
+        {detail ? (
+          <span className="spine-detail" title={detail}>
+            {detail}
+          </span>
+        ) : null}
+      </SpineRow>
+    );
+  };
+
   return (
     <div className="work-timeline">
-      {items.map((item) => {
-        if (item.kind === "thought") {
-          const liveThought = busy && last?.id === item.id;
-          const verb = thoughtLineLabel(item.at, item.until, liveThought);
-          const text = item.text.trim();
-          return (
-            <SpineRow
-              key={item.id}
-              icon={<IconLight size={18} />}
-              expandable={!!text}
-              label={verb}
-              body={text ? <div className="thought">{item.text}</div> : null}
-            >
-              <span className="spine-verb">{verb}</span>
-            </SpineRow>
-          );
+      {compressTimeline(items).map((row) => {
+        if (row.kind === "item") {
+          const item = row.item;
+          if (item.kind === "thought") {
+            const liveThought = busy && last?.id === item.id;
+            const verb = thoughtLineLabel(item.at, item.until, liveThought);
+            const text = item.text.trim();
+            return (
+              <SpineRow
+                key={item.id}
+                icon={<IconLight size={18} />}
+                expandable={!!text}
+                label={verb}
+                body={text ? <div className="thought">{item.text}</div> : null}
+              >
+                <span className="spine-verb">{verb}</span>
+              </SpineRow>
+            );
+          }
+          return toolRow(item);
         }
-        const { verb, detail } = toolLineCopy(item.title, item.toolKind);
-        const kind = classifyTool(item.title, item.toolKind);
-        const hasBody = !!(item.diff || item.detail);
-        const label = detail ? `${verb} ${detail}` : verb;
+        const label = compressLabel(row.cls, row.items.length);
+        const failed = row.items.some((t) => t.status === "failed" || t.status === "cancelled");
         return (
           <SpineRow
-            key={item.id}
-            icon={<ToolIcon kind={kind} />}
-            expandable={hasBody}
-            failed={item.status === "failed" || item.status === "cancelled"}
-            onActivate={!hasBody && onInspectTool ? () => onInspectTool(item) : undefined}
+            key={row.items[0].id}
+            icon={<ToolIcon kind={row.cls === "call" ? "other" : row.cls} />}
+            expandable
+            failed={failed}
             label={label}
             body={
-              hasBody ? (
-                <ToolResult
-                    title={item.title}
-                    toolKind={item.toolKind}
-                    status={item.status}
-                    detail={item.detail}
-                    diff={item.diff}
-                    onOpenPath={openPathAbs}
-                  />
-              ) : null
+              <div className="spine-group">
+                {row.items.map((item) => {
+                  const { detail, verb } = toolLineCopy(item.title, item.toolKind);
+                  const line = detail || verb;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="spine-sub"
+                      title={line}
+                      onClick={() => onInspectTool?.(item)}
+                    >
+                      <span className="spine-detail">{line}</span>
+                    </button>
+                  );
+                })}
+              </div>
             }
           >
-            <span className="spine-verb">{verb}</span>
-            {detail ? (
-              <span className="spine-detail" title={detail}>
-                {detail}
-              </span>
-            ) : null}
+            <span className="spine-verb">{label}</span>
           </SpineRow>
         );
       })}

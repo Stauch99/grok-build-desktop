@@ -14,10 +14,45 @@ const TEXT_EXT = new Set([
   "mjs",
   "cjs",
   "css",
+  "scss",
+  "less",
+  "sass",
   "html",
   "htm",
   "rs",
   "py",
+  "go",
+  "java",
+  "kt",
+  "kts",
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "cxx",
+  "hpp",
+  "hh",
+  "m",
+  "mm",
+  "swift",
+  "rb",
+  "php",
+  "vue",
+  "svelte",
+  "sql",
+  "dart",
+  "lua",
+  "zig",
+  "scala",
+  "cs",
+  "r",
+  "proto",
+  "graphql",
+  "gql",
+  "ini",
+  "conf",
+  "cfg",
+  "properties",
   "sh",
   "zsh",
   "bash",
@@ -27,6 +62,7 @@ const TEXT_EXT = new Set([
   "csv",
   "log",
   "env",
+  "lock",
   "gitignore",
   "dockerignore",
 ]);
@@ -90,7 +126,22 @@ export function upsertPreviewTab(tabs: PreviewTab[], path: string): PreviewTab[]
   return next.length > MAX_PREVIEW_TABS ? next.slice(next.length - MAX_PREVIEW_TABS) : next;
 }
 
-export function removePreviewTab(tabs: PreviewTab[], path: string): PreviewTab[] {
+export function putPreviewDraft(drafts: Map<string, string>, path: string, draft: string): void {
+  drafts.set(path, draft);
+}
+
+/** Restore an in-progress edit for `path`, or fall back to the loaded file text. */
+export function draftForPath(drafts: Map<string, string>, path: string, fileText: string): string {
+  const stored = drafts.get(path);
+  return stored !== undefined ? stored : fileText;
+}
+
+export function dropPreviewDraft(drafts: Map<string, string>, path: string): void {
+  drafts.delete(path);
+}
+
+export function removePreviewTab(tabs: PreviewTab[], path: string, drafts?: Map<string, string>): PreviewTab[] {
+  if (drafts) dropPreviewDraft(drafts, path);
   return tabs.filter((tab) => tab.path !== path);
 }
 

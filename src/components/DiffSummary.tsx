@@ -13,11 +13,11 @@ export function DiffSummary({ items, onOpen }: DiffSummaryProps) {
   if (created === 0 && modified === 0) return null;
 
   const inner = (
-    <>
+    <span className="diff-summary-inner">
       <span>本轮</span>
       {created > 0 ? <span className="stat-add">新建 {created}</span> : null}
       {modified > 0 ? <span className="stat-del">改动 {modified}</span> : null}
-    </>
+    </span>
   );
 
   if (onOpen) {

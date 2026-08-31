@@ -31,6 +31,13 @@ describe("filterCommands", () => {
     expect(hits.some((command) => command.name === "/bridge")).toBe(true);
   });
 
+  it("keeps later extras on a bare slash so installed skills stay visible", () => {
+    const extra = Array.from({ length: 20 }, (_, i) => ({ name: `skill-${i}`, hint: "s" }));
+    const hits = filterCommands("/", extra);
+    expect(hits.some((c) => c.name === "/skill-0")).toBe(true);
+    expect(hits.some((c) => c.name === "/skill-19")).toBe(true);
+  });
+
   it("keeps direct conversation and local desktop actions", () => {
     const names = SLASH_COMMANDS.map((command) => command.name);
     expect(names).toEqual(expect.arrayContaining([

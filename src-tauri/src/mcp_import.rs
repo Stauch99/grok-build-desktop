@@ -6,26 +6,6 @@ pub(crate) struct McpNameCmd {
     pub command: String,
 }
 
-pub(crate) fn names_in_mcp_json(text: &str) -> Vec<String> {
-    let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return Vec::new();
-    };
-    let Some(obj) = value.as_object() else {
-        return Vec::new();
-    };
-    if let Some(servers) = obj.get("servers").and_then(|v| v.as_array()) {
-        return servers
-            .iter()
-            .filter_map(|entry| entry.get("name").and_then(|n| n.as_str()))
-            .map(str::to_string)
-            .collect();
-    }
-    if let Some(mcp_servers) = obj.get("mcpServers").and_then(|v| v.as_object()) {
-        return mcp_servers.keys().cloned().collect();
-    }
-    Vec::new()
-}
-
 pub(crate) fn first_open_union(
     canonical: &[McpNameCmd],
     live: &[McpNameCmd],

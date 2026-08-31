@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { Locale } from "../lib/i18n";
 import {
   buildPaletteItems,
   parsePaletteAction,
@@ -17,25 +18,17 @@ export type CommandPaletteState = {
 export function useCommandPalette(opts: {
   sources: PaletteSources;
   onAction: (action: PaletteAction) => void;
+  locale?: Locale;
 }): CommandPaletteState {
   const [open, setOpen] = useState(false);
   const onActionRef = useRef(opts.onAction);
   onActionRef.current = opts.onAction;
+  const locale = opts.locale ?? "zh";
 
   const items = useMemo(
-    () => buildPaletteItems(opts.sources),
-    [opts.sources.sessions, opts.sources.projects, opts.sources.commands, opts.sources.titles, opts.sources.cwd, opts.sources.isRepo],
+    () => buildPaletteItems(opts.sources, locale),
+    [opts.sources.sessions, opts.sources.projects, opts.sources.commands, opts.sources.titles, opts.sources.cwd, opts.sources.isRepo, locale],
   );
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
-      e.preventDefault();
-      setOpen((o) => !o);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   const run = useCallback((id: string) => {
     setOpen(false);

@@ -1,20 +1,31 @@
-import { IconClose } from "../icons";
+import { useEffect, useState } from "react";
+import { formatElapsed } from "../lib/chat";
+import { DockCapsule } from "./ComposerDock";
 
 export type GoalBarProps = {
   goal: string;
-  onClear?: () => void;
+  startedAt: number;
+  live?: boolean;
 };
 
-/** Current ACP plan item as a strip. Not a /loop scheduler. */
-export function GoalBar({ goal, onClear }: GoalBarProps) {
+/** Current ACP plan item as a capsule above the composer. */
+export function GoalBar({ goal, startedAt, live = false }: GoalBarProps) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
   return (
-    <div className="goal-bar" role="status" aria-label="当前目标">
-      <span>目标 · {goal}</span>
-      {onClear ? (
-        <button type="button" className="icon-btn" onClick={onClear} title="收起目标" aria-label="收起目标">
-          <IconClose size={16} />
-        </button>
-      ) : null}
-    </div>
+    <DockCapsule
+      kicker="目标"
+      meta={formatElapsed(now - startedAt)}
+      tone={live ? "live" : "neutral"}
+      className="goal-bar"
+      label="当前目标"
+    >
+      <span title={goal}>{goal}</span>
+    </DockCapsule>
   );
 }

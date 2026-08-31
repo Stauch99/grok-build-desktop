@@ -8,7 +8,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { AcpRecord } from "./lib/acp-events";
 import type { AgentId } from "./lib/agent-id";
-import { acpMessageFromEvent, resolveStartAgentId } from "./lib/acp-host";
+import { acpMessageFromEvent, resolveStartAgentId, stderrFromAcpEvent } from "./lib/acp-host";
 
 export type SessionSummary = {
   id: string;
@@ -57,7 +57,6 @@ export type WebuiState = {
   unread?: Record<string, "done" | "error">;
   locale?: "zh" | "en";
   themeFamily?: "default" | "paper" | "ink";
-  density?: "comfortable" | "compact";
   hideToTray?: boolean;
   defaultRail?: "tasks" | "changes" | "context";
   shortcuts?: Record<string, string>;
@@ -77,6 +76,8 @@ export type WebuiState = {
   dreamingEnabled?: boolean;
   dreamAgentId?: AgentId;
   lastAgent?: AgentId;
+  /** After this flag is set, the project list is only folders the user added. */
+  manualProjects?: boolean;
 };
 
 export type WorkspaceEntry = {
@@ -190,10 +191,11 @@ export type SessionUpdates = {
   nextByte: number;
   truncated: boolean;
 };
-export const readSessionUpdates = (sessionId: string, afterByte?: number | null) =>
+export const readSessionUpdates = (sessionId: string, afterByte?: number | null, dir?: string | null) =>
   invoke<SessionUpdates>("read_session_updates", {
     sessionId,
     afterByte: afterByte ?? null,
+    dir: dir ?? null,
   });
 export type SessionUsage = { used: number; size: number };
 export const readSessionUsage = (sessionId: string) =>
@@ -239,6 +241,7 @@ export const gitStatus = (cwd: string) => invoke<GitStatus>("git_status", { cwd 
 export const gitChanges = (cwd: string) => invoke<GitChange[]>("git_changes", { cwd });
 export const gitCreateWorktree = (cwd: string, name: string) =>
   invoke<string>("git_create_worktree", { cwd, name });
+export const gitListWorktrees = (cwd: string) => invoke<string>("git_list_worktrees", { cwd });
 /** Rewind primitive: `text === null` deletes the file. */
 export const restoreTextFile = (path: string, text: string | null, allowRoot: string) =>
   invoke<void>("restore_text_file", { path, text, allowRoot });
@@ -263,6 +266,14 @@ export const writeConfigText = (scope: "user" | "project", text: string, cwd?: s
   invoke<void>("write_config_text", { scope, text, cwd: cwd ?? null });
 export const writeAllowedText = (path: string, text: string, allowRoot?: string | null) =>
   invoke<void>("write_allowed_text", { path, text, allowRoot: allowRoot ?? null });
+export const savePasteBytes = (bytes: number[], ext: string, name?: string) =>
+  invoke<{ path: string; bytes: number; name: string }>("save_paste_bytes", {
+    bytes,
+    ext,
+    name: name ?? null,
+  });
+export const importDroppedFile = (path: string) =>
+  invoke<{ path: string; bytes: number; name: string; kind?: "file" | "dir" }>("import_dropped_file", { path });
 export const statAttachment = (path: string, allowRoot?: string | null) =>
   invoke<{ path: string; bytes: number; kind: "file" | "dir" }>("stat_attachment", {
     path,
@@ -270,12 +281,17 @@ export const statAttachment = (path: string, allowRoot?: string | null) =>
   });
 
 export type GitCommit = { hash: string; subject: string; date: string };
+export type GitCommandResult = { ok: boolean; code: number; stderr: string };
 export const gitLog = (cwd: string) => invoke<GitCommit[]>("git_log", { cwd });
 export const gitBranches = (cwd: string) => invoke<string[]>("git_branches", { cwd });
-
-export type GitCommandResult = { ok: boolean; code: number; stderr: string };
+export const gitCheckout = (cwd: string, branch: string) =>
+  invoke<GitCommandResult>("git_checkout", { cwd, branch });
 export const gitCommit = (cwd: string, message: string) =>
   invoke<GitCommandResult>("git_commit", { cwd, message });
+export const gitPull = (cwd: string) => invoke<GitCommandResult>("git_pull", { cwd });
+export const gitPush = (cwd: string) => invoke<GitCommandResult>("git_push", { cwd });
+export const gitDiscard = (cwd: string, path: string) =>
+  invoke<GitCommandResult>("git_discard", { cwd, path });
 
 export type GitBlame = { ok: boolean; text: string; stderr: string };
 export const gitBlame = (cwd: string, path: string, line: number) =>
@@ -386,6 +402,11 @@ export async function windowFocused(): Promise<boolean> {
   }
 }
 
+/** Start a native window move from a titlebar drag strip. */
+export function beginWindowDrag(): void {
+  void getCurrentWindow().startDragging().catch(() => {});
+}
+
 export const onWindowFocus = (handler: (focused: boolean) => void): Promise<UnlistenFn> =>
   getCurrentWindow().onFocusChanged(({ payload }) => handler(payload));
 
@@ -399,15 +420,10 @@ export const onAcpRequest = (handler: (msg: JsonRpc, agentId: AgentId) => void):
     const ev = acpMessageFromEvent(e.payload);
     handler(ev.payload as JsonRpc, ev.agentId);
   });
-export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn> =>
+export const onAcpStderr = (handler: (line: string, agentId: AgentId) => void): Promise<UnlistenFn> =>
   listen<unknown>("acp-stderr", (e) => {
-    const raw = e.payload;
-    if (typeof raw === "string") {
-      handler(raw);
-      return;
-    }
-    const inner = acpMessageFromEvent(raw).payload;
-    handler(typeof inner === "string" ? inner : String(inner ?? ""));
+    const { line, agentId } = stderrFromAcpEvent(e.payload);
+    handler(line, agentId);
   });
 export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<UnlistenFn> =>
   listen<unknown>("agent-exit", (e) => {

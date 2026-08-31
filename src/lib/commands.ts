@@ -70,7 +70,7 @@ export const SLASH_COMMANDS: CommandDef[] = [
   { name: "/imagine", hint: "图片", local: "imagine" },
   { name: "/imagine-video", hint: "视频", local: "imagine-video" },
   { name: "/dashboard", hint: "会话总览", local: "dashboard" },
-  { name: "/export", hint: "导出会话", local: "export" },
+  { name: "/export", hint: "复制全部对话", local: "export" },
   { name: "/copy", hint: "复制上一条回复", local: "copy" },
   { name: "/config-agents", hint: "代理", local: "agents" },
   { name: "/settings", hint: "打开设置", local: "settings" },
@@ -87,6 +87,6 @@ export function filterCommands(query: string, extra: { name: string; hint?: stri
     seen.add(c.name);
     return true;
   });
-  if (!q) return all.slice(0, 16);
-  return all.filter((c) => c.name.slice(1).includes(q) || c.hint.toLowerCase().includes(q)).slice(0, 16);
+  if (!q) return all.slice(0, 48);
+  return all.filter((c) => c.name.slice(1).includes(q) || c.hint.toLowerCase().includes(q)).slice(0, 48);
 }

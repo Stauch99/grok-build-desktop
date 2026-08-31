@@ -3,12 +3,24 @@ import { listen } from "@tauri-apps/api/event";
 import { acpMessageFromEvent } from "./acp-host";
 import type { AgentId } from "./agent-id";
 import type { AgentDoctor } from "./agent-doctor";
+import type { AgentModelSource } from "./agent-models";
 import { parseMcpJson, stringifyMcpJson, type McpServer } from "./agents-store";
 import { nextClaudeLiveText, nextKimiLiveText } from "./mcp-hub-sync";
 import { removeMcpCatalog, upsertMcpCatalog } from "./mcp-live-paths";
 
 export async function doctorAll(): Promise<AgentDoctor[]> {
   return invoke("doctor_all");
+}
+
+export async function readAgentModelSource(agentId: AgentId): Promise<AgentModelSource> {
+  return invoke("read_agent_model_source", { agentId });
+}
+
+export async function patchAgentModelSettings(
+  agentId: AgentId,
+  patch: { model?: string; effort?: string },
+): Promise<{ ok: boolean }> {
+  return invoke("patch_agent_model_settings", { agentId, patch });
 }
 
 export async function installMarketplaceSkill(source: string): Promise<string> {

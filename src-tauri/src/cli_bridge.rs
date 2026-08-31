@@ -124,6 +124,9 @@ pub(crate) fn validate_attachment(path: &str, allow_root: Option<&str>) -> AppRe
         return Err(AppError::Message("不能添加这个附件".into()));
     }
     let meta = std::fs::metadata(&canon).map_err(|_| AppError::Message("附件不存在".into()))?;
+    if meta.is_dir() {
+        return Ok(());
+    }
     if meta.is_file() && meta.len() > ATTACHMENT_BYTE_CAP {
         return Err(AppError::Message("文件太大".into()));
     }
@@ -142,6 +145,154 @@ pub(crate) fn validate_attachment(path: &str, allow_root: Option<&str>) -> AppRe
         return Err(AppError::Message("附件不在工作区".into()));
     }
     Ok(())
+}
+
+pub(crate) fn sanitize_paste_ext(raw: &str) -> Option<String> {
+    let ext = raw.trim().trim_start_matches('.').to_ascii_lowercase();
+    if ext.is_empty() || ext.len() > 8 {
+        return None;
+    }
+    if !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(ext)
+}
+
+pub(crate) fn paste_dest(home: &Path, ext: &str, stamp: u128) -> PathBuf {
+    home.join("sessions")
+        .join("pastes")
+        .join(format!("paste-{stamp}.{ext}"))
+}
+
+pub(crate) fn write_paste_file(
+    home: &Path,
+    bytes: &[u8],
+    ext: &str,
+    stamp: u128,
+) -> AppResult<PathBuf> {
+    if bytes.is_empty() {
+        return Err(AppError::Message("无法保存空文件".into()));
+    }
+    if bytes.len() as u64 > ATTACHMENT_BYTE_CAP {
+        return Err(AppError::Message("文件太大".into()));
+    }
+    let ext = sanitize_paste_ext(ext).ok_or_else(|| AppError::Message("无法保存这个附件".into()))?;
+    let dest = paste_dest(home, &ext, stamp);
+    write_nofollow(&dest, bytes).map_err(|e| AppError::Message(e.to_string()))?;
+    Ok(dest)
+}
+
+pub(crate) fn sanitize_paste_filename(raw: &str) -> Option<String> {
+    let base = Path::new(raw.trim()).file_name()?.to_string_lossy();
+    let cleaned: String = base
+        .chars()
+        .filter(|c| *c != '\0' && *c != '/' && *c != '\\')
+        .take(180)
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+pub(crate) fn import_dropped_file_to(
+    home: &Path,
+    src: &str,
+    stamp: u128,
+) -> AppResult<(PathBuf, u64, String, &'static str)> {
+    let raw = PathBuf::from(src.trim());
+    if !raw.is_absolute() {
+        return Err(AppError::Message("附件路径必须是绝对路径".into()));
+    }
+    let meta = std::fs::symlink_metadata(&raw).map_err(|_| AppError::Message("附件不存在".into()))?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::Message("不能添加这个附件".into()));
+    }
+    if is_blocked_path(&raw) {
+        return Err(AppError::Message("不能添加这个附件".into()));
+    }
+    let canon = raw
+        .canonicalize()
+        .map_err(|_| AppError::Message("附件不存在".into()))?;
+    if is_blocked_path(&canon) {
+        return Err(AppError::Message("不能添加这个附件".into()));
+    }
+    let name = sanitize_paste_filename(src)
+        .ok_or_else(|| AppError::Message("无法添加没有名字的附件".into()))?;
+    let dest = home
+        .join("sessions")
+        .join("pastes")
+        .join(format!("{stamp}-{name}"));
+
+    if meta.is_file() {
+        if meta.len() > ATTACHMENT_BYTE_CAP {
+            return Err(AppError::Message("文件太大".into()));
+        }
+        let bytes = std::fs::read(&canon).map_err(|e| AppError::Message(e.to_string()))?;
+        if bytes.len() as u64 > ATTACHMENT_BYTE_CAP {
+            return Err(AppError::Message("文件太大".into()));
+        }
+        write_nofollow(&dest, &bytes).map_err(|e| AppError::Message(e.to_string()))?;
+        return Ok((dest, bytes.len() as u64, name, "file"));
+    }
+
+    Err(AppError::Message("无法添加这个附件".into()))
+}
+
+#[tauri::command]
+pub async fn import_dropped_file(path: String) -> AppResult<Value> {
+    tokio::task::spawn_blocking(move || {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let (dest, bytes, name, kind) = import_dropped_file_to(&grok_home(), &path, stamp)?;
+        Ok(json!({
+            "path": dest.to_string_lossy(),
+            "bytes": bytes,
+            "name": name,
+            "kind": kind,
+        }))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn save_paste_bytes(bytes: Vec<u8>, ext: String, name: Option<String>) -> AppResult<Value> {
+    tokio::task::spawn_blocking(move || {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        if let Some(filename) = name.as_deref().and_then(sanitize_paste_filename) {
+            if bytes.is_empty() {
+                return Err(AppError::Message("无法保存空文件".into()));
+            }
+            if bytes.len() as u64 > ATTACHMENT_BYTE_CAP {
+                return Err(AppError::Message("文件太大".into()));
+            }
+            let dest = grok_home()
+                .join("sessions")
+                .join("pastes")
+                .join(format!("{stamp}-{filename}"));
+            write_nofollow(&dest, &bytes).map_err(|e| AppError::Message(e.to_string()))?;
+            return Ok(json!({
+                "path": dest.to_string_lossy(),
+                "bytes": bytes.len() as u64,
+                "name": filename,
+            }));
+        }
+        let path = write_paste_file(&grok_home(), &bytes, &ext, stamp)?;
+        Ok(json!({
+            "path": path.to_string_lossy(),
+            "bytes": bytes.len() as u64,
+            "name": path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        }))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
@@ -566,6 +717,62 @@ fn blame_rel_path(root: &Path, raw: &str) -> Option<String> {
         None
     } else {
         Some(s)
+    }
+}
+
+#[tauri::command]
+pub async fn git_pull(cwd: String) -> AppResult<Value> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let (ok, code, _, stderr) = git_run(&root, &["pull", "--ff-only"], 120).await;
+    Ok(git_cmd_result(ok, code, stderr))
+}
+
+#[tauri::command]
+pub async fn git_push(cwd: String) -> AppResult<Value> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let (ok, code, _, stderr) = git_run(&root, &["push"], 60).await;
+    Ok(git_cmd_result(ok, code, stderr))
+}
+
+#[tauri::command]
+pub async fn git_discard(cwd: String, path: String) -> AppResult<Value> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let Some(rel) = blame_rel_path(&root, &path) else {
+        return Ok(git_cmd_result(false, 1, "invalid path".into()));
+    };
+    let (inside, _, inside_out, _) =
+        git_run(&root, &["rev-parse", "--is-inside-work-tree"], 8).await;
+    if !inside || inside_out.trim() != "true" {
+        return Ok(git_cmd_result(false, 1, "not a git repository".into()));
+    }
+    let (tracked, _, _, _) = git_run(&root, &["ls-files", "--error-unmatch", "--", &rel], 8).await;
+    if tracked {
+        let (ok, code, _, stderr) =
+            git_run(&root, &["restore", "--worktree", "--source=HEAD", "--", &rel], 30).await;
+        return Ok(git_cmd_result(ok, code, stderr));
+    }
+    let abs = root.join(&rel);
+    let meta = match std::fs::symlink_metadata(&abs) {
+        Ok(m) => m,
+        Err(_) => return Ok(git_cmd_result(false, 1, "invalid path".into())),
+    };
+    if !meta.file_type().is_file() {
+        return Ok(git_cmd_result(false, 1, "not a regular file".into()));
+    }
+    if let Ok(canon) = abs.canonicalize() {
+        if !is_under(&canon, &root) {
+            return Ok(git_cmd_result(false, 1, "invalid path".into()));
+        }
+    }
+    match std::fs::remove_file(&abs) {
+        Ok(()) => Ok(git_cmd_result(true, 0, String::new())),
+        Err(e) => Ok(git_cmd_result(false, 1, e.to_string())),
     }
 }
 
@@ -1710,6 +1917,15 @@ mod security_tests {
     }
 
     #[test]
+    fn validate_attachment_allows_directory_outside_workspace() {
+        let root = temp_dir("attach-root").canonicalize().unwrap();
+        let folder = temp_dir("attach-dir-outside").canonicalize().unwrap();
+        assert!(validate_attachment(folder.to_str().unwrap(), Some(root.to_str().unwrap())).is_ok());
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
     fn cache_hit_when_directory_mtime_matches() {
         assert!(cache_hit(Some(1_700_000_000_000), 1_700_000_000_000));
         assert!(!cache_hit(Some(100), 101));
@@ -1756,5 +1972,169 @@ mod security_tests {
         assert!(blame_rel_path(root, "../secret").is_none());
         assert!(blame_rel_path(root, "/etc/passwd").is_none());
         assert!(blame_rel_path(root, "").is_none());
+    }
+
+    #[test]
+    fn sanitize_paste_ext_allows_png_and_rejects_path_bits() {
+        assert_eq!(super::sanitize_paste_ext("PNG").as_deref(), Some("png"));
+        assert_eq!(super::sanitize_paste_ext(".jpg").as_deref(), Some("jpg"));
+        assert!(super::sanitize_paste_ext("../etc").is_none());
+        assert!(super::sanitize_paste_ext("png.exe").is_none());
+    }
+
+    #[test]
+    fn paste_dest_is_under_sessions_pastes() {
+        let home = PathBuf::from("/Users/me/.grok");
+        assert_eq!(
+            super::paste_dest(&home, "png", 42),
+            PathBuf::from("/Users/me/.grok/sessions/pastes/paste-42.png")
+        );
+    }
+
+    #[test]
+    fn write_paste_file_writes_under_sessions_and_rejects_oversize() {
+        let root = temp_dir("paste-write");
+        let path = super::write_paste_file(&root, b"\x89PNG", "png", 7).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG");
+        assert!(path.ends_with("sessions/pastes/paste-7.png"));
+
+        let too_big = vec![0u8; (ATTACHMENT_BYTE_CAP as usize) + 1];
+        assert!(super::write_paste_file(&root, &too_big, "png", 8).is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sanitize_paste_filename_keeps_basename() {
+        assert_eq!(
+            super::sanitize_paste_filename("李同学升学规划.pdf").as_deref(),
+            Some("李同学升学规划.pdf")
+        );
+        assert_eq!(
+            super::sanitize_paste_filename("/tmp/evil/../plan.pdf").as_deref(),
+            Some("plan.pdf")
+        );
+        assert!(super::sanitize_paste_filename("..").is_none());
+    }
+
+    #[test]
+    fn import_dropped_file_copies_into_sessions_pastes_with_original_name() {
+        let src_root = temp_dir("import-src");
+        let home = temp_dir("import-home");
+        let src = src_root.join("plan.pdf");
+        std::fs::write(&src, b"%PDF").unwrap();
+        let (dest, bytes, name, kind) =
+            super::import_dropped_file_to(&home, src.to_str().unwrap(), 9).unwrap();
+        assert_eq!(name, "plan.pdf");
+        assert_eq!(kind, "file");
+        assert_eq!(bytes, 4);
+        assert!(dest.ends_with("sessions/pastes/9-plan.pdf"));
+        assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF");
+        let _ = std::fs::remove_dir_all(src_root);
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    fn init_git_repo(dir: &Path) {
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env("GIT_AUTHOR_NAME", "test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.com")
+                .env("GIT_COMMITTER_NAME", "test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.com")
+                .output()
+                .unwrap()
+        };
+        let init = git(&["init", "-q"]);
+        assert!(
+            init.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        let _ = git(&["config", "user.email", "test@example.com"]);
+        let _ = git(&["config", "user.name", "test"]);
+    }
+
+    #[test]
+    fn discard_path_rejects_parent_escape() {
+        let root = Path::new("/work/app");
+        assert!(blame_rel_path(root, "../Secrets").is_none());
+        assert!(blame_rel_path(root, "../Secrets/key").is_none());
+    }
+
+    #[test]
+    fn discard_path_rejects_empty() {
+        let root = Path::new("/work/app");
+        assert!(blame_rel_path(root, "").is_none());
+        assert!(blame_rel_path(root, "   ").is_none());
+    }
+
+    #[tokio::test]
+    async fn git_discard_rejects_parent_escape() {
+        let root = temp_dir("discard-escape").canonicalize().unwrap();
+        let result = super::git_discard(root.to_string_lossy().into_owned(), "../Secrets".into())
+            .await
+            .unwrap();
+        assert_eq!(result["ok"], false);
+        let stderr = result["stderr"].as_str().unwrap_or("");
+        assert!(
+            stderr.to_lowercase().contains("path") || stderr.contains("路径"),
+            "stderr={stderr}"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn git_discard_rejects_empty_path() {
+        let root = temp_dir("discard-empty").canonicalize().unwrap();
+        let result = super::git_discard(root.to_string_lossy().into_owned(), "".into())
+            .await
+            .unwrap();
+        assert_eq!(result["ok"], false);
+        let stderr = result["stderr"].as_str().unwrap_or("");
+        assert!(
+            stderr.to_lowercase().contains("path") || stderr.contains("路径"),
+            "stderr={stderr}"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn git_discard_deletes_untracked_regular_file_not_directory() {
+        let root = temp_dir("discard-untracked").canonicalize().unwrap();
+        init_git_repo(&root);
+        let file = root.join("scratch.txt");
+        std::fs::write(&file, "tmp").unwrap();
+        let dir = root.join("scratch-dir");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("inside.txt"), "keep").unwrap();
+
+        let deleted = super::git_discard(
+            root.to_string_lossy().into_owned(),
+            "scratch.txt".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(deleted["ok"], true);
+        assert!(!file.exists());
+
+        let wiped = super::git_discard(
+            root.to_string_lossy().into_owned(),
+            "scratch-dir".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(wiped["ok"], false);
+        assert!(dir.is_dir());
+        assert!(dir.join("inside.txt").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn git_pull_and_push_reject_invalid_cwd() {
+        let pull = super::git_pull(String::new()).await.unwrap();
+        assert_eq!(pull["ok"], false);
+        let push = super::git_push("/".into()).await.unwrap();
+        assert_eq!(push["ok"], false);
     }
 }

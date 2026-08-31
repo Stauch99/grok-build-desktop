@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { usageTone } from "../lib/time";
+import { useLocale, useT } from "../lib/locale-context";
 import { weeklyUsageCopy, type WeeklyUsage } from "../lib/weekly-usage";
+import { ShortcutKbd } from "./ShortcutHint";
 
 export type AccountMenuProps = {
   signedIn: boolean;
@@ -19,9 +21,11 @@ export function AccountMenu({
   onExtensions,
   onShortcuts,
 }: AccountMenuProps) {
+  const t = useT();
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const copy = weeklyUsageCopy(weeklyUsage, signedIn);
+  const copy = weeklyUsageCopy(weeklyUsage, signedIn, Date.now(), locale);
   const tone = usageTone(copy.percent ?? null, 85);
 
   useEffect(() => {
@@ -74,13 +78,15 @@ export function AccountMenu({
       {open ? (
         <div className="menu account-pop" role="menu">
           <button type="button" role="menuitem" onClick={() => pick(onSettings)}>
-            设置
+            {t("settings.title")}
+            <ShortcutKbd id="settings" />
           </button>
           <button type="button" role="menuitem" onClick={() => pick(onExtensions)}>
-            扩展中心
+            {t("hub.title")}
+            <ShortcutKbd id="hub" />
           </button>
           <button type="button" role="menuitem" onClick={() => pick(onShortcuts)}>
-            快捷键
+            {t("settings.shortcuts")}
           </button>
         </div>
       ) : null}

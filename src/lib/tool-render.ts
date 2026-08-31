@@ -1,5 +1,5 @@
 import { diffLines } from "./diff";
-import type { ChatItem } from "./chat";
+import type { ChatItem, WorkItem } from "./chat";
 
 export type ToolClass = "bash" | "read" | "edit" | "search" | "write" | "other";
 
@@ -86,10 +86,74 @@ export function diffStatLabel(diff?: {
   return parts.length ? parts.join(" ") : undefined;
 }
 
+export type CompressClass = "read" | "call" | "bash" | "edit" | "search";
+
+export type TimelineRow =
+  | { kind: "item"; item: WorkItem }
+  | { kind: "group"; cls: CompressClass; items: Extract<WorkItem, { kind: "tool" }>[] };
+
+const COMPRESS_VERB: Record<CompressClass, string> = {
+  read: TOOL_VERB.read,
+  call: TOOL_VERB.other,
+  bash: TOOL_VERB.bash,
+  edit: TOOL_VERB.edit,
+  search: TOOL_VERB.search,
+};
+
+export function compressClass(item: WorkItem): CompressClass | null {
+  if (item.kind !== "tool") return null;
+  const kind = classifyTool(item.title, item.toolKind);
+  if (kind === "other") return "call";
+  if (kind === "write") return null;
+  return kind;
+}
+
+export function compressLabel(cls: CompressClass, n: number): string {
+  return `${COMPRESS_VERB[cls]} ${n} 次`;
+}
+
+/** Consecutive same-class tools collapse to one row when there are two or more. */
+export function compressTimeline(items: WorkItem[]): TimelineRow[] {
+  const out: TimelineRow[] = [];
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    const cls = compressClass(item);
+    if (!cls || item.kind !== "tool") {
+      out.push({ kind: "item", item });
+      i += 1;
+      continue;
+    }
+    const run: Extract<WorkItem, { kind: "tool" }>[] = [item];
+    while (i + run.length < items.length) {
+      const next = items[i + run.length];
+      if (compressClass(next) !== cls || next.kind !== "tool") break;
+      run.push(next);
+    }
+    if (run.length >= 2) out.push({ kind: "group", cls, items: run });
+    else out.push({ kind: "item", item });
+    i += run.length;
+  }
+  return out;
+}
+
 /** First `max` lines of tool detail for compact preview. */
 export function previewLines(detail?: string, max = 8): string {
   if (!detail) return "";
   const lines = detail.split("\n");
   if (lines.length <= max) return detail;
   return lines.slice(0, max).join("\n");
+}
+
+export type BashCommandPreview = {
+  full: string;
+  preview: string;
+  truncated: boolean;
+};
+
+/** Strip Execute/Bash prefixes and clip the command to a few list lines. */
+export function bashCommandPreview(title: string, maxLines = 4): BashCommandPreview {
+  const full = toolDetailFromTitle(title, "bash");
+  const preview = previewLines(full, maxLines);
+  return { full, preview, truncated: preview !== full };
 }

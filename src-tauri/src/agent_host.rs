@@ -180,6 +180,7 @@ impl<T> AgentPool<T> {
         self.inner.get(&id)
     }
 
+    #[cfg(test)]
     pub(crate) fn get_mut(&mut self, id: AgentId) -> Option<&mut T> {
         self.inner.get_mut(&id)
     }
@@ -188,14 +189,17 @@ impl<T> AgentPool<T> {
         self.inner.remove(&id)
     }
 
+    #[cfg(test)]
     pub(crate) fn contains(&self, id: AgentId) -> bool {
         self.inner.contains_key(&id)
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.inner.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
@@ -205,6 +209,7 @@ impl<T> AgentPool<T> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn stamp_agent_id(raw: Option<&str>) -> AgentId {
     raw.and_then(AgentId::parse).unwrap_or(AgentId::Grok)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acpMessageFromEvent, resolveStartAgentId, shouldDropAcpEvent } from "./acp-host";
+import { acpMessageFromEvent, resolveStartAgentId, stderrFromAcpEvent, shouldDropAcpEvent } from "./acp-host";
 
 describe("resolveStartAgentId", () => {
   it("defaults blank to grok and rejects unknown", () => {
@@ -19,6 +19,19 @@ describe("acpMessageFromEvent", () => {
       payload,
     });
     expect(acpMessageFromEvent(payload)).toEqual({ agentId: "grok", payload });
+  });
+});
+
+describe("stderrFromAcpEvent", () => {
+  it("keeps a tagged CLI on stderr and defaults legacy strings to grok", () => {
+    expect(stderrFromAcpEvent({ agentId: "claude", generation: 2, payload: "Authentication required" })).toEqual({
+      line: "Authentication required",
+      agentId: "claude",
+    });
+    expect(stderrFromAcpEvent("Prompt for session x failed")).toEqual({
+      line: "Prompt for session x failed",
+      agentId: "grok",
+    });
   });
 });
 

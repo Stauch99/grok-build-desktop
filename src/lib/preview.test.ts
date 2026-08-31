@@ -6,6 +6,7 @@ import {
   activeTabAfterClose,
   afterPreviewSave,
   clampImageZoom,
+  draftForPath,
   fileExt,
   imageTransform,
   isMarkdown,
@@ -16,6 +17,7 @@ import {
   previewKind,
   previewSaveToast,
   putPreviewCache,
+  putPreviewDraft,
   relativeTo,
   removePreviewTab,
   upsertPreviewTab,
@@ -26,6 +28,9 @@ describe("isTextPreviewable", () => {
   it("accepts known text extensions", () => {
     expect(isTextPreviewable("/a/b/readme.md")).toBe(true);
     expect(isTextPreviewable("src/App.tsx")).toBe(true);
+    expect(isTextPreviewable("pkg/main.go")).toBe(true);
+    expect(isTextPreviewable("src/Foo.kt")).toBe(true);
+    expect(isTextPreviewable("package.json")).toBe(true);
   });
 
   it("rejects binaries", () => {
@@ -68,6 +73,10 @@ describe("previewKind", () => {
   it("renders markdown, shows code as source, and previews media inline", () => {
     expect(previewKind("a/b.md")).toBe("markdown");
     expect(previewKind("a/b.ts")).toBe("code");
+    expect(previewKind("a/b.json")).toBe("code");
+    expect(previewKind("a/b.go")).toBe("code");
+    expect(previewKind("Main.java")).toBe("code");
+    expect(previewKind("App.vue")).toBe("code");
     expect(previewKind("a/b.html")).toBe("html");
     expect(previewKind("a/b.png")).toBe("image");
     expect(previewKind("a/b.mp4")).toBe("video");
@@ -131,6 +140,39 @@ describe("preview tabs", () => {
     putPreviewCache(cache, "/b.ts", "B", 2);
     expect(cache.get("/a.ts")).toEqual({ text: "A", mtime: 1 });
     expect(cache.get("/b.ts")?.text).toBe("B");
+  });
+
+  it("restores the unsaved draft after switching away and back", () => {
+    const drafts = new Map<string, string>();
+    putPreviewDraft(drafts, "/a.ts", "unsaved A");
+    expect(draftForPath(drafts, "/b.ts", "file B")).toBe("file B");
+    expect(draftForPath(drafts, "/a.ts", "original A")).toBe("unsaved A");
+    putPreviewDraft(drafts, "/a.ts", "");
+    expect(draftForPath(drafts, "/a.ts", "original A")).toBe("");
+  });
+
+  it("uses loaded file text when a path has no draft", () => {
+    const drafts = new Map<string, string>();
+    putPreviewDraft(drafts, "/a.ts", "unsaved A");
+    expect(draftForPath(drafts, "/b.ts", "file B")).toBe("file B");
+    expect(draftForPath(drafts, "/c.ts", "")).toBe("");
+  });
+
+  it("drops that path's draft when closing a tab", () => {
+    const drafts = new Map<string, string>();
+    putPreviewDraft(drafts, "/a.ts", "unsaved A");
+    putPreviewDraft(drafts, "/b.ts", "unsaved B");
+    const tabs = [{ path: "/a.ts" }, { path: "/b.ts" }];
+    expect(removePreviewTab(tabs, "/a.ts", drafts)).toEqual([{ path: "/b.ts" }]);
+    expect(draftForPath(drafts, "/a.ts", "original A")).toBe("original A");
+    expect(draftForPath(drafts, "/b.ts", "original B")).toBe("unsaved B");
+  });
+
+  it("replaces the draft with saved text after a successful save", () => {
+    const drafts = new Map<string, string>();
+    putPreviewDraft(drafts, "/a.ts", "unsaved A");
+    putPreviewDraft(drafts, "/a.ts", "saved A");
+    expect(draftForPath(drafts, "/a.ts", "saved A")).toBe("saved A");
   });
 });
 

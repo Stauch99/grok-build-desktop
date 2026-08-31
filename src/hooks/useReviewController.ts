@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { TextFilePreview } from "../api";
 import {
   initialReviewState,
+  recalledReviewTab,
+  rememberReviewTab,
   reviewReducer,
   type LegacyReviewTab,
   type ReviewDetailsTool,
   type ReviewOpenAction,
   type ReviewTab,
+  type ReviewTabMemory,
 } from "../lib/review-rail";
 import {
   activeTabAfterClose,
@@ -83,17 +86,37 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
   const ownerKey = useRef(deps.ownerKey);
   const abortRef = useRef<AbortController | null>(null);
   const previewCache = useRef(new Map<string, PreviewCacheEntry>());
+  const tabMemory = useRef<ReviewTabMemory>({});
+  const lastTab = useRef<ReviewTab>(initialReviewState.tab);
+  const rememberedOwner = useRef(deps.ownerKey);
+  const skipRemember = useRef(false);
   ownerKey.current = deps.ownerKey;
 
   useEffect(() => {
     abortRef.current = replaceAbortController(abortRef.current);
     const ac = abortRef.current;
     requestId.current += 1;
-    dispatch({ type: "owner-change", requestId: requestId.current, disabled: deps.disabled });
+    if (rememberedOwner.current !== deps.ownerKey) {
+      tabMemory.current = rememberReviewTab(tabMemory.current, rememberedOwner.current, lastTab.current);
+    }
+    const recalled = recalledReviewTab(tabMemory.current, deps.ownerKey, lastTab.current);
+    lastTab.current = recalled;
+    skipRemember.current = true;
+    rememberedOwner.current = deps.ownerKey;
+    dispatch({ type: "owner-change", requestId: requestId.current, disabled: deps.disabled, tab: recalled });
     setPreviewTabs([]);
     previewCache.current.clear();
     return () => ac.abort();
   }, [deps.ownerKey, deps.disabled]);
+
+  useEffect(() => {
+    if (skipRemember.current) {
+      skipRemember.current = false;
+      return;
+    }
+    tabMemory.current = rememberReviewTab(tabMemory.current, rememberedOwner.current, state.tab);
+    lastTab.current = state.tab;
+  }, [state.tab]);
 
   const openReview = useCallback((action: ReviewOpenAction) => {
     if (deps.disabled) return;

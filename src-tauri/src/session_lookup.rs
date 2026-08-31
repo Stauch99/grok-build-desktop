@@ -14,7 +14,7 @@ pub(crate) fn session_roots(user_home: &Path, grok_home: &Path) -> Vec<(String, 
 /// Grok replay reads only `updates.jsonl`. Vendor session dirs may hold
 /// `chat.jsonl` or other artifacts; those must not enable replay.
 pub(crate) fn replay_path_or_empty(dir: &Path) -> bool {
-    dir.join("updates.jsonl").is_file()
+    crate::session_replay::resolve_transcript(dir).is_some()
 }
 
 pub(crate) fn find_session_dir_in(
@@ -25,9 +25,18 @@ pub(crate) fn find_session_dir_in(
         if !root.is_dir() {
             continue;
         }
-        for entry in WalkDir::new(root).max_depth(3).into_iter().flatten() {
-            if entry.file_type().is_dir() && entry.file_name() == session_id {
+        for entry in WalkDir::new(root).max_depth(4).into_iter().flatten() {
+            let name = entry.file_name();
+            if entry.file_type().is_dir() && name == session_id {
                 return Some((agent.clone(), entry.path().to_path_buf()));
+            }
+            if entry.file_type().is_file() {
+                let name_str = name.to_string_lossy();
+                if name_str == format!("{session_id}.jsonl")
+                    || (name_str.ends_with(".jsonl") && name_str.contains(session_id))
+                {
+                    return Some((agent.clone(), entry.path().to_path_buf()));
+                }
             }
         }
     }
@@ -143,6 +152,48 @@ mod tests {
         fs::create_dir_all(grok_home.join("sessions")).unwrap();
         let roots = session_roots(&base, &grok_home);
         assert!(find_session_dir_in("no-such-session", &roots).is_none());
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn find_session_dir_in_locates_claude_jsonl_file() {
+        let base = uniq("session_lookup_claude_jsonl");
+        let grok_home = base.join(".grok");
+        fs::create_dir_all(grok_home.join("sessions")).unwrap();
+        let sid = "4fea9f3c-9d1f-449f-ae22-4930197422a6";
+        let proj = base
+            .join(".claude")
+            .join("projects")
+            .join("-Users-foxie-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let file = proj.join(format!("{sid}.jsonl"));
+        fs::write(&file, "{\"type\":\"user\"}\n").unwrap();
+        let roots = session_roots(&base, &grok_home);
+        let found = find_session_dir_in(sid, &roots).unwrap();
+        assert_eq!(found.0, "claude");
+        assert_eq!(found.1, file);
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn find_session_dir_in_locates_codex_rollout_at_depth_four() {
+        let base = uniq("session_lookup_codex_rollout");
+        let grok_home = base.join(".grok");
+        fs::create_dir_all(grok_home.join("sessions")).unwrap();
+        let sid = "019fb92b-6c3b-7c12-8865-117c1ee2aefd";
+        let day = base
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("08")
+            .join("01");
+        fs::create_dir_all(&day).unwrap();
+        let file = day.join(format!("rollout-2026-08-01T01-14-18-{sid}.jsonl"));
+        fs::write(&file, "{\"type\":\"session_meta\"}\n").unwrap();
+        let roots = session_roots(&base, &grok_home);
+        let found = find_session_dir_in(sid, &roots).unwrap();
+        assert_eq!(found.0, "codex");
+        assert_eq!(found.1, file);
         fs::remove_dir_all(base).ok();
     }
 

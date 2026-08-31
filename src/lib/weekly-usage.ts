@@ -1,4 +1,5 @@
 import { asRecord } from "./text";
+import { t, type Locale } from "./i18n";
 
 export type WeeklyUsage = {
   percent: number;
@@ -35,11 +36,11 @@ export function parseWeeklyUsage(raw: unknown): WeeklyUsage | null {
   return next;
 }
 
-export function weeklyResetLabel(periodEnd?: number, now = Date.now()): string | undefined {
+export function weeklyResetLabel(periodEnd?: number, now = Date.now(), locale: Locale = "zh"): string | undefined {
   if (periodEnd == null || !Number.isFinite(periodEnd)) return undefined;
-  if (periodEnd - now <= 0) return "即将重置";
+  if (periodEnd - now <= 0) return t(locale, "account.resetSoon");
   const d = new Date(periodEnd);
-  return `${d.getMonth() + 1}月${d.getDate()}日重置`;
+  return t(locale, "account.resetOn", { m: d.getMonth() + 1, d: d.getDate() });
 }
 
 export type WeeklyUsageCopy = {
@@ -52,13 +53,14 @@ export function weeklyUsageCopy(
   usage: WeeklyUsage | null,
   signedIn: boolean,
   now = Date.now(),
+  locale: Locale = "zh",
 ): WeeklyUsageCopy {
-  if (!signedIn) return { title: "未登录" };
-  if (!usage) return { title: "已登录" };
+  if (!signedIn) return { title: t(locale, "account.unsigned") };
+  if (!usage) return { title: t(locale, "account.signed") };
   const percent = Math.round(usage.percent);
-  const detail = weeklyResetLabel(usage.periodEnd, now);
+  const detail = weeklyResetLabel(usage.periodEnd, now, locale);
   const copy: WeeklyUsageCopy = {
-    title: `周用量 ${percent}%`,
+    title: t(locale, "account.weekly", { n: percent }),
     percent,
   };
   if (detail) copy.detail = detail;

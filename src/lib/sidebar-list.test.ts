@@ -5,6 +5,7 @@ import {
   INBOX_PIN,
   applyGrouping,
   buildSidebarSections,
+  groupSidebarBands,
   formatTokenCount,
   loadSidebarList,
   matchesStatusFilter,
@@ -14,6 +15,7 @@ import {
   resolveLastWorkspace,
   lastWorkspaceAfterOpen,
   resumeWorkspaceCwd,
+  sessionInLibrary,
   statusBucket,
   timeBucket,
   toggleShow,
@@ -21,6 +23,7 @@ import {
   tokenForRow,
   worktreeLabel,
   sessionAgentPill,
+  type SidebarSection,
 } from "./sidebar-list";
 import { AGENT_IDS } from "./agent-id";
 
@@ -139,6 +142,20 @@ describe("projectForSession", () => {
   });
 });
 
+describe("sessionInLibrary", () => {
+  it("keeps inbox chats and sessions under an added project", () => {
+    expect(sessionInLibrary("/inbox", ["/work/app"], "/inbox")).toBe(true);
+    expect(sessionInLibrary("/work/app", ["/work/app"], "/inbox")).toBe(true);
+    expect(sessionInLibrary("/work/app/wt-1", ["/work/app"], "/inbox")).toBe(true);
+  });
+
+  it("hides history whose directory was never added", () => {
+    expect(sessionInLibrary("/old/other", ["/work/app"], "/inbox")).toBe(false);
+    expect(sessionInLibrary("", ["/work/app"], "/inbox")).toBe(false);
+    expect(sessionInLibrary("/work/app", [], "/inbox")).toBe(false);
+  });
+});
+
 describe("worktreeLabel / tokens", () => {
   it("omits the label when cwd is the project root", () => {
     expect(worktreeLabel("/work/app", "/work/app", "/inbox")).toBeUndefined();
@@ -205,34 +222,64 @@ describe("buildSidebarSections", () => {
       ...base,
       prefs: { ...DEFAULT_SIDEBAR_LIST, showWorktree: true },
     });
-    expect(sections[0]).toMatchObject({ id: "pin", kind: "pin" });
+    expect(sections[0]).toMatchObject({ id: "pin", kind: "pin", band: "pin" });
     expect(sections[0].rows.map((r) => r.session.id)).toEqual(["pin"]);
     const app = sections.find((x) => x.projectPath === "/work/app");
+    expect(app?.band).toBe("pin");
     expect(app?.rows.map((r) => r.session.id)).toEqual(["a", "wt"]);
     expect(app?.rows.find((r) => r.session.id === "wt")?.worktree).toBe("wt-1");
-    expect(sections.find((x) => x.id === "inbox")?.rows.map((r) => r.session.id)).toEqual(["in"]);
+    const inbox = sections.find((x) => x.id === "inbox");
+    expect(inbox).toMatchObject({ kind: "inbox", band: "inbox", label: "独立对话" });
+    expect(inbox?.projectPath).toBeUndefined();
+    expect(inbox?.rows.map((r) => r.session.id)).toEqual(["in"]);
     expect(sections.some((x) => x.rows.some((r) => r.session.id === "draft"))).toBe(false);
   });
 
-  it("orders pinned projects above unpinned ones", () => {
-    const sections = buildSidebarSections({ ...base, pinned: [] });
-    const ids = sections.filter((x) => x.kind === "project").map((x) => x.projectPath ?? x.id);
-    expect(ids[0]).toBe("/work/app");
-  });
-
-  it("orders pinned inbox above unpinned project groups", () => {
+  it("does not dump other-directory history into 独立对话", () => {
     const sections = buildSidebarSections({
       ...base,
       pinned: [],
-      pinnedProjects: [INBOX_PIN],
+      sessions: [
+        ...base.sessions,
+        s({ id: "stray", cwd: "/old/other", title: "Stray", updatedAt: localIso(now, 0, 12) }),
+      ],
+    });
+    expect(sections.some((x) => x.rows.some((r) => r.session.id === "stray"))).toBe(false);
+    expect(sections.find((x) => x.id === "inbox")?.rows.map((r) => r.session.id)).toEqual(["in"]);
+  });
+
+  it("keeps pinned projects in the pin band and unpinned projects in their own band", () => {
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
       sessions: [
         ...base.sessions.filter((x) => x.id !== "pin"),
         s({ id: "other", cwd: "/work/other", title: "Other", updatedAt: localIso(now, 0, 8) }),
       ],
     });
-    const ids = sections.filter((x) => x.kind === "project").map((x) => x.projectPath ?? x.id);
-    expect(ids[0]).toBe("inbox");
-    expect(ids.slice(1)).toEqual(["/work/app", "/work/other"]);
+    const app = sections.find((x) => x.projectPath === "/work/app");
+    const other = sections.find((x) => x.projectPath === "/work/other");
+    expect(app?.band).toBe("pin");
+    expect(other?.band).toBe("projects");
+    expect(sections.filter((x) => x.kind === "project").map((x) => x.projectPath)).toEqual([
+      "/work/app",
+      "/work/other",
+    ]);
+    expect(groupSidebarBands(sections).map((b) => ({ id: b.id, label: b.label }))).toEqual([
+      { id: "pin", label: "置顶" },
+      { id: "projects", label: "项目" },
+      { id: "inbox", label: "独立对话" },
+    ]);
+  });
+
+  it("never folds independent chats into a project folder, even if inbox is pinned", () => {
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
+      pinnedProjects: [INBOX_PIN],
+    });
+    expect(sections.filter((x) => x.kind === "project").map((x) => x.id)).not.toContain("inbox");
+    expect(sections.find((x) => x.kind === "inbox")).toMatchObject({ id: "inbox", band: "inbox" });
   });
 
   it("groups by updated time without duplicating pins", () => {
@@ -244,6 +291,62 @@ describe("buildSidebarSections", () => {
     const today = sections.find((x) => x.id === "today");
     expect(today?.rows.map((r) => r.session.id)).toEqual(["a", "in"]);
     expect(sections.find((x) => x.id === "yesterday")?.rows.map((r) => r.session.id)).toEqual(["wt"]);
+  });
+});
+
+describe("groupSidebarBands hides empty bands", () => {
+  const pinSessions = (rows: SidebarSection["rows"]): SidebarSection => ({
+    id: "pin",
+    label: "置顶",
+    kind: "pin",
+    band: "pin",
+    rows,
+  });
+  const project = (
+    path: string,
+    band: "pin" | "projects",
+    rows: SidebarSection["rows"] = [],
+  ): SidebarSection => ({
+    id: path,
+    label: path.split("/").pop() ?? path,
+    kind: "project",
+    band,
+    projectPath: path,
+    rows,
+  });
+  const inbox = (rows: SidebarSection["rows"]): SidebarSection => ({
+    id: "inbox",
+    label: "独立对话",
+    kind: "inbox",
+    band: "inbox",
+    rows,
+  });
+
+  it("hides 置顶 when it only has an empty pin-session list", () => {
+    const bands = groupSidebarBands([pinSessions([]), project("/work/app", "projects")]);
+    expect(bands.map((b) => b.id)).toEqual(["projects"]);
+  });
+
+  it("keeps 置顶 when a pinned project folder has no sessions", () => {
+    const bands = groupSidebarBands([project("/work/app", "pin")]);
+    expect(bands.map((b) => b.id)).toEqual(["pin"]);
+    expect(bands[0].sections[0].rows).toEqual([]);
+  });
+
+  it("keeps 置顶 when empty pin sessions sit beside a pinned folder", () => {
+    const bands = groupSidebarBands([pinSessions([]), project("/work/app", "pin")]);
+    expect(bands.map((b) => b.id)).toEqual(["pin"]);
+  });
+
+  it("hides 独立对话 when it has zero rows", () => {
+    const bands = groupSidebarBands([project("/work/app", "projects"), inbox([])]);
+    expect(bands.map((b) => b.id)).toEqual(["projects"]);
+  });
+
+  it("keeps 项目 when folders have no sessions", () => {
+    const bands = groupSidebarBands([project("/work/app", "projects"), project("/work/other", "projects")]);
+    expect(bands.map((b) => b.id)).toEqual(["projects"]);
+    expect(bands[0].sections.map((s) => s.rows.length)).toEqual([0, 0]);
   });
 });
 

@@ -23,7 +23,7 @@ describe("agentChipLabel", () => {
 });
 
 describe("agentChipClassName", () => {
-  it("marks only the selected brand active", () => {
+  it("marks the selected brand active on the trigger", () => {
     expect(agentChipClassName("kimi", "kimi")).toBe("agent-chip agent-chip-kimi active");
     expect(agentChipClassName("grok", "kimi")).toBe("agent-chip agent-chip-grok");
   });

@@ -12,7 +12,7 @@ import {
   selectShortcutPermission,
   type QueuedPermission,
 } from "./permission-queue";
-const request = (rpcId: string, sessionId: string): QueuedPermission => ({ rpcId, sessionId, title: rpcId, options: [{ optionId: "allow", name: "Allow" }], receivedAt: 1, timedOut: false });
+const request = (rpcId: string, sessionId: string, agentId: QueuedPermission["agentId"] = "grok"): QueuedPermission => ({ rpcId, sessionId, title: rpcId, options: [{ optionId: "allow", name: "Allow" }], receivedAt: 1, timedOut: false, agentId });
 describe("permission queue", () => {
   it("keeps ordered concurrent requests and removes only the selected RPC", () => {
     const queued = enqueuePermission(enqueuePermission([], request("main-rpc", "main")), request("split-rpc", "split"));
@@ -37,7 +37,7 @@ describe("permission queue", () => {
         toolCall: { title: "Edit file", kind: "edit" },
         options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: 1, name: "bad" }],
       },
-    }, 42);
+    }, "claude", 42);
     expect(parsed).toEqual({
       rpcId: 7,
       title: "Edit file",
@@ -46,17 +46,27 @@ describe("permission queue", () => {
       sessionId: "sid",
       receivedAt: 42,
       timedOut: false,
+      agentId: "claude",
     });
   });
 
   it("ignores non-permission RPC", () => {
-    expect(permissionFromAcpRequest({ method: "session/update", id: 1 })).toBeNull();
-    expect(permissionFromAcpRequest({ method: "session/request_permission" })).toBeNull();
+    expect(permissionFromAcpRequest({ method: "session/update", id: 1 }, "grok")).toBeNull();
+    expect(permissionFromAcpRequest({ method: "session/request_permission" }, "grok")).toBeNull();
   });
 
   it("marks only the timed-out request", () => {
     const queue = [request("m", "main"), request("s", "split")];
     expect(markPermissionTimedOut(queue, request("s", "split")).map((item) => [item.rpcId, item.timedOut])).toEqual([["m", false], ["s", true]]);
+  });
+
+  it("keeps the request in the queue when marking timedOut", () => {
+    const queue = [request("m", "main")];
+    const next = markPermissionTimedOut(queue, request("m", "main"));
+    expect(next).toHaveLength(1);
+    expect(next[0]?.rpcId).toBe("m");
+    expect(next[0]?.timedOut).toBe(true);
+    expect(removePermission(queue, request("m", "main"))).toHaveLength(0);
   });
 });
 

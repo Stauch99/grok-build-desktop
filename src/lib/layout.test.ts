@@ -47,7 +47,7 @@ describe("clampSidebar / clampPreview", () => {
     expect(clampSidebar(50, 1600)).toBe(SIDEBAR.min);
     expect(clampSidebar(9999, 1600)).toBe(SIDEBAR.max);
     expect(clampPreview(50, 1600)).toBe(PREVIEW.min);
-    expect(clampPreview(9999, 1600)).toBe(PREVIEW.max);
+    expect(clampPreview(9999, 2000)).toBe(PREVIEW.max);
   });
 
   it("shrinks a side column when the other one is already wide", () => {
@@ -86,6 +86,11 @@ describe("fitLayout", () => {
 describe("window minimum invariant", () => {
   it("fits all three columns inside the smallest allowed window", () => {
     expect(SIDEBAR.min + PREVIEW.min + WORK_MIN + 10).toBeLessThanOrEqual(WINDOW_MIN.width);
+  });
+
+  it("lets the preview grow wide enough to read markdown", () => {
+    expect(PREVIEW.max).toBeGreaterThanOrEqual(1080);
+    expect(PREVIEW.initial).toBeGreaterThanOrEqual(520);
   });
 });
 

@@ -117,6 +117,34 @@ describe("buildPaletteItems", () => {
     expect(items[0]).toMatchObject({ id: "act:new-chat", group: "操作" });
     expect(items.some((i) => i.id === "act:worktree")).toBe(false);
     expect(items.some((i) => i.id === "act:finder")).toBe(false);
+    expect(items.find((i) => i.id === "act:panel")).toMatchObject({
+      label: "Dashboard",
+      hint: "当前会话实时状态",
+    });
+    expect(items.find((i) => i.id === "act:dashboard")).toMatchObject({
+      label: "会话总览",
+      hint: "跨会话浏览",
+    });
+  });
+
+  it("translates core actions for English", () => {
+    const items = buildPaletteItems({
+      sessions: [],
+      projects: [],
+      commands: [],
+      titles: {},
+      cwd: "",
+      isRepo: false,
+    }, "en");
+    expect(items.find((i) => i.id === "act:new-chat")?.label).toBe("New chat");
+    expect(items.find((i) => i.id === "act:dashboard")).toMatchObject({
+      label: "Sessions",
+      hint: "Browse across sessions",
+    });
+    expect(items.find((i) => i.id === "act:panel")).toMatchObject({
+      label: "Dashboard",
+      hint: "Live status for this session",
+    });
   });
 
   it("adds worktree and finder when the workspace supports them", () => {

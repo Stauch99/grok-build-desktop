@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptManualProjects,
+  decideTitleCommit,
   displayTitle,
   filterProjectTree,
   groupSessions,
@@ -9,6 +11,18 @@ import {
   nestByParent,
   setTitleOverride,
 } from "./projects";
+
+describe("adoptManualProjects", () => {
+  it("drops auto-discovered folders until the user adds projects by hand", () => {
+    expect(adoptManualProjects(["/old/a", "/old/b"], false)).toEqual({ projects: [], reset: true });
+    expect(adoptManualProjects(["/old/a"], undefined)).toEqual({ projects: [], reset: true });
+  });
+
+  it("keeps the allow-list after the cutover", () => {
+    expect(adoptManualProjects(["/work/app"], true)).toEqual({ projects: ["/work/app"], reset: false });
+    expect(adoptManualProjects(undefined, true)).toEqual({ projects: [], reset: false });
+  });
+});
 
 describe("mergeProjectPaths", () => {
   it("dedupes paths", () => {
@@ -74,6 +88,22 @@ describe("displayTitle / setTitleOverride", () => {
   it("caps at 80 chars", () => {
     const next = setTitleOverride({}, "a", "字".repeat(90));
     expect(next.a).toHaveLength(80);
+  });
+});
+
+describe("decideTitleCommit", () => {
+  it("cancels when there is no editing id or the draft is blank", () => {
+    expect(decideTitleCommit("hello", null)).toEqual({ action: "cancel" });
+    expect(decideTitleCommit("   ", "s1")).toEqual({ action: "cancel" });
+  });
+
+  it("rejects --auto so it cannot be stored as a title", () => {
+    expect(decideTitleCommit("--auto", "s1")).toEqual({ action: "reject-auto" });
+    expect(decideTitleCommit("  --auto  ", "s1")).toEqual({ action: "reject-auto" });
+  });
+
+  it("applies a trimmed title", () => {
+    expect(decideTitleCommit("  新名字  ", "s1")).toEqual({ action: "apply", id: "s1", title: "新名字" });
   });
 });
 

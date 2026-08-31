@@ -22,7 +22,6 @@ const base: WebuiSnapshot = {
   previewWidth: 360,
   locale: "zh",
   themeFamily: "default",
-  density: "comfortable",
   hideToTray: true,
   defaultRail: "changes",
   shortcuts: {},

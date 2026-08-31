@@ -20,9 +20,15 @@ describe("validateUserMdRewrite", () => {
 
   it("rejects loss, missing source, oversize, and shapeless files", () => {
     expect(validateUserMdRewrite(prev, "# You\n- likes tests Source: x\n").ok).toBe(false);
-    expect(validateUserMdRewrite(prev, `${prev}- new fact\n`).reason).toBe("source");
-    expect(validateUserMdRewrite("", "no heading").reason).toBe("shape");
-    expect(validateUserMdRewrite("", `# You\n- ${"x".repeat(9000)} Source: a\n`).reason).toBe("budget");
+    const source = validateUserMdRewrite(prev, `${prev}- new fact\n`);
+    expect(source.ok).toBe(false);
+    if (!source.ok) expect(source.reason).toBe("source");
+    const shape = validateUserMdRewrite("", "no heading");
+    expect(shape.ok).toBe(false);
+    if (!shape.ok) expect(shape.reason).toBe("shape");
+    const budget = validateUserMdRewrite("", `# You\n- ${"x".repeat(9000)} Source: a\n`);
+    expect(budget.ok).toBe(false);
+    if (!budget.ok) expect(budget.reason).toBe("budget");
   });
 });
 

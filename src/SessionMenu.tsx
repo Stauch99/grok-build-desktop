@@ -21,6 +21,7 @@ type Props = {
   onCopyId: () => void;
   onCopyCwd: () => void;
   onSplit: (() => void) | null;
+  onSplitLabel?: string;
   onFork?: (() => void) | null;
   onPin?: (() => void) | null;
   onArchive?: (() => void) | null;
@@ -43,6 +44,7 @@ export function SessionMenu({
   onCopyId,
   onCopyCwd,
   onSplit,
+  onSplitLabel = "向右拆开",
   onFork,
   onPin,
   onArchive,
@@ -55,7 +57,7 @@ export function SessionMenu({
       <button type="button" onClick={onRename}>重命名</button>
       <button type="button" onClick={onRestore} disabled={!hasOverride}>恢复自动标题</button>
       <button type="button" onClick={onNew}>{onNewLabel}</button>
-      {onSplit ? <button type="button" onClick={onSplit}>并列打开</button> : null}
+      {onSplit ? <button type="button" onClick={onSplit}>{onSplitLabel}</button> : null}
       {onFork ? <button type="button" onClick={onFork}>分叉</button> : null}
       {onMoveToProject ? <button type="button" onClick={onMoveToProject}>移入项目…</button> : null}
       <div className="sep" />

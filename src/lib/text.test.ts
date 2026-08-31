@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent } from "./text";
+import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent, textFromRawOutput } from "./text";
 
 describe("basename", () => {
   it("takes the last path segment", () => {
@@ -143,6 +143,7 @@ describe("surfaceStderr", () => {
         "[SYSTEM_ERROR] Prompt for session abc failed: RequestError: Authentication required: refresh token",
       ),
     ).toMatch(/Authentication required/);
+    expect(surfaceStderr("Authentication required")).toBe("Authentication required");
   });
 });
 
@@ -163,5 +164,21 @@ describe("textFromContent", () => {
     expect(textFromContent({ type: "text", text: "hello" })).toBe("hello");
     expect(textFromContent("plain")).toBe("plain");
     expect(textFromContent(null)).toBe("");
+  });
+
+  it("joins text blocks and thinking fields", () => {
+    expect(textFromContent([{ type: "text", text: "a" }, { text: "b" }])).toBe("ab");
+    expect(textFromContent({ thinking: "hmm" })).toBe("hmm");
+  });
+});
+
+describe("textFromRawOutput", () => {
+  it("reads grok nested Content, codex formatted_output, and kimi output", () => {
+    expect(
+      textFromRawOutput({ type: "ListDir", Content: { content: "/tmp\n" } }),
+    ).toBe("/tmp\n");
+    expect(textFromRawOutput({ formatted_output: "ok" })).toBe("ok");
+    expect(textFromRawOutput({ output: "read 12 lines" })).toBe("read 12 lines");
+    expect(textFromRawOutput("plain")).toBe("plain");
   });
 });

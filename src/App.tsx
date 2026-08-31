@@ -98,6 +98,8 @@ export function App() {
     inspect,
     skillCommands,
     modelCatalog,
+    effortOptions,
+    modelLabels,
     extraPage,
     setExtraPage,
     imagineImages,
@@ -296,6 +298,7 @@ export function App() {
     applyModel,
     applyEffort,
     effort,
+    effortReady,
     runSlash,
     submitPrompt,
     altSubmit,
@@ -547,10 +550,12 @@ export function App() {
           onMode={(m) => void applyMode(m, paneId)}
           effort={effort}
           onEffort={applyEffort}
-          effortReady={!!cli}
+          effortReady={effortReady}
+          effortOptions={effortOptions}
           model={model}
           sessionModel={paneSession?.model ?? null}
           modelOptions={modelCatalog}
+          modelLabels={modelLabels}
           onModel={applyModel}
           onSessionModel={applySessionModel}
           onOpenSettings={openSettings}
@@ -963,10 +968,12 @@ return (
             onMode={(m) => void applyMode(m, "main")}
             effort={effort}
             onEffort={applyEffort}
-            effortReady={!!cli}
+            effortReady={effortReady}
+            effortOptions={effortOptions}
             model={model}
             sessionModel={sessionModel}
             modelOptions={modelCatalog}
+            modelLabels={modelLabels}
             onModel={applyModel}
             onSessionModel={applySessionModel}
             onOpenSettings={openSettings}

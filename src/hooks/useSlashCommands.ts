@@ -1,8 +1,11 @@
 import { useRef } from "react";
-import { listAgentsDir, listImagineArtifacts, patchCliSettings, type CliSettings } from "../api";
+import { listAgentsDir, listImagineArtifacts, type CliSettings } from "../api";
+import { patchAgentModelSettings } from "../lib/workbench-api";
+import type { AgentId } from "../lib/agent-id";
+import type { AgentModelRow } from "../lib/agent-models";
+import { snapModelChange } from "../lib/agent-models";
 import type { CommandDef, HubTab } from "../lib/commands";
 import { parseRenameArgs } from "../lib/commands";
-import type { Effort } from "../lib/effort";
 import type { Mode } from "../lib/mode";
 import { modeLabel, slashForMode } from "../lib/mode";
 import { formatSessionInfo, exportTranscript, lastAssistantText } from "../lib/session-local";
@@ -12,6 +15,8 @@ import type { SessionSummary } from "../api";
 import type { ExtraPage } from "../components/ExtraOverlay";
 import type { ComposerHandle } from "../components/Composer";
 import type { WebuiState } from "../api";
+import type { ExtraPaneState } from "./useAcpSession";
+import { MAIN_PANE } from "../lib/pane-tree";
 
 export type SplitSlashAction = "mode-plan" | "mode-yolo" | "mode-agent" | "main-only" | "prompt";
 
@@ -28,39 +33,41 @@ export type SlashCommandDeps = {
   cwd: string;
   inboxCwd: string;
   model: string;
+  effort: string;
   sessionModel: string | null;
   titles: Record<string, string>;
   chat: ChatState;
   sessions: SessionSummary[];
   sessionId: string | null;
-  splitBusy: boolean;
+  extraPanes: Record<string, { sessionId: string; busy: boolean; draft: string }>;
   mainPaneBusy: boolean;
-  splitId: string | null;
   loadingSession: boolean;
   readyRef: React.MutableRefObject<boolean>;
   sessionIdRef: React.MutableRefObject<string | null>;
   currentTitleRef: React.MutableRefObject<string>;
   composerRef: React.MutableRefObject<ComposerHandle | null>;
-  splitComposerRef: React.MutableRefObject<ComposerHandle | null>;
+  extraComposerRefs: React.MutableRefObject<Record<string, ComposerHandle | null>>;
   rewindLastEdit: number;
   cli: CliSettings | null;
+  selectedAgentId: AgentId;
+  modelRows: AgentModelRow[];
   persist: (partial: WebuiState) => void;
   showToast: (msg: string) => void;
   setMode: (mode: Mode) => void;
   setModel: (model: string) => void;
+  setEffort: (effort: string) => void;
   setCli: React.Dispatch<React.SetStateAction<CliSettings | null>>;
   setBusy: (value: boolean) => void;
-  setSplitBusy: React.Dispatch<React.SetStateAction<boolean>>;
+  setExtraPanes: React.Dispatch<React.SetStateAction<Record<string, ExtraPaneState>>>;
   setDraft: (value: string) => void;
-  setSplitDraft: (value: string) => void;
   setExtraPage: (page: ExtraPage | null) => void;
   setImagineImages: (paths: string[]) => void;
   setImagineVideos: (paths: string[]) => void;
   setAgentRows: (rows: { name: string; path: string; kind: "agent" | "persona" }[]) => void;
   setTitles: (titles: Record<string, string>) => void;
   setRewindTarget: (index: number | null) => void;
-  sendSlashToAgent: (text: string, dest?: "main" | "split") => Promise<void>;
-  sendPrompt: (text: string, dest?: "main" | "split") => Promise<void>;
+  sendSlashToAgent: (text: string, dest?: string) => Promise<void>;
+  sendPrompt: (text: string, dest?: string) => Promise<void>;
   startSession: () => Promise<void>;
   openSettings: () => void;
   openHub: (tab?: HubTab) => void;
@@ -71,26 +78,26 @@ export type SlashCommandDeps = {
 };
 
 export type SlashCommands = {
-  runSlash: (cmd: CommandDef, rest?: string, dest?: "main" | "split") => Promise<void>;
-  applyMode: (next: Mode, dest?: "main" | "split") => Promise<void>;
+  runSlash: (cmd: CommandDef, rest?: string, dest?: string) => Promise<void>;
+  applyMode: (next: Mode, dest?: string) => Promise<void>;
   applyModel: (next: string) => void;
   applySessionModel: (next: string) => void;
-  applyEffort: (next: Effort) => void;
+  applyEffort: (next: string) => void;
 };
 
 export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
   const depsRef = useRef(deps);
   depsRef.current = deps;
 
-  async function applyMode(next: Mode, dest: "main" | "split" = "main") {
+  async function applyMode(next: Mode, dest: string = MAIN_PANE) {
     const d = depsRef.current;
     d.setMode(next);
     d.persist({ mode: next });
-    const paneBusy = dest === "split" ? d.splitBusy : d.mainPaneBusy;
-    const live =
-      dest === "split"
-        ? !!(d.splitId && d.readyRef.current)
-        : !!(d.sessionIdRef.current && d.readyRef.current && !d.loadingSession);
+    const extra = dest !== MAIN_PANE;
+    const paneBusy = extra ? !!d.extraPanes[dest]?.busy : d.mainPaneBusy;
+    const live = extra
+      ? !!(d.extraPanes[dest]?.sessionId && d.readyRef.current)
+      : !!(d.sessionIdRef.current && d.readyRef.current && !d.loadingSession);
     if (live && paneBusy) {
       d.showToast("将在下一轮生效");
       return;
@@ -99,8 +106,13 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       try {
         await d.sendSlashToAgent(slashForMode(next), dest);
       } catch (e) {
-        if (dest === "split") d.setSplitBusy(false);
-        else d.setBusy(false);
+        if (extra) {
+          d.setExtraPanes((prev) => {
+            const cur = prev[dest];
+            if (!cur) return prev;
+            return { ...prev, [dest]: { ...cur, busy: false } };
+          });
+        } else d.setBusy(false);
         d.showToast(String(e));
       }
       return;
@@ -110,11 +122,16 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
 
   function applyModel(next: string) {
     const d = depsRef.current;
-    d.setModel(next);
-    void patchCliSettings({ model: next })
+    const snapped = snapModelChange(d.modelRows, next, d.effort);
+    d.setModel(snapped.model);
+    if (snapped.effort) d.setEffort(snapped.effort);
+    const patch = snapped.effort ? { model: snapped.model, effort: snapped.effort } : { model: snapped.model };
+    void patchAgentModelSettings(d.selectedAgentId, patch)
       .then(() => {
-        d.setCli((prev) => (prev ? { ...prev, model: next } : prev));
-        if (d.sessionModel && d.sessionModel !== next) {
+        if (d.selectedAgentId === "grok") {
+          d.setCli((prev) => (prev ? { ...prev, model: snapped.model, effort: snapped.effort || prev.effort } : prev));
+        }
+        if (d.sessionModel && d.sessionModel !== snapped.model) {
           d.showToast(`已写入默认模型，当前会话仍是 ${d.sessionModel}。用 /model 可切换本会话。`);
         }
       })
@@ -131,30 +148,39 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     applyModel(next);
   }
 
-  function applyEffort(next: Effort) {
+  function applyEffort(next: string) {
     const d = depsRef.current;
-    if (!d.cli) return;
-    void patchCliSettings({ effort: next })
+    d.setEffort(next);
+    void patchAgentModelSettings(d.selectedAgentId, { effort: next })
       .then(() => {
-        d.setCli((prev) => (prev ? { ...prev, effort: next } : prev));
+        if (d.selectedAgentId === "grok") {
+          d.setCli((prev) => (prev ? { ...prev, effort: next } : prev));
+        }
       })
       .catch((e) => d.showToast(String(e)));
+    if (d.selectedAgentId === "claude" && d.sessionIdRef.current && d.readyRef.current) {
+      void d.sendPrompt(`/effort ${next}`);
+    }
   }
 
-  async function runSlash(cmd: CommandDef, rest = "", dest: "main" | "split" = "main") {
+  async function runSlash(cmd: CommandDef, rest = "", dest: string = MAIN_PANE) {
     const d = depsRef.current;
-    if (dest === "split") {
+    if (dest !== MAIN_PANE) {
       const action = splitSlashAction(cmd.local);
       if (action === "mode-plan" || action === "mode-yolo" || action === "mode-agent") {
-        d.setSplitDraft("");
+        d.setExtraPanes((prev) => {
+          const cur = prev[dest];
+          if (!cur) return prev;
+          return { ...prev, [dest]: { ...cur, draft: "" } };
+        });
         const mode: Mode = action === "mode-plan" ? "plan" : action === "mode-yolo" ? "yolo" : "agent";
-        return applyMode(mode, "split");
+        return applyMode(mode, dest);
       }
       if (action === "main-only") {
         d.showToast("这条命令请在左侧会话执行");
         return;
       }
-      d.splitComposerRef.current?.setText(cmd.name + " ");
+      d.extraComposerRefs.current[dest]?.setText(cmd.name + " ");
       return;
     }
     if (cmd.local === "new") return d.startSession();
@@ -179,7 +205,11 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     if (cmd.local === "export") {
       d.setDraft("");
       const text = exportTranscript(d.chat.items);
-      void navigator.clipboard.writeText(text).then(() => d.showToast("已复制导出会话"));
+      if (!text.trim()) {
+        d.showToast("还没有可复制的对话");
+        return;
+      }
+      void navigator.clipboard.writeText(text).then(() => d.showToast("已复制全部对话"));
       return;
     }
     if (cmd.local === "copy") {

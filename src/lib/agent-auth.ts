@@ -33,7 +33,7 @@ export function doctorFromEvidence(
   id: AgentId,
   userHome: string,
   evidence: AuthEvidence,
-  extra?: { binary?: string | null; version?: string | null; acpSpawnOk?: boolean },
+  extra?: { binary?: string | null; version?: string | null },
 ): AgentDoctor {
   const base = emptyDoctor(id, userHome);
   return {
@@ -42,6 +42,5 @@ export function doctorFromEvidence(
     authKind: classifyAuthKind(evidence),
     binary: extra?.binary ?? base.binary,
     version: extra?.version ?? base.version,
-    acpSpawnOk: extra?.acpSpawnOk ?? base.acpSpawnOk,
   };
 }

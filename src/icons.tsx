@@ -17,8 +17,14 @@ import {
   IconDeviceFloppy,
   IconDots,
   IconExternalLink,
+  IconEye as TablerEye,
   IconFileSearch as TablerFileSearch,
   IconFileText,
+  IconFileTypeDoc as TablerFileDoc,
+  IconFileTypePdf as TablerFilePdf,
+  IconFileTypePpt as TablerFilePpt,
+  IconFileTypeXls as TablerFileXls,
+  IconFileTypeZip as TablerFileZip,
   IconFilter as TablerFilter,
   IconFolder as TablerFolder,
   IconFolderOpen as TablerFolderOpen,
@@ -32,6 +38,7 @@ import {
   IconMessageCircle,
   IconMoon as TablerMoon,
   IconPencil,
+  IconPhoto as TablerPhoto,
   IconPlayerStop,
   IconPlug as TablerPlug,
   IconPlus as TablerPlus,
@@ -73,6 +80,7 @@ export const IconMore = wrap(IconDots);
 export const IconCopy = wrap(TablerCopy);
 export const IconUp = wrap(IconArrowUp);
 export const IconFinder = wrap(IconExternalLink);
+export const IconEye = wrap(TablerEye, 14);
 export const IconPanel = wrap(IconLayoutSidebarRight);
 export const IconSidebar = wrap(IconLayoutSidebar, 18);
 export const IconGear = wrap(IconSettings);
@@ -97,6 +105,12 @@ export const IconTerminal = wrap(IconTerminal2);
 export const IconLight = wrap(IconBulb);
 export const IconFileSearch = wrap(TablerFileSearch);
 export const IconFileTxt = wrap(IconFileText);
+export const IconFilePdf = wrap(TablerFilePdf, 22);
+export const IconFileDoc = wrap(TablerFileDoc, 22);
+export const IconFileXls = wrap(TablerFileXls, 22);
+export const IconFilePpt = wrap(TablerFilePpt, 22);
+export const IconFileZip = wrap(TablerFileZip, 22);
+export const IconPhoto = wrap(TablerPhoto, 22);
 export const IconStop = wrap(IconPlayerStop);
 export const IconSave = wrap(IconDeviceFloppy);
 export const IconCode = wrap(TablerCode);

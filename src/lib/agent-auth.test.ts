@@ -33,12 +33,12 @@ describe("doctorFromEvidence", () => {
     const d = doctorFromEvidence("claude", "/Users/me", {
       hasSubscriptionSession: true,
       hasApiKey: true,
-    }, { binary: "/usr/bin/npx", acpSpawnOk: true });
+    }, { binary: "/usr/bin/npx", version: "2.1.0" });
     expect(d.authKind).toBe("api");
     expect(d.authPresent).toBe(true);
     expect(d.home).toBe("/Users/me/.claude");
     expect(d.binary).toBe("/usr/bin/npx");
-    expect(d.acpSpawnOk).toBe(true);
+    expect(d.version).toBe("2.1.0");
   });
 
   it("is none when empty", () => {

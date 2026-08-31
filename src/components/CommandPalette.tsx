@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadLocalPaletteFrecency, recordLocalPaletteUse, type FrecencyMap } from "../lib/frecency";
 import { filterPalette, paletteKey, type PaletteItem } from "../lib/palette";
 import { trapFocus } from "../lib/trap-focus";
+import { useT } from "../lib/locale-context";
+import { bindingFor, formatBinding } from "../lib/shortcuts-table";
+import { useShortcutState } from "./ShortcutHint";
 
 export type CommandPaletteProps = {
   items: PaletteItem[];
@@ -15,6 +18,9 @@ export type CommandPaletteProps = {
  * Owns only its query and highlight; every action is resolved by id in App.
  */
 export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPaletteProps) {
+  const t = useT();
+  const { overrides, mac } = useShortcutState();
+  const paletteChord = formatBinding(bindingFor(overrides, "palette"), mac);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [frecency, setFrecency] = useState<FrecencyMap>(loadLocalPaletteFrecency);
@@ -90,11 +96,17 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
         <div className="palette-list" ref={listRef} role="listbox">
           {hits.length === 0 && <p className="palette-empty">没有匹配项</p>}
           {hits.map((hit, i) => {
+            const GROUP_KEYS: Record<string, string> = {
+              "操作": "palette.group.actions",
+              "会话": "palette.group.sessions",
+              "项目": "palette.group.projects",
+              "命令": "palette.group.commands",
+            };
             const header = hit.group !== lastGroup ? hit.group : null;
             lastGroup = hit.group;
             return (
               <div key={hit.id}>
-                {header && <div className="palette-group">{header}</div>}
+                {header && <div className="palette-group">{t(GROUP_KEYS[header] ?? header)}</div>}
                 <button
                   type="button"
                   role="option"
@@ -112,7 +124,7 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
           })}
         </div>
         <div className="palette-foot">
-          <kbd>⌘K</kbd> 打开 · <kbd>Esc</kbd> 关闭 · <kbd>↑↓</kbd> 选择 · <kbd>Enter</kbd> 执行
+          <kbd>{paletteChord}</kbd> 打开 · <kbd>Esc</kbd> 关闭 · <kbd>↑↓</kbd> 选择 · <kbd>Enter</kbd> 执行
         </div>
       </div>
     </div>

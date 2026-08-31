@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconCheck, IconChevron, IconFilter } from "../icons";
+import { useT } from "../lib/locale-context";
 import {
   applyGrouping,
   toggleShow,
@@ -19,29 +20,37 @@ export type SidebarListMenuProps = {
 
 type Sub = "group" | "sort" | "show" | "filter";
 
-const GROUP_ITEMS: { value: SidebarGrouping; label: string }[] = [
-  { value: "project", label: "项目" },
-  { value: "updated", label: "更新时间" },
-  { value: "status", label: "状态" },
-];
+function groupingItems(t: (key: string) => string): { value: SidebarGrouping; label: string }[] {
+  return [
+    { value: "project", label: t("sidebar.groupProject") },
+    { value: "updated", label: t("sidebar.groupUpdated") },
+    { value: "status", label: t("sidebar.groupStatus") },
+  ];
+}
 
-const ORDER_ITEMS: { value: SidebarOrdering; label: string }[] = [
-  { value: "updated", label: "最近更新" },
-  { value: "title", label: "标题" },
-];
+function orderItems(t: (key: string) => string): { value: SidebarOrdering; label: string }[] {
+  return [
+    { value: "updated", label: t("sidebar.sortUpdated") },
+    { value: "title", label: t("sidebar.sortTitle") },
+  ];
+}
 
-const SHOW_ITEMS: { key: "showTokens" | "showStatus" | "showWorktree"; label: string }[] = [
-  { key: "showTokens", label: "Token" },
-  { key: "showStatus", label: "状态" },
-  { key: "showWorktree", label: "工作树" },
-];
+function showItems(t: (key: string) => string): { key: "showTokens" | "showStatus" | "showWorktree"; label: string }[] {
+  return [
+    { key: "showTokens", label: "Token" },
+    { key: "showStatus", label: t("sidebar.showStatus") },
+    { key: "showWorktree", label: t("sidebar.showWorktree") },
+  ];
+}
 
-const FILTER_ITEMS: { value: StatusFilter; label: string }[] = [
-  { value: "needs-you", label: "需要你" },
-  { value: "unread", label: "未读" },
-  { value: "working", label: "运行中" },
-  { value: "done", label: "已读" },
-];
+function filterItems(t: (key: string) => string): { value: StatusFilter; label: string }[] {
+  return [
+    { value: "needs-you", label: t("sidebar.needsYou") },
+    { value: "unread", label: t("sidebar.unread") },
+    { value: "working", label: t("sidebar.working") },
+    { value: "done", label: t("sidebar.done") },
+  ];
+}
 
 function Check({ on }: { on: boolean }) {
   return on ? <IconCheck size={12} /> : <span className="menu-check-gap" />;
@@ -92,6 +101,7 @@ function FlyoutItem({
 }
 
 export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }: SidebarListMenuProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [sub, setSub] = useState<Sub | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -158,8 +168,8 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
         ref={btnRef}
         type="button"
         className="icon-btn"
-        aria-label="工作区筛选"
-        title="工作区筛选"
+        aria-label={t("sidebar.filter")}
+        title={t("sidebar.filter")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggleOpen}
@@ -168,8 +178,8 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
       </button>
       {open && pos ? (
         <div className="menu list-menu" role="menu" style={{ top: pos.top, left: pos.left }}>
-          <FlyoutItem label="分组" open={sub === "group"} onOpen={() => openSub("group")} onLeave={leaveSub}>
-            {GROUP_ITEMS.map((item) => (
+          <FlyoutItem label={t("sidebar.groupBy")} open={sub === "group"} onOpen={() => openSub("group")} onLeave={leaveSub}>
+            {groupingItems(t).map((item) => (
               <button
                 key={item.value}
                 type="button"
@@ -184,8 +194,8 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
               </button>
             ))}
           </FlyoutItem>
-          <FlyoutItem label="排序" open={sub === "sort"} onOpen={() => openSub("sort")} onLeave={leaveSub}>
-            {ORDER_ITEMS.map((item) => (
+          <FlyoutItem label={t("sidebar.sort")} open={sub === "sort"} onOpen={() => openSub("sort")} onLeave={leaveSub}>
+            {orderItems(t).map((item) => (
               <button
                 key={item.value}
                 type="button"
@@ -200,8 +210,8 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
               </button>
             ))}
           </FlyoutItem>
-          <FlyoutItem label="显示" open={sub === "show"} onOpen={() => openSub("show")} onLeave={leaveSub}>
-            {SHOW_ITEMS.map((item) => (
+          <FlyoutItem label={t("sidebar.show")} open={sub === "show"} onOpen={() => openSub("show")} onLeave={leaveSub}>
+            {showItems(t).map((item) => (
               <button
                 key={item.key}
                 type="button"
@@ -216,8 +226,8 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
               </button>
             ))}
           </FlyoutItem>
-          <FlyoutItem label="筛选" open={sub === "filter"} onOpen={() => openSub("filter")} onLeave={leaveSub}>
-            {FILTER_ITEMS.map((item) => (
+          <FlyoutItem label={t("sidebar.filter")} open={sub === "filter"} onOpen={() => openSub("filter")} onLeave={leaveSub}>
+            {filterItems(t).map((item) => (
               <button
                 key={item.value}
                 type="button"
@@ -248,15 +258,15 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
               role="menuitem"
               onClick={() => onPrefs({ ...prefs, statusFilter: [], includeArchived: false })}
             >
-              重置
+              {t("sidebar.reset")}
             </button>
           </FlyoutItem>
           <div className="sep" />
           <button type="button" role="menuitem" onClick={() => runAction(onCollapseAll)}>
-            全部折叠
+            {t("sidebar.collapseAll")}
           </button>
           <button type="button" role="menuitem" onClick={() => runAction(onMarkAllRead)}>
-            全部标为已读
+            {t("sidebar.markAllRead")}
           </button>
         </div>
       ) : null}

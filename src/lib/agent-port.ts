@@ -13,8 +13,12 @@ export type AgentPort = {
 export function portFor(id: AgentId): AgentPort {
   return {
     id,
-    start: () => startAgent(id),
-    stop: () => stopAgent(id),
+    start: async () => {
+      await startAgent(id);
+    },
+    stop: async () => {
+      await stopAgent(id);
+    },
     send: (p) => sendRaw(p as never, id),
   };
 }
@@ -27,8 +31,14 @@ export function billingKindFromDoctors(
   return match?.authKind ?? "none";
 }
 
-export function doctorOverviewLine(d: Pick<AgentDoctor, "agentId" | "authKind">): string {
+export function doctorOverviewLine(
+  d: Pick<AgentDoctor, "agentId" | "authKind" | "binary" | "version">,
+): string {
+  if (!d.binary) return `${d.agentId} · 未安装`;
   const suffix =
     d.authKind === "none" ? "未登录" : d.authKind === "api" ? "API" : "已登录";
-  return `${d.agentId} · ${suffix}`;
+  const bits = [`${d.agentId} · ${suffix}`];
+  if (d.version) bits.push(d.version);
+  bits.push(d.binary);
+  return bits.join(" · ");
 }

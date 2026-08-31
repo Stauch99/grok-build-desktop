@@ -29,20 +29,15 @@ import {
 } from "../lib/time";
 import { diffStatLabel } from "../lib/tool-render";
 import { resolveOpenTarget } from "../lib/text";
-import { IconChevron, IconListDetails, IconStop } from "../icons";
+import { IconChevron, IconStop } from "../icons";
 import { IconGrokCopy } from "../grok-icons";
 import { DotMatrix } from "./DotMatrix";
-import { TodoMark } from "./TodoMark";
 import { Markdown } from "./Markdown";
 import { ToolResult } from "./ToolResult";
-import { TrajectoryView } from "./TrajectoryView";
-import { trajectoryRows } from "../lib/trajectory";
 import { UserTurn } from "./UserTurn";
 import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
-import { SessionOutline } from "./SessionOutline";
-import { shouldShowSummary, summarizeThread } from "../lib/session-summary";
-import { exportSessionFile, parseSessionImport, viewOnlyItems } from "../lib/session-io";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
+import { chatWidthCss } from "../lib/chat-width";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -443,10 +438,8 @@ export type ThreadColumnProps = {
   emptyTitle: string;
   emptyNode?: ReactNode;
   urlChips: string[];
-  plan: ChatState["plan"];
   busy: boolean;
   onCancel: () => void;
-  onOpenPlan: (() => void) | null;
   chatRef: RefObject<HTMLDivElement | null>;
   onScroll: (el: HTMLDivElement) => void;
   turns: Extract<ChatItem, { kind: "user" }>[];
@@ -458,15 +451,6 @@ export type ThreadColumnProps = {
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
   jumpId?: string | null;
-  threadView?: "chat" | "trajectory";
-  onThreadView?: (v: "chat" | "trajectory") => void;
-  turnFiles?: string[];
-  onOpenTurnFile?: (path: string) => void;
-  /** Outline / export jump. Prefer setting `jumpTurnId` in the parent. */
-  onJumpTurn?: (id: string) => void;
-  /** Import JSON as view-only chat items. Parent owns chat state. */
-  onImportItems?: (items: ChatItem[]) => void;
-  sessionTitle?: string;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -481,10 +465,8 @@ export function ThreadColumn({
   emptyTitle,
   emptyNode,
   urlChips,
-  plan,
   busy,
   onCancel,
-  onOpenPlan,
   chatRef,
   onScroll,
   turns,
@@ -496,21 +478,12 @@ export function ThreadColumn({
   onPreviewPath,
   highlightQuery,
   jumpId,
-  threadView = "chat",
-  onThreadView,
-  turnFiles,
-  onOpenTurnFile,
-  onJumpTurn,
-  onImportItems,
-  sessionTitle,
 }: ThreadColumnProps) {
   const [tocHover, setTocHover] = useState<{
     top: number;
     left: number;
     text: string;
   } | null>(null);
-  const [outlineOpen, setOutlineOpen] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
   const [, setLiveTick] = useState(0);
   const liveClock = useRef({ announced: "", lastAt: 0 });
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
@@ -567,7 +540,7 @@ export function ThreadColumn({
       highlightQuery,
     ],
   );
-  const listActive = virtualize && threadView === "chat" && !empty;
+  const listActive = virtualize && !empty;
 
   useEffect(() => {
     if (!busy) return;
@@ -624,38 +597,6 @@ export function ThreadColumn({
     // Read blocks from this render. Listing them re-flashes while jumpId stays set.
   }, [jumpId, listActive, paneId, chatRef]);
 
-  function jumpToTurn(id: string) {
-    onJumpTurn?.(id);
-    if (listActive) {
-      const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === id);
-      if (idx >= 0) listRef.current?.scrollToRow({ index: idx, align: "start", behavior: "smooth" });
-      return;
-    }
-    chatRef.current
-      ?.querySelector(`#turn-${paneId}-${id}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function importJsonFile(file: File) {
-    setImportError(null);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const raw = typeof reader.result === "string" ? reader.result : "";
-      const parsed = parseSessionImport(raw);
-      if (!parsed.ok) {
-        setImportError(parsed.error);
-        return;
-      }
-      if (!onImportItems) {
-        setImportError("已解析为只读记录，等待接入会话");
-        return;
-      }
-      onImportItems(viewOnlyItems(parsed.value.items));
-    };
-    reader.onerror = () => setImportError("读取文件失败");
-    reader.readAsText(file);
-  }
-
   return (
     <>
     <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -668,92 +609,16 @@ export function ThreadColumn({
     >
       <div
         className="thread"
-        style={{ ["--thread" as string]: `${chatWidth}px` }}
+        style={{ ["--thread" as string]: chatWidthCss(chatWidth) }}
       >
         {empty ? (
-          <>
-            <div className="thread-session-tools">
-              <label className="thread-import">
-                导入 JSON
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) importJsonFile(file);
-                  }}
-                />
-              </label>
+          emptyNode ?? (
+            <div className="empty">
+              <p>{emptyTitle}</p>
             </div>
-            {importError ? <p className="hint thread-import-error">{importError}</p> : null}
-            {emptyNode ?? (
-              <div className="empty">
-                <p>{emptyTitle}</p>
-              </div>
-            )}
-          </>
+          )
         ) : (
           <>
-            {onThreadView ? (
-              <div className="thread-tabs" role="tablist" aria-label="对话视图">
-                <button type="button" role="tab" aria-selected={threadView === "chat"} className={threadView === "chat" ? "active" : undefined} onClick={() => onThreadView("chat")}>对话</button>
-                <button type="button" role="tab" aria-selected={threadView === "trajectory"} className={threadView === "trajectory" ? "active" : undefined} onClick={() => onThreadView("trajectory")}>轨迹</button>
-              </div>
-            ) : null}
-            <div className="thread-session-tools">
-              <button
-                type="button"
-                className={outlineOpen ? "active" : undefined}
-                onClick={() => setOutlineOpen((v) => !v)}
-              >
-                大纲
-              </button>
-              <button type="button" onClick={() => exportSessionFile(chat.items, "md", sessionTitle)}>
-                导出 MD
-              </button>
-              <button type="button" onClick={() => exportSessionFile(chat.items, "json", sessionTitle)}>
-                导出 JSON
-              </button>
-              <label className="thread-import">
-                导入 JSON
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) importJsonFile(file);
-                  }}
-                />
-              </label>
-            </div>
-            {importError ? <p className="hint thread-import-error">{importError}</p> : null}
-            {outlineOpen ? <SessionOutline turns={turns} onJump={jumpToTurn} /> : null}
-            {shouldShowSummary(chat.items) ? (
-              <details className="thread-summary">
-                <summary>对话回顾</summary>
-                <p>{summarizeThread(chat.items)}</p>
-              </details>
-            ) : null}
-            {turnFiles && turnFiles.length > 0 ? (
-              <div className="turn-files" aria-label="本轮产物">
-                {turnFiles.map((p) => (
-                  <button key={p} type="button" className="path-pill" onClick={() => onOpenTurnFile?.(p)}>
-                    {p.split("/").pop() || p}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {threadView === "trajectory" ? (
-              <div className="pane-in" key="trajectory">
-              <TrajectoryView rows={trajectoryRows(chat.items)} onJump={(id) => {
-                const el = chatRef.current?.querySelector(`#turn-${paneId}-${id}, #msg-${paneId}-${id}`);
-                el?.scrollIntoView({ behavior: "smooth", block: "center" });
-              }} />
-              </div>
-            ) : (
-              <div className="pane-in" key="chat">
             {urlChips.length > 0 && (
               <div className="url-row">
                 {urlChips.map((u) => (
@@ -768,26 +633,6 @@ export function ThreadColumn({
                     {u}
                   </button>
                 ))}
-              </div>
-            )}
-            {plan.length > 0 && (
-              <div className="plan-card">
-                <div className="plan-card-head">
-                  <strong>计划</strong>
-                  {onOpenPlan ? (
-                    <button type="button" className="file-open" onClick={onOpenPlan} title="查看步骤" aria-label="查看步骤">
-                      <IconListDetails size={14} />
-                    </button>
-                  ) : null}
-                </div>
-                <ul className="todo">
-                  {plan.map((e, i) => (
-                    <li key={`${e.content}-${i}`} className={e.status || "pending"}>
-                      <TodoMark status={e.status} />
-                      {e.content}
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
             {virtualize ? (
@@ -813,8 +658,6 @@ export function ThreadColumn({
               ))
             )}
             {busy && !liveInTimeline ? liveRow : null}
-              </div>
-            )}
           </>
         )}
         </div>

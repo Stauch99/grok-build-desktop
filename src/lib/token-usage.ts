@@ -162,6 +162,46 @@ export function cacheHitRate(s: Pick<UsageSummary, "input" | "cacheRead">): numb
   return Math.round((s.cacheRead / s.input) * 1000) / 10;
 }
 
+/** One-decimal percent. Zero when the part or the whole is empty. */
+export function sharePct(part: number, total: number): number {
+  if (total <= 0 || part <= 0) return 0;
+  return Math.round((part / total) * 1000) / 10;
+}
+
+export type UsageMixShare = {
+  newInput: number;
+  output: number;
+  cacheRead: number;
+  cacheCreate: number;
+};
+
+/** Token mix against billed volume (new input + output + cache read/write). */
+export function usageMixShares(
+  s: Pick<UsageSummary, "newInput" | "output" | "cacheRead" | "cacheCreate">,
+): UsageMixShare {
+  const newInput = Math.max(0, s.newInput);
+  const output = Math.max(0, s.output);
+  const cacheRead = Math.max(0, s.cacheRead);
+  const cacheCreate = Math.max(0, s.cacheCreate);
+  const total = newInput + output + cacheRead + cacheCreate;
+  return {
+    newInput: sharePct(newInput, total),
+    output: sharePct(output, total),
+    cacheRead: sharePct(cacheRead, total),
+    cacheCreate: sharePct(cacheCreate, total),
+  };
+}
+
+export function modelCostRows(
+  byModel: Record<string, number>,
+): { id: string; ticks: number; share: number }[] {
+  const rows = Object.entries(byModel)
+    .map(([id, ticks]) => ({ id, ticks }))
+    .sort((a, b) => b.ticks - a.ticks);
+  const total = rows.reduce((n, r) => n + r.ticks, 0);
+  return rows.map((row) => ({ ...row, share: sharePct(row.ticks, total) }));
+}
+
 export function formatTokenZh(n: number): string {
   const v = Math.max(0, n);
   if (v < 10_000) return String(Math.round(v));
@@ -187,6 +227,89 @@ export function uniqueSources(turns: TokenTurn[]): string[] {
   return [...new Set(turns.map((row) => row.cwd).filter(Boolean))].sort();
 }
 
+function startOfLocalDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+export type DailyUsageBar = {
+  at: number;
+  used: number;
+  costTicks: number;
+  requests: number;
+};
+
+/** One bar per local day. `days` 0 means the last 30 days. */
+export function dailyUsageBars(
+  turns: { at: number; total: number; costTicks?: number }[],
+  days: number,
+  now = Date.now(),
+): DailyUsageBar[] {
+  const n = days > 0 ? days : 30;
+  const today = startOfLocalDay(now);
+  const start = new Date(today);
+  start.setDate(start.getDate() - (n - 1));
+  const totals = new Map<number, { used: number; costTicks: number; requests: number }>();
+  for (const row of turns) {
+    const key = startOfLocalDay(row.at);
+    const prev = totals.get(key) ?? { used: 0, costTicks: 0, requests: 0 };
+    totals.set(key, {
+      used: prev.used + row.total,
+      costTicks: prev.costTicks + (row.costTicks ?? 0),
+      requests: prev.requests + 1,
+    });
+  }
+  const out: DailyUsageBar[] = [];
+  for (let i = 0; i < n; i++) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    const at = day.getTime();
+    const slot = totals.get(at) ?? { used: 0, costTicks: 0, requests: 0 };
+    out.push({ at, ...slot });
+  }
+  return out;
+}
+
 export function formatInt(n: number): string {
   return Math.round(Math.max(0, n)).toLocaleString("en-US");
+}
+
+/** Compact local date for chart axis ticks, e.g. `8/28`. */
+export function formatDayTick(at: number): string {
+  const d = new Date(at);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** Axis label: full month/day at the ends, day-only in a dense 30-day chart. */
+export function formatChartTick(index: number, count: number, at: number): string {
+  if (!showChartTick(index, count)) return "";
+  if (count > 10 && index !== 0 && index !== count - 1) return String(new Date(at).getDate());
+  return formatDayTick(at);
+}
+
+export function dayBarTip(bar: DailyUsageBar): string {
+  const d = new Date(bar.at);
+  const parts = [`${d.getMonth() + 1}月${d.getDate()}日`, formatTokenZh(bar.used)];
+  if (bar.costTicks > 0) parts.push(formatUsdFromTicks(bar.costTicks));
+  if (bar.requests > 0) parts.push(`${bar.requests} 次`);
+  return parts.join(" · ");
+}
+
+/** True when `at` falls on the same local calendar day as `now`. */
+export function isTodayBar(at: number, now = Date.now()): boolean {
+  if (!Number.isFinite(at) || !Number.isFinite(now)) return false;
+  return startOfLocalDay(at) === startOfLocalDay(now);
+}
+
+/** Pixel height for a usage bar. Empty days stay 0; nonzero days get a visible stub. */
+export function chartBarPx(used: number, max: number, plotPx: number): number {
+  if (used <= 0 || max <= 0 || plotPx <= 0) return 0;
+  return Math.min(plotPx, Math.max(3, Math.round((used / max) * plotPx)));
+}
+
+/** Which axis labels to show so 30-day charts stay readable. */
+export function showChartTick(index: number, count: number): boolean {
+  if (count <= 10) return true;
+  return index === 0 || index === count - 1 || index % 5 === 0;
 }

@@ -8,7 +8,17 @@ describe("permission copy", () => {
     expect(permissionModeHint("auto")).toContain("permission.toml");
   });
 
-  it("has a visible timeout notice", () => {
-    expect(permissionTimeoutNotice()).toContain("超时");
+  it("has a visible timeout notice that does not auto-reject", () => {
+    const notice = permissionTimeoutNotice();
+    expect(notice).toContain("仍在等待");
+    expect(notice).toContain("不会自动拒绝");
+    expect(notice).not.toContain("已自动拒绝");
+  });
+
+  it("says ask mode will not auto-reject on timeout", () => {
+    const hint = permissionModeHint("ask");
+    expect(hint).toContain("每次");
+    expect(hint).toContain("不会因超时自动拒绝");
+    expect(hint).not.toContain("超时未选会自动拒绝");
   });
 });

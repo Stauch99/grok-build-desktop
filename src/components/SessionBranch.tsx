@@ -1,8 +1,10 @@
 import type { SessionSummary } from "../api";
+import type { PointerEvent } from "react";
 import { IconGrokMore } from "../grok-icons";
 import { IconChat, IconChevron } from "../icons";
 import { countDescendants, displayTitle, type SessionNode } from "../lib/projects";
 import { shouldAutoExpand } from "../lib/session-chrome";
+import { presenceClass, sessionPresence } from "../lib/session-presence";
 import { statusLabel, type SessionStatus } from "../lib/session-status";
 import { formatTokenCount, sessionAgentPill, type SidebarRow } from "../lib/sidebar-list";
 import { DotMatrix } from "./DotMatrix";
@@ -56,7 +58,8 @@ export type SessionBranchProps = {
   depth: number;
   rowKind: SessionRowKind;
   sessionId: string | null;
-  splitId?: string;
+  openIds?: readonly string[];
+  focusedId?: string | null;
   titles: Record<string, string>;
   expandedIds: Set<string>;
   collapsedIds: Set<string>;
@@ -73,6 +76,7 @@ export type SessionBranchProps = {
   rowMeta?: Map<string, SidebarRow>;
   /** Project grouping already shows the folder name in the section header. */
   hideProjectSubtitle?: boolean;
+  onDragSession?: (e: PointerEvent<HTMLElement>, s: SessionSummary) => void;
 };
 
 export function SessionBranch({
@@ -80,7 +84,8 @@ export function SessionBranch({
   depth,
   rowKind,
   sessionId,
-  splitId,
+  openIds,
+  focusedId,
   titles,
   expandedIds,
   collapsedIds,
@@ -96,6 +101,7 @@ export function SessionBranch({
   projectPinned,
   rowMeta,
   hideProjectSubtitle = false,
+  onDragSession,
 }: SessionBranchProps) {
   const s = node.session;
   const pill = sessionAgentPill(s.agentId);
@@ -111,8 +117,10 @@ export function SessionBranch({
   const expanded =
     hasKids &&
     !collapsedIds.has(s.id) &&
-    (expandedIds.has(s.id) || shouldAutoExpand(s.id, sessionId, descendantIds));
+    (expandedIds.has(s.id) || shouldAutoExpand(s.id, focusedId ?? sessionId, descendantIds));
   const descCount = hasKids ? countDescendants(node) : 0;
+  const presence = sessionPresence(s.id, openIds ?? (sessionId ? [sessionId] : []), focusedId ?? sessionId);
+  const tone = presenceClass(presence);
   const leading = (
     <span className="sess-leading">
       {showStatus && (status === "working" || status !== "idle" || rowKind === "inbox") ? (
@@ -130,7 +138,11 @@ export function SessionBranch({
   return (
     <>
       <div
-        className={`session${depth ? " child" : ""} ${s.id === sessionId ? "active" : ""}${s.id === splitId ? " split-open" : ""}`}
+        className={`session${depth ? " child" : ""}${tone ? ` ${tone}` : ""}`}
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest(".more, .branch-chev, [data-menu-trigger]")) return;
+          onDragSession?.(e, s);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -178,8 +190,9 @@ export function SessionBranch({
           <IconGrokMore size={16} />
         </button>
       </div>
-      {hasKids && expanded ? (
-        <div className="session-kids">
+      {hasKids ? (
+        <div className={`session-kids${expanded ? " open" : ""}`}>
+          <div className="session-kids-inner" inert={!expanded}>
           {node.children.map((child) => (
             <SessionBranch
               key={child.session.id}
@@ -187,7 +200,8 @@ export function SessionBranch({
               depth={depth + 1}
               rowKind={rowKind}
               sessionId={sessionId}
-              splitId={splitId}
+              openIds={openIds}
+              focusedId={focusedId}
               titles={titles}
               expandedIds={expandedIds}
               collapsedIds={collapsedIds}
@@ -200,8 +214,10 @@ export function SessionBranch({
               projectPinned={projectPinned}
               rowMeta={rowMeta}
               hideProjectSubtitle={hideProjectSubtitle}
+              onDragSession={onDragSession}
             />
           ))}
+          </div>
         </div>
       ) : null}
     </>

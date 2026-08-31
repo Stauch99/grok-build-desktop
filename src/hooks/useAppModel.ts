@@ -6,7 +6,6 @@ import {
   gitChanges,
   gitCreateWorktree,
   gitStatus,
-  listProjectRoots,
   pathIsDir,
   listSessions,
   listMemoryChanges,
@@ -36,8 +35,6 @@ import {
   type WebuiState,
   type WorkspaceEntry,
   inspectBrief,
-  listModelsText,
-  readModelsCache,
   setHideOnClose,
   onNotifyOpen,
   onTrayOpenLast,
@@ -48,11 +45,16 @@ import {
 } from "../api";
 import { emptyChat, formatElapsed, type ChatItem } from "../lib/chat";
 import type { Mode } from "../lib/mode";
-import { normalizeEffort } from "../lib/effort";
 import { canMoveInboxSession, sameCwd } from "../lib/inbox";
 import { filterCommands, type CommandDef, type HubTab } from "../lib/commands";
 import { normalizeLocale, t, type Locale } from "../lib/i18n";
-import { mergeModelCatalog, modelsFromCache, parseModelsList } from "../lib/models";
+import {
+  catalogFromSource,
+  emptyCatalog,
+  effortsForModel,
+  modelLabelMap,
+  type AgentModelRow,
+} from "../lib/agent-models";
 import { parseInspect, skillSlashCommands, type InspectReport } from "../lib/inspect";
 import {
   MAIN_PANE,
@@ -91,11 +93,11 @@ import { fitLayout, loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { paneComposerTakeover, heroLayout, situationAutoCollapse } from "../lib/shell-ia";
 import { agentHealth } from "../lib/agent-health";
 import { shouldPollBilling } from "../lib/auth-kind";
-import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
+import { doctorAll, importAgentsMcpFirstOpen, readAgentModelSource } from "../lib/workbench-api";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { brandSessionList } from "../lib/session-list";
 import { unionSessionsById } from "../lib/session-acp-list";
-import { agentSendBlockReason, type AgentDoctor } from "../lib/agent-doctor";
+import { agentSendBlockReason, blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { subagentCatalog } from "../lib/subagent-tree";
@@ -117,7 +119,7 @@ import {
   type SessionStatus,
   type UnreadMap,
 } from "../lib/session-status";
-import { displayTitle, keepExistingDirs, mergeProjectPaths, setTitleOverride } from "../lib/projects";
+import { adoptManualProjects, displayTitle, keepExistingDirs, mergeProjectPaths, setTitleOverride } from "../lib/projects";
 import {
   DEFAULT_SIDEBAR_LIST,
   INBOX_PIN,
@@ -125,6 +127,7 @@ import {
   loadSidebarList,
   prunePinnedProjects,
   pruneSessionTokens,
+  sessionInLibrary,
 } from "../lib/sidebar-list";
 import { loadDrafts } from "../lib/session-drafts";
 import { menuPosition, type SessionMenuState } from "../SessionMenu";
@@ -159,7 +162,7 @@ export type AppConfirm = {
   | { kind: "move-inbox"; sessionId: string; dest: string }
 );
 
-const FALLBACK_MODELS = ["grok-4.6", "grok-4.5", "grok-build"];
+const FALLBACK_CATALOG = emptyCatalog("grok");
 
 export function useAppModel() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -173,7 +176,9 @@ export function useAppModel() {
   const [defaultRail, setDefaultRail] = useState<"tasks" | "changes" | "context">("tasks");
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
   const [inspect, setInspect] = useState<InspectReport | null>(null);
-  const [modelCatalog, setModelCatalog] = useState<string[]>(FALLBACK_MODELS);
+  const [modelRows, setModelRows] = useState<AgentModelRow[]>(FALLBACK_CATALOG.models);
+  const [effort, setEffort] = useState(FALLBACK_CATALOG.currentEffort);
+  const [effortReady, setEffortReady] = useState(false);
   const [extraPage, setExtraPage] = useState<ExtraPage | null>(null);
   const [imagineImages, setImagineImages] = useState<string[]>([]);
   const [imagineVideos, setImagineVideos] = useState<string[]>([]);
@@ -194,6 +199,9 @@ export function useAppModel() {
   const [chatFontSize, setChatFontSize] = useState(17);
   const [cwd, setCwd] = useState("");
   const [projects, setProjects] = useState<string[]>([]);
+  const projectsRef = useRef<string[]>([]);
+  projectsRef.current = projects;
+  const [manualProjects, setManualProjects] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [draft, setDraft] = useState("");
@@ -478,6 +486,7 @@ export function useAppModel() {
     sessionTokens,
     sidebarList,
     lastAgent: selectedAgentId,
+    manualProjects,
   });
   persistRef.current = persist;
   persistReviewOpened.current = () => persist(persistReviewOpen(true));
@@ -523,14 +532,29 @@ export function useAppModel() {
     }
   }, [cwd]);
 
-  const refreshModels = useCallback(async () => {
+  const refreshModels = useCallback(async (agentId?: AgentId) => {
+    const id = agentId ?? selectedAgentIdLiveRef.current;
     try {
-      const [text, cache] = await Promise.all([listModelsText(), readModelsCache()]);
-      setModelCatalog(mergeModelCatalog(parseModelsList(text), modelsFromCache(cache), FALLBACK_MODELS));
+      const source = await readAgentModelSource(id);
+      if (selectedAgentIdLiveRef.current !== id) return;
+      const catalog = catalogFromSource(source);
+      setModelRows(catalog.models);
+      if (catalog.currentModel) setModel(catalog.currentModel);
+      setEffort(catalog.currentEffort);
+      setEffortReady(effortsForModel(catalog.models, catalog.currentModel).length > 0);
     } catch {
-      setModelCatalog(FALLBACK_MODELS);
+      if (selectedAgentIdLiveRef.current !== id) return;
+      const fallback = emptyCatalog(id);
+      setModelRows(fallback.models);
+      if (fallback.currentModel) setModel(fallback.currentModel);
+      setEffort(fallback.currentEffort);
+      setEffortReady(effortsForModel(fallback.models, fallback.currentModel).length > 0);
     }
   }, []);
+
+  useEffect(() => {
+    void refreshModels(selectedAgentId);
+  }, [selectedAgentId, refreshModels]);
 
   function openHub(tab: HubTab = "skills") {
     setHubTab(tab);
@@ -987,10 +1011,9 @@ export function useAppModel() {
       try {
         void doctorAll().then(setDoctors).catch(() => setDoctors([]));
         void importAgentsMcpFirstOpen().catch(() => undefined);
-        const [doc, state, roots, cliState] = await Promise.all([
+        const [doc, state, cliState] = await Promise.all([
           doctor(),
           loadWebuiState().catch(() => ({}) as WebuiState),
-          listProjectRoots().catch(() => [] as string[]),
           readCliSettings().catch(() => null),
         ]);
         setSelectedAgentId(
@@ -999,20 +1022,32 @@ export function useAppModel() {
         setInfo(doc);
         if (cliState) {
           setCli(cliState);
-          if (cliState.model) setModel(cliState.model);
           setShowThinking(cliState.showThinking);
           if (cliState.yolo) setMode("yolo");
         }
-        const merged = mergeProjectPaths(state.projects ?? [], roots);
+        const adopted = adoptManualProjects(state.projects, state.manualProjects);
         const live = new Set<string>();
         await Promise.all(
-          merged.map(async (p) => {
+          adopted.projects.map(async (p) => {
             if (await pathIsDir(p).catch(() => false)) live.add(p);
           }),
         );
-        const kept = keepExistingDirs(merged, (p) => live.has(p));
+        const kept = keepExistingDirs(adopted.projects, (p) => live.has(p));
         setProjects(kept);
-        if (kept.length < merged.length) persist({ projects: kept });
+        setManualProjects(true);
+        if (adopted.reset || kept.length < adopted.projects.length || state.manualProjects !== true) {
+          persist({
+            projects: kept,
+            pinnedProjects: prunePinnedProjects(
+              Array.isArray(state.pinnedProjects)
+                ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
+                : [],
+              kept,
+            ),
+            lastWorkspace: adopted.reset ? "" : state.lastWorkspace,
+            manualProjects: true,
+          });
+        }
         if (state.theme === "dark" || state.theme === "light") setTheme(state.theme);
         if (typeof state.chatWidth === "number" && state.chatWidth >= 480 && state.chatWidth <= 1100) {
           setChatWidth(state.chatWidth);
@@ -1060,7 +1095,9 @@ export function useAppModel() {
         setSidebarWidth(loadWidth(state.sidebarWidth, SIDEBAR));
         setPreviewWidth(loadWidth(state.previewWidth, PREVIEW));
         setSidebarList(loadSidebarList(state.sidebarList));
-        setLastWorkspace(typeof state.lastWorkspace === "string" ? state.lastWorkspace : "");
+        setLastWorkspace(
+          adopted.reset ? "" : typeof state.lastWorkspace === "string" ? state.lastWorkspace : "",
+        );
         const pinnedRaw = Array.isArray(state.pinnedProjects)
           ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
           : [];
@@ -1068,13 +1105,12 @@ export function useAppModel() {
         const inbox = await ensureInbox(state.inboxCwd ?? null);
         setInboxCwd(inbox);
         const all = brandSessionList(await listSessions(null).catch(() => [] as SessionSummary[]));
-        applySessionUnion(all, inbox);
+        applySessionUnion(all, inbox, kept);
         const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
         setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
         const initial = kept[0] || inbox;
         if (initial) setCwd(initial);
         void refreshInspect(initial || inbox);
-        void refreshModels();
       } catch (e) {
         showToast(String(e));
       } finally {
@@ -1167,7 +1203,8 @@ export function useAppModel() {
       }
       const next = mergeProjectPaths([...projects, dir], []);
       setProjects(next);
-      persist({ projects: next });
+      persist({ projects: next, manualProjects: true });
+      applySessionUnion(diskSessionsRef.current, inboxCwd, next);
       await selectProject(dir);
     } catch (e) {
       showToast(String(e));
@@ -1176,9 +1213,11 @@ export function useAppModel() {
     }
   }
 
-  function applySessionUnion(disk: SessionSummary[], inbox: string) {
+  function applySessionUnion(disk: SessionSummary[], inbox: string, projectPaths: string[] = projectsRef.current) {
     diskSessionsRef.current = disk;
-    const all = unionSessionsById(disk, Object.values(acpListedRef.current).flat());
+    const all = unionSessionsById(disk, Object.values(acpListedRef.current).flat()).filter((s) =>
+      sessionInLibrary(s.cwd, projectPaths, inbox),
+    );
     setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
     setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
   }
@@ -1529,7 +1568,8 @@ export function useAppModel() {
       const dir = await gitCreateWorktree(cwd, name);
       const next = mergeProjectPaths([...projects, dir], []);
       setProjects(next);
-      persist({ projects: next });
+      persist({ projects: next, manualProjects: true });
+      applySessionUnion(diskSessionsRef.current, inboxCwd, next);
       await selectProject(dir);
       await startSession(dir);
       showToast(`已在 ${basename(dir)} 开新会话`);
@@ -1849,11 +1889,14 @@ export function useAppModel() {
     return { byId, lastEdit };
   }, [chat.items]);
 
-  const effort = normalizeEffort(cli?.effort);
+  const modelCatalog = useMemo(() => modelRows.map((row) => row.id), [modelRows]);
+  const effortOptions = useMemo(() => effortsForModel(modelRows, model), [modelRows, model]);
+  const modelLabels = useMemo(() => modelLabelMap(modelRows), [modelRows]);
   const { runSlash, applyMode, applyModel, applySessionModel, applyEffort } = useSlashCommands({
     cwd,
     inboxCwd,
     model,
+    effort,
     sessionModel,
     titles,
     chat,
@@ -1871,10 +1914,13 @@ export function useAppModel() {
     extraComposerRefs,
     rewindLastEdit: rewindIndex.lastEdit,
     cli,
+    selectedAgentId,
+    modelRows,
     persist,
     showToast,
     setMode,
     setModel,
+    setEffort,
     setCli,
     setBusy,
     setExtraPanes,
@@ -2013,6 +2059,9 @@ export function useAppModel() {
     inspect,
     skillCommands,
     modelCatalog,
+    effortOptions,
+    modelLabels,
+    effortReady,
     extraPage,
     setExtraPage,
     imagineImages,
@@ -2163,7 +2212,7 @@ export function useAppModel() {
         } catch {
           /* keep last snapshot if the probe fails */
         }
-        const blocked = agentSendBlockReason(id, rows);
+        const blocked = blockedAgentToast(id, rows);
         if (blocked) {
           showToast(blocked);
           return;

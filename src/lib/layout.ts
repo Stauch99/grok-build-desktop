@@ -8,7 +8,7 @@
 export type Bounds = { min: number; max: number; initial: number };
 
 export const SIDEBAR: Bounds = { min: 200, max: 420, initial: 248 };
-export const PREVIEW: Bounds = { min: 280, max: 720, initial: 420 };
+export const PREVIEW: Bounds = { min: 280, max: 1200, initial: 560 };
 /** The conversation column never shrinks past this, whatever the neighbours want. */
 export const WORK_MIN = 420;
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   gitBranches,
   gitChanges,
+  gitListWorktrees,
   gitLog,
   gitStatus,
   workspaceMtime,
@@ -11,7 +12,7 @@ import {
   type GitCommit,
   type GitStatus,
 } from "../api";
-import { workspaceMtimeChanged } from "../lib/git";
+import { loadGitSnapshot, parseWorktreePorcelain, workspaceMtimeChanged, type GitWorktree } from "../lib/git";
 import { GIT_FALLBACK_MS } from "../lib/persist-cache";
 
 export { GIT_FALLBACK_MS };
@@ -23,34 +24,46 @@ export type GitWatcher = {
   changes: GitChange[];
   commits: GitCommit[];
   branches: string[];
+  worktrees: GitWorktree[];
   refresh: (dir?: string) => Promise<void>;
 };
 
 export function useGitWatcher(opts: {
   cwd: string;
-  historyKey?: unknown;
   onWorkspaceTouched?: (cwd: string) => void;
 }): GitWatcher {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [changes, setChanges] = useState<GitChange[]>([]);
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const onTouchedRef = useRef(opts.onWorkspaceTouched);
   onTouchedRef.current = opts.onWorkspaceTouched;
 
   const refresh = useCallback(async (dir = opts.cwd) => {
-    if (!dir) {
-      setGit(null);
-      setChanges([]);
-      return;
-    }
     try {
-      const status = await gitStatus(dir);
-      setGit(status);
-      setChanges(status.isRepo ? await gitChanges(dir) : []);
+      const snap = await loadGitSnapshot(dir, {
+        status: gitStatus,
+        changes: gitChanges,
+        log: gitLog,
+        branches: gitBranches,
+      });
+      setGit(snap.git);
+      setChanges(snap.changes);
+      setCommits(snap.commits);
+      setBranches(snap.branches);
+      if (snap.git?.isRepo) {
+        const porcelain = await gitListWorktrees(dir).catch(() => "");
+        setWorktrees(parseWorktreePorcelain(porcelain));
+      } else {
+        setWorktrees([]);
+      }
     } catch {
       setGit(null);
       setChanges([]);
+      setCommits([]);
+      setBranches([]);
+      setWorktrees([]);
     }
   }, [opts.cwd]);
 
@@ -107,16 +120,5 @@ export function useGitWatcher(opts: {
     };
   }, [opts.cwd, refresh]);
 
-  useEffect(() => {
-    if (!opts.cwd || !git?.isRepo) {
-      setCommits([]);
-      setBranches([]);
-      return;
-    }
-    const cwd = opts.cwd;
-    void gitLog(cwd).then(setCommits).catch(() => setCommits([]));
-    void gitBranches(cwd).then(setBranches).catch(() => setBranches([]));
-  }, [opts.cwd, git?.isRepo, opts.historyKey]);
-
-  return { git, changes, commits, branches, refresh };
+  return { git, changes, commits, branches, worktrees, refresh };
 }

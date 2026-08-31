@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { formatMemoryLabel, selectRecent, type MemoryChange } from "../lib/memory-dock";
+import { DockCapsule } from "./ComposerDock";
 
 type Props = {
   changes: MemoryChange[];
@@ -26,15 +27,18 @@ export function MemoryDock({ changes, title = "项目记忆已更新", onOpen, o
   if (!first) return null;
 
   return (
-    <div className="memory-dock">
-      <span>{title}</span>
-      <span>{formatMemoryLabel(first.path)}</span>
-      <button type="button" onClick={() => onOpen(first.path)}>
-        打开
-      </button>
-      <button type="button" onClick={onDismiss}>
-        关闭
-      </button>
-    </div>
+    <DockCapsule
+      kicker={title}
+      onDismiss={onDismiss}
+      dismissLabel="关闭"
+      className="memory-dock"
+      actions={
+        <button type="button" className="dock-capsule-action" onClick={() => onOpen(first.path)}>
+          打开
+        </button>
+      }
+    >
+      {formatMemoryLabel(first.path)}
+    </DockCapsule>
   );
 }

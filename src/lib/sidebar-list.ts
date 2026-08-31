@@ -119,6 +119,14 @@ export function projectForSession(cwd: string, projectPaths: string[], inboxCwd:
   return { path: INBOX_PIN, inbox: true };
 }
 
+/** Inbox chats plus sessions whose cwd is an added project (or a worktree under it). */
+export function sessionInLibrary(cwd: string, projectPaths: string[], inboxCwd: string): boolean {
+  const n = (cwd ?? "").trim();
+  if (!n) return false;
+  if (inboxCwd && sameCwd(n, inboxCwd)) return true;
+  return projectPaths.some((p) => sameCwd(n, p) || normalizeCwd(n).startsWith(normalizeCwd(p) + "/"));
+}
+
 export function worktreeLabel(sessionCwd: string, projectPath: string | null, inboxCwd: string): string | undefined {
   const root = projectPath && projectPath !== INBOX_PIN ? projectPath : inboxCwd;
   if (!root || !sessionCwd) return undefined;
@@ -184,10 +192,64 @@ export type SidebarRow = {
 export type SidebarSection = {
   id: string;
   label: string;
-  kind: "pin" | "project" | "time" | "status";
+  kind: "pin" | "project" | "inbox" | "time" | "status";
+  band?: SidebarBandId;
   projectPath?: string;
   rows: SidebarRow[];
 };
+
+export type SidebarBandId = "pin" | "projects" | "inbox";
+
+export const SIDEBAR_BAND_LABEL: Record<SidebarBandId, string> = {
+  pin: "置顶",
+  projects: "项目",
+  inbox: "独立对话",
+};
+
+export type SidebarBand = {
+  id: string;
+  label: string;
+  sections: SidebarSection[];
+};
+
+export function isSidebarBandId(id: string): id is SidebarBandId {
+  return id === "pin" || id === "projects" || id === "inbox";
+}
+
+function sidebarBandVisible(band: SidebarBand): boolean {
+  if (!band.sections.length) return false;
+  if (band.id === "inbox") return band.sections.some((s) => s.rows.length > 0);
+  if (band.id === "pin") {
+    return band.sections.some((s) => s.kind === "project" || s.rows.length > 0);
+  }
+  return true;
+}
+
+export function visibleSidebarBands(bands: readonly SidebarBand[]): SidebarBand[] {
+  return bands.filter(sidebarBandVisible);
+}
+
+/** Collapse consecutive sections that share a band into one labeled partition. */
+export function groupSidebarBands(sections: readonly SidebarSection[]): SidebarBand[] {
+  const out: SidebarBand[] = [];
+  for (const section of sections) {
+    if (section.band) {
+      const last = out[out.length - 1];
+      if (last && last.id === section.band) {
+        last.sections.push(section);
+      } else {
+        out.push({
+          id: section.band,
+          label: SIDEBAR_BAND_LABEL[section.band],
+          sections: [section],
+        });
+      }
+    } else {
+      out.push({ id: section.id, label: section.label, sections: [section] });
+    }
+  }
+  return visibleSidebarBands(out);
+}
 
 export type BuildSidebarOpts = {
   sessions: SessionSummary[];
@@ -230,15 +292,16 @@ function sortSessions(rows: SessionSummary[], ordering: SidebarOrdering, titles:
 }
 
 function eligibleSessions(opts: BuildSidebarOpts): SessionSummary[] {
+  const members = opts.sessions.filter((s) => sessionInLibrary(s.cwd, opts.projects, opts.inboxCwd));
   const chrome = {
     pinned: opts.pinned,
     archived: opts.archived,
     autoArchiveDays: opts.autoArchiveDays,
     now: opts.now,
   };
-  const active = visibleSessions(opts.sessions, { ...chrome, view: "active" });
+  const active = visibleSessions(members, { ...chrome, view: "active" });
   if (!opts.prefs.includeArchived) return active;
-  const archived = visibleSessions(opts.sessions, { ...chrome, view: "archived" });
+  const archived = visibleSessions(members, { ...chrome, view: "archived" });
   const seen = new Set(active.map((s) => s.id));
   return [...active, ...archived.filter((s) => !seen.has(s.id))];
 }
@@ -279,6 +342,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
       id: "pin",
       label: "置顶",
       kind: "pin",
+      band: "pin",
       rows: sortSessions(pinned, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
     });
   }
@@ -286,41 +350,54 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
   if (opts.prefs.grouping === "project") {
     const pinSet = new Set(opts.pinnedProjects.map((p) => (p === INBOX_PIN ? INBOX_PIN : normalizeCwd(p))));
     const groups = new Map<string, SessionSummary[]>();
+    const inboxRows: SessionSummary[] = [];
     for (const session of rest) {
       const loc = projectForSession(session.cwd, opts.projects, opts.inboxCwd);
-      const key = loc.inbox ? INBOX_PIN : loc.path;
-      const list = groups.get(key) ?? [];
+      if (loc.inbox) {
+        inboxRows.push(session);
+        continue;
+      }
+      const list = groups.get(loc.path) ?? [];
       list.push(session);
-      groups.set(key, list);
+      groups.set(loc.path, list);
     }
     const keys = [...new Set([...opts.projects, ...groups.keys()])];
     const unique: string[] = [];
     for (const key of keys) {
-      const n = key === INBOX_PIN ? INBOX_PIN : normalizeCwd(key);
-      if (!unique.some((u) => (u === INBOX_PIN ? INBOX_PIN : normalizeCwd(u)) === n)) unique.push(key === INBOX_PIN ? INBOX_PIN : key);
+      if (key === INBOX_PIN) continue;
+      const n = normalizeCwd(key);
+      if (!unique.some((u) => normalizeCwd(u) === n)) unique.push(key);
     }
     function pinRank(key: string): number {
-      if (key === INBOX_PIN) return pinSet.has(INBOX_PIN) ? 0 : 1;
       return pinSet.has(normalizeCwd(key)) ? 0 : 1;
     }
     unique.sort((a, b) => {
       const ap = pinRank(a);
       const bp = pinRank(b);
       if (ap !== bp) return ap - bp;
-      const an = a === INBOX_PIN ? "独立对话" : basename(a);
-      const bn = b === INBOX_PIN ? "独立对话" : basename(b);
-      return an.localeCompare(bn, "zh");
+      return basename(a).localeCompare(basename(b), "zh");
     });
     for (const key of unique) {
       const rows = groups.get(key) ?? [];
-      if (rows.length === 0 && key !== INBOX_PIN && !opts.projects.some((p) => sameCwd(p, key))) continue;
-      if (rows.length === 0) continue;
+      const pinnedProj = pinSet.has(normalizeCwd(key));
+      if (rows.length === 0 && !pinnedProj) continue;
+      if (rows.length === 0 && !opts.projects.some((p) => sameCwd(p, key))) continue;
       sections.push({
-        id: key === INBOX_PIN ? "inbox" : key,
-        label: key === INBOX_PIN ? "独立对话" : basename(key),
+        id: key,
+        label: basename(key),
         kind: "project",
-        projectPath: key === INBOX_PIN ? undefined : key,
+        band: pinnedProj ? "pin" : "projects",
+        projectPath: key,
         rows: sortSessions(rows, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
+      });
+    }
+    if (inboxRows.length) {
+      sections.push({
+        id: "inbox",
+        label: "独立对话",
+        kind: "inbox",
+        band: "inbox",
+        rows: sortSessions(inboxRows, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
       });
     }
     return sections;

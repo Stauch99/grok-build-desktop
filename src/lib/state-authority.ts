@@ -1,7 +1,7 @@
 export type StateAuthorityKind = "desktop-preferences" | "cli-defaults" | "session-runtime";
 export type StateAuthority = { kind: StateAuthorityKind; location: "webui.json" | "config.toml" | "ACP/session files" };
 
-const DESKTOP_KEYS = new Set(["saveWebuiState", "projects", "theme", "mode", "chatWidth", "titles", "inboxCwd", "chatFontSize", "pinned", "archived", "drafts", "enterSends", "autoArchiveDays", "filePanelOpen", "steerByDefault", "unread", "sidebarWidth", "previewWidth", "locale", "themeFamily", "density", "hideToTray", "defaultRail", "shortcuts", "lastWorkspace", "pinnedProjects", "sessionTokens", "sidebarList"]);
+const DESKTOP_KEYS = new Set(["saveWebuiState", "projects", "theme", "mode", "chatWidth", "titles", "inboxCwd", "chatFontSize", "pinned", "archived", "drafts", "enterSends", "autoArchiveDays", "filePanelOpen", "steerByDefault", "unread", "sidebarWidth", "previewWidth", "locale", "themeFamily", "hideToTray", "defaultRail", "shortcuts", "lastWorkspace", "pinnedProjects", "sessionTokens", "sidebarList", "manualProjects"]);
 const CLI_KEYS = new Set(["patchCliSettings", "model", "effort", "showThinking", "showThinkingDefault", "compactPercent", "memory", "telemetry", "permissionMode", "yolo", "mcp"]);
 const SESSION_KEYS = new Set(["pendingPermission", "sessionUpdates", "sessionUsage", "plan", "messages", "toolCalls", "runStatus"]);
 

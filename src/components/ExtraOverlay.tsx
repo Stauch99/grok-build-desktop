@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { IconGrokClose } from "../grok-icons";
 import type { Locale } from "../lib/i18n";
+import { useT } from "../lib/locale-context";
 import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
 import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
@@ -17,13 +18,13 @@ export type ExtraPage =
   | "memory"
   | "usage";
 
-const TITLES: Record<ExtraPage, string> = {
-  imagine: "图片",
-  "imagine-video": "视频",
-  dashboard: "会话总览",
-  agents: "代理",
-  memory: "记忆",
-  usage: "用量",
+const TITLE_KEYS: Record<ExtraPage, string> = {
+  imagine: "extra.imagine",
+  "imagine-video": "extra.imagineVideo",
+  dashboard: "extra.dashboard",
+  agents: "extra.agents",
+  memory: "extra.memory",
+  usage: "extra.usage",
 };
 
 export type ExtraOverlayProps = {
@@ -78,6 +79,7 @@ export function ExtraOverlay({
   onUsageDays,
   subagents,
 }: ExtraOverlayProps) {
+  const t = useT();
   useEffect(() => {
     if (!page) return;
     const onKey = (e: KeyboardEvent) => {
@@ -88,18 +90,19 @@ export function ExtraOverlay({
   }, [page, onClose]);
 
   if (!page) return null;
+  const title = t(TITLE_KEYS[page]);
 
   return (
     <div className="settings-layer" role="presentation">
       <div className="settings-backdrop" onClick={onClose} />
-      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={TITLES[page]}>
+      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <header className="settings-head">
-          <strong>{TITLES[page]}</strong>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭" title="关闭">
+          <strong>{title}</strong>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
             <IconGrokClose size={16} />
           </button>
         </header>
-        <div className="settings-body">
+        <div className="settings-body pane-in" key={page}>
           {page === "imagine" || page === "imagine-video" ? (
             <ImagineGallery
               images={images}

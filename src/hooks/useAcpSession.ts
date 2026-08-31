@@ -35,8 +35,9 @@ import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
 import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
-import { agentSendBlockReason, type AgentDoctor } from "../lib/agent-doctor";
-import { INBOX_PIN, lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
+import { agentChipLabel } from "../lib/agent-chip";
+import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
+import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
 import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
@@ -194,6 +195,65 @@ export function shouldIgnoreAcpEvent(
   return shouldDropAcpEvent(paneAgent, eventAgent);
 }
 
+export function stderrToastText(eventAgent: AgentId, line: string): string | null {
+  const msg = surfaceStderr(line);
+  if (!msg) return null;
+  return `${agentChipLabel(eventAgent)} · ${msg}`;
+}
+
+export function agentExitToastText(eventAgent: AgentId): string {
+  return `${agentChipLabel(eventAgent)} 已退出`;
+}
+
+export function extraPanesHitAgent(
+  panes: Record<string, ExtraPaneState>,
+  eventAgent: AgentId,
+): boolean {
+  return Object.values(panes).some((pane) => pane.agentId === eventAgent);
+}
+
+export function extraPanesAfterAgentExit(
+  prev: Record<string, ExtraPaneState>,
+  eventAgent: AgentId,
+): Record<string, ExtraPaneState> {
+  let changed = false;
+  const next: Record<string, ExtraPaneState> = {};
+  for (const [id, pane] of Object.entries(prev)) {
+    if (pane.agentId === eventAgent && pane.busy) {
+      next[id] = { ...pane, busy: false };
+      changed = true;
+    } else {
+      next[id] = pane;
+    }
+  }
+  return changed ? next : prev;
+}
+
+export function extraPanesAfterAgentStderr(
+  prev: Record<string, ExtraPaneState>,
+  eventAgent: AgentId,
+  line: string,
+  now: number,
+): Record<string, ExtraPaneState> {
+  if (!shouldClearBusyOnAgentStderr(line)) return prev;
+  const notice = surfaceStderr(line);
+  let changed = false;
+  const next: Record<string, ExtraPaneState> = {};
+  for (const [id, pane] of Object.entries(prev)) {
+    if (shouldIgnoreAcpEvent(pane.agentId, eventAgent)) {
+      next[id] = pane;
+      continue;
+    }
+    next[id] = {
+      ...pane,
+      busy: false,
+      chat: notice ? withPromptFail(pane.chat, notice, now) : pane.chat,
+    };
+    changed = true;
+  }
+  return changed ? next : prev;
+}
+
 export type ExtraPaneState = {
   sessionId: string;
   cwd: string;
@@ -246,7 +306,7 @@ export type AcpSessionDeps = {
   onCancelPermission: (target: PaneDest) => Promise<void>;
   injectUserMemory: boolean;
   userMd: string | null;
-  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent">>;
+  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
 };
 
 export type AcpSession = {
@@ -460,7 +520,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   function blockedSendToast(agentId: AgentId): string | null {
-    return agentSendBlockReason(agentId, depsRef.current.doctors);
+    return blockedAgentToast(agentId, depsRef.current.doctors);
   }
 
   function beginMainRun(sid: string) {
@@ -638,36 +698,41 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const offs: Array<() => void> = [];
     void (async () => {
       const a = await onAcpMessage((m, eventAgent) => handleRef.current(m, eventAgent));
-      const c = await onAcpStderr((line) => {
-        if (shouldClearBusyOnAgentStderr(line)) {
+      const c = await onAcpStderr((line, eventAgent) => {
+        const toast = stderrToastText(eventAgent, line);
+        if (toast) depsRef.current.showToast(toast);
+        if (!shouldClearBusyOnAgentStderr(line)) return;
+        if (!shouldIgnoreAcpEvent(mainAgentIdRef.current, eventAgent)) {
           busyRef.current = false;
           setBusy(false);
           pendingPrompt.current = null;
           const notice = surfaceStderr(line);
           if (notice) setChat((prev) => withPromptFail(prev, notice, Date.now()));
         }
-        const msg = surfaceStderr(line);
-        if (msg) depsRef.current.showToast(msg);
+        depsRef.current.setExtraPanes((prev) => extraPanesAfterAgentStderr(prev, eventAgent, line, Date.now()));
       });
       const exit = await onAgentExit((eventAgent) => {
         readyByAgentRef.current[eventAgent] = false;
         delete agentBoots[eventAgent];
-        if (eventAgent !== selectedAgentIdRef.current) return;
-        if (busyRef.current && runningSessionIdRef.current) {
-          const id = runningSessionIdRef.current;
-          depsRef.current.setUnread((prev) => markUnread(prev, id, "error"));
+        const d = depsRef.current;
+        const hitMain = mainAgentIdRef.current === eventAgent;
+        const hitExtra = extraPanesHitAgent(d.extraPanes, eventAgent);
+        if (hitMain) {
+          if (busyRef.current && runningSessionIdRef.current) {
+            const id = runningSessionIdRef.current;
+            d.setUnread((prev) => markUnread(prev, id, "error"));
+          }
+          readyRef.current = false;
+          setReady(false);
+          d.setSawExit(true);
+          setBusy(false);
+          setConnecting(false);
+          pendingPrompt.current = null;
         }
-        readyRef.current = false;
-        setReady(false);
-        depsRef.current.setSawExit(true);
-        setBusy(false);
-        depsRef.current.setExtraPanes((prev) => {
-          const next: Record<string, ExtraPaneState> = {};
-          for (const [id, pane] of Object.entries(prev)) next[id] = { ...pane, busy: false };
-          return next;
-        });
-        setConnecting(false);
-        pendingPrompt.current = null;
+        if (hitExtra) {
+          d.setExtraPanes((prev) => extraPanesAfterAgentExit(prev, eventAgent));
+        }
+        if (hitMain || hitExtra) d.showToast(agentExitToastText(eventAgent));
       });
       if (cancelled) {
         a(); c(); exit();

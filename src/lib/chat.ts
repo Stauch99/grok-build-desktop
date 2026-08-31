@@ -1,5 +1,5 @@
 import { parseAcpRecord } from "./acp-events";
-import { asRecord, textFromContent } from "./text";
+import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
 
 export type { Mode } from "./mode";
@@ -263,8 +263,17 @@ function extractToolBits(update: Record<string, unknown>): {
         };
       } else if (b.type === "content") {
         detail = (detail || "") + textFromContent(b.content);
+      } else if (b.type === "text" || b.text != null) {
+        detail = (detail || "") + textFromContent(b);
       }
     }
+  } else if (update.content) {
+    const fromContent = textFromContent(update.content);
+    if (fromContent) detail = fromContent;
+  }
+  if (update.rawOutput) {
+    const fromOut = textFromRawOutput(update.rawOutput);
+    if (fromOut) detail = fromOut;
   }
   if (update.rawInput && !detail) {
     try {

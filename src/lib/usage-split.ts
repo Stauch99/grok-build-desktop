@@ -1,3 +1,5 @@
+import { t, type Locale } from "./i18n";
+
 export type UsageSplit = {
   used?: number;
   size?: number;
@@ -53,6 +55,19 @@ export function usageBreakdownLines(u: UsageSplit): string[] {
   if (u.output != null) lines.push(`output ${u.output}`);
   if (u.cache != null) lines.push(`cache ${u.cache}`);
   return lines;
+}
+
+export function usageRingDash(percent: number, radius: number): { circumference: number; dash: number } {
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.min(100, Math.max(0, percent)) / 100;
+  return { circumference, dash: circumference * pct };
+}
+
+export function usageHoverLines(u: UsageSplit, locale: Locale = "zh"): string[] {
+  const p = usageRingPercents(u);
+  const used = u.used == null ? "—" : compactCount(u.used);
+  const size = u.size == null ? "—" : compactCount(u.size);
+  return [t(locale, "usage.hover", { used, size, pct: String(p.used) }), ...usageBreakdownLines(u)];
 }
 
 export type StatsLine = { ttftMs: number; toksPerSec: number };
@@ -115,11 +130,11 @@ export type StatsFooter = {
   sessionTokens?: number | null;
 };
 
-export function formatStatsFooter(s: StatsFooter): string {
+export function formatStatsFooter(s: StatsFooter, locale: Locale = "zh"): string {
   const ttft = s.ttftMs == null ? "—" : compactLatency(s.ttftMs);
-  const rate = s.toksPerSec == null || s.toksPerSec <= 0 ? "—" : String(Math.round(s.toksPerSec));
+  const rate = s.toksPerSec == null || s.toksPerSec <= 0 ? "—" : `${Math.round(s.toksPerSec)} tok/s`;
   const tok = s.sessionTokens == null ? "—" : compactCount(s.sessionTokens);
-  return `TTFT ${ttft} · ${rate} tok/s · ${tok} tok`;
+  return t(locale, "stats.footer", { ttft, rate, tok });
 }
 
 function compactLatency(ms: number): string {

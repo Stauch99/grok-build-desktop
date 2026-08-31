@@ -1,3 +1,5 @@
+import { t, type Locale } from "./i18n";
+
 export type Mode = "agent" | "plan" | "yolo";
 
 export const MODE_OPTIONS: { id: Mode; label: string; hint: string }[] = [
@@ -6,10 +8,22 @@ export const MODE_OPTIONS: { id: Mode; label: string; hint: string }[] = [
   { id: "yolo", label: "始终批准", hint: "本轮跳过许可卡" },
 ];
 
-export function modeLabel(mode: Mode): string {
+export function modeLabel(mode: Mode, locale: Locale = "zh"): string {
   if (mode === "plan") return "Plan";
-  if (mode === "yolo") return "始终批准";
+  if (mode === "yolo") return t(locale, "composer.yolo");
   return "Agent";
+}
+
+export function modeHint(mode: Mode, locale: Locale = "zh"): string {
+  return t(locale, `mode.${mode}Hint`);
+}
+
+export function modeOptions(locale: Locale = "zh"): { id: Mode; label: string; hint: string }[] {
+  return MODE_OPTIONS.map((o) => ({
+    ...o,
+    label: modeLabel(o.id, locale),
+    hint: modeHint(o.id, locale),
+  }));
 }
 
 export function slashForMode(mode: Mode): "/plan" | "/always-approve" | "/auto" {

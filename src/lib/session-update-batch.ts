@@ -13,7 +13,7 @@ export function foldSessionUpdates(
   opts?: ApplyOptions,
 ): ChatState {
   if (batch.length === 0) return prev;
-  return batch.reduce((chat, params) => applyChatUpdate(chat, params, opts), prev);
+  return batch.reduce<ChatState>((chat, params) => applyChatUpdate(chat, params, opts), prev);
 }
 
 export function shouldFlushSessionUpdateNow(params: Record<string, unknown>): boolean {

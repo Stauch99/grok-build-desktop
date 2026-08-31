@@ -5,12 +5,15 @@ import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { highlight, highlightLang, tokensToLines, type HighlightToken } from "../lib/highlight";
 import {
   afterPreviewSave,
+  draftForPath,
+  dropPreviewDraft,
   imageTransform,
   lineGutter,
   panImage,
   previewErrorCopy,
   previewKind,
   putPreviewCache,
+  putPreviewDraft,
   relativeTo,
   removePreviewTab,
   upsertPreviewTab,
@@ -77,10 +80,12 @@ export function PreviewPane({
   const findRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLDivElement>(null);
   const cacheRef = useRef(new Map<string, PreviewCacheEntry>());
+  const draftsRef = useRef(new Map<string, string>());
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [raw, setRaw] = useState(false);
   const [draft, setDraft] = useState(text ?? "");
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [ownTabs, setOwnTabs] = useState<PreviewTab[]>([]);
   const [ownActive, setOwnActive] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -91,6 +96,11 @@ export function PreviewPane({
   const [blameOn, setBlameOn] = useState(false);
   const [blameLine, setBlameLine] = useState<number | null>(null);
   const [blameText, setBlameText] = useState<string | null>(null);
+  const draftRef = useRef(draft);
+  const editingRef = useRef(editing);
+  const pathForDraftRef = useRef<string | null>(null);
+  draftRef.current = draft;
+  editingRef.current = editing;
 
   useEffect(() => {
     if (!path) return;
@@ -105,9 +115,14 @@ export function PreviewPane({
   const displayText = cached ?? text;
 
   useEffect(() => {
+    const prev = pathForDraftRef.current;
+    if (prev && displayPath && prev !== displayPath && editingRef.current) {
+      putPreviewDraft(draftsRef.current, prev, draftRef.current);
+    }
+    pathForDraftRef.current = displayPath ?? null;
     setRaw(false);
     setEditing(false);
-    setDraft(displayText ?? "");
+    setDraft(draftForPath(draftsRef.current, displayPath ?? "", displayText ?? ""));
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setBlameLine(null);
@@ -171,27 +186,34 @@ export function PreviewPane({
   };
 
   const closeTab = (closed: string) => {
+    dropPreviewDraft(draftsRef.current, closed);
+    cacheRef.current.delete(closed);
     if (onCloseTab) {
       onCloseTab(closed);
       return;
     }
     const next = activeTabAfterClose(ownTabs, closed, displayPath);
-    setOwnTabs((tabs) => removePreviewTab(tabs, closed));
-    cacheRef.current.delete(closed);
+    setOwnTabs((tabs) => removePreviewTab(tabs, closed, draftsRef.current));
     if (next) setOwnActive(next);
     else onClose?.();
   };
 
   const saveDraft = async () => {
-    if (!onSave || !displayPath) return;
+    if (!onSave || !displayPath || saving) return;
+    const savedPath = displayPath;
+    const savedText = draft;
+    setSaving(true);
     try {
-      await onSave(displayPath, draft);
+      await onSave(savedPath, savedText);
+      putPreviewDraft(draftsRef.current, savedPath, savedText);
       onSaved?.(true);
       afterPreviewSave(true, onGitRefresh);
       setEditing(false);
     } catch {
       onSaved?.(false);
       afterPreviewSave(false, onGitRefresh);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -278,9 +300,12 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={editing}
-              title={editing ? "保存" : "编辑"}
-              aria-label={editing ? "保存" : "编辑"}
+              disabled={saving}
+              aria-busy={saving}
+              title={saving ? "保存中" : editing ? "保存" : "编辑"}
+              aria-label={saving ? "保存中" : editing ? "保存" : "编辑"}
               onClick={() => {
+                if (saving) return;
                 if (editing) void saveDraft();
                 else setEditing(true);
               }}
@@ -383,7 +408,12 @@ export function PreviewPane({
         <textarea
           className="preview-body preview-code"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          disabled={saving}
+          onChange={(e) => {
+            const next = e.target.value;
+            setDraft(next);
+            putPreviewDraft(draftsRef.current, displayPath, next);
+          }}
           aria-label="编辑文件"
         />
       ) : kind === "html" && !raw ? (

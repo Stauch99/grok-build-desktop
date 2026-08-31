@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify, sendRaw } from "../api";
-import type { AgentId } from "../lib/agent-id";
 import { findAlwaysOption, parseToolName, pickAllowOption, shouldSkipPermission } from "../lib/permission-allow";
 import { permissionReplyAgent } from "../lib/permission-agent";
 import {
   enqueuePermission,
   markPermissionTimedOut,
+  PERMISSION_TIMEOUT_MS,
   permissionFromAcpRequest,
   removePermission,
   selectShortcutPermission,
@@ -17,8 +17,6 @@ import { onTaggedAcpRequest } from "../lib/workbench-api";
 import type { PermissionPane } from "../lib/permission-view";
 import { notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
-
-export const PERMISSION_TIMEOUT_MS = 90_000;
 
 export type PermissionQueue = {
   permissions: QueuedPermission[];
@@ -33,6 +31,7 @@ export function usePermissionQueue(opts: {
   splitId: string | null;
   busy: boolean;
   splitBusy: boolean;
+  extraPanes?: { id: string; sessionId: string | null; busy: boolean }[];
   focusedPaneRef: React.MutableRefObject<PermissionPane | null>;
   focusedRef: React.MutableRefObject<boolean>;
   currentTitleRef: React.MutableRefObject<string>;
@@ -44,14 +43,14 @@ export function usePermissionQueue(opts: {
 
   const answerPermission = useCallback(async (request: QueuedPermission, optionId: string) => {
     try {
-      await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }, permissionReplyAgent((request as { agentId?: AgentId }).agentId));
+      await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }, permissionReplyAgent(request.agentId));
     } finally {
       setPermissions((q) => removePermission(q, request));
     }
   }, []);
 
   const cancelPermission = useCallback(async (request: QueuedPermission) => {
-    await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } }, permissionReplyAgent((request as { agentId?: AgentId }).agentId));
+    await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } }, permissionReplyAgent(request.agentId));
     setPermissions((q) => removePermission(q, request));
   }, []);
 
@@ -59,9 +58,9 @@ export function usePermissionQueue(opts: {
     let cancelled = false;
     let off: (() => void) | undefined;
     void onTaggedAcpRequest((agentId, msg) => {
-      const parsed = permissionFromAcpRequest(msg as AcpPermissionMessage);
+      const parsed = permissionFromAcpRequest(msg as AcpPermissionMessage, agentId);
       if (!parsed) return;
-      setPermissions((q) => enqueuePermission(q, { ...parsed, agentId }));
+      setPermissions((q) => enqueuePermission(q, parsed));
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -79,12 +78,11 @@ export function usePermissionQueue(opts: {
     const timers = permissions.filter((r) => !r.timedOut).map((r) =>
       window.setTimeout(() => {
         setPermissions((q) => markPermissionTimedOut(q, r));
-        void answerPermission(r, "");
         onTimeoutRef.current?.();
       }, Math.max(0, PERMISSION_TIMEOUT_MS - (Date.now() - r.receivedAt))),
     );
     return () => timers.forEach(window.clearTimeout);
-  }, [permissions, answerPermission]);
+  }, [permissions]);
 
   useEffect(() => {
     for (const request of permissions) {
@@ -109,6 +107,7 @@ export function usePermissionQueue(opts: {
     splitSessionId: opts.splitId,
     mainBusy: opts.busy,
     splitBusy: opts.splitBusy,
+    extraPanes: opts.extraPanes,
   };
 
   useEffect(() => {

@@ -57,4 +57,15 @@ describe("weeklyUsageCopy", () => {
     expect(copy.percent).toBe(50);
     expect(copy.detail).toMatch(/^\d+月\d+日重置$/);
   });
+
+  it("switches account copy with locale", () => {
+    const end = Date.parse(SAMPLE.config.currentPeriod.end);
+    const now = end - 3 * 24 * 60 * 60 * 1000;
+    expect(weeklyUsageCopy(null, false, now, "en").title).toBe("Not signed in");
+    expect(weeklyUsageCopy(parseWeeklyUsage(SAMPLE), true, now, "en")).toMatchObject({
+      title: "Weekly 50%",
+      percent: 50,
+    });
+    expect(weeklyResetLabel(end, now, "en")).toMatch(/^Resets \d+\/\d+$/);
+  });
 });

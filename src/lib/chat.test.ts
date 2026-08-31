@@ -70,6 +70,37 @@ describe("applyChatUpdate", () => {
     expect(s.items[0]).toMatchObject({ kind: "tool", id: "c1", status: "completed", title: "Read file" });
   });
 
+  it("loads tool verbose output from rawOutput and content text blocks", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(
+      s,
+      upd("tool_call", {
+        toolCallId: "c1",
+        title: "ls",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "ls" },
+      }),
+    );
+    s = applyChatUpdate(
+      s,
+      upd("tool_call_update", {
+        toolCallId: "c1",
+        status: "completed",
+        rawOutput: { formatted_output: "a.ts\n" },
+      }),
+    );
+    expect(s.items[0]).toMatchObject({ kind: "tool", status: "completed", detail: "a.ts\n" });
+    s = applyChatUpdate(
+      s,
+      upd("tool_call_update", {
+        toolCallId: "c1",
+        content: [{ type: "text", text: "done" }],
+      }),
+    );
+    expect(s.items[0]).toMatchObject({ detail: "done" });
+  });
+
   it("applies usage_update even without a context window size", () => {
     let s = emptyChat();
     s = applyChatUpdate(s, upd("usage_update", { input: 10, output: 4 }));

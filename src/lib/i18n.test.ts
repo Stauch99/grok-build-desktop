@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { EN, ZH, fallbackCopy, isDangerousTrustPath, normalizeLocale, t } from "./i18n";
+import {
+  EN,
+  LOCALE_CHOICES,
+  ZH,
+  fallbackCopy,
+  isDangerousTrustPath,
+  localeSearchHay,
+  normalizeLocale,
+  t,
+} from "./i18n";
 
 describe("i18n", () => {
   it("returns zh and en hub titles", () => {
     expect(t("zh", "hub.title")).toBe("扩展中心");
     expect(t("zh", "settings.extensions")).toBe("扩展中心");
+    expect(t("zh", "settings.railChanges")).toBe("Git");
     expect(t("en", "hub.title")).toBe("Extensions");
+    expect(t("en", "settings.railChanges")).toBe("Git");
   });
 
   it("falls back to the key", () => {
@@ -46,6 +57,48 @@ describe("i18n", () => {
     expect(t("zh", "perm.remember")).toBe("此会话内记住");
     expect(t("zh", "perm.allowOnce")).toBe("允许这次");
     expect(t("zh", "trust.danger")).toBe("这是危险目录");
+  });
+
+  it("interpolates numbered placeholders", () => {
+    expect(t("zh", "perm.rejectIn", { n: 12 })).toBe("将在 12s 后拒绝");
+    expect(t("en", "perm.rejectIn", { n: 12 })).toBe("Declining in 12s");
+    expect(t("en", "account.weekly", { n: 50 })).toBe("Weekly 50%");
+  });
+
+  it("keeps locale switcher labels in their native scripts", () => {
+    expect(LOCALE_CHOICES.map((c) => [c.id, c.native])).toEqual([
+      ["zh", "简体中文"],
+      ["en", "English"],
+    ]);
+  });
+
+  it("indexes settings search across both languages", () => {
+    const hay = localeSearchHay("settings.locale");
+    expect(hay).toContain("界面语言");
+    expect(hay).toContain("Language");
+  });
+
+  it("covers rail account extra toast stats chrome", () => {
+    expect(t("zh", "rail.explorer")).toBe("文件管理");
+    expect(t("en", "rail.explorer")).toBe("Files");
+    expect(t("zh", "rail.review")).toBe("Dashboard");
+    expect(t("en", "rail.review")).toBe("Dashboard");
+    expect(t("zh", "sidebar.pin")).toBe("置顶");
+    expect(t("en", "sidebar.pin")).toBe("Pinned");
+    expect(t("zh", "extra.dashboard")).toBe("会话总览");
+    expect(t("en", "extra.dashboard")).toBe("Sessions");
+    expect(t("zh", "pane.splitRight")).toBe("向右拆开");
+    expect(t("en", "pane.reveal")).toBe("Reveal");
+    expect(t("zh", "pane.tooSmall")).toBe("这里放不下");
+    expect(t("zh", "git.checkout")).toBe("切换分支");
+    expect(t("zh", "git.newWorktree")).toBe("新建 worktree");
+    expect(t("en", "toast.undo")).toBe("Undo");
+    expect(t("zh", "stats.footer", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
+      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
+    );
+    expect(t("en", "stats.footer", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
+      "TTFT 300ms · Rate 50 tok/s · Used 12.4k",
+    );
   });
 });
 
