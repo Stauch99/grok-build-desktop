@@ -52,6 +52,16 @@ export function sessionToOpen(clicked: SessionSummary, all: SessionSummary[]): S
   return clicked;
 }
 
+export function lookupSession(id: string, all: SessionSummary[]): SessionSummary | null {
+  const found = all.find((s) => s.id === id) ?? null;
+  if (!found) return null;
+  return sessionToOpen(found, all);
+}
+
+export function liveBusyIds(sessions: SessionSummary[]): string[] {
+  return sessions.filter((s) => isLiveRosterId(s.id)).map((s) => s.id);
+}
+
 export function parentsToExpandForLive(sessions: SessionSummary[]): string[] {
   const parents = new Set<string>();
   for (const s of sessions) {

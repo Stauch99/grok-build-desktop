@@ -84,7 +84,7 @@ import { firstHitIndex } from "../lib/search-highlight";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
 import { bindingFor, matchBinding } from "../lib/shortcuts-table";
 import { subagentStatusFromTool } from "../lib/subagent";
-import { parentsToExpandForLive, sessionToOpen, sessionsWithLiveRoster } from "../lib/live-roster";
+import { liveBusyIds, lookupSession, parentsToExpandForLive, sessionToOpen, sessionsWithLiveRoster } from "../lib/live-roster";
 import { describePlan, planRevert, previewRevert } from "../lib/checkpoint";
 import { worktreeName } from "../lib/git";
 import { dequeue, emptyQueue, type QueueState } from "../lib/prompt-queue";
@@ -415,6 +415,21 @@ export function useAppModel() {
   ensureAgentRef.current = ensureAgent;
   const doctorsReady = doctors.length > 0;
   const sendBlocked = !!agentSendBlockReason(selectedAgentId, doctors);
+
+  const allSessions = useMemo(() => {
+    const base = [...inboxSessions, ...sessions];
+    return sessionsWithLiveRoster(base, chat.items, {
+      agentId: selectedAgentId,
+      parentSessionId: sessionId,
+      cwd: cwd || "",
+      nowIso: new Date().toISOString(),
+    });
+  }, [inboxSessions, sessions, chat.items, selectedAgentId, sessionId, cwd]);
+  allSessionsRef.current = allSessions;
+
+  function findSessionById(id: string): SessionSummary | null {
+    return lookupSession(id, allSessions);
+  }
   useEffect(() => {
     if (
       !shouldRunChipWarmup({
@@ -927,7 +942,7 @@ export function useAppModel() {
   function beginEditTitle(id?: string | null) {
     const sid = id || sessionIdRef.current;
     if (!sid) return;
-    const s = sessions.find((x) => x.id === sid) ?? inboxSessions.find((x) => x.id === sid);
+    const s = findSessionById(sid);
     setMenu(null);
     setTitleDraft(s ? displayTitle(s, titles) : "");
     setEditingTitleId(sid);
@@ -1298,10 +1313,6 @@ export function useAppModel() {
     return b;
   }
 
-  function findSessionById(id: string): SessionSummary | null {
-    return sessions.find((s) => s.id === id) ?? inboxSessions.find((s) => s.id === id) ?? null;
-  }
-
   function focusPane(paneId: string) {
     setFocusedPaneId(paneId);
     focusedPermissionPaneRef.current = paneId;
@@ -1396,6 +1407,7 @@ export function useAppModel() {
   }
 
   async function splitRight(s: SessionSummary) {
+    s = sessionToOpen(s, allSessionsRef.current);
     const bindings = liveBindings();
     const existing = paneOfSession(bindings, s.id);
     if (existing) {
@@ -1468,6 +1480,7 @@ export function useAppModel() {
   }
 
   function beginPaneDrag(e: { button: number; clientX: number; clientY: number }, s: SessionSummary) {
+    s = sessionToOpen(s, allSessionsRef.current);
     if (e.button !== 0) return;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1645,7 +1658,7 @@ export function useAppModel() {
   );
   const menuSession = menu
     ? menu.kind === "row"
-      ? sessions.find((s) => s.id === menu.id) ?? inboxSessions.find((s) => s.id === menu.id) ?? null
+      ? findSessionById(menu.id)
       : current
     : null;
   const usage = chat.usage;
@@ -1684,20 +1697,6 @@ export function useAppModel() {
   useEffect(() => {
     currentTitleRef.current = currentTitle;
   }, [currentTitle]);
-
-  const allSessions = useMemo(() => {
-    const base = [...inboxSessions, ...sessions];
-    return sessionsWithLiveRoster(base, chat.items, {
-      agentId: selectedAgentId,
-      parentSessionId: sessionId,
-      cwd: cwd || "",
-      nowIso: new Date().toISOString(),
-    });
-  }, [inboxSessions, sessions, chat.items, selectedAgentId, sessionId, cwd]);
-
-  useEffect(() => {
-    allSessionsRef.current = allSessions;
-  }, [allSessions]);
 
   useEffect(() => {
     for (const id of parentsToExpandForLive(allSessions)) {
@@ -1823,8 +1822,9 @@ export function useAppModel() {
     for (const pane of Object.values(extraPanes)) {
       if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
     }
+    ids.push(...liveBusyIds(allSessions));
     return ids;
-  }, [busy, runningSessionId, extraPanes]);
+  }, [busy, runningSessionId, extraPanes, allSessions]);
 
   const statusFor = useCallback(
     (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId, unread }),
@@ -1873,7 +1873,7 @@ export function useAppModel() {
     onOpenIndex: (i) => {
       const id = visibleHotkeySessions[i];
       if (!id) return;
-      const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
+      const s = findSessionById(id);
       if (s) void openSession(s);
     },
     onMru: () => setMruOpen((v) => !v),
@@ -2322,6 +2322,7 @@ export function useAppModel() {
     copyAllConversation,
     cwdLocked,
     menuSession,
+    findSessionById,
     usage,
     plan,
     userTurns,

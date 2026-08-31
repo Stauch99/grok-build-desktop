@@ -3,8 +3,10 @@ import type { ChatItem } from "./chat";
 import type { SessionSummary } from "../api";
 import {
   isLiveRosterId,
+  liveBusyIds,
   liveRosterFromTools,
   liveRosterId,
+  lookupSession,
   mergeLiveRoster,
   parentsToExpandForLive,
   sessionToOpen,
@@ -74,6 +76,44 @@ describe("sessionToOpen", () => {
     });
     expect(sessionToOpen(live, [parent, live]).id).toBe("parent");
     expect(sessionToOpen(parent, [parent, live]).id).toBe("parent");
+  });
+});
+
+describe("lookupSession", () => {
+  const parent = row({ id: "parent", title: "main" });
+  const live = row({
+    id: liveRosterId("claude", "c1"),
+    parentSessionId: "parent",
+    sessionKind: "subagent",
+  });
+
+  it("returns the parent when a live id is in the list", () => {
+    expect(lookupSession(live.id, [parent, live])).toEqual(parent);
+  });
+
+  it("returns the live row when its parent is missing", () => {
+    expect(lookupSession(live.id, [live])).toEqual(live);
+  });
+
+  it("returns the matching ordinary row", () => {
+    expect(lookupSession("parent", [parent, live])).toEqual(parent);
+  });
+
+  it("returns null for an unknown id", () => {
+    expect(lookupSession("missing", [parent, live])).toBeNull();
+  });
+});
+
+describe("liveBusyIds", () => {
+  it("returns live roster ids and skips disk rows", () => {
+    const liveId = liveRosterId("claude", "c1");
+    expect(
+      liveBusyIds([
+        row({ id: "parent" }),
+        row({ id: liveId, parentSessionId: "parent", sessionKind: "subagent" }),
+        row({ id: "disk-child", parentSessionId: "parent", sessionKind: "subagent" }),
+      ]),
+    ).toEqual([liveId]);
   });
 });
 

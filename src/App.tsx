@@ -319,6 +319,7 @@ export function App() {
     copyAllConversation,
     cwdLocked,
     menuSession,
+    findSessionById,
     usage,
     userTurns,
     urlChips,
@@ -625,7 +626,7 @@ return (
         onSearch={() => palette.setOpen(true)}
         searchHits={searchHits}
         onOpenHit={(id) => {
-          const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
+          const s = findSessionById(id);
           if (s) void openSession(s);
         }}
         onClearHits={() => setSearchHits(null)}
@@ -1192,7 +1193,7 @@ return (
               return;
             }
             void (async () => {
-              const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
+              const s = findSessionById(id);
               if (s) await openSession(s);
               beginEditTitle(id);
             })();
@@ -1419,7 +1420,7 @@ return (
       {mruOpen && (
         <div className="mru-list" role="listbox">
           {visibleHotkeySessions.map((id, i) => {
-            const s = sessions.find((x) => x.id === id) ?? inboxSessions.find((x) => x.id === id);
+            const s = findSessionById(id);
             if (!s) return null;
             return (
               <button
