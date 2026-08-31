@@ -593,7 +593,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
-      }, { agentId: id, timeoutMs: initializeTimeoutMs() });
+      }, { agentId: id, timeoutMs: initializeTimeoutMs(id) });
       applyWarmupFlags(id, true);
       setConnecting(false);
       await afterInitializeFetchSessionList(async () => {

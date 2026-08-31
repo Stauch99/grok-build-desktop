@@ -1,8 +1,10 @@
+import type { AgentId } from "./agent-id";
+
 export const BILLING_POLL_MS = 120_000;
 export const IDLE_PRELOAD_TIMEOUT_MS = 2000;
 
 /** initialize must fail faster than the generic 180s RPC timeout so chip pick is honest. */
-export function initializeTimeoutMs(): number {
+export function initializeTimeoutMs(_agentId?: AgentId): number {
   return 20_000;
 }
 

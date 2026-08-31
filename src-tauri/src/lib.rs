@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 mod cli_bridge;
 mod rpc_allowlist;
 mod agent_host;
+mod agent_manifest;
 mod agents_paths;
 mod agents_files;
 mod marketplace;

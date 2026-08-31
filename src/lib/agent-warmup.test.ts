@@ -145,6 +145,13 @@ describe("initializeTimeoutMs", () => {
     expect(initializeTimeoutMs()).toBe(20_000);
     expect(initializeTimeoutMs()).toBeLessThan(180_000);
   });
+
+  it("keeps a 20s handshake per known agent", () => {
+    expect(initializeTimeoutMs("claude")).toBe(20_000);
+    expect(initializeTimeoutMs("codex")).toBe(20_000);
+    expect(initializeTimeoutMs("kimi")).toBe(20_000);
+    expect(initializeTimeoutMs("grok")).toBe(20_000);
+  });
 });
 
 describe("flagsAfterWarmup", () => {
