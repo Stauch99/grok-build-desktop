@@ -39,6 +39,17 @@ export function afterInitializeFetchSessionList(
   return Promise.resolve();
 }
 
+/** Chip warmup must not retrigger when only toast identity or a new doctors array appears. */
+export function shouldRunChipWarmup(opts: {
+  hasOpenSession: boolean;
+  doctorsReady: boolean;
+  sendBlocked: boolean;
+  warmupEnabled: boolean;
+}): boolean {
+  if (!opts.warmupEnabled || opts.hasOpenSession || !opts.doctorsReady || opts.sendBlocked) return false;
+  return true;
+}
+
 /** Warmup may start only after ACP listeners are subscribed and the effect is still live. */
 export function shouldStartWarmup(listenersAttached: boolean, cancelled: boolean): boolean {
   return listenersAttached && !cancelled;

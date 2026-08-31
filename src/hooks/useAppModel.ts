@@ -133,7 +133,7 @@ import type { ComposerHandle } from "../components/Composer";
 import { detectMemoryUpdates, snapshotMtimes, type MemoryChange } from "../lib/memory-dock";
 import { isTextPreviewable } from "../lib/preview";
 import { parseWeeklyUsage, type WeeklyUsage } from "../lib/weekly-usage";
-import { BILLING_POLL_MS, scheduleIdle, shouldBlockIdleComposer } from "../lib/agent-warmup";
+import { BILLING_POLL_MS, scheduleIdle, shouldBlockIdleComposer, shouldRunChipWarmup } from "../lib/agent-warmup";
 import { reviewOwnerKey, useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { useAcpSession, type ExtraPaneState } from "./useAcpSession";
@@ -312,6 +312,8 @@ export function useAppModel() {
   }
 
   const { toast, showToast } = useToast();
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
 
   const dream = useDreamJob({
     enabled: dreamingEnabled,
@@ -401,12 +403,21 @@ export function useAppModel() {
 
   const ensureAgentRef = useRef(ensureAgent);
   ensureAgentRef.current = ensureAgent;
+  const doctorsReady = doctors.length > 0;
+  const sendBlocked = !!agentSendBlockReason(selectedAgentId, doctors);
   useEffect(() => {
-    if (sessionId || doctors.length === 0) return;
-    if (agentSendBlockReason(selectedAgentId, doctors)) return;
-    if (!shouldWarmupOnChipSelect()) return;
-    void ensureAgentRef.current(selectedAgentId).catch((e) => showToast(String(e)));
-  }, [selectedAgentId, doctors, sessionId, showToast]);
+    if (
+      !shouldRunChipWarmup({
+        hasOpenSession: !!sessionId,
+        doctorsReady,
+        sendBlocked,
+        warmupEnabled: shouldWarmupOnChipSelect(),
+      })
+    ) {
+      return;
+    }
+    void ensureAgentRef.current(selectedAgentId).catch((e) => showToastRef.current(String(e)));
+  }, [selectedAgentId, sessionId, doctorsReady, sendBlocked]);
 
   const paneCount = leafIds(paneTree).length;
   const focusedExtra = focusedPaneId !== MAIN_PANE ? extraPanes[focusedPaneId] : undefined;

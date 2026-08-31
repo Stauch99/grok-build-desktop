@@ -11,6 +11,7 @@ import {
   shouldStartWarmup,
   initializeTimeoutMs,
   shouldBlockIdleComposer,
+  shouldRunChipWarmup,
 } from "./agent-warmup";
 
 describe("shouldBlockComposer", () => {
@@ -121,6 +122,21 @@ describe("shouldBlockIdleComposer", () => {
 
   it("does not lock the unbound composer while that CLI is connecting", () => {
     expect(shouldBlockIdleComposer(true, false, false)).toBe(false);
+  });
+});
+
+describe("shouldRunChipWarmup", () => {
+  const on = { warmupEnabled: true, hasOpenSession: false, doctorsReady: true, sendBlocked: false };
+
+  it("runs once for an unbound logged-in chip", () => {
+    expect(shouldRunChipWarmup(on)).toBe(true);
+  });
+
+  it("does not retry because toast identity or a new doctors array appeared", () => {
+    expect(shouldRunChipWarmup({ ...on, hasOpenSession: true })).toBe(false);
+    expect(shouldRunChipWarmup({ ...on, doctorsReady: false })).toBe(false);
+    expect(shouldRunChipWarmup({ ...on, sendBlocked: true })).toBe(false);
+    expect(shouldRunChipWarmup({ ...on, warmupEnabled: false })).toBe(false);
   });
 });
 
