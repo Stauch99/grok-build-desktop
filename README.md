@@ -30,16 +30,18 @@
 </p>
 
 <p align="center">
-  <img src="docs/readme/hero.png" alt="Main window: projects, empty thread, composer">
+  <img src="docs/readme/hero.png" alt="Empty workbench: new chat, workspace chrome, composer">
 </p>
 
 This is a **community** desktop client. It is not an official xAI, Anthropic, OpenAI, or Moonshot product.
 
 ## Preview
 
+Empty-state captures. No real projects, sessions, or file names.
+
 | Chat | Git | Dashboard |
 | :---: | :---: | :---: |
-| <img src="docs/readme/preview-main.png" alt="Main window"> | <img src="docs/readme/preview-git.png" alt="Git rail"> | <img src="docs/readme/preview-dashboard.png" alt="Session dashboard"> |
+| <img src="docs/readme/preview-main.png" alt="Empty main window"> | <img src="docs/readme/preview-git.png" alt="Git rail, empty"> | <img src="docs/readme/preview-dashboard.png" alt="Dashboard empty state"> |
 
 ## Why this exists
 

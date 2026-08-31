@@ -14,3 +14,5 @@ src-tauri/gen/
 .worktrees/
 .tmp-acp-probe/
 .tmp-ui-check/
+docs/ui-audit/**/*.png
+docs/ui-audit/**/CAPTURE_LOG.txt
