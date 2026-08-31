@@ -7,6 +7,7 @@
   --bg-alt: hsl(40 9.1% 93.5%);
   --bg-hover: hsl(0 0% 0% / 4%);
   --bg-active: hsl(0 0% 0% / 8%);
+  --pane-dim: hsl(0 0% 100% / 42%);
   --bg-input: hsl(0 0% 100%);
   --line: #e6e5e3;
   --line-strong: hsl(36 20% 5% / 8%);
@@ -55,6 +56,7 @@
   --bg-alt: hsl(30 5% 12%);
   --bg-hover: hsl(0 0% 100% / 8%);
   --bg-active: hsl(0 0% 100% / 10%);
+  --pane-dim: hsl(0 0% 0% / 28%);
   --bg-input: hsl(30 5% 9%);
   --line: hsl(0 0% 100% / 6%);
   --line-strong: hsl(0 0% 100% / 10%);

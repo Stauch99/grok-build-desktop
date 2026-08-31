@@ -22,7 +22,7 @@
   width: 100%;
   height: var(--header-h);
   padding: 0;
-  justify-content: center;
+  justify-content: stretch;
 }
 .sidebar.rail .side-content,
 .sidebar.rail .session-list,
@@ -54,14 +54,28 @@
 .sidebar.rail .account-trigger.compact .usage-bar {
   width: 28px;
 }
+.sidebar.rail .icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+}
+.sidebar.rail .icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 
 .side-traffic {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-end;
   height: var(--header-h);
-  padding: 0 8px 0 74px;
+  padding: 0 8px 0 80px;
   flex: none;
+}
+.side-traffic-drag {
+  flex: 1 1 auto;
+  min-width: 48px;
+  min-height: 100%;
 }
 .side-content {
   flex: none;
@@ -72,6 +86,7 @@
   align-items: center;
   gap: 2px;
   flex: none;
+  -webkit-app-region: no-drag;
 }
 .side-actions .icon-btn {
   width: 32px;
@@ -84,8 +99,14 @@
 
 .side-pad { padding: 0 12px 6px; }
 
-.session-list { flex: 1 1 0; overflow: auto; padding: 0 8px 10px; }
-.project { margin: 0 0 2px; }
+.session-list {
+  position: relative;
+  z-index: 0;
+  flex: 1 1 0;
+  overflow: auto;
+  padding: 0 8px 0;
+}
+.project { margin: 0 0 8px; }
 .project-head {
   display: flex;
   align-items: center;
@@ -120,11 +141,20 @@
   opacity: 0.72;
   transition: opacity var(--dur-fast) var(--ease);
 }
-}
 .project.open .folder-glyph { opacity: 0.88; }
 .project-sessions {
-  margin: 0 0 2px 10px;
-  padding-left: 8px;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
+}
+.project-sessions.open {
+  grid-template-rows: 1fr;
+}
+.project-sessions-inner {
+  overflow: hidden;
+  min-height: 0;
+  margin-left: 10px;
+  padding-left: 18px;
   border-left: 0.5px solid var(--line);
 }
 
@@ -138,10 +168,13 @@
   min-height: 0;
 }
 .inbox-list .session { padding-left: 6px; }
-.session.child { color: var(--muted); padding-left: 8px; }
+.session.child { color: var(--muted); padding-left: 16px; }
 .session:hover { background: var(--bg-hover); }
-.session.active {
+.session.open {
   background: var(--bg-hover);
+}
+.session.active {
+  background: var(--bg-active);
   box-shadow: none;
 }
 .session .title {
@@ -185,7 +218,6 @@
 .side-foot .who strong { display: block; font-size: 13.5px; font-weight: 500; }
 .side-foot .who small { color: var(--muted); font-size: var(--ui-smaller); }
 .session-title-btn:hover { background: var(--bg-hover); }
-.session.split-open { outline: 1px solid var(--line); }
 
 .session .branch-chev {
   display: grid;
@@ -226,11 +258,20 @@
 .session .sub-toggle.open .chev,
 .session .sub-toggle.open { }
 .session-kids {
-  margin: 0 0 1px 8px;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
+}
+.session-kids.open {
+  grid-template-rows: 1fr;
+}
+.session-kids-inner {
+  overflow: hidden;
+  min-height: 0;
+  margin-left: 8px;
   padding-left: 6px;
   border-left: 0.5px solid var(--line);
 }
-.session.child { color: var(--muted); }
 .side-view {
   display: inline-flex;
   gap: 2px;
@@ -324,7 +365,25 @@
   padding: 10px 12px;
   border-top: 1px solid var(--line);
 }
-.side-account { position: relative; flex: none; padding: 0 6px 10px; }
+.side-account {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 0 6px 10px;
+}
+.side-account::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 100%;
+  height: 48px;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--bg-side), transparent);
+}
+.sidebar.rail .side-account::before {
+  content: none;
+}
 .account-trigger {
   display: flex;
   align-items: center;
@@ -364,6 +423,25 @@
   min-width: 168px;
 }
 .project-head-row { display: flex; align-items: center; gap: 2px; }
+.ws-band {
+  margin: 0 0 4px;
+}
+.ws-band + .ws-band {
+  margin-top: 8px;
+}
+.ws-band-label {
+  padding: 12px 10px 6px;
+  font-size: 11px;
+  color: var(--faint);
+  font-weight: 500;
+}
+.ws-band:first-child .ws-band-label {
+  padding-top: 6px;
+}
+.ws-band-inbox .ws-section {
+  margin: 0;
+}
+.sidebar.rail .ws-band-label { display: none; }
 .project-head-row .project-head { flex: 1; min-width: 0; }
 .session .title {
   display: flex;
