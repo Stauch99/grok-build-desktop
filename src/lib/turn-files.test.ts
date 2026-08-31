@@ -15,6 +15,17 @@ describe("turnFilesAfter", () => {
     expect(turnFilesAfter(items, "u1")).toEqual(["a.ts"]);
     expect(turnFilesAfter(items, "u2")).toEqual(["b.ts"]);
   });
+
+  it("keeps first-seen order and drops repeat edits of the same path", () => {
+    const repeats: ChatItem[] = [
+      { kind: "user", id: "u3", text: "three" },
+      { kind: "tool", id: "t3", title: "edit", status: "completed", diff: { path: "AGENTS.md", newText: "a" } },
+      { kind: "tool", id: "t4", title: "edit", status: "completed", diff: { path: "CLAUDE.md", newText: "b" } },
+      { kind: "tool", id: "t5", title: "edit", status: "completed", diff: { path: "AGENTS.md", newText: "c" } },
+      { kind: "tool", id: "t6", title: "edit", status: "completed", diff: { path: "CLAUDE.md", newText: "d" } },
+    ];
+    expect(turnFilesAfter(repeats, "u3")).toEqual(["AGENTS.md", "CLAUDE.md"]);
+  });
 });
 
 describe("lastTurnFiles", () => {

@@ -4,23 +4,63 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
 use walkdir::WalkDir;
 
 mod cli_bridge;
+mod rpc_allowlist;
+mod agent_host;
+mod agent_manifest;
+mod agents_paths;
+mod agents_files;
+mod marketplace;
+mod mcp_import;
+mod mcp_toml;
+mod workbench_state;
+mod agent_doctor;
+mod adapters;
+mod skill_sync;
+mod session_scan;
+mod session_lookup;
+mod session_replay;
+mod acp_loop;
+mod agent_registry;
+mod agent_models;
+mod memory_host;
+use memory_host::{read_memory_host, write_memory_host};
+use agent_models::{patch_agent_model_settings, read_agent_model_source};
+use agent_host::{
+    extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool,
+};
+use acp_loop::{spawn_reader, spawn_writer};
+use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 use cli_bridge::{
-    create_skill, git_branches, git_log, hide_window, list_agents_dir, list_file_tree,
+    create_skill, git_blame, git_branches, git_commit, git_discard, git_log, git_pull, git_push,
+    git_status_untracked, hide_window, list_agents_dir, list_file_tree,
     list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
     patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
-    read_usage_history, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
-    trust_folder, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
+    read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
+    trust_folder, watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
+    save_paste_bytes, import_dropped_file, stat_attachment,
 };
 
-const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
+
+const ALLOWED_CLI_PATCH_KEYS: &[&str] = &[
+    "model",
+    "effort",
+    "permissionMode",
+    "yolo",
+    "showThinking",
+    "telemetry",
+    "memory",
+    "compactPercent",
+    "mcp",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AppError {
@@ -41,16 +81,19 @@ struct AgentSession {
     tx: mpsc::Sender<String>,
     #[allow(dead_code)]
     generation: u64,
+    #[allow(dead_code)]
+    agent_id: AgentId,
 }
 
 pub(crate) struct AppState {
     next_id: AtomicU64,
     generation: AtomicU64,
-    session: Mutex<Option<AgentSession>>,
+    children: Mutex<AgentPool<AgentSession>>,
     workspace: Mutex<Option<PathBuf>>,
     workspaces: Mutex<HashMap<String, PathBuf>>,
     pub(crate) hide_on_close: Mutex<bool>,
     pub(crate) notify_target: Mutex<Option<String>>,
+    pub(crate) config_write: Mutex<()>,
 }
 
 impl Default for AppState {
@@ -58,11 +101,12 @@ impl Default for AppState {
         Self {
             next_id: AtomicU64::new(1),
             generation: AtomicU64::new(1),
-            session: Mutex::new(None),
+            children: Mutex::new(AgentPool::new()),
             workspace: Mutex::new(None),
             workspaces: Mutex::new(HashMap::new()),
             hide_on_close: Mutex::new(true),
             notify_target: Mutex::new(None),
+            config_write: Mutex::new(()),
         }
     }
 }
@@ -71,6 +115,8 @@ impl Default for AppState {
 #[serde(rename_all = "camelCase")]
 struct SessionSummary {
     id: String,
+    #[serde(default = "default_grok_agent")]
+    agent_id: String,
     cwd: String,
     title: String,
     model: Option<String>,
@@ -81,7 +127,11 @@ struct SessionSummary {
     dir: Option<String>,
     session_kind: Option<String>,
     parent_session_id: Option<String>,
+    last_turn_summary: Option<String>,
+    last_turn_summary_prompt_id: Option<String>,
 }
+
+fn default_grok_agent() -> String { "grok".into() }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +146,55 @@ pub(crate) fn grok_home() -> PathBuf {
     std::env::var("GROK_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| dirs_home().join(".grok"))
+}
+
+pub(crate) fn grok_asset_root() -> PathBuf {
+    grok_home().join("sessions")
+}
+
+#[cfg(test)]
+mod grok_asset_tests {
+    use super::*;
+
+    #[test]
+    fn grok_asset_root_is_sessions_not_whole_grok_home() {
+        let root = grok_asset_root();
+        assert_eq!(root.file_name().unwrap(), "sessions");
+        assert_eq!(root, grok_home().join("sessions"));
+        assert_ne!(root, grok_home());
+    }
+
+    #[test]
+    fn parse_summary_reads_grok_last_turn_recap() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-summary-recap-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("summary.json");
+        std::fs::write(
+            &path,
+            r#"{
+              "info": { "id": "sess-1", "cwd": "/work" },
+              "generated_title": "文件夹整理",
+              "session_summary": "文件夹整理",
+              "last_turn_summary": "五套按用途落地；标准材料仍作终版出口",
+              "last_turn_summary_prompt_id": "prompt-9"
+            }"#,
+        )
+        .unwrap();
+        let row = parse_summary(&path).expect("summary");
+        assert_eq!(row.id, "sess-1");
+        assert_eq!(row.title, "文件夹整理");
+        assert_eq!(
+            row.last_turn_summary.as_deref(),
+            Some("五套按用途落地；标准材料仍作终版出口")
+        );
+        assert_eq!(row.last_turn_summary_prompt_id.as_deref(), Some("prompt-9"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 pub(crate) fn dirs_home() -> PathBuf {
@@ -136,7 +235,7 @@ pub(crate) fn is_blocked_path(path: &Path) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum PathAccess {
+pub(crate) enum PathAccess {
     Read,
     Write,
 }
@@ -160,12 +259,39 @@ fn resolve_with_existing_ancestor(requested: &Path) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+fn same_dir(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+        }
+    }
+    false
+}
+
 pub(crate) fn trusted_workspace_for_hint(workspace: Option<&Path>, hint: Option<&str>) -> Result<PathBuf, String> {
     let root = workspace.ok_or_else(|| "trusted workspace is not set".to_string())?.canonicalize().map_err(|e| e.to_string())?;
     if root == Path::new("/") || is_blocked_path(&root) { return Err("trusted workspace is invalid".into()); }
     if let Some(raw) = hint.filter(|value| !value.trim().is_empty()) {
         let hinted = PathBuf::from(raw).canonicalize().map_err(|e| e.to_string())?;
-        if hinted != root { return Err("caller workspace does not match trusted workspace".into()); }
+        if hinted == Path::new("/") || is_blocked_path(&hinted) {
+            return Err("caller workspace does not match trusted workspace".into());
+        }
+        if let Ok(home) = dirs_home().canonicalize() {
+            if hinted == home {
+                return Err("caller workspace does not match trusted workspace".into());
+            }
+        }
+        // Same folder (including macOS firmlink aliases), a worktree inside the
+        // trusted root, or a parent git root while the trusted path is a session
+        // worktree. Never expand the returned capability past `root`.
+        if !(same_dir(&hinted, &root) || is_under(&hinted, &root) || is_under(&root, &hinted)) {
+            return Err("caller workspace does not match trusted workspace".into());
+        }
     }
     Ok(root)
 }
@@ -178,7 +304,7 @@ pub(crate) fn trusted_desktop_root(workspace: Option<&Path>, hint: Option<&str>)
     trusted_workspace_for_hint(workspace, hint).map(Some)
 }
 
-fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess) -> Result<PathBuf, String> {
+pub(crate) fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess) -> Result<PathBuf, String> {
     if raw.is_empty() { return Err("empty path".into()); }
     let requested = PathBuf::from(raw);
     if !requested.is_absolute() { return Err("path must be absolute".into()); }
@@ -196,181 +322,26 @@ fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess)
         if !canon.starts_with(&root) { return Err("path is outside the workspace".into()); }
         return Ok(canon);
     }
-    if let Some(root) = workspace {
-        let root = root.canonicalize().map_err(|e| e.to_string())?;
-        if !canon.starts_with(&root) { return Err("path is outside the workspace".into()); }
-    } else {
-        let home = grok_home().canonicalize().map_err(|e| e.to_string())?;
-        if !is_under(&canon, &home) { return Err("trusted workspace is not set".into()); }
+    let allow_root = match workspace {
+        Some(root) => Some(root.canonicalize().map_err(|e| e.to_string())?),
+        None => None,
+    };
+    if !allow_acp_read(&canon, allow_root.as_deref()) {
+        return Err("path is outside the workspace".into());
     }
     Ok(canon)
 }
 
-async fn write_line(stdin: &mut ChildStdin, line: &str) -> AppResult<()> {
-    stdin
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|e| AppError::Message(format!("write grok stdin: {e}")))?;
-    if !line.ends_with('\n') {
-        stdin
-            .write_all(b"\n")
-            .await
-            .map_err(|e| AppError::Message(format!("write grok stdin: {e}")))?;
+async fn stop_one(state: &AppState, id: AgentId) {
+    if let Some(mut session) = state.children.lock().await.remove(id) {
+        let _ = session.child.start_kill();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), session.child.wait()).await;
     }
-    stdin
-        .flush()
-        .await
-        .map_err(|e| AppError::Message(format!("flush grok stdin: {e}")))
-}
-
-fn handle_agent_request(app: &AppHandle, msg: &Value, workspace: Option<&Path>) -> Option<Value> {
-    let method = msg.get("method")?.as_str()?;
-    let id = msg.get("id")?.clone();
-    let params = msg.get("params").cloned().unwrap_or(json!({}));
-
-    match method {
-        "fs/read_text_file" | "x.ai/fs/read_file" => {
-            let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let limit = params.get("limit").and_then(|v| v.as_u64());
-            match resolve_allowed_path(path, workspace, PathAccess::Read) {
-                Ok(path) => match std::fs::read_to_string(&path) {
-                    Ok(mut content) => {
-                        if content.len() > MAX_FS_BYTES {
-                            content.truncate(MAX_FS_BYTES);
-                        }
-                        if let Some(n) = limit {
-                            content = content.lines().take(n as usize).collect::<Vec<_>>().join("\n");
-                        }
-                        Some(json!({ "jsonrpc": "2.0", "id": id, "result": { "content": content } }))
-                    }
-                    Err(e) => Some(json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": { "code": -32000, "message": e.to_string() }
-                    })),
-                },
-                Err(e) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32000, "message": e }
-                })),
-            }
-        }
-        "fs/write_text_file" | "x.ai/fs/write_file" => {
-            let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            if content.len() > MAX_FS_BYTES {
-                return Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32001, "message": "write too large" }
-                }));
-            }
-            match resolve_allowed_path(path, workspace, PathAccess::Write) {
-                Ok(path) => match std::fs::write(&path, content) {
-                    Ok(()) => Some(json!({ "jsonrpc": "2.0", "id": id, "result": {} })),
-                    Err(e) => Some(json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": { "code": -32000, "message": e.to_string() }
-                    })),
-                },
-                Err(e) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32000, "message": e }
-                })),
-            }
-        }
-        _ => {
-            let _ = app.emit("acp-request", msg);
-            None
-        }
-    }
-}
-
-fn spawn_reader(
-    app: AppHandle,
-    stdout: tokio::process::ChildStdout,
-    stderr: tokio::process::ChildStderr,
-    tx: mpsc::Sender<String>,
-    generation: u64,
-) {
-    let app_out = app.clone();
-    let app_err = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    match serde_json::from_str::<Value>(&line) {
-                        Ok(msg) => {
-                            let is_request = msg.get("method").is_some() && msg.get("id").is_some();
-                            if is_request {
-                                let sid = msg
-                                    .get("params")
-                                    .and_then(|p| p.get("sessionId"))
-                                    .and_then(|v| v.as_str())
-                                    .map(str::to_string);
-                                let workspace = app_out.try_state::<Arc<AppState>>().and_then(|s| {
-                                    if let Some(id) = sid.as_deref() {
-                                        if let Ok(map) = s.workspaces.try_lock() {
-                                            if let Some(p) = map.get(id) {
-                                                return Some(p.clone());
-                                            }
-                                        }
-                                    }
-                                    s.workspace.try_lock().ok().and_then(|g| g.clone())
-                                });
-                                if let Some(reply) =
-                                    handle_agent_request(&app_out, &msg, workspace.as_deref())
-                                {
-                                    let _ = tx.send(reply.to_string()).await;
-                                    continue;
-                                }
-                            }
-                            let _ = app_out.emit("acp-message", &msg);
-                        }
-                        Err(_) => {
-                            let _ = app_out.emit("acp-log", line);
-                        }
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    let _ = app_out.emit("acp-stderr", format!("stdout read error: {e}"));
-                    break;
-                }
-            }
-        }
-        let _ = app_out.emit("agent-exit", json!({ "generation": generation }));
-    });
-
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if !line.trim().is_empty() {
-                let _ = app_err.emit("acp-stderr", line);
-            }
-        }
-    });
-}
-
-fn spawn_writer(mut stdin: ChildStdin, mut rx: mpsc::Receiver<String>) {
-    tauri::async_runtime::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if write_line(&mut stdin, &line).await.is_err() {
-                break;
-            }
-        }
-    });
 }
 
 async fn stop_agent_inner(state: &AppState) {
-    if let Some(mut session) = state.session.lock().await.take() {
+    let sessions = state.children.lock().await.drain();
+    for (_, mut session) in sessions {
         let _ = session.child.start_kill();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), session.child.wait()).await;
     }
@@ -399,8 +370,71 @@ async fn doctor() -> DoctorInfo {
     }
 }
 
+fn env_nonempty(name: &str) -> bool {
+    std::env::var(name).ok().map(|s| !s.trim().is_empty()).unwrap_or(false)
+}
+
+async fn cli_version_of(path: &Path) -> Option<String> {
+    let fut = Command::new(path).arg("--version").output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(2), fut)
+        .await
+        .ok()?
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let raw = if !stdout.trim().is_empty() {
+        stdout.as_ref()
+    } else {
+        stderr.as_ref()
+    };
+    let line = raw.lines().next()?.trim();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line.chars().take(80).collect())
+    }
+}
+
+async fn probe_agent_binary(name: &str) -> (Option<String>, Option<String>) {
+    let path = if name == "grok" {
+        resolve_grok()
+    } else {
+        which_on_path(name)
+    };
+    match path {
+        Some(p) => (Some(p.display().to_string()), cli_version_of(&p).await),
+        None => (None, None),
+    }
+}
+
+#[tauri::command]
+async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
+    let home = dirs_home();
+    let grok_h = grok_home();
+    let grok_sub = grok_h.join("auth.json").is_file();
+    let grok_key = env_nonempty("XAI_API_KEY") || env_nonempty("GROK_API_KEY");
+    let homes = crate::adapters::doctor_homes(&home, &grok_h);
+    let kimi_h = &homes[1].1;
+    let claude_h = &homes[2].1;
+    let codex_h = &homes[3].1;
+    let claude_json = home.join(".claude.json");
+    let (grok_bin, kimi_bin, claude_bin, codex_bin) = tokio::join!(
+        probe_agent_binary("grok"),
+        probe_agent_binary("kimi"),
+        probe_agent_binary("claude"),
+        probe_agent_binary("codex"),
+    );
+    vec![
+        crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, grok_bin.0, grok_bin.1),
+        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), crate::agent_doctor::kimi_subscription_present(kimi_h), env_nonempty("KIMI_API_KEY"), kimi_bin.0, kimi_bin.1),
+        crate::agent_doctor::doctor_from_evidence("claude", claude_h.display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), claude_bin.0, claude_bin.1),
+        crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), codex_bin.0, codex_bin.1),
+    ]
+}
+
 #[tauri::command]
 async fn set_workspace(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     cwd: String,
     session_id: Option<String>,
@@ -414,74 +448,119 @@ async fn set_workspace(
     if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
         state.workspaces.lock().await.insert(sid, path.clone());
     }
-    *state.workspace.lock().await = Some(path);
+    *state.workspace.lock().await = Some(path.clone());
+    let _ = app.asset_protocol_scope().allow_directory(&path, true);
     Ok(())
 }
 
 #[tauri::command]
-async fn start_agent(app: AppHandle, state: State<'_, Arc<AppState>>) -> AppResult<Value> {
-    stop_agent_inner(&state).await;
-
-    let grok = resolve_grok().ok_or_else(|| {
-        AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
-    })?;
-
-    let mut cmd = Command::new(&grok);
-    cmd.args(["agent", "stdio"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    let mut path = std::env::var("PATH").unwrap_or_default();
-    let extra = grok_home().join("bin");
-    if !path.split(':').any(|p| Path::new(p) == extra) {
-        path = format!("{}:{path}", extra.display());
-    }
-    cmd.env("PATH", path);
-    cmd.env("HOME", dirs_home());
-    cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Message(format!("启动 grok agent 失败: {e}")))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::Message("grok stdout missing".into()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| AppError::Message("grok stderr missing".into()))?;
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Message("grok stdin missing".into()))?;
+async fn start_agent(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    agent_id: Option<String>,
+) -> AppResult<Value> {
+    let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+    stop_one(&state, id).await;
 
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = mpsc::channel::<String>(64);
-    spawn_reader(app, stdout, stderr, tx.clone(), generation);
+
+    let grok_bin = if id == AgentId::Grok { resolve_grok() } else { None };
+    let registry = std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
+    let (cmd_path, args) = crate::adapters::spawn_argv(id, grok_bin.as_deref(), registry.as_deref()).ok_or_else(|| {
+        if id == AgentId::Grok {
+            AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
+        } else {
+            AppError::Message(format!("无法解析 {} 的启动参数", id.as_str()))
+        }
+    })?;
+    let mut cmd = Command::new(&cmd_path);
+    cmd.args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .env("HOME", dirs_home());
+    for (key, value) in extra_spawn_env(id, which_on_path) {
+        cmd.env(key, value);
+    }
+    if id == AgentId::Grok {
+        let mut path = std::env::var("PATH").unwrap_or_default();
+        let extra = grok_home().join("bin");
+        if !path.split(':').any(|p| Path::new(p) == extra) {
+            path = format!("{}:{path}", extra.display());
+        }
+        cmd.env("PATH", path);
+        cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
+    }
+    let mut child = cmd.spawn().map_err(|e| AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str())))?;
+    let grok_path = grok_bin;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Message("agent stdout missing".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Message("agent stderr missing".into()))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::Message("agent stdin missing".into()))?;
+
+    spawn_reader(app, stdout, stderr, tx.clone(), generation, id);
     spawn_writer(stdin, rx);
-    *state.session.lock().await = Some(AgentSession {
-        child,
-        tx,
-        generation,
+    state.children.lock().await.insert(
+        id,
+        AgentSession {
+            child,
+            tx,
+            generation,
+            agent_id: id,
+        },
+    );
+
+    let mut result = json!({
+        "ok": true,
+        "agentId": id.as_str(),
+        "generation": generation,
     });
-    Ok(json!({ "ok": true, "grok": grok.display().to_string(), "generation": generation }))
+    if let Some(grok) = grok_path {
+        result["grok"] = json!(grok.display().to_string());
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-async fn stop_agent(state: State<'_, Arc<AppState>>) -> AppResult<()> {
-    stop_agent_inner(&state).await;
+async fn stop_agent(
+    state: State<'_, Arc<AppState>>,
+    agent_id: Option<String>,
+) -> AppResult<()> {
+    if agent_id.is_none() {
+        stop_agent_inner(&state).await;
+    } else {
+        let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+        stop_one(&state, id).await;
+    }
     Ok(())
 }
 
 #[tauri::command]
-async fn send_raw(state: State<'_, Arc<AppState>>, payload: Value) -> AppResult<()> {
+async fn send_raw(
+    state: State<'_, Arc<AppState>>,
+    payload: Value,
+    agent_id: Option<String>,
+) -> AppResult<()> {
+    let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+    let caps = caps_for_agent(id);
+    if !rpc_payload_allowed_for(&payload, &caps) {
+        return Err(AppError::Message("不允许的 RPC 方法".into()));
+    }
     let line = serde_json::to_string(&payload).map_err(|e| AppError::Message(e.to_string()))?;
-    let guard = state.session.lock().await;
+    let guard = state.children.lock().await;
     let session = guard
-        .as_ref()
+        .get(id)
         .ok_or_else(|| AppError::Message("agent 未启动".into()))?;
     session
         .tx
@@ -500,20 +579,12 @@ fn normalize_cwd(cwd: &str) -> String {
 }
 
 fn default_inbox_cwd() -> PathBuf {
-    dirs_home().join("Documents").join("Grok Chats")
+    dirs_home().join("Documents").join("Agent Chats")
 }
 
 pub(crate) fn find_session_dir(session_id: &str) -> Option<PathBuf> {
-    let root = grok_home().join("sessions");
-    if !root.is_dir() {
-        return None;
-    }
-    for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-        if entry.file_type().is_dir() && entry.file_name() == session_id {
-            return Some(entry.path().to_path_buf());
-        }
-    }
-    None
+    let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
+    crate::session_lookup::find_session_dir_in(session_id, &roots).map(|(_, p)| p)
 }
 
 fn encode_cwd(cwd: &str) -> String {
@@ -539,6 +610,7 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
     }
     Some(SessionSummary {
         id,
+        agent_id: "grok".into(),
         cwd: info
             .get("cwd")
             .and_then(|v| v.as_str())
@@ -584,6 +656,16 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .get("parent_session_id")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        last_turn_summary: value
+            .get("last_turn_summary")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        last_turn_summary_prompt_id: value
+            .get("last_turn_summary_prompt_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -619,37 +701,75 @@ fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
     }
 }
 
+struct SessionsDirCache {
+    mtime: u64,
+    sessions: Vec<SessionSummary>,
+}
+
+static SESSIONS_DIR_CACHE: OnceLock<std::sync::Mutex<Option<SessionsDirCache>>> = OnceLock::new();
+static LAST_WEBUI_TEXT: OnceLock<std::sync::Mutex<Option<String>>> = OnceLock::new();
+
+fn scan_all_sessions() -> Vec<SessionSummary> {
+    let root = grok_home().join("sessions");
+    if !root.is_dir() {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
+        if entry.file_name() != "summary.json" {
+            continue;
+        }
+        if let Some(row) = parse_summary(entry.path()) {
+            out.push(row);
+        }
+    }
+    attach_subagent_parents(&mut out);
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out
+}
+
+fn cached_sessions() -> Vec<SessionSummary> {
+    let root = grok_home().join("sessions");
+    let mtime = cli_bridge::dir_mtime_ms(&root);
+    let cache = SESSIONS_DIR_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if cli_bridge::cache_hit(guard.as_ref().map(|row| row.mtime), mtime) {
+        return guard.as_ref().map(|row| row.sessions.clone()).unwrap_or_default();
+    }
+    let sessions = scan_all_sessions();
+    *guard = Some(SessionsDirCache {
+        mtime,
+        sessions: sessions.clone(),
+    });
+    sessions
+}
+
 #[tauri::command]
 async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
     tokio::task::spawn_blocking(move || {
-        let root = grok_home().join("sessions");
-        if !root.is_dir() {
-            return Ok(vec![]);
+        let mut out = cached_sessions();
+        let extra = crate::session_scan::scan_vendor_homes(&dirs_home());
+        for row in extra {
+            out.push(SessionSummary {
+                id: row.id,
+                agent_id: row.agent_id,
+                cwd: row.cwd,
+                title: row.title,
+                model: None,
+                agent_name: None,
+                updated_at: row.updated_at,
+                created_at: String::new(),
+                num_messages: 0,
+                dir: Some(row.dir),
+                session_kind: row.session_kind,
+                parent_session_id: row.parent_session_id,
+                last_turn_summary: None,
+                last_turn_summary_prompt_id: None,
+            });
         }
-        let mut scan_root = root.clone();
-        if let Some(cwd) = cwd.as_deref().filter(|s| !s.is_empty()) {
-            let encoded = encode_cwd(cwd);
-            let direct = root.join(&encoded);
-            if direct.is_dir() {
-                scan_root = direct;
-            }
-        }
-        let mut out = Vec::new();
-        for entry in WalkDir::new(&scan_root).max_depth(3).into_iter().flatten() {
-            if entry.file_name() != "summary.json" {
-                continue;
-            }
-            if let Some(row) = parse_summary(entry.path()) {
-                if let Some(want) = cwd.as_deref() {
-                    if row.cwd != want {
-                        continue;
-                    }
-                }
-                out.push(row);
-            }
-        }
-        attach_subagent_parents(&mut out);
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let want = cwd.as_deref().unwrap_or("");
+        out.retain(|row| crate::session_scan::keep_row_for_cwd(&row.cwd, want));
         Ok(out)
     })
     .await
@@ -703,55 +823,171 @@ async fn read_session_usage(session_id: String) -> AppResult<Option<SessionUsage
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-#[tauri::command]
-async fn read_session_updates(session_id: String) -> AppResult<Vec<Value>> {
-    tokio::task::spawn_blocking(move || {
-        let Some(dir) = find_session_dir(&session_id) else {
-            return Ok(vec![]);
+const SESSION_UPDATES_TAIL_MAX: u64 = 4 * 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionUpdates {
+    rows: Vec<Value>,
+    next_byte: u64,
+    truncated: bool,
+}
+
+fn empty_session_updates() -> SessionUpdates {
+    SessionUpdates {
+        rows: vec![],
+        next_byte: 0,
+        truncated: false,
+    }
+}
+
+fn parse_update_line(line: &str) -> Option<Value> {
+    let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
+    // Records store `timestamp` in seconds, but very large values are already ms.
+    let ts_ms = value
+        .get("timestamp")
+        .and_then(|v| v.as_f64())
+        .map(|ts| if ts > 100_000_000_000.0 { ts } else { ts * 1000.0 })
+        .map(|ms| ms as u64);
+    let mut params = value.get("params").cloned().unwrap_or(value);
+    if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
+        obj.insert("_ts".into(), json!(ms));
+    }
+    let kind = params
+        .get("update")
+        .and_then(|u| u.get("sessionUpdate"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if matches!(
+        kind,
+        "user_message_chunk"
+            | "agent_message_chunk"
+            | "agent_thought_chunk"
+            | "tool_call"
+            | "tool_call_update"
+            | "plan"
+            | "usage_update"
+            | "auto_compact_started"
+            | "auto_compact_completed"
+            | "turn_completed"
+    ) {
+        Some(params)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn read_updates_jsonl(path: &Path, after_byte: Option<u64>) -> AppResult<SessionUpdates> {
+    read_updates_jsonl_limited(path, after_byte, SESSION_UPDATES_TAIL_MAX)
+}
+
+fn read_updates_jsonl_limited(
+    path: &Path,
+    after_byte: Option<u64>,
+    tail_max: u64,
+) -> AppResult<SessionUpdates> {
+    use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+    let io = |e: std::io::Error| AppError::Message(e.to_string());
+    let mut file = std::fs::File::open(path).map_err(io)?;
+    let file_len = file.metadata().map_err(io)?.len();
+    let (start, truncated) = match after_byte {
+        Some(n) if n > 0 => (n.min(file_len), false),
+        _ if file_len > tail_max => (file_len.saturating_sub(tail_max), true),
+        _ => (0, false),
+    };
+    file.seek(SeekFrom::Start(start)).map_err(io)?;
+    let mut pos = start;
+    if truncated && start > 0 {
+        let aligned = {
+            file.seek(SeekFrom::Start(start - 1)).map_err(io)?;
+            let mut prev = [0u8; 1];
+            file.read_exact(&mut prev).map_err(io)?;
+            prev[0] == b'\n'
         };
-        let path = dir.join("updates.jsonl");
-        if !path.is_file() {
-            return Ok(vec![]);
-        }
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| AppError::Message(e.to_string()))?;
-        let mut out = Vec::new();
-        for line in text.lines() {
-            let Ok(value) = serde_json::from_str::<Value>(line) else {
-                continue;
-            };
-            // Records store `timestamp` in seconds, but very large values are already ms.
-            let ts_ms = value
-                .get("timestamp")
-                .and_then(|v| v.as_f64())
-                .map(|ts| if ts > 100_000_000_000.0 { ts } else { ts * 1000.0 })
-                .map(|ms| ms as u64);
-            let mut params = value.get("params").cloned().unwrap_or(value);
-            if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
-                obj.insert("_ts".into(), json!(ms));
-            }
-            let kind = params
-                .get("update")
-                .and_then(|u| u.get("sessionUpdate"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if matches!(
-                kind,
-                "user_message_chunk"
-                    | "agent_message_chunk"
-                    | "agent_thought_chunk"
-                    | "tool_call"
-                    | "tool_call_update"
-                    | "plan"
-                    | "usage_update"
-                    | "auto_compact_started"
-                    | "auto_compact_completed"
-                    | "turn_completed"
-            ) {
-                out.push(params);
+        if !aligned {
+            loop {
+                let mut b = [0u8; 1];
+                let n = file.read(&mut b).map_err(io)?;
+                if n == 0 {
+                    break;
+                }
+                pos += 1;
+                if b[0] == b'\n' {
+                    break;
+                }
             }
         }
-        Ok(out)
+    }
+    let mut reader = BufReader::new(file);
+    let mut buf = Vec::new();
+    let mut rows = Vec::new();
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf).map_err(io)?;
+        if n == 0 {
+            break;
+        }
+        if buf.last() != Some(&b'\n') {
+            break;
+        }
+        pos += n as u64;
+        let Ok(line) = std::str::from_utf8(&buf) else {
+            continue;
+        };
+        if let Some(row) = parse_update_line(line) {
+            rows.push(row);
+        }
+    }
+    Ok(SessionUpdates {
+        rows,
+        next_byte: pos,
+        truncated,
+    })
+}
+
+pub(crate) fn session_updates_for_dir(
+    dir: &Path,
+    after_byte: Option<u64>,
+) -> AppResult<SessionUpdates> {
+    if !crate::session_lookup::replay_path_or_empty(dir) {
+        return Ok(empty_session_updates());
+    }
+    if let Some(transcript) = crate::session_replay::resolve_transcript(dir) {
+        if transcript
+            .file_name()
+            .and_then(|n| n.to_str())
+            == Some("updates.jsonl")
+        {
+            return read_updates_jsonl(&transcript, after_byte);
+        }
+        let page = crate::session_replay::replay_session(dir, after_byte)
+            .map_err(AppError::Message)?;
+        return Ok(SessionUpdates {
+            rows: page.rows,
+            next_byte: page.next_byte,
+            truncated: page.truncated,
+        });
+    }
+    Ok(empty_session_updates())
+}
+
+#[tauri::command]
+async fn read_session_updates(
+    session_id: String,
+    after_byte: Option<u64>,
+    dir: Option<String>,
+) -> AppResult<SessionUpdates> {
+    tokio::task::spawn_blocking(move || {
+        let hinted = dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        let Some(path) = hinted.or_else(|| find_session_dir(&session_id)) else {
+            return Ok(empty_session_updates());
+        };
+        session_updates_for_dir(&path, after_byte)
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -808,49 +1044,188 @@ async fn pick_directory(app: AppHandle) -> AppResult<Option<String>> {
     Ok(rx.await.unwrap_or(None))
 }
 
+fn workbench_home() -> PathBuf {
+    crate::agents_paths::workbench_home_from(
+        &dirs_home(),
+        std::env::var("ACP_WORKBENCH_HOME").ok().as_deref(),
+    )
+}
 fn webui_path() -> PathBuf {
-    grok_home().join("webui.json")
+    crate::agents_paths::workbench_json_path(&workbench_home())
 }
 
 #[tauri::command]
 async fn load_webui_state() -> AppResult<Value> {
+    let registry = crate::agent_registry::agents_toml_path(&workbench_home());
+    if crate::agent_registry::should_write_default_registry(registry.is_file()) {
+        let _ = tokio::fs::create_dir_all(workbench_home()).await;
+        let _ = tokio::fs::write(&registry, crate::agent_registry::default_agents_toml()).await;
+    }
     let path = webui_path();
+    let legacy = crate::agents_paths::grok_webui_path(&grok_home());
+    if crate::workbench_state::should_copy_webui(path.is_file(), legacy.is_file()) {
+        let text = tokio::fs::read_to_string(&legacy).await.map_err(|e| AppError::Message(e.to_string()))?;
+        let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+        let migrated = crate::workbench_state::migrate_workbench_doc(raw);
+        if let Some(parent) = path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+        return Ok(migrated);
+    }
     if !path.is_file() {
         return Ok(json!({ "projects": [], "theme": "light", "model": "", "showThinking": true }));
     }
-    let text = tokio::fs::read_to_string(path)
+    let text = tokio::fs::read_to_string(&path).await.map_err(|e| AppError::Message(e.to_string()))?;
+    let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+    let migrated = crate::workbench_state::load_existing_workbench_doc(raw.clone());
+    if migrated != raw {
+        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+    }
+    Ok(migrated)
+}
+
+#[tauri::command]
+async fn install_marketplace_skill(source: String) -> AppResult<String> {
+    let src = PathBuf::from(source);
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    tokio::task::spawn_blocking(move || crate::marketplace::install_marketplace_skill_inner(&src, &agents))
         .await
-        .map_err(|e| AppError::Message(e.to_string()))?;
-    serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))
+        .map_err(|e| AppError::Message(e.to_string()))?
+        .map_err(AppError::Message)
+}
+
+#[tauri::command]
+async fn sync_agent_skill(name: String, enabled: Vec<(String, bool)>) -> AppResult<Vec<(String, String)>> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let canonical = agents.join("skills").join(&name);
+    let flags: Vec<(String, bool)> = enabled;
+    tokio::task::spawn_blocking(move || {
+        let pairs: Vec<(&str, bool)> = flags.iter().map(|(a, e)| (a.as_str(), *e)).collect();
+        let rows = crate::skill_sync::sync_skill_to_agents(&canonical, &home, &name, &pairs);
+        Ok(rows.into_iter().map(|(a, r)| {
+            (a, match r { Ok(s) => s.to_string(), Err(e) => e })
+        }).collect())
+    }).await.map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let mcp_path = agents.join("mcp.json");
+    let claude = home.join(".claude.json");
+    let kimi = home.join(".kimi-code").join("mcp.json");
+    tokio::task::spawn_blocking(move || {
+        let canon = std::fs::read_to_string(&mcp_path).unwrap_or_default();
+        let live_c = std::fs::read_to_string(&claude).unwrap_or_default();
+        let live_k = std::fs::read_to_string(&kimi).unwrap_or_default();
+        let (out, conflicts) = crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k]);
+        if let Some(p) = mcp_path.parent() { let _ = std::fs::create_dir_all(p); }
+        std::fs::write(&mcp_path, out).map_err(|e| AppError::Message(e.to_string()))?;
+        Ok(conflicts)
+    }).await.map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn read_agents_file(kind: String) -> AppResult<String> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
+    tokio::task::spawn_blocking(move || Ok(crate::agents_files::read_agents_file_text(&path)))
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn write_agents_file(kind: String, text: String) -> AppResult<()> {
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
+    tokio::task::spawn_blocking(move || {
+        crate::agents_files::write_agents_file_text(&path, &text).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn upsert_toml_mcp(kind: String, name: String, command: String, args: Vec<String>) -> AppResult<()> {
+    if kind != "grok-toml" && kind != "codex-toml" {
+        return Err(AppError::Message("unknown toml kind".into()));
+    }
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message("unknown kind".into()))?;
+    tokio::task::spawn_blocking(move || {
+        let text = crate::agents_files::read_agents_file_text(&path);
+        let next = crate::mcp_toml::upsert_mcp_servers_toml(&text, &name, &command, &args);
+        crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
+    if kind != "grok-toml" && kind != "codex-toml" {
+        return Err(AppError::Message("unknown toml kind".into()));
+    }
+    let home = dirs_home();
+    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
+        .ok_or_else(|| AppError::Message("unknown kind".into()))?;
+    tokio::task::spawn_blocking(move || {
+        let text = crate::agents_files::read_agents_file_text(&path);
+        let next = crate::mcp_toml::remove_mcp_servers_toml(&text, &name);
+        crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
 async fn save_webui_state(state: Value) -> AppResult<()> {
+    let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
+    {
+        let cache = LAST_WEBUI_TEXT.get_or_init(|| std::sync::Mutex::new(None));
+        let last = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cli_bridge::should_skip_save(last.as_deref(), &text) {
+            return Ok(());
+        }
+    }
     let path = webui_path();
     if let Some(parent) = path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
-    tokio::fs::write(path, text)
+    tokio::fs::write(&path, &text)
         .await
-        .map_err(|e| AppError::Message(e.to_string()))
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    let cache = LAST_WEBUI_TEXT.get_or_init(|| std::sync::Mutex::new(None));
+    *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
+    Ok(())
 }
 
 #[tauri::command]
 async fn list_project_roots() -> AppResult<Vec<String>> {
     tokio::task::spawn_blocking(|| {
-        let root = grok_home().join("sessions");
         let mut set = std::collections::BTreeSet::new();
-        if root.is_dir() {
-            for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-                if entry.file_name() == "summary.json" {
-                    if let Some(row) = parse_summary(entry.path()) {
-                        if !row.cwd.is_empty() {
-                            set.insert(row.cwd);
-                        }
-                    }
-                }
+        for row in cached_sessions() {
+            if !row.cwd.is_empty() {
+                set.insert(row.cwd);
             }
+        }
+        for cwd in crate::session_scan::collect_cwds(&crate::session_scan::scan_vendor_homes(
+            &dirs_home(),
+        )) {
+            set.insert(cwd);
         }
         Ok(set.into_iter().collect())
     })
@@ -861,15 +1236,13 @@ async fn list_project_roots() -> AppResult<Vec<String>> {
 #[tauri::command]
 async fn delete_session(session_id: String) -> AppResult<()> {
     tokio::task::spawn_blocking(move || {
-        let root = grok_home().join("sessions");
-        for entry in WalkDir::new(&root).max_depth(3).into_iter().flatten() {
-            if entry.file_type().is_dir() && entry.file_name() == session_id.as_str() {
-                std::fs::remove_dir_all(entry.path())
-                    .map_err(|e| AppError::Message(e.to_string()))?;
-                return Ok(());
+        let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
+        match crate::session_lookup::find_session_dir_in(&session_id, &roots) {
+            Some((_, path)) => {
+                std::fs::remove_dir_all(path).map_err(|e| AppError::Message(e.to_string()))
             }
+            None => Err(AppError::Message("session not found".into())),
         }
-        Err(AppError::Message("session not found".into()))
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -1084,7 +1457,40 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
 }
 
 pub(crate) fn is_under(child: &Path, parent: &Path) -> bool {
-    child == parent || child.starts_with(parent)
+    if child == parent || child.starts_with(parent) || same_dir(child, parent) {
+        return true;
+    }
+    let mut cursor = child;
+    while let Some(next) = cursor.parent() {
+        if same_dir(next, parent) {
+            return true;
+        }
+        cursor = next;
+    }
+    false
+}
+
+fn git_dir_ancestor(dir: &Path) -> Option<PathBuf> {
+    let mut cursor = dir;
+    loop {
+        if cursor.join(".git").exists() {
+            return Some(cursor.to_path_buf());
+        }
+        match cursor.parent() {
+            Some(parent) if parent != cursor && parent != Path::new("/") => cursor = parent,
+            _ => return None,
+        }
+    }
+}
+
+fn is_transient_path(canon: &Path) -> bool {
+    let temp = std::env::temp_dir();
+    if is_under(canon, &temp) {
+        return true;
+    }
+    ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
+        .iter()
+        .any(|root| is_under(canon, Path::new(root)))
 }
 
 fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: bool) -> bool {
@@ -1107,8 +1513,22 @@ fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: b
             return true;
         }
     }
-    if let Some(root) = allow_root {
-        if is_under(canon, root) {
+    let Some(root) = allow_root else {
+        return false;
+    };
+    if is_under(canon, root) {
+        return true;
+    }
+    if let Some(git) = git_dir_ancestor(root) {
+        if is_under(canon, &git) {
+            return true;
+        }
+    }
+    if is_transient_path(canon) {
+        return true;
+    }
+    if let Ok(home) = dirs_home().canonicalize() {
+        if is_under(canon, &home) {
             return true;
         }
     }
@@ -1117,6 +1537,32 @@ fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: b
 
 fn allow_text_read(canon: &Path, allow_root: Option<&Path>) -> bool {
     allow_text_read_candidate(canon, allow_root, canon.is_file())
+}
+
+/// ACP reads follow the preview allowlist, plus user skill/agent homes that
+/// live outside the project (`~/.agents`, and the same roots other CLIs use).
+fn extra_skill_read_root(canon: &Path) -> bool {
+    if is_blocked_path(canon) || !canon.is_file() {
+        return false;
+    }
+    let home = dirs_home();
+    let roots = [
+        home.join(".agents"),
+        home.join(".claude"),
+        home.join(".codex"),
+        home.join(".kimi-code"),
+    ];
+    roots.iter().any(|root| {
+        if let Ok(root) = root.canonicalize() {
+            is_under(canon, &root)
+        } else {
+            is_under(canon, root)
+        }
+    })
+}
+
+fn allow_acp_read(canon: &Path, allow_root: Option<&Path>) -> bool {
+    allow_text_read(canon, allow_root) || extra_skill_read_root(canon)
 }
 
 const PREVIEW_MAX_BYTES: usize = 256 * 1024;
@@ -1148,7 +1594,7 @@ async fn read_text_file(
         let allow = trusted_desktop_root(workspace.as_deref(), allow_root.as_deref())
             .map_err(AppError::Message)?;
         if !allow_text_read(&canon, allow.as_deref()) {
-            return Err(AppError::Message("path not allowed".into()));
+            return Err(AppError::Message("无法预览这个文件".into()));
         }
         let meta = std::fs::metadata(&canon).map_err(|e| AppError::Message(e.to_string()))?;
         if !meta.is_file() {
@@ -1456,6 +1902,34 @@ async fn search_session_text(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+/// True when `explorer` would treat `target` as a switch (`/select`, `/e`) rather than a path.
+fn explorer_slash_switch(target: &str) -> bool {
+    let t = target.trim();
+    if t.starts_with("//") {
+        return false;
+    }
+    let Some(rest) = t.strip_prefix('/') else {
+        return false;
+    };
+    rest.as_bytes().get(1) != Some(&b':')
+}
+
+fn open_path_arg_rejected(trimmed: &str) -> bool {
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return true;
+    }
+    cfg!(target_os = "windows") && explorer_slash_switch(trimmed)
+}
+
+#[tauri::command]
+fn path_is_dir(path: String) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return false;
+    }
+    std::path::Path::new(trimmed).is_dir()
+}
+
 fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     #[cfg(target_os = "macos")]
     { ("open", vec!["--".into(), target.as_os_str().to_owned()]) }
@@ -1486,17 +1960,45 @@ fn decode_file_url(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+fn reject_symlink(path: &Path) -> AppResult<()> {
+    let meta = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::Message("Review 目标不能是符号链接".into()));
+    }
+    Ok(())
+}
+
+fn confirm_unfollowed(path: &Path) -> AppResult<()> {
+    reject_symlink(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let lstat = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        let followed = std::fs::metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        if lstat.dev() != followed.dev() || lstat.ino() != followed.ino() {
+            return Err(AppError::Message("Review 目标不能是符号链接".into()));
+        }
+    }
+    Ok(())
+}
+
 fn validate_review_open_target(path: &str, workspace: Option<&Path>, hint: &str) -> AppResult<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed.contains("://") || trimmed.starts_with('-') { return Err(AppError::Message("Review 目标不安全".into())); }
     let root = trusted_workspace_for_hint(workspace, Some(hint)).map_err(AppError::Message)?;
-    let target = PathBuf::from(trimmed).canonicalize().map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    let requested = PathBuf::from(trimmed);
+    if has_parent_traversal(&requested) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    let unfollowed = if requested.is_absolute() { requested } else { root.join(requested) };
+    if is_blocked_path(&unfollowed) || !is_under(&unfollowed, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    confirm_unfollowed(&unfollowed)?;
+    let target = unfollowed.canonicalize().map_err(|_| AppError::Message("Review 目标不存在".into()))?;
     if is_blocked_path(&target) || !is_under(&target, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
-    let lower = target.to_string_lossy().to_lowercase();
-    if lower.split('/').any(|part| part.ends_with(".app")) || matches!(target.extension().and_then(|v| v.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")) { return Err(AppError::Message("Review 不允许打开应用或可执行文件".into())); }
+    confirm_unfollowed(&unfollowed)?;
+    let lower = unfollowed.to_string_lossy().to_lowercase();
+    if lower.split('/').any(|part| part.ends_with(".app")) || matches!(unfollowed.extension().and_then(|v| v.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")) { return Err(AppError::Message("Review 不允许打开应用或可执行文件".into())); }
     #[cfg(unix)]
-    if std::fs::metadata(&target).map(|m| { use std::os::unix::fs::PermissionsExt; m.permissions().mode() & 0o111 != 0 }).unwrap_or(false) { return Err(AppError::Message("Review 不允许打开可执行文件".into())); }
-    Ok(target)
+    if std::fs::symlink_metadata(&unfollowed).map(|m| { use std::os::unix::fs::PermissionsExt; m.permissions().mode() & 0o111 != 0 }).unwrap_or(false) { return Err(AppError::Message("Review 不允许打开可执行文件".into())); }
+    Ok(unfollowed)
 }
 
 #[tauri::command]
@@ -1512,7 +2014,7 @@ async fn open_review_path(state: State<'_, Arc<AppState>>, path: String, allow_r
 #[tauri::command]
 async fn open_path(path: String) -> AppResult<()> {
     let trimmed = path.trim();
-    if trimmed.is_empty() || trimmed.starts_with('-') {
+    if open_path_arg_rejected(trimmed) {
         return Err(AppError::Message("invalid path".into()));
     }
     let target = if trimmed.starts_with("file://") {
@@ -1524,6 +2026,9 @@ async fn open_path(path: String) -> AppResult<()> {
     } else {
         trimmed.to_string()
     };
+    if !target.starts_with("http://") && !target.starts_with("https://") && open_path_arg_rejected(&target) {
+        return Err(AppError::Message("invalid path".into()));
+    }
     let (program, args) = open_command(Path::new(&target));
     let status = Command::new(program).args(args)
         .status()
@@ -1532,6 +2037,7 @@ async fn open_path(path: String) -> AppResult<()> {
     if !status.success() {
         return Err(AppError::Message(format!("open 失败: {target}")));
     }
+    crate::cli_bridge::append_desktop_audit("open_path", &target);
     Ok(())
 }
 
@@ -1640,8 +2146,69 @@ pub(crate) fn ensure_table<'a>(doc: &'a mut toml_edit::DocumentMut, key: &str) -
     doc[key].as_table_mut().expect("table")
 }
 
+pub(crate) fn reject_oversized_config_text(text: &str) -> AppResult<()> {
+    if text.len() > CONFIG_TEXT_MAX {
+        return Err(AppError::Message("配置太大".into()));
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_cli_patch(doc: &mut toml_edit::DocumentMut, patch: &Value) -> AppResult<()> {
+    let obj = patch
+        .as_object()
+        .ok_or_else(|| AppError::Message("不支持的设置字段".into()))?;
+    for key in obj.keys() {
+        if !ALLOWED_CLI_PATCH_KEYS.contains(&key.as_str()) {
+            return Err(AppError::Message("不支持的设置字段".into()));
+        }
+    }
+    if let Some(v) = patch.get("model").and_then(|v| v.as_str()) {
+        ensure_table(doc, "models")["default"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("effort").and_then(|v| v.as_str()) {
+        ensure_table(doc, "models")["default_reasoning_effort"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("permissionMode").and_then(|v| v.as_str()) {
+        ensure_table(doc, "ui")["permission_mode"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("yolo").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "ui")["yolo"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("showThinking").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "ui")["show_thinking_blocks"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("telemetry").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "features")["telemetry"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("memory").and_then(|v| v.as_bool()) {
+        ensure_table(doc, "memory")["enabled"] = toml_edit::value(v);
+    }
+    if let Some(v) = patch.get("compactPercent").and_then(|v| v.as_i64()) {
+        ensure_table(doc, "session")["auto_compact_threshold_percent"] =
+            toml_edit::value(v.clamp(50, 95));
+    }
+    if let Some(arr) = patch.get("mcp").and_then(|v| v.as_array()) {
+        for item in arr {
+            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let enabled = item.get("enabled").and_then(|v| v.as_bool());
+            if name.is_empty() || enabled.is_none() {
+                continue;
+            }
+            if let Some(tbl) = doc["mcp_servers"].as_table_mut() {
+                if let Some(server) = tbl.get_mut(name) {
+                    if let Some(inner) = server.as_table_like_mut() {
+                        inner.insert("enabled", toml_edit::value(enabled.unwrap()));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
-async fn patch_cli_settings(patch: Value) -> AppResult<Value> {
+async fn patch_cli_settings(state: State<'_, Arc<AppState>>, patch: Value) -> AppResult<Value> {
+    let _guard = state.config_write.lock().await;
     tokio::task::spawn_blocking(move || {
         let path = config_path();
         let text = if path.is_file() {
@@ -1649,52 +2216,15 @@ async fn patch_cli_settings(patch: Value) -> AppResult<Value> {
         } else {
             String::new()
         };
+        reject_oversized_config_text(&text)?;
         let mut doc = text.parse::<toml_edit::DocumentMut>().unwrap_or_default();
-        if let Some(v) = patch.get("model").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "models")["default"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("effort").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "models")["default_reasoning_effort"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("permissionMode").and_then(|v| v.as_str()) {
-            ensure_table(&mut doc, "ui")["permission_mode"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("yolo").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "ui")["yolo"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("showThinking").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "ui")["show_thinking_blocks"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("telemetry").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "features")["telemetry"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("memory").and_then(|v| v.as_bool()) {
-            ensure_table(&mut doc, "memory")["enabled"] = toml_edit::value(v);
-        }
-        if let Some(v) = patch.get("compactPercent").and_then(|v| v.as_i64()) {
-            ensure_table(&mut doc, "session")["auto_compact_threshold_percent"] =
-                toml_edit::value(v.clamp(50, 95));
-        }
-        if let Some(arr) = patch.get("mcp").and_then(|v| v.as_array()) {
-            for item in arr {
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let enabled = item.get("enabled").and_then(|v| v.as_bool());
-                if name.is_empty() || enabled.is_none() {
-                    continue;
-                }
-                if let Some(tbl) = doc["mcp_servers"].as_table_mut() {
-                    if let Some(server) = tbl.get_mut(name) {
-                        if let Some(inner) = server.as_table_like_mut() {
-                            inner.insert("enabled", toml_edit::value(enabled.unwrap()));
-                        }
-                    }
-                }
-            }
-        }
+        apply_cli_patch(&mut doc, &patch)?;
+        let out = doc.to_string();
+        reject_oversized_config_text(&out)?;
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        std::fs::write(&path, doc.to_string()).map_err(|e| AppError::Message(e.to_string()))?;
+        std::fs::write(&path, out).map_err(|e| AppError::Message(e.to_string()))?;
         Ok(json!({ "ok": true }))
     })
     .await
@@ -1791,7 +2321,7 @@ pub(crate) async fn git_repo_root(cwd: &str) -> Option<PathBuf> {
     if root.is_empty() {
         None
     } else {
-        Some(PathBuf::from(root))
+        PathBuf::from(root).canonicalize().ok().or_else(|| Some(PathBuf::from(root)))
     }
 }
 
@@ -2044,6 +2574,69 @@ async fn git_create_worktree(cwd: String, name: String) -> AppResult<String> {
     Ok(target_arg)
 }
 
+fn is_valid_git_ref(name: &str) -> bool {
+    let n = name.trim();
+    let len = n.chars().count();
+    if len == 0 || len > 200 {
+        return false;
+    }
+    if n.starts_with('-') || n.starts_with("remotes/") || n.contains("..") {
+        return false;
+    }
+    n.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'))
+}
+
+#[cfg(test)]
+mod git_ref_tests {
+    use super::is_valid_git_ref;
+
+    #[test]
+    fn accepts_local_branch_names() {
+        assert!(is_valid_git_ref("main"));
+        assert!(is_valid_git_ref("feat/foo-bar"));
+        assert!(is_valid_git_ref("v1.2"));
+    }
+
+    #[test]
+    fn rejects_option_injection_and_remotes() {
+        assert!(!is_valid_git_ref(""));
+        assert!(!is_valid_git_ref("-b"));
+        assert!(!is_valid_git_ref("remotes/origin/main"));
+        assert!(!is_valid_git_ref("foo..bar"));
+        assert!(!is_valid_git_ref("foo;rm"));
+    }
+}
+
+#[tauri::command]
+async fn git_list_worktrees(cwd: String) -> AppResult<String> {
+    let Some(root) = git_repo_root(&cwd).await else {
+        return Ok(String::new());
+    };
+    Ok(git_stdout(&root, &["worktree", "list", "--porcelain"])
+        .await
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+async fn git_checkout(cwd: String, branch: String) -> AppResult<Value> {
+    let Some(root) = git_repo_root(&cwd).await else {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "当前目录不是 git 仓库" }));
+    };
+    let branch = branch.trim().to_string();
+    if !is_valid_git_ref(&branch) {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "无效的分支名" }));
+    }
+    let Some(out) = git_output(&root, &["checkout", &branch], GIT_TIMEOUT_SECS).await else {
+        return Ok(json!({ "ok": false, "code": 1, "stderr": "git checkout 超时" }));
+    };
+    Ok(json!({
+        "ok": out.status.success(),
+        "code": out.status.code().unwrap_or(-1),
+        "stderr": String::from_utf8_lossy(&out.stderr).trim().to_string(),
+    }))
+}
+
 /// Canonicalizes the closest existing ancestor so a missing file (or missing parent) can still be
 /// restored without letting a symlinked component escape the allow root.
 fn resolve_write_target(raw: &Path) -> Option<PathBuf> {
@@ -2213,6 +2806,22 @@ pub fn run() {
             if let Err(e) = build_tray(&app.handle().clone()) {
                 eprintln!("tray init failed: {e}");
             }
+            let scope = app.asset_protocol_scope();
+            let _ = scope.allow_directory(&grok_asset_root(), true);
+            let _ = scope.allow_directory(&std::env::temp_dir(), true);
+            if let Some(window) = app.get_webview_window("main") {
+                let min = tauri::LogicalSize::new(1024.0, 720.0);
+                let _ = window.set_min_size(Some(min));
+                if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+                    let logical = size.to_logical::<f64>(scale);
+                    if logical.width < min.width || logical.height < min.height {
+                        let _ = window.set_size(tauri::LogicalSize::new(
+                            logical.width.max(min.width),
+                            logical.height.max(min.height),
+                        ));
+                    }
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -2230,6 +2839,7 @@ pub fn run() {
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
             doctor,
+            doctor_all,
             set_workspace,
             start_agent,
             stop_agent,
@@ -2256,10 +2866,13 @@ pub fn run() {
             read_text_file,
             list_memory_changes,
             open_path,
+            path_is_dir,
             open_review_path,
             git_status,
             git_changes,
             git_create_worktree,
+            git_list_worktrees,
+            git_checkout,
             restore_text_file,
             set_tray_status,
             run_grok,
@@ -2267,15 +2880,33 @@ pub fn run() {
             read_config_text,
             write_config_text,
             write_allowed_text,
+            save_paste_bytes,
+            import_dropped_file,
+            stat_attachment,
             git_log,
             git_branches,
+            git_commit,
+            git_pull,
+            git_push,
+            git_discard,
+            git_blame,
+            git_status_untracked,
             list_file_tree,
             hide_window,
             set_hide_on_close,
             read_models_cache,
             list_models_text,
+            read_agent_model_source,
+            patch_agent_model_settings,
             trust_folder,
             create_skill,
+            import_agents_mcp_first_open,
+            read_agents_file,
+            write_agents_file,
+            upsert_toml_mcp,
+            remove_toml_mcp,
+            sync_agent_skill,
+            install_marketplace_skill,
             patch_skills_disabled,
             patch_compat,
             list_session_spills,
@@ -2285,8 +2916,12 @@ pub fn run() {
             set_notify_target,
             write_hook_file,
             list_agents_dir,
+            watch_workspace,
             workspace_mtime,
-            read_usage_history
+            read_usage_history,
+            read_token_turns,
+            read_memory_host,
+            write_memory_host
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2366,11 +3001,44 @@ mod final_review_tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn validate_review_open_target_rejects_symlink_to_file_outside_workspace() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("grok-review-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let outside = root.parent().unwrap().join(format!("{}-outside.txt", root.file_name().unwrap().to_string_lossy()));
+        std::fs::write(&outside, b"secret").unwrap();
+        let link = root.join("escape.txt");
+        symlink(&outside, &link).unwrap();
+        let err = validate_review_open_target(link.to_str().unwrap(), Some(&root), root.to_str().unwrap()).unwrap_err();
+        assert_eq!(err.to_string(), "Review 目标不能是符号链接");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&outside);
+    }
+
     #[test]
     fn text_preview_allows_workspace_files_but_rejects_canonical_escapes() {
         let root = Path::new("/workspace");
         assert!(allow_text_read_candidate(&root.join("src/main.rs"), Some(root), true));
         assert!(!allow_text_read_candidate(Path::new("/private/secret.txt"), Some(root), true));
+    }
+
+    #[test]
+    fn text_preview_allows_cited_home_temp_and_git_ancestor_files() {
+        let home = dirs_home().canonicalize().unwrap_or_else(|_| dirs_home());
+        let tmp = std::env::temp_dir();
+        let root = acp_path_root();
+        let nested = root.join("apps").join("web");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(allow_text_read_candidate(&root.join("pkg/a.ts"), Some(&nested), true));
+        assert!(allow_text_read_candidate(&home.join("Downloads/cover.md"), Some(&nested), true));
+        assert!(allow_text_read_candidate(&tmp.join("shot.png"), Some(&nested), true));
+        assert!(!allow_text_read_candidate(&home.join("Downloads/cover.md"), None, true));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2380,6 +3048,25 @@ mod final_review_tests {
         assert!(trusted_workspace_for_hint(Some(&root), Some("/")).is_err());
         assert!(trusted_workspace_for_hint(None, Some(root.to_str().unwrap())).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn caller_hint_may_be_nested_in_or_a_parent_of_the_trusted_workspace() {
+        let root = acp_path_root();
+        let nested = root.join(".worktrees").join("session");
+        std::fs::create_dir_all(&nested).unwrap();
+        let sibling = root.parent().unwrap().join(format!("{}-sibling", root.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&sibling);
+        std::fs::create_dir_all(&sibling).unwrap();
+
+        let nested_hint = nested.to_str().unwrap();
+        let root_hint = root.to_str().unwrap();
+        assert_eq!(trusted_workspace_for_hint(Some(&root), Some(nested_hint)).unwrap(), root);
+        assert_eq!(trusted_workspace_for_hint(Some(&nested), Some(root_hint)).unwrap(), nested.canonicalize().unwrap());
+        assert!(trusted_workspace_for_hint(Some(&root), Some(sibling.to_str().unwrap())).is_err());
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(sibling);
     }
 
     #[test]
@@ -2417,6 +3104,41 @@ mod final_review_tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn acp_read_allows_home_skill_and_temp_files_outside_workspace() {
+        let root = acp_path_root();
+        let stamp = format!(
+            "grok-acp-skill-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        );
+        let temp_skill = std::env::temp_dir().join(format!("{stamp}.md"));
+        std::fs::write(&temp_skill, "---\nname: demo\n---\n").unwrap();
+        let temp_canon = temp_skill.canonicalize().unwrap();
+        assert_eq!(
+            resolve_allowed_path(temp_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            temp_canon
+        );
+
+        let home_skill_dir = dirs_home().join(".agents").join("skills").join(&stamp);
+        std::fs::create_dir_all(&home_skill_dir).unwrap();
+        let home_skill = home_skill_dir.join("SKILL.md");
+        std::fs::write(&home_skill, "---\nname: demo\n---\n").unwrap();
+        let home_canon = home_skill.canonicalize().unwrap();
+        assert_eq!(
+            resolve_allowed_path(home_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            home_canon
+        );
+        assert_eq!(
+            resolve_allowed_path(home_skill.to_str().unwrap(), None, PathAccess::Read).unwrap(),
+            home_canon
+        );
+
+        let _ = std::fs::remove_file(&temp_skill);
+        let _ = std::fs::remove_dir_all(home_skill_dir);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
 #[test]
     fn launcher_arguments_are_platform_specific_and_literal() {
     let target = Path::new("/tmp/a file; touch pwned");
@@ -2429,4 +3151,147 @@ mod final_review_tests {
     { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
 }
 
+    #[test]
+    fn explorer_slash_switch_rejects_select_and_allows_drive() {
+        assert!(explorer_slash_switch("/select,C:\\Windows"));
+        assert!(explorer_slash_switch("/e,C:\\"));
+        assert!(!explorer_slash_switch("/C:/Users/me"));
+        assert!(!explorer_slash_switch("//server/share"));
+        assert!(!explorer_slash_switch("C:\\Users\\me"));
+        assert!(!explorer_slash_switch("-evil"));
+    }
+
+    #[test]
+    fn open_path_arg_rejects_dash_everywhere() {
+        assert!(open_path_arg_rejected(""));
+        assert!(open_path_arg_rejected("-help"));
+        #[cfg(not(windows))]
+        assert!(!open_path_arg_rejected("/tmp/ok"));
+        #[cfg(windows)]
+        {
+            assert!(open_path_arg_rejected("/select,C:\\Windows"));
+            assert!(!open_path_arg_rejected("C:\\Users\\me"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod config_write_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn config_text_max_is_512_kib() {
+        assert_eq!(CONFIG_TEXT_MAX, 512 * 1024);
+        assert_eq!(CONFIG_TEXT_MAX, 524288);
+    }
+
+    #[test]
+    fn config_text_at_cap_is_accepted() {
+        let text = "a".repeat(CONFIG_TEXT_MAX);
+        assert!(reject_oversized_config_text(&text).is_ok());
+    }
+
+    #[test]
+    fn config_text_over_cap_is_rejected() {
+        let text = "a".repeat(524289);
+        let err = reject_oversized_config_text(&text).unwrap_err();
+        assert_eq!(err.to_string(), "配置太大");
+    }
+
+    #[test]
+    fn apply_cli_patch_rejects_proto_key() {
+        let mut doc = toml_edit::DocumentMut::new();
+        let err = apply_cli_patch(&mut doc, &json!({ "__proto__": "x" })).unwrap_err();
+        assert_eq!(err.to_string(), "不支持的设置字段");
+    }
+
+    #[test]
+    fn apply_cli_patch_rejects_unknown_key() {
+        let mut doc = toml_edit::DocumentMut::new();
+        let err = apply_cli_patch(&mut doc, &json!({ "unknown": true })).unwrap_err();
+        assert_eq!(err.to_string(), "不支持的设置字段");
+    }
+
+    #[test]
+    fn apply_cli_patch_applies_model() {
+        let mut doc = toml_edit::DocumentMut::new();
+        apply_cli_patch(&mut doc, &json!({ "model": "grok-4" })).unwrap();
+        assert_eq!(doc["models"]["default"].as_str(), Some("grok-4"));
+    }
+
+    #[tokio::test]
+    async fn config_write_lock_is_exclusive() {
+        let state = AppState::default();
+        let _guard = state.config_write.lock().await;
+        assert!(state.config_write.try_lock().is_err());
+    }
+}
+
+#[cfg(test)]
+mod session_updates_tests {
+    use super::*;
+
+    fn sample_line(kind: &str, text: &str) -> String {
+        format!(
+            r#"{{"params":{{"update":{{"sessionUpdate":"{kind}","content":{{"text":"{text}"}}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn read_updates_jsonl_seeks_after_first_line_and_returns_remaining_rows() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-session-updates-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("updates.jsonl");
+
+        let line1 = sample_line("user_message_chunk", "a");
+        let line2 = sample_line("agent_message_chunk", "b");
+        let line3 = sample_line("agent_thought_chunk", "c");
+        let body = format!("{line1}\n{line2}\n{line3}\n");
+        std::fs::write(&path, &body).unwrap();
+        let first_off = line1.len() as u64 + 1;
+
+        let all = read_updates_jsonl(&path, None).unwrap();
+        assert_eq!(all.rows.len(), 3);
+        assert_eq!(all.next_byte, body.len() as u64);
+        assert!(!all.truncated);
+
+        let rest = read_updates_jsonl(&path, Some(first_off)).unwrap();
+        assert_eq!(rest.rows.len(), 2);
+        assert_eq!(rest.next_byte, body.len() as u64);
+        assert!(!rest.truncated);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn first_load_reads_tail_and_sets_truncated_when_prefix_skipped() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-session-updates-tail-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("updates.jsonl");
+
+        let line1 = sample_line("user_message_chunk", "old");
+        let line2 = sample_line("agent_message_chunk", "mid");
+        let line3 = sample_line("agent_thought_chunk", "new");
+        let body = format!("{line1}\n{line2}\n{line3}\n");
+        std::fs::write(&path, &body).unwrap();
+        let tail_max = (line2.len() + 1 + line3.len() + 1) as u64;
+
+        let page = read_updates_jsonl_limited(&path, None, tail_max).unwrap();
+        assert!(page.truncated);
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(page.next_byte, body.len() as u64);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

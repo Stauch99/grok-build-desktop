@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reviewOwnerKey, resolveReviewPath, validateReviewFallbackTarget } from "./useReviewController";
+import { replaceAbortController, reviewOwnerKey, resolveReviewPath, validateReviewFallbackTarget } from "./useReviewController";
 
 describe("review controller helpers", () => {
   it("resolves relative paths and preserves POSIX, drive, and UNC absolute paths", () => {
@@ -13,6 +13,14 @@ describe("review controller helpers", () => {
   it("keys ownership by session and cwd", () => {
     expect(reviewOwnerKey("a", "/one")).not.toBe(reviewOwnerKey("a", "/two"));
     expect(reviewOwnerKey("a", "/one")).not.toBe(reviewOwnerKey("b", "/one"));
+  });
+
+  it("aborts in-flight work when the session owner is replaced", () => {
+    const first = replaceAbortController(null);
+    expect(first.signal.aborted).toBe(false);
+    const next = replaceAbortController(first);
+    expect(first.signal.aborted).toBe(true);
+    expect(next.signal.aborted).toBe(false);
   });
 
   it("allows only ordinary local review fallback targets", () => {

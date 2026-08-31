@@ -1,4 +1,5 @@
-import { asRecord, textFromContent } from "./text";
+import { parseAcpRecord } from "./acp-events";
+import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
 
 export type { Mode } from "./mode";
@@ -114,6 +115,51 @@ export function liveWorkStatus(items: ChatItem[]): string {
   return "工作中";
 }
 
+/** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
+export const SETTLED_TURN_MS = 4_000;
+
+export function shouldClearBusyOnSettledChat(opts: {
+  busy: boolean;
+  now: number;
+  items: ChatItem[];
+  settleMs?: number;
+  /** Wall time when assistant text first appeared, if items have no clocks. */
+  seenAssistantAt?: number | null;
+}): boolean {
+  if (!opts.busy) return false;
+  if (
+    opts.items.some(
+      (it) => it.kind === "tool" && (it.status === "pending" || it.status === "in_progress"),
+    )
+  ) {
+    return false;
+  }
+  if (!opts.items.some((it) => it.kind === "assistant" && it.text.trim())) return false;
+  let last = 0;
+  for (const it of opts.items) {
+    if (it.kind === "user") continue;
+    const t = it.until ?? it.at;
+    if (typeof t === "number" && t > last) last = t;
+  }
+  if (!last && opts.seenAssistantAt) last = opts.seenAssistantAt;
+  if (!last) return false;
+  return opts.now - last >= (opts.settleMs ?? SETTLED_TURN_MS);
+}
+
+/** Start of the current turn (after the last user message), for “工作了 …”. */
+export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
+  let start: number | undefined;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "user") {
+      if (start == null) start = it.at;
+      break;
+    }
+    if (it.at != null) start = it.at;
+  }
+  return start;
+}
+
 /**
  * Copy sits under an assistant bubble. Hide it while that turn is still
  * streaming — otherwise the button wedges itself between later chunks.
@@ -148,7 +194,15 @@ function usageFromUpdate(
   const kind = String(update.sessionUpdate ?? "");
   if (kind === "usage_update") {
     const next = parseUsageSplit(update, prev);
-    if (!next.size) return prev;
+    if (
+      next.used == null &&
+      next.size == null &&
+      next.input == null &&
+      next.output == null &&
+      next.cache == null
+    ) {
+      return prev;
+    }
     return next;
   }
   if (kind === "auto_compact_started") {
@@ -209,8 +263,17 @@ function extractToolBits(update: Record<string, unknown>): {
         };
       } else if (b.type === "content") {
         detail = (detail || "") + textFromContent(b.content);
+      } else if (b.type === "text" || b.text != null) {
+        detail = (detail || "") + textFromContent(b);
       }
     }
+  } else if (update.content) {
+    const fromContent = textFromContent(update.content);
+    if (fromContent) detail = fromContent;
+  }
+  if (update.rawOutput) {
+    const fromOut = textFromRawOutput(update.rawOutput);
+    if (fromOut) detail = fromOut;
   }
   if (update.rawInput && !detail) {
     try {
@@ -245,121 +308,119 @@ export function applyChatUpdate(
     return `${prefix}-${nextId}`;
   };
 
-  if (kind === "user_message_chunk") {
-    if (opts.skipUser) return state;
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
-    const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
-    if (last?.kind === "user") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_message_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "assistant") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_thought_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "thought") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "thought", id: nid("t"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "tool_call" || kind === "tool_call_update") {
-    const id = String(update.toolCallId ?? nid("tool"));
-    const { detail, diff } = extractToolBits(update);
-    const items = [...state.items];
-    const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
-    if (idx >= 0) {
-      const cur = items[idx];
-      if (cur.kind === "tool") {
-        items[idx] = {
-          ...cur,
-          title: toolLabel(update, cur.title),
-          toolKind: String(update.kind ?? cur.toolKind ?? ""),
-          status: asStatus(update.status, cur.status),
-          detail: detail ?? cur.detail,
-          diff: diff ?? cur.diff,
-          until: at,
-        };
+  switch (kind) {
+    case "user_message_chunk": {
+      if (opts.skipUser) return state;
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
+      const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
+      if (last?.kind === "user") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
       }
-    } else {
-      items.push({
-        kind: "tool",
-        id,
-        title: toolLabel(update),
-        toolKind: String(update.kind ?? ""),
-        status: asStatus(update.status, "pending"),
-        detail,
-        diff,
-        at,
-        until: at,
-      });
+      return { ...state, items, nextId };
     }
-    const artifacts = mergeArtifacts(state.artifacts, update, diff);
-    return { ...state, items, nextId, artifacts };
-  }
-
-  if (kind === "plan") {
-    const entries = Array.isArray(update.entries)
-      ? (update.entries as PlanEntry[])
-      : [];
-    return { ...state, nextId, plan: entries };
-  }
-
-  if (kind === "available_commands") {
-    const raw = Array.isArray(update.commands) ? update.commands : [];
-    const commands = raw.map((c) => {
-      const rec = asRecord(c);
-      return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
-    }).filter((c) => c.name);
-    return { ...state, nextId, commands };
-  }
-
-  const usage = usageFromUpdate(update, state.usage);
-  if (usage) {
-    if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
-      const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
-      const items = [
-        ...state.items,
-        {
-          kind: "compact" as const,
-          id: nid("compact"),
-          phase,
-          used: usage.used,
-          size: usage.size,
+    case "agent_message_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "assistant") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
+      }
+      return { ...state, items, nextId };
+    }
+    case "agent_thought_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "thought") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "thought", id: nid("t"), text, at, until: at });
+      }
+      return { ...state, items, nextId };
+    }
+    case "tool_call":
+    case "tool_call_update": {
+      const id = String(update.toolCallId ?? nid("tool"));
+      const { detail, diff } = extractToolBits(update);
+      const items = [...state.items];
+      const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
+      if (idx >= 0) {
+        const cur = items[idx];
+        if (cur.kind === "tool") {
+          items[idx] = {
+            ...cur,
+            title: toolLabel(update, cur.title),
+            toolKind: String(update.kind ?? cur.toolKind ?? ""),
+            status: asStatus(update.status, cur.status),
+            detail: detail ?? cur.detail,
+            diff: diff ?? cur.diff,
+            until: at,
+          };
+        }
+      } else {
+        items.push({
+          kind: "tool",
+          id,
+          title: toolLabel(update),
+          toolKind: String(update.kind ?? ""),
+          status: asStatus(update.status, "pending"),
+          detail,
+          diff,
           at,
           until: at,
-        },
-      ];
-      return { ...state, items, nextId, usage };
+        });
+      }
+      const artifacts = mergeArtifacts(state.artifacts, update, diff);
+      return { ...state, items, nextId, artifacts };
     }
-    return { ...state, nextId, usage };
+    case "plan": {
+      const entries = Array.isArray(update.entries)
+        ? (update.entries as PlanEntry[])
+        : [];
+      return { ...state, nextId, plan: entries };
+    }
+    case "available_commands": {
+      const raw = Array.isArray(update.commands) ? update.commands : [];
+      const commands = raw.map((c) => {
+        const rec = asRecord(c);
+        return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
+      }).filter((c) => c.name);
+      return { ...state, nextId, commands };
+    }
+    default: {
+      const usage = usageFromUpdate(update, state.usage);
+      if (usage) {
+        if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
+          const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
+          const items = [
+            ...state.items,
+            {
+              kind: "compact" as const,
+              id: nid("compact"),
+              phase,
+              used: usage.used,
+              size: usage.size,
+              at,
+              until: at,
+            },
+          ];
+          return { ...state, items, nextId, usage };
+        }
+        return { ...state, nextId, usage };
+      }
+      return state;
+    }
   }
-
-  return state;
 }
 
 function mergeArtifacts(prev: Artifact[], update: Record<string, unknown>, diff?: DiffBlock): Artifact[] {
@@ -382,20 +443,51 @@ export function latestPlan(state: ChatState): PlanEntry[] {
   return state.plan;
 }
 
-export function hydrateFromUpdates(rows: unknown[]): ChatState {
-  let state = emptyChat();
+export function hydrateFromUpdates(rows: unknown[], prev?: ChatState): ChatState {
+  let state = prev ?? emptyChat();
   for (const row of rows) {
-    const rec = asRecord(row);
+    const rec = parseAcpRecord(row);
+    if (!rec) continue;
     const params = rec.params ? asRecord(rec.params) : rec;
     state = applyChatUpdate(state, params);
   }
   return state;
 }
 
+export type SessionUpdatePage = {
+  rows: unknown[];
+  nextByte: number;
+  truncated: boolean;
+};
+
+export type SessionUpdateCursor = {
+  nextByte: number;
+  chat: ChatState;
+};
+
+export function afterByteFor(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+): number | undefined {
+  return cursors.get(sessionId)?.nextByte;
+}
+
+export function applySessionPage(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+  page: SessionUpdatePage,
+): ChatState {
+  const prev = cursors.get(sessionId)?.chat;
+  const chat = hydrateFromUpdates(page.rows, prev);
+  cursors.set(sessionId, { nextByte: page.nextByte, chat });
+  return chat;
+}
+
 export function shouldKeepSessionUpdate(
   currentId: string | null,
   incomingId: string | null,
 ): boolean {
-  if (!incomingId || !currentId) return true;
+  if (!currentId) return false;
+  if (!incomingId) return true;
   return incomingId === currentId;
 }

@@ -21,6 +21,7 @@ type Props = {
   onCopyId: () => void;
   onCopyCwd: () => void;
   onSplit: (() => void) | null;
+  onSplitLabel?: string;
   onFork?: (() => void) | null;
   onPin?: (() => void) | null;
   onArchive?: (() => void) | null;
@@ -43,6 +44,7 @@ export function SessionMenu({
   onCopyId,
   onCopyCwd,
   onSplit,
+  onSplitLabel = "向右拆开",
   onFork,
   onPin,
   onArchive,
@@ -55,7 +57,7 @@ export function SessionMenu({
       <button type="button" onClick={onRename}>重命名</button>
       <button type="button" onClick={onRestore} disabled={!hasOverride}>恢复自动标题</button>
       <button type="button" onClick={onNew}>{onNewLabel}</button>
-      {onSplit ? <button type="button" onClick={onSplit}>并列打开</button> : null}
+      {onSplit ? <button type="button" onClick={onSplit}>{onSplitLabel}</button> : null}
       {onFork ? <button type="button" onClick={onFork}>分叉</button> : null}
       {onMoveToProject ? <button type="button" onClick={onMoveToProject}>移入项目…</button> : null}
       <div className="sep" />
@@ -72,10 +74,35 @@ export function SessionMenu({
   );
 }
 
-export function menuPosition(el: HTMLElement): { top: number; left: number } {
+export function menuPosition(el: HTMLElement, point?: { clientX: number; clientY: number }): { top: number; left: number } {
+  const width = 210;
+  if (point) {
+    return {
+      left: Math.min(window.innerWidth - width - 8, Math.max(8, point.clientX)),
+      top: Math.min(window.innerHeight - 320, Math.max(8, point.clientY)),
+    };
+  }
   const r = el.getBoundingClientRect();
   return {
-    left: Math.min(window.innerWidth - 210, Math.max(8, r.left)),
+    left: Math.min(window.innerWidth - width, Math.max(8, r.left)),
     top: Math.min(window.innerHeight - 320, r.bottom + 4),
   };
+}
+
+export function ProjectMenu({
+  top,
+  left,
+  pinned,
+  onPin,
+}: {
+  top: number;
+  left: number;
+  pinned: boolean;
+  onPin: () => void;
+}) {
+  return (
+    <div className="menu" style={{ top, left }} role="menu">
+      <button type="button" onClick={onPin}>{pinned ? "取消置顶" : "置顶"}</button>
+    </div>
+  );
 }

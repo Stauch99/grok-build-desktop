@@ -10,6 +10,13 @@ describe("mode helpers", () => {
     expect(MODE_OPTIONS.every((o) => !/auto/i.test(o.label))).toBe(true);
   });
 
+  it("keeps Agent/Plan English and translates always-approve", () => {
+    expect(modeLabel("agent", "en")).toBe("Agent");
+    expect(modeLabel("plan", "zh")).toBe("Plan");
+    expect(modeLabel("yolo", "zh")).toBe("始终批准");
+    expect(modeLabel("yolo", "en")).toBe("Always approve");
+  });
+
   it("maps slashes without a /yolo command", () => {
     expect(slashForMode("agent")).toBe("/auto");
     expect(slashForMode("plan")).toBe("/plan");

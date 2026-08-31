@@ -1,5 +1,8 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import type { PermissionOption } from "../lib/permission-allow";
+import { isAllowOption, pickAllowOption, type PermissionOption } from "../lib/permission-allow";
+import { t, type Locale } from "../lib/i18n";
+import { permissionTimeoutNotice } from "../lib/permission-copy";
+import { rejectCountdownLabel, secondsUntilReject } from "../lib/permission-queue";
 
 export type PermissionCardProps = {
   title: string;
@@ -8,7 +11,27 @@ export type PermissionCardProps = {
   onAlwaysAllow: () => void;
   timedOut?: boolean;
   timeoutNotice?: string;
+  locale?: Locale;
+  receivedAt?: number;
 };
+
+export type PermissionPickContext = {
+  options: PermissionOption[];
+  remember: boolean;
+  timedOut?: boolean;
+  onPick: (id: string) => void;
+  onAlwaysAllow: () => void;
+};
+
+/** Timeout is notice-only; Allow / Deny stay available. */
+export function applyPermissionPick(id: string, ctx: PermissionPickContext): void {
+  const opt = ctx.options.find((o) => o.optionId === id);
+  if (ctx.remember && opt && isAllowOption(opt)) {
+    ctx.onAlwaysAllow();
+    return;
+  }
+  ctx.onPick(id);
+}
 
 /**
  * Permission prompt. Options are equal-weight rows — the highlight is a
@@ -21,8 +44,14 @@ export function PermissionCard({
   onAlwaysAllow,
   timedOut,
   timeoutNotice,
+  locale = "zh",
+  receivedAt,
 }: PermissionCardProps) {
   const [index, setIndex] = useState(0);
+  const [remember, setRemember] = useState(false);
+  const [mountedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(mountedAt);
+  const startedAt = receivedAt ?? mountedAt;
 
   useEffect(() => {
     setIndex((i) => {
@@ -30,6 +59,29 @@ export function PermissionCard({
       return Math.min(i, options.length - 1);
     });
   }, [options.length]);
+
+  useEffect(() => {
+    if (timedOut) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [timedOut]);
+
+  const left = timedOut ? 0 : secondsUntilReject(startedAt, now);
+  const showTimeoutNotice = timedOut || left <= 0;
+  const pickCtx: PermissionPickContext = { options, remember, timedOut, onPick, onAlwaysAllow };
+
+  const allowOnce = () => {
+    if (remember) {
+      onAlwaysAllow();
+      return;
+    }
+    const pick = pickAllowOption(options);
+    if (pick) applyPermissionPick(pick, pickCtx);
+  };
+
+  const handlePick = (id: string) => {
+    applyPermissionPick(id, pickCtx);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (options.length === 0) return;
@@ -50,7 +102,7 @@ export function PermissionCard({
       e.preventDefault();
       e.stopPropagation();
       const opt = options[index];
-      if (opt) onPick(opt.optionId);
+      if (opt) handlePick(opt.optionId);
     }
   };
 
@@ -60,19 +112,33 @@ export function PermissionCard({
       id="permission-card"
       tabIndex={0}
       role="group"
-      aria-label="许可请求"
+      aria-label={t(locale, "perm.title")}
       data-keys="1-9,ArrowUp,ArrowDown,Enter"
       onKeyDown={onKeyDown}
     >
-      <h4>许可请求</h4>
-      <pre className="permission-cmd">{title}</pre>
-      {timedOut ? (
+      <h4>{t(locale, "perm.title")}</h4>
+      <pre className="permission-cmd" title={title}>{title}</pre>
+      {showTimeoutNotice ? (
         <p className="permission-timeout" role="status">
-          {timeoutNotice || "许可已超时，已自动拒绝。再发一条即可重试。"}
+          {timeoutNotice || permissionTimeoutNotice()}
         </p>
       ) : (
-        <p className="permission-hint">按 1–4 选择，↑↓ 移动，Enter 确认</p>
+        <>
+          <p className="permission-hint" role="status">
+            {rejectCountdownLabel(left, locale)}
+          </p>
+          <p className="permission-hint">{t(locale, "perm.hint")}</p>
+        </>
       )}
+      <label className="permission-hint">
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+        />
+        {" "}
+        {t(locale, "perm.remember")}
+      </label>
       <div className="opts">
         {options.map((opt, i) => {
           const hotkey = i < 9 ? String(i + 1) : undefined;
@@ -84,7 +150,7 @@ export function PermissionCard({
               data-hotkey={hotkey}
               data-option-index={i}
               aria-current={i === index ? "true" : undefined}
-              onClick={() => onPick(opt.optionId)}
+              onClick={() => handlePick(opt.optionId)}
               onMouseEnter={() => setIndex(i)}
             >
               {hotkey ? <kbd>{hotkey}</kbd> : null}
@@ -96,9 +162,9 @@ export function PermissionCard({
           type="button"
           className="perm-always"
           data-always-allow="true"
-          onClick={onAlwaysAllow}
+          onClick={allowOnce}
         >
-          本次会话总是允许
+          {t(locale, "perm.allowOnce")}
         </button>
       </div>
     </div>

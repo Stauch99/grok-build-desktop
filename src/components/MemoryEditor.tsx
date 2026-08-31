@@ -1,4 +1,5 @@
 import { basename } from "../lib/text";
+import { IconFinder } from "../icons";
 
 export type MemoryEditorProps = {
   path: string;
@@ -41,8 +42,8 @@ export function MemoryEditor({
         <button type="button" className="btn" onClick={onSave} disabled={dirty === false}>
           保存
         </button>
-        <button type="button" className="btn ghost" onClick={onReveal}>
-          访达
+        <button type="button" className="file-open" onClick={onReveal} title="在访达中打开" aria-label="在访达中打开">
+          <IconFinder size={14} />
         </button>
       </div>
     </div>

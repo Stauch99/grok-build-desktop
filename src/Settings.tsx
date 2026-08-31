@@ -4,25 +4,38 @@ import {
   openPath,
   patchCliSettings,
   pickDirectory,
+  trustFolder,
   type CliSettings,
   type DoctorInfo,
 } from "./api";
+import { DoctorsOverview } from "./components/DoctorsOverview";
 import { MenuSelect } from "./components/MenuSelect";
+import { dangerCaption, tapDanger, type ConfirmState } from "./lib/confirm";
 import { EFFORT_OPTIONS, normalizeEffort } from "./lib/effort";
-import { t, type Locale } from "./lib/i18n";
+import { CHAT_FONT_PRESETS, normalizeChatFontSize } from "./lib/chat-font";
+import { CHAT_WIDTH_PRESETS, normalizeChatWidth } from "./lib/chat-width";
+import { isDangerousTrustPath, localeSearchHay, LOCALE_CHOICES, t, type Locale } from "./lib/i18n";
 import { permissionModeHint } from "./lib/permission-copy";
 import { UPDATE_INSTALLATION_COPY } from "./lib/product-copy";
 import { stateAuthorityExplanation } from "./lib/state-authority";
 import { settingRowVisible } from "./lib/settings-search";
 import { ShortcutsTable } from "./components/ShortcutsTable";
 import { ManagedConfigView } from "./components/ManagedConfigView";
+import { AppModal } from "./components/AppModal";
+import { UsageStats } from "./components/UsageStats";
 import { DEFAULT_SHORTCUTS } from "./lib/shortcuts-table";
 import type { HubTab } from "./lib/commands";
 import type { InspectReport } from "./lib/inspect";
 import { enabledMcpCount } from "./lib/inspect";
-import { IconSearch } from "./icons";
+import { IconGrokSearch } from "./grok-icons";
+import { agentChipLabel } from "./lib/agent-chip";
+import { isAgentId } from "./lib/agent-id";
+import type { AgentDoctor } from "./lib/agent-doctor";
+import { DEFAULT_MEMORY_SETTINGS } from "./lib/memory-settings";
+import { nextDreamAgent } from "./lib/memory-settings-ui";
+import { doctorAll } from "./lib/workbench-api";
 
-type TabId = "overview" | "appearance" | "chat" | "extensions" | "about";
+type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
 
 type Props = {
   theme: "light" | "dark";
@@ -42,12 +55,17 @@ type Props = {
   onAutoArchiveDays?: (n: number) => void;
   steerByDefault?: boolean;
   onSteerByDefault?: (v: boolean) => void;
+  injectUserMemory?: boolean;
+  onInjectUserMemory?: (v: boolean) => void;
+  dreamingEnabled?: boolean;
+  onDreamingEnabled?: (v: boolean) => void;
+  dreamAgentId?: string;
+  onDreamAgentId?: (id: string) => void;
+  dreamAgentOptions?: { id: string; label: string }[];
   locale?: Locale;
   onLocale?: (l: Locale) => void;
   themeFamily?: "default" | "paper" | "ink";
   onThemeFamily?: (f: "default" | "paper" | "ink") => void;
-  density?: "comfortable" | "compact";
-  onDensity?: (d: "comfortable" | "compact") => void;
   hideToTray?: boolean;
   onHideToTray?: (v: boolean) => void;
   defaultRail?: "tasks" | "changes" | "context";
@@ -68,6 +86,45 @@ type Props = {
   onConsumedFocus?: () => void;
 };
 
+function ChoiceSwitch({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  options: { value: number; label: string }[];
+  onChange: (v: number) => void;
+  ariaLabel: string;
+}) {
+  const index = Math.max(0, options.findIndex((o) => o.value === value));
+  return (
+    <div
+      className="choice-switch"
+      role="radiogroup"
+      aria-label={ariaLabel}
+      style={{
+        ["--choice-n" as string]: options.length,
+        ["--choice-i" as string]: index,
+      }}
+    >
+      <span className="choice-switch-thumb" aria-hidden />
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          className={value === o.value ? "on" : undefined}
+          onClick={() => onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SettingsPanel({
   theme,
   setTheme,
@@ -86,12 +143,17 @@ export function SettingsPanel({
   onAutoArchiveDays,
   steerByDefault,
   onSteerByDefault,
+  injectUserMemory = DEFAULT_MEMORY_SETTINGS.injectUserMemory,
+  onInjectUserMemory,
+  dreamingEnabled = DEFAULT_MEMORY_SETTINGS.dreamingEnabled,
+  onDreamingEnabled,
+  dreamAgentId = DEFAULT_MEMORY_SETTINGS.dreamAgentId,
+  onDreamAgentId,
+  dreamAgentOptions,
   locale = "zh",
   onLocale,
   themeFamily = "default",
   onThemeFamily,
-  density = "comfortable",
-  onDensity,
   hideToTray = true,
   onHideToTray,
   defaultRail = "tasks",
@@ -115,6 +177,18 @@ export function SettingsPanel({
   const [note, setNote] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
   const [settingsQuery, setSettingsQuery] = useState("");
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    run: () => void;
+  } | null>(null);
+  const [trustConfirm, setTrustConfirm] = useState<ConfirmState | null>(null);
+  const [doctors, setDoctors] = useState<AgentDoctor[]>([]);
+
+  useEffect(() => {
+    void doctorAll().then(setDoctors).catch(() => setDoctors([]));
+  }, []);
 
   useEffect(() => {
     if (focusSection !== "shortcuts") return;
@@ -145,6 +219,11 @@ export function SettingsPanel({
   }
 
   const mcp = [...(cli?.mcp ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const pickerOptions = dreamAgentOptions ?? doctors.filter((d) => d.authPresent).map((d) => ({
+    id: d.agentId,
+    label: agentChipLabel(d.agentId),
+  }));
+  const loggedInDreamAgents = pickerOptions.map((o) => o.id).filter(isAgentId);
   const enterSendsOn = enterSends !== false;
   const archiveDays = autoArchiveDays && autoArchiveDays > 0 ? autoArchiveDays : 0;
   const tabs: { id: TabId; label: string }[] = [
@@ -152,6 +231,7 @@ export function SettingsPanel({
     { id: "appearance", label: t(locale, "settings.appearance") },
     { id: "chat", label: t(locale, "settings.chat") },
     { id: "extensions", label: t(locale, "settings.extensions") },
+    { id: "usage", label: t(locale, "settings.usage") },
     { id: "about", label: t(locale, "settings.about") },
   ];
   const skillCount = inspect?.skills.length ?? 0;
@@ -160,6 +240,7 @@ export function SettingsPanel({
   const mcpCount = inspect ? enabledMcpCount(inspect.mcpServers) : mcp.filter((s) => s.enabled).length;
 
   const show = (title: string, description = "") => settingRowVisible(title, description, settingsQuery);
+  const hay = (key: string, extra = "") => localeSearchHay(key, extra);
   const searching = settingsQuery.trim().length > 0;
 
   const overviewCli = show(t(locale, "health.cli"));
@@ -171,34 +252,43 @@ export function SettingsPanel({
   const overviewHealth = overviewCli || overviewLogin || overviewInspect || overviewMcp || overviewAgent;
   const overviewHas = overviewHealth || overviewInbox;
 
-  const appearanceDark = show("深色模式");
-  const appearanceFamily = show("主题族", "默认 Paper 暖纸 Ink 高对比");
-  const appearanceDensity = show("密度");
-  const appearanceLocale = show("界面语言");
-  const appearanceWidth = show("对话宽度");
-  const appearanceFont = show("正文字号");
-  const appearanceRail = show("审阅默认标签");
-  const appearanceTray = show("关闭窗口进托盘");
+  const appearanceDark = show(hay("settings.dark"));
+  const appearanceFamily = show(hay("settings.themeFamily"), "默认 Paper 暖纸 Ink 高对比 Default Warm High contrast");
+  const appearanceLocale = show(hay("settings.locale"), "简体中文 English 中文");
+  const appearanceWidth = show(hay("settings.chatWidth"), "窄 中 宽 填充 Narrow Medium Wide Fill");
+  const appearanceFont = show(hay("settings.fontSize"), "较小 中 常规 Smaller Medium Regular 14 15 17");
+  const appearanceRail = show(hay("settings.defaultRail"), "Dashboard 审阅");
+  const appearanceTray = show(hay("settings.hideToTray"));
   const appearanceTheme = appearanceDark || appearanceFamily;
-  const appearanceLayout = appearanceDensity || appearanceWidth || appearanceFont;
+  const appearanceLayout = appearanceWidth || appearanceFont;
   const appearanceHas =
     appearanceTheme || appearanceLayout || appearanceLocale || appearanceRail || appearanceTray;
 
-  const sendDesc = "Enter 发送或 ⌘Enter";
-  const steerDesc = "排队到轮末或不打断正在跑的这一轮 立即改向";
+  const sendDesc = "Enter 发送或 ⌘Enter Enter send";
+  const steerDesc = "排队到轮末或不打断正在跑的这一轮 立即改向 Queue steer";
   const shortcutDesc = DEFAULT_SHORTCUTS.map((row) => `${row.action} ${row.defaultBinding}`).join(" ");
-  const chatSend = show("发送快捷键", sendDesc);
-  const chatSteer = show("中途改向", steerDesc);
-  const chatArchive = show("自动归档（天）");
-  const chatThinking = show("显示思考过程");
-  const chatCompact = show("自动压缩阈值");
-  const chatMemory = show("跨会话记忆");
-  const chatTelemetry = show("匿名遥测");
-  const chatModel = show("默认模型");
-  const chatEffort = show("推理力度");
-  const chatPermission = show("许可模式", permissionModeHint(cli?.permissionMode ?? "ask"));
-  const chatYolo = show("始终批准");
-  const chatShortcuts = show("快捷键", shortcutDesc);
+  const chatSend = show(hay("settings.sendKey"), sendDesc);
+  const chatSteer = show(hay("settings.steer"), steerDesc);
+  const chatArchive = show(hay("settings.archive"));
+  const chatThinking = show(hay("settings.thinking"));
+  const chatCompact = show(hay("settings.compact"));
+  const chatMemory = show(
+    hay("settings.memory"),
+    [
+      t("zh", "settings.injectUserMemory"),
+      t("en", "settings.injectUserMemory"),
+      t("zh", "settings.dreamingEnabled"),
+      t("en", "settings.dreamingEnabled"),
+      t("zh", "settings.dreamAgentId"),
+      t("en", "settings.dreamAgentId"),
+    ].join(" "),
+  );
+  const chatTelemetry = show(hay("settings.telemetry"));
+  const chatModel = show(hay("settings.model"));
+  const chatEffort = show(hay("settings.effort"));
+  const chatPermission = show(hay("settings.permission"), permissionModeHint(cli?.permissionMode ?? "ask", locale));
+  const chatYolo = show(hay("settings.yolo"));
+  const chatShortcuts = show(hay("settings.shortcuts"), shortcutDesc);
   const chatComposer = chatSend || chatSteer;
   const chatSession = chatArchive || chatThinking || chatCompact || chatMemory;
   const chatModelCard = chatModel || chatEffort;
@@ -206,10 +296,12 @@ export function SettingsPanel({
   const chatHas =
     chatComposer || chatSession || chatTelemetry || chatModelCard || chatPerms || chatShortcuts;
 
-  const extensionsHub = show("扩展中心", "技能、MCP、插件、市场和 Hooks 在扩展中心管理。");
+  const extensionsHub = show(hay("hub.title"), "技能、MCP、插件、市场和 Hooks Skills plugins marketplace");
 
-  const aboutCli = show("CLI", info?.grokVersion || "未检测到 CLI");
-  const aboutLogin = show("登录", "未登录，请在终端运行 grok login");
+  const usageHas = show(hay("settings.usage"), "token tokens 消耗 缓存 请求 成本 命中 统计");
+
+  const aboutCli = show(hay("health.cli"), info?.grokVersion || "未检测到 CLI");
+  const aboutLogin = show(hay("health.login"), "未登录，请在终端运行 grok login Not signed in");
   const aboutConfig = show("config.toml") && !!cli?.configPath;
   const aboutUpdate = show("更新", UPDATE_INSTALLATION_COPY);
   const aboutManaged = show("managed_config");
@@ -217,21 +309,24 @@ export function SettingsPanel({
   const aboutInstall = aboutConfig || aboutUpdate;
   const aboutHas = aboutMeta || aboutInstall || aboutManaged;
 
-  const emptyCopy = <p className="float-empty">没有匹配的设置</p>;
+  const emptyCopy = <p className="float-empty">{t(locale, "settings.empty")}</p>;
+  const trustCwd = inspect?.cwd ?? "";
+  const showTrust = inspect?.projectTrusted === false && !!trustCwd;
+  const trustId = `trust:${trustCwd}`;
 
   return (
     <div className="settings">
       <div className="settings-layout">
         <nav className="settings-nav" aria-label={t(locale, "settings.title")}>
           <div className="search-field">
-            <IconSearch size={14} className="search-icon" />
+            <IconGrokSearch size={16} className="search-icon" />
             <input
               type="search"
               className="search"
               value={settingsQuery}
               onChange={(e) => setSettingsQuery(e.target.value)}
-              placeholder="搜索设置"
-              aria-label="搜索设置"
+              placeholder={t(locale, "settings.search")}
+              aria-label={t(locale, "settings.search")}
             />
           </div>
           {tabs.map((item) => (
@@ -246,7 +341,7 @@ export function SettingsPanel({
           ))}
         </nav>
 
-        <div className="settings-pane">
+        <div className="settings-pane pane-in" key={tab}>
           {tab === "overview" && (
             <section className="set-block">
               <h3>{t(locale, "settings.overview")}</h3>
@@ -280,11 +375,16 @@ export function SettingsPanel({
                           </div>
                         ) : null}
                         {doctorNote ? <p className="hint">{doctorNote}</p> : null}
+                        <DoctorsOverview doctors={doctors} onCopied={() => setNote(t(locale, "toast.copied"))} />
                         {overviewAgent ? (
                           <div className="set-row">
                             <label>Agent</label>
                             <p>
-                              {agentReady ? "已连接" : agentConnecting ? "连接中" : agentDisconnected ? "已断开" : "未连接"}
+                              <span
+                                className={`conn-chip${agentReady ? " ready" : agentConnecting ? " connecting" : ""}`}
+                              >
+                                {agentReady ? "已连接" : agentConnecting ? "连接中" : agentDisconnected ? "已断开" : "未连接"}
+                              </span>
                             </p>
                           </div>
                         ) : null}
@@ -301,6 +401,43 @@ export function SettingsPanel({
                         </button>
                         <button type="button" className="btn ghost" onClick={() => onRefreshHealth?.()}>
                           刷新健康
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {showTrust ? (
+                    <div className="set-card">
+                      <div className="set-stack">
+                        <p className="hub-meta">{t(locale, "trust.banner")}</p>
+                        {isDangerousTrustPath(trustCwd) ? (
+                          <p className="hint">{t(locale, "trust.danger")}</p>
+                        ) : null}
+                      </div>
+                      <div className="set-actions">
+                        <button
+                          type="button"
+                          className="btn primary"
+                          onClick={() => {
+                            const { confirmed, next } = tapDanger(trustConfirm, trustId, Date.now());
+                            setTrustConfirm(next);
+                            if (!confirmed) return;
+                            void (async () => {
+                              try {
+                                await trustFolder(trustCwd, true);
+                                onRefreshHealth?.();
+                                setNote(t(locale, "trust.done"));
+                              } catch (e) {
+                                setNote(String(e));
+                              }
+                            })();
+                          }}
+                        >
+                          {dangerCaption(
+                            trustConfirm,
+                            trustId,
+                            t(locale, "trust.action"),
+                            t(locale, "hub.confirmAgain"),
+                          )}
                         </button>
                       </div>
                     </div>
@@ -366,7 +503,7 @@ export function SettingsPanel({
                       {appearanceDark ? (
                         <div className="set-row">
                           <div>
-                            <label>深色模式</label>
+                            <label>{t(locale, "settings.dark")}</label>
                           </div>
                           <button type="button" className={`toggle ${theme === "dark" ? "on" : ""}`} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
                             <i />
@@ -375,14 +512,14 @@ export function SettingsPanel({
                       ) : null}
                       {appearanceFamily ? (
                         <div className="set-stack">
-                          <label>主题族</label>
+                          <label>{t(locale, "settings.themeFamily")}</label>
                           <MenuSelect
-                            ariaLabel="主题族"
+                            ariaLabel={t(locale, "settings.themeFamily")}
                             value={themeFamily}
                             options={[
-                              { value: "default", label: "默认" },
-                              { value: "paper", label: "Paper", hint: "暖纸" },
-                              { value: "ink", label: "Ink", hint: "高对比" },
+                              { value: "default", label: t(locale, "settings.themeDefault") },
+                              { value: "paper", label: "Paper", hint: t(locale, "settings.paperHint") },
+                              { value: "ink", label: "Ink", hint: t(locale, "settings.inkHint") },
                             ]}
                             onChange={(v) => onThemeFamily?.(v as "default" | "paper" | "ink")}
                           />
@@ -392,30 +529,37 @@ export function SettingsPanel({
                   ) : null}
                   {appearanceLayout ? (
                     <div className="set-card">
-                      {appearanceDensity ? (
-                        <div className="set-stack">
-                          <label>密度</label>
-                          <MenuSelect
-                            ariaLabel="密度"
-                            value={density}
-                            options={[
-                              { value: "comfortable", label: "舒适" },
-                              { value: "compact", label: "紧凑" },
-                            ]}
-                            onChange={(v) => onDensity?.(v as "comfortable" | "compact")}
-                          />
-                        </div>
-                      ) : null}
                       {appearanceWidth ? (
                         <div className="set-stack">
-                          <label>对话宽度 {chatWidth}px</label>
-                          <input type="range" min={520} max={920} step={20} value={chatWidth} onChange={(e) => setChatWidth(Number(e.target.value))} />
+                          <label>{t(locale, "settings.chatWidth")}</label>
+                          <ChoiceSwitch
+                            value={normalizeChatWidth(chatWidth)}
+                            options={CHAT_WIDTH_PRESETS.map((preset) => ({
+                              value: preset.px,
+                              label: t(locale, preset.labelKey),
+                            }))}
+                            onChange={setChatWidth}
+                            ariaLabel={t(locale, "settings.chatWidth")}
+                          />
                         </div>
                       ) : null}
                       {appearanceFont ? (
                         <div className="set-stack">
-                          <label>正文字号 {chatFontSize}px</label>
-                          <input type="range" min={14} max={20} step={1} value={chatFontSize} onChange={(e) => setChatFontSize(Number(e.target.value))} />
+                          <label>{t(locale, "settings.fontSize")}</label>
+                          <div className="locale-switch" role="radiogroup" aria-label={t(locale, "settings.fontSize")}>
+                            {CHAT_FONT_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={normalizeChatFontSize(chatFontSize) === preset.px}
+                                className={normalizeChatFontSize(chatFontSize) === preset.px ? "on" : undefined}
+                                onClick={() => setChatFontSize(preset.px)}
+                              >
+                                {t(locale, preset.labelKey)}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -423,30 +567,34 @@ export function SettingsPanel({
                   {appearanceLocale ? (
                     <div className="set-card">
                       <div className="set-stack">
-                        <label>界面语言</label>
-                        <MenuSelect
-                          ariaLabel="界面语言"
-                          value={locale}
-                          options={[
-                            { value: "zh", label: "中文" },
-                            { value: "en", label: "English" },
-                          ]}
-                          onChange={(v) => onLocale?.(v as Locale)}
-                        />
+                        <label>{t(locale, "settings.locale")}</label>
+                        <div className="locale-switch" role="radiogroup" aria-label={t(locale, "settings.locale")}>
+                          {LOCALE_CHOICES.map((choice) => (
+                            <button
+                              key={choice.id}
+                              type="button"
+                              role="radio"
+                              aria-checked={locale === choice.id}
+                              className={locale === choice.id ? "on" : undefined}
+                              onClick={() => onLocale?.(choice.id)}
+                            >
+                              {choice.native}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   ) : null}
                   {appearanceRail ? (
                     <div className="set-card">
                       <div className="set-stack">
-                        <label>审阅默认标签</label>
+                        <label>{t(locale, "settings.defaultRail")}</label>
                         <MenuSelect
-                          ariaLabel="审阅默认标签"
+                          ariaLabel={t(locale, "settings.defaultRail")}
                           value={defaultRail}
                           options={[
-                            { value: "tasks", label: "进度" },
-                            { value: "changes", label: "改动" },
-                            { value: "context", label: "上下文" },
+                            { value: "tasks", label: t(locale, "settings.railProgress") },
+                            { value: "changes", label: t(locale, "settings.railChanges") },
                           ]}
                           onChange={(v) => onDefaultRail?.(v as "tasks" | "changes" | "context")}
                         />
@@ -456,7 +604,7 @@ export function SettingsPanel({
                   {appearanceTray ? (
                     <div className="set-card">
                       <div className="set-row">
-                        <label>关闭窗口进托盘</label>
+                        <label>{t(locale, "settings.hideToTray")}</label>
                         <button type="button" className={`toggle ${hideToTray ? "on" : ""}`} onClick={() => onHideToTray?.(!hideToTray)}>
                           <i />
                         </button>
@@ -477,13 +625,13 @@ export function SettingsPanel({
                     <div className="set-card">
                       {chatSend ? (
                         <div className="set-stack">
-                          <label id="set-send-key">发送快捷键</label>
+                          <label id="set-send-key">{t(locale, "settings.sendKey")}</label>
                           <MenuSelect
-                            ariaLabel="发送快捷键"
+                            ariaLabel={t(locale, "settings.sendKey")}
                             value={enterSendsOn ? "enter" : "mod"}
                             options={[
-                              { value: "enter", label: "Enter 发送" },
-                              { value: "mod", label: "⌘/Ctrl+Enter 发送" },
+                              { value: "enter", label: t(locale, "settings.sendEnter") },
+                              { value: "mod", label: t(locale, "settings.sendMod") },
                             ]}
                             disabled={!onEnterSends}
                             onChange={(next) => onEnterSends?.(next === "enter")}
@@ -492,13 +640,13 @@ export function SettingsPanel({
                       ) : null}
                       {chatSteer ? (
                         <div className="set-stack">
-                          <label>中途改向</label>
+                          <label>{t(locale, "settings.steer")}</label>
                           <MenuSelect
-                            ariaLabel="中途改向默认行为"
+                            ariaLabel={t(locale, "settings.steerDefault")}
                             value={steerByDefault ? "steer" : "queue"}
                             options={[
-                              { value: "queue", label: "排队到轮末", hint: "默认。不打断正在跑的这一轮" },
-                              { value: "steer", label: "立即改向", hint: "把消息注入当前轮，不丢已完成的工具调用" },
+                              { value: "queue", label: t(locale, "settings.queueEnd"), hint: t(locale, "settings.queueEndHint") },
+                              { value: "steer", label: t(locale, "settings.steerNow"), hint: t(locale, "settings.steerNowHint") },
                             ]}
                             disabled={!onSteerByDefault}
                             onChange={(next) => onSteerByDefault?.(next === "steer")}
@@ -511,15 +659,15 @@ export function SettingsPanel({
                     <div className="set-card">
                       {chatArchive ? (
                         <div className="set-stack">
-                          <label>自动归档（天）</label>
+                          <label>{t(locale, "settings.archive")}</label>
                           <MenuSelect
-                            ariaLabel="自动归档天数"
+                            ariaLabel={t(locale, "settings.archive")}
                             value={String(archiveDays)}
                             options={[
-                              { value: "0", label: "关闭" },
-                              { value: "7", label: "7 天" },
-                              { value: "14", label: "14 天" },
-                              { value: "30", label: "30 天" },
+                              { value: "0", label: t(locale, "settings.archiveOff") },
+                              { value: "7", label: t(locale, "settings.archiveDays", { n: 7 }) },
+                              { value: "14", label: t(locale, "settings.archiveDays", { n: 14 }) },
+                              { value: "30", label: t(locale, "settings.archiveDays", { n: 30 }) },
                             ]}
                             disabled={!onAutoArchiveDays}
                             onChange={(next) => onAutoArchiveDays?.(Number(next))}
@@ -528,7 +676,7 @@ export function SettingsPanel({
                       ) : null}
                       {chatThinking ? (
                         <div className="set-row">
-                          <label>显示思考过程</label>
+                          <label>{t(locale, "settings.thinking")}</label>
                           <button type="button" className={`toggle ${cli?.showThinking ? "on" : ""}`} onClick={() => void patch({ showThinking: !cli?.showThinking })}>
                             <i />
                           </button>
@@ -536,7 +684,7 @@ export function SettingsPanel({
                       ) : null}
                       {chatCompact ? (
                         <div className="set-stack">
-                          <label>自动压缩阈值 {cli?.compactPercent ?? 85}%</label>
+                          <label>{t(locale, "settings.compact")} {cli?.compactPercent ?? 85}%</label>
                           <input
                             type="range"
                             min={50}
@@ -547,19 +695,56 @@ export function SettingsPanel({
                         </div>
                       ) : null}
                       {chatMemory ? (
-                        <div className="set-row">
-                          <label>跨会话记忆</label>
-                          <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
-                            <i />
-                          </button>
-                        </div>
+                        <>
+                          <div className="set-row">
+                            <label>{t(locale, "settings.memory")}</label>
+                            <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-row">
+                            <label>{t(locale, "settings.injectUserMemory")}</label>
+                            <button
+                              type="button"
+                              className={`toggle ${injectUserMemory ? "on" : ""}`}
+                              disabled={!onInjectUserMemory}
+                              onClick={() => onInjectUserMemory?.(!injectUserMemory)}
+                            >
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-row">
+                            <label>{t(locale, "settings.dreamingEnabled")}</label>
+                            <button
+                              type="button"
+                              className={`toggle ${dreamingEnabled ? "on" : ""}`}
+                              disabled={!onDreamingEnabled}
+                              onClick={() => onDreamingEnabled?.(!dreamingEnabled)}
+                            >
+                              <i />
+                            </button>
+                          </div>
+                          <div className="set-stack">
+                            <label>{t(locale, "settings.dreamAgentId")}</label>
+                            <MenuSelect
+                              ariaLabel={t(locale, "settings.dreamAgentId")}
+                              value={dreamAgentId}
+                              options={pickerOptions.map((o) => ({ value: o.id, label: o.label }))}
+                              disabled={!onDreamAgentId}
+                              onChange={(next) => {
+                                const id = nextDreamAgent(next, loggedInDreamAgents);
+                                if (id) onDreamAgentId?.(id);
+                              }}
+                            />
+                          </div>
+                        </>
                       ) : null}
                     </div>
                   ) : null}
                   {chatTelemetry ? (
                     <div className="set-card">
                       <div className="set-row">
-                        <label>匿名遥测</label>
+                        <label>{t(locale, "settings.telemetry")}</label>
                         <button type="button" className={`toggle ${cli?.telemetry ? "on" : ""}`} onClick={() => void patch({ telemetry: !cli?.telemetry })}>
                           <i />
                         </button>
@@ -570,7 +755,7 @@ export function SettingsPanel({
                     <div className="set-card">
                       {chatModel ? (
                         <div className="set-stack">
-                          <label>默认模型</label>
+                          <label>{t(locale, "settings.model")}</label>
                           <input
                             defaultValue={cli?.model ?? ""}
                             key={cli?.model}
@@ -582,9 +767,9 @@ export function SettingsPanel({
                       ) : null}
                       {chatEffort ? (
                         <div className="set-stack">
-                          <label>推理力度</label>
+                          <label>{t(locale, "settings.effort")}</label>
                           <MenuSelect
-                            ariaLabel="推理力度"
+                            ariaLabel={t(locale, "settings.effort")}
                             value={normalizeEffort(cli?.effort)}
                             options={EFFORT_OPTIONS.map((o) => ({ value: o.id, label: o.label, hint: o.hint }))}
                             onChange={(next) => void patch({ effort: next })}
@@ -598,31 +783,45 @@ export function SettingsPanel({
                       {chatPermission ? (
                         <>
                           <div className="set-stack">
-                            <label>许可模式</label>
+                            <label>{t(locale, "settings.permission")}</label>
                             <MenuSelect
-                              ariaLabel="许可模式"
+                              ariaLabel={t(locale, "settings.permission")}
                               value={cli?.permissionMode ?? "ask"}
                               options={[
-                                { value: "ask", label: "ask", hint: permissionModeHint("ask") },
-                                { value: "always-approve", label: "always-approve", hint: permissionModeHint("always-approve") },
-                                { value: "auto", label: "auto", hint: permissionModeHint("auto") },
+                                { value: "ask", label: "ask", hint: permissionModeHint("ask", locale) },
+                                { value: "always-approve", label: "always-approve", hint: permissionModeHint("always-approve", locale) },
+                                { value: "auto", label: "auto", hint: permissionModeHint("auto", locale) },
                               ]}
                               onChange={(next) => {
                                 if ((next === "always-approve" || next === "auto") && cli?.permissionMode === "ask") {
-                                  if (!window.confirm("切到始终批准 / 全权限会跳过逐条许可。确定？")) return;
+                                  setConfirm({
+                                    title: t(locale, "settings.permission"),
+                                    body: t(locale, "settings.yoloConfirm"),
+                                    confirmLabel: t(locale, "settings.ok"),
+                                    run: () => void patch({ permissionMode: next }),
+                                  });
+                                  return;
                                 }
                                 void patch({ permissionMode: next });
                               }}
                             />
                           </div>
-                          <p className="hint">{permissionModeHint(cli?.permissionMode ?? "ask")} {stateAuthorityExplanation("permissionMode")}。</p>
+                          <p className="hint">{permissionModeHint(cli?.permissionMode ?? "ask", locale)} {stateAuthorityExplanation("permissionMode")}。</p>
                         </>
                       ) : null}
                       {chatYolo ? (
                         <div className="set-row">
-                          <label>始终批准</label>
+                          <label>{t(locale, "settings.yolo")}</label>
                           <button type="button" className={`toggle ${cli?.yolo ? "on" : ""}`} onClick={() => {
-                            if (!cli?.yolo && !window.confirm("始终批准会跳过许可卡。确定？")) return;
+                            if (!cli?.yolo) {
+                              setConfirm({
+                                title: t(locale, "settings.yolo"),
+                                body: t(locale, "composer.yoloHint"),
+                                confirmLabel: t(locale, "settings.ok"),
+                                run: () => void patch({ yolo: true }),
+                              });
+                              return;
+                            }
                             void patch({ yolo: !cli?.yolo });
                           }}>
                             <i />
@@ -634,7 +833,7 @@ export function SettingsPanel({
                   {chatShortcuts ? (
                     <div className="set-card" id="settings-shortcuts">
                       <div className="set-stack">
-                        <label>快捷键</label>
+                        <label>{t(locale, "settings.shortcuts")}</label>
                       </div>
                       <ShortcutsTable
                         overrides={shortcuts ?? {}}
@@ -655,11 +854,18 @@ export function SettingsPanel({
                   <p className="hub-meta">技能、MCP、插件、市场和 Hooks 在扩展中心管理。</p>
                   <div className="set-actions">
                     <button type="button" className="btn primary" onClick={() => onOpenHub?.("skills")}>
-                      打开扩展中心
+                      {t(locale, "settings.openHub")}
                     </button>
                   </div>
                 </div>
               ) : null}
+            </section>
+          )}
+
+          {tab === "usage" && (
+            <section className="set-block">
+              <h3>{t(locale, "settings.usage")}</h3>
+              {searching && !usageHas ? emptyCopy : <UsageStats />}
             </section>
           )}
 
@@ -685,7 +891,7 @@ export function SettingsPanel({
                     <div className="set-card">
                       {aboutConfig ? (
                         <div className="set-actions">
-                          <button type="button" className="btn ghost" onClick={() => void openPath(cli.configPath)}>打开 config.toml</button>
+                          <button type="button" className="btn ghost" onClick={() => void openPath(cli.configPath)}>{t(locale, "settings.openConfig")}</button>
                         </div>
                       ) : null}
                       {aboutUpdate ? <p className="hint">{UPDATE_INSTALLATION_COPY}</p> : null}
@@ -708,6 +914,18 @@ export function SettingsPanel({
       </div>
 
       {note && <p className="set-note">{busy ? "写入中…" : note}</p>}
+      <AppModal
+        open={!!confirm}
+        title={confirm?.title ?? ""}
+        body={confirm?.body ?? ""}
+        confirmLabel={confirm?.confirmLabel ?? "确定"}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const run = confirm?.run;
+          setConfirm(null);
+          run?.();
+        }}
+      />
     </div>
   );
 }

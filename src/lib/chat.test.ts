@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  afterByteFor,
   applyChatUpdate,
+  applySessionPage,
   emptyChat,
   groupWorkRuns,
   hydrateFromUpdates,
@@ -9,9 +11,11 @@ import {
   usagePercent,
   formatElapsed,
   liveWorkStatus,
+  shouldClearBusyOnSettledChat,
   assistantCopyReady,
   workRunLabel,
   workRunMeta,
+  trailingWorkStartedAt,
 } from "./chat";
 
 function upd(sessionUpdate: string, extra: Record<string, unknown> = {}) {
@@ -22,8 +26,8 @@ describe("shouldKeepSessionUpdate", () => {
   it("drops updates for another session when one is selected", () => {
     expect(shouldKeepSessionUpdate("aaa", "bbb")).toBe(false);
   });
-  it("keeps updates when current id is empty (before adopt this used to swallow first click)", () => {
-    expect(shouldKeepSessionUpdate(null, "bbb")).toBe(true);
+  it("drops sid-scoped updates when the composer is unbound", () => {
+    expect(shouldKeepSessionUpdate(null, "bbb")).toBe(false);
   });
   it("keeps matching session", () => {
     expect(shouldKeepSessionUpdate("aaa", "aaa")).toBe(true);
@@ -64,6 +68,57 @@ describe("applyChatUpdate", () => {
     );
     expect(s.items).toHaveLength(1);
     expect(s.items[0]).toMatchObject({ kind: "tool", id: "c1", status: "completed", title: "Read file" });
+  });
+
+  it("loads tool verbose output from rawOutput and content text blocks", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(
+      s,
+      upd("tool_call", {
+        toolCallId: "c1",
+        title: "ls",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "ls" },
+      }),
+    );
+    s = applyChatUpdate(
+      s,
+      upd("tool_call_update", {
+        toolCallId: "c1",
+        status: "completed",
+        rawOutput: { formatted_output: "a.ts\n" },
+      }),
+    );
+    expect(s.items[0]).toMatchObject({ kind: "tool", status: "completed", detail: "a.ts\n" });
+    s = applyChatUpdate(
+      s,
+      upd("tool_call_update", {
+        toolCallId: "c1",
+        content: [{ type: "text", text: "done" }],
+      }),
+    );
+    expect(s.items[0]).toMatchObject({ detail: "done" });
+  });
+
+  it("applies usage_update even without a context window size", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("usage_update", { input: 10, output: 4 }));
+    expect(s.usage).toMatchObject({ input: 10, output: 4, used: 14 });
+  });
+
+  it("does not drop streamed text on turn_completed usage", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("agent_message_chunk", { content: { text: "Hello" } }));
+    s = applyChatUpdate(s, upd("agent_message_chunk", { content: { text: " world" } }));
+    s = applyChatUpdate(
+      s,
+      upd("turn_completed", {
+        usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+      }),
+    );
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "assistant", text: "Hello world" });
   });
 
   it("builds a readable tool label from rawInput", () => {
@@ -165,6 +220,44 @@ describe("hydrateFromUpdates", () => {
     ]);
     expect(s.items[0]).toMatchObject({ kind: "assistant", text: "x" });
   });
+
+  it("continues from prev.nextId when rows are a suffix", () => {
+    const first = hydrateFromUpdates([
+      upd("user_message_chunk", { content: { text: "hi" } }),
+    ]);
+    expect(first.nextId).toBeGreaterThan(1);
+    const next = hydrateFromUpdates(
+      [upd("agent_message_chunk", { content: { text: "yo" } })],
+      first,
+    );
+    expect(next.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    expect(next.items[0]).toMatchObject({ text: "hi" });
+    expect(next.items[1]).toMatchObject({ text: "yo" });
+    expect(next.nextId).toBeGreaterThan(first.nextId);
+    expect(next.items[1].id).not.toBe(first.items[0].id);
+  });
+});
+
+describe("session update cursor", () => {
+  it("keeps nextByte per session and hydrates a suffix onto the cached chat", () => {
+    const cursors = new Map();
+    expect(afterByteFor(cursors, "s1")).toBeUndefined();
+    const first = applySessionPage(cursors, "s1", {
+      rows: [upd("user_message_chunk", { content: { text: "hi" } })],
+      nextByte: 40,
+      truncated: false,
+    });
+    expect(afterByteFor(cursors, "s1")).toBe(40);
+    expect(first.items).toHaveLength(1);
+    const second = applySessionPage(cursors, "s1", {
+      rows: [upd("agent_message_chunk", { content: { text: "yo" } })],
+      nextByte: 80,
+      truncated: false,
+    });
+    expect(afterByteFor(cursors, "s2")).toBeUndefined();
+    expect(afterByteFor(cursors, "s1")).toBe(80);
+    expect(second.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+  });
 });
 
 describe("groupWorkRuns", () => {
@@ -247,6 +340,35 @@ describe("liveWorkStatus", () => {
   });
 });
 
+describe("trailingWorkStartedAt", () => {
+  it("uses the earliest at after the last user turn", () => {
+    expect(
+      trailingWorkStartedAt([
+        { kind: "user", id: "u", text: "go", at: 1 },
+        { kind: "thought", id: "t", text: "hmm", at: 10 },
+        { kind: "tool", id: "k", title: "read", status: "in_progress", at: 40 },
+      ]),
+    ).toBe(10);
+  });
+
+  it("counts a streaming assistant after the user", () => {
+    expect(
+      trailingWorkStartedAt([
+        { kind: "user", id: "u", text: "go", at: 1 },
+        { kind: "assistant", id: "a", text: "…", at: 8 },
+      ]),
+    ).toBe(8);
+  });
+
+  it("is undefined when the trailing items have no clock", () => {
+    expect(trailingWorkStartedAt([{ kind: "tool", id: "k", title: "read", status: "pending" }])).toBeUndefined();
+  });
+
+  it("uses the user send time while waiting for the first work item", () => {
+    expect(trailingWorkStartedAt([{ kind: "user", id: "u", text: "hi", at: 1 }])).toBe(1);
+  });
+});
+
 describe("assistantCopyReady", () => {
   const items = [
     { kind: "user" as const, id: "u1", text: "hi" },
@@ -271,6 +393,40 @@ describe("assistantCopyReady", () => {
 
   it("hides copy when the item is missing during a live turn", () => {
     expect(assistantCopyReady(items, "missing", true)).toBe(false);
+  });
+});
+
+describe("shouldClearBusyOnSettledChat", () => {
+  const items = [
+    { kind: "user" as const, id: "u", text: "ping", at: 1 },
+    { kind: "assistant" as const, id: "a", text: "pong", at: 2, until: 3 },
+  ];
+
+  it("clears after the reply has been quiet and no tool is in flight", () => {
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items })).toBe(true);
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 3999, items })).toBe(false);
+    expect(shouldClearBusyOnSettledChat({ busy: false, now: 3 + 4000, items })).toBe(false);
+  });
+
+  it("waits while a tool is still running", () => {
+    const live = [...items, { kind: "tool" as const, id: "t", title: "Read", status: "in_progress" as const, at: 4 }];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 9_000, items: live })).toBe(false);
+  });
+
+  it("does not treat the user send time as the end of the turn", () => {
+    const noClock = [
+      { kind: "user" as const, id: "u", text: "ping", at: 1 },
+      { kind: "assistant" as const, id: "a", text: "pong" },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 1 + 4000, items: noClock })).toBe(false);
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 10_000,
+        items: noClock,
+        seenAssistantAt: 10_000 - 4000,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -21,7 +21,7 @@ describe("slash groups", () => {
   it("routes hub slashes", () => {
     expect(hubTabForSlash("/skills")).toBe("skills");
     expect(hubTabForSlash("/mcps")).toBe("mcp");
-    expect(hubTabForSlash("/plugins")).toBe("plugins");
+    expect(hubTabForSlash("/plugins")).toBe("skills");
     expect(hubTabForSlash("/marketplace")).toBe("marketplace");
     expect(hubTabForSlash("/hooks")).toBe("hooks");
     expect(hubTabForSlash("/compact")).toBeNull();

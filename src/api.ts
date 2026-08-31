@@ -6,6 +6,9 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import type { AcpRecord } from "./lib/acp-events";
+import type { AgentId } from "./lib/agent-id";
+import { acpMessageFromEvent, resolveStartAgentId, stderrFromAcpEvent } from "./lib/acp-host";
 
 export type SessionSummary = {
   id: string;
@@ -19,6 +22,9 @@ export type SessionSummary = {
   dir?: string | null;
   sessionKind?: string | null;
   parentSessionId?: string | null;
+  lastTurnSummary?: string | null;
+  lastTurnSummaryPromptId?: string | null;
+  agentId?: string | null;
 };
 
 export type DoctorInfo = {
@@ -51,7 +57,6 @@ export type WebuiState = {
   unread?: Record<string, "done" | "error">;
   locale?: "zh" | "en";
   themeFamily?: "default" | "paper" | "ink";
-  density?: "comfortable" | "compact";
   hideToTray?: boolean;
   defaultRail?: "tasks" | "changes" | "context";
   shortcuts?: Record<string, string>;
@@ -67,6 +72,12 @@ export type WebuiState = {
     statusFilter?: Array<"needs-you" | "unread" | "working" | "done">;
     includeArchived?: boolean;
   };
+  injectUserMemory?: boolean;
+  dreamingEnabled?: boolean;
+  dreamAgentId?: AgentId;
+  lastAgent?: AgentId;
+  /** After this flag is set, the project list is only folders the user added. */
+  manualProjects?: boolean;
 };
 
 export type WorkspaceEntry = {
@@ -128,11 +139,16 @@ export type JsonRpc = {
 };
 
 export const doctor = () => invoke<DoctorInfo>("doctor");
-export const startAgent = () => invoke<{ ok: boolean; grok: string }>("start_agent");
+export const startAgent = (agentId?: AgentId) =>
+  invoke<{ ok: boolean; grok?: string; agentId?: string }>("start_agent", {
+    agentId: resolveStartAgentId(agentId),
+  });
 export const setWorkspace = (cwd: string, sessionId?: string | null) =>
   invoke<void>("set_workspace", { cwd, sessionId: sessionId ?? null });
-export const stopAgent = () => invoke<void>("stop_agent");
-export const sendRaw = (payload: JsonRpc) => invoke<void>("send_raw", { payload });
+export const stopAgent = (agentId?: AgentId | null) =>
+  invoke<void>("stop_agent", { agentId: agentId ?? null });
+export const sendRaw = (payload: JsonRpc, agentId?: AgentId) =>
+  invoke<void>("send_raw", { payload, agentId: resolveStartAgentId(agentId) });
 export const nextRpcId = () => invoke<number>("next_rpc_id");
 export const listSessions = (cwd?: string | null) =>
   invoke<SessionSummary[]>("list_sessions", { cwd: cwd ?? null });
@@ -148,10 +164,39 @@ export const readTextFile = (path: string, allowRoot?: string | null) =>
   invoke<TextFilePreview>("read_text_file", { path, allowRoot: allowRoot ?? null });
 export type MemoryChangeRow = { path: string; mtime: number };
 export const listMemoryChanges = () => invoke<MemoryChangeRow[]>("list_memory_changes");
+
+export type MemoryHostSnapshot = {
+  userMd: string;
+  dreamsMd: string;
+  dailyMd: string;
+  stateJson: string;
+  memoryRoot: string;
+};
+
+export type MemoryHostPatch = {
+  userMd?: string;
+  dreamsMd?: string;
+  dailyMd?: string;
+  dailyDay?: string;
+  stateJson?: string;
+};
+
+export const readMemoryHost = () => invoke<MemoryHostSnapshot>("read_memory_host");
+export const writeMemoryHost = (patch: MemoryHostPatch) =>
+  invoke<void>("write_memory_host", { patch });
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const openReviewPath = (path: string, allowRoot: string) => invoke<void>("open_review_path", { path, allowRoot });
-export const readSessionUpdates = (sessionId: string) =>
-  invoke<unknown[]>("read_session_updates", { sessionId });
+export type SessionUpdates = {
+  rows: AcpRecord[];
+  nextByte: number;
+  truncated: boolean;
+};
+export const readSessionUpdates = (sessionId: string, afterByte?: number | null, dir?: string | null) =>
+  invoke<SessionUpdates>("read_session_updates", {
+    sessionId,
+    afterByte: afterByte ?? null,
+    dir: dir ?? null,
+  });
 export type SessionUsage = { used: number; size: number };
 export const readSessionUsage = (sessionId: string) =>
   invoke<SessionUsage | null>("read_session_usage", { sessionId });
@@ -173,6 +218,7 @@ export const listProjectRules = (cwd: string) =>
 export const loadWebuiState = () => invoke<WebuiState>("load_webui_state");
 export const saveWebuiState = (state: WebuiState) => invoke<void>("save_webui_state", { state });
 export const listProjectRoots = () => invoke<string[]>("list_project_roots");
+export const pathIsDir = (path: string) => invoke<boolean>("path_is_dir", { path });
 export const deleteSession = (sessionId: string) => invoke<void>("delete_session", { sessionId });
 export const ensureInbox = (path?: string | null) =>
   invoke<string>("ensure_inbox", { path: path ?? null });
@@ -195,6 +241,7 @@ export const gitStatus = (cwd: string) => invoke<GitStatus>("git_status", { cwd 
 export const gitChanges = (cwd: string) => invoke<GitChange[]>("git_changes", { cwd });
 export const gitCreateWorktree = (cwd: string, name: string) =>
   invoke<string>("git_create_worktree", { cwd, name });
+export const gitListWorktrees = (cwd: string) => invoke<string>("git_list_worktrees", { cwd });
 /** Rewind primitive: `text === null` deletes the file. */
 export const restoreTextFile = (path: string, text: string | null, allowRoot: string) =>
   invoke<void>("restore_text_file", { path, text, allowRoot });
@@ -219,10 +266,39 @@ export const writeConfigText = (scope: "user" | "project", text: string, cwd?: s
   invoke<void>("write_config_text", { scope, text, cwd: cwd ?? null });
 export const writeAllowedText = (path: string, text: string, allowRoot?: string | null) =>
   invoke<void>("write_allowed_text", { path, text, allowRoot: allowRoot ?? null });
+export const savePasteBytes = (bytes: number[], ext: string, name?: string) =>
+  invoke<{ path: string; bytes: number; name: string }>("save_paste_bytes", {
+    bytes,
+    ext,
+    name: name ?? null,
+  });
+export const importDroppedFile = (path: string) =>
+  invoke<{ path: string; bytes: number; name: string; kind?: "file" | "dir" }>("import_dropped_file", { path });
+export const statAttachment = (path: string, allowRoot?: string | null) =>
+  invoke<{ path: string; bytes: number; kind: "file" | "dir" }>("stat_attachment", {
+    path,
+    allowRoot: allowRoot ?? null,
+  });
 
 export type GitCommit = { hash: string; subject: string; date: string };
+export type GitCommandResult = { ok: boolean; code: number; stderr: string };
 export const gitLog = (cwd: string) => invoke<GitCommit[]>("git_log", { cwd });
 export const gitBranches = (cwd: string) => invoke<string[]>("git_branches", { cwd });
+export const gitCheckout = (cwd: string, branch: string) =>
+  invoke<GitCommandResult>("git_checkout", { cwd, branch });
+export const gitCommit = (cwd: string, message: string) =>
+  invoke<GitCommandResult>("git_commit", { cwd, message });
+export const gitPull = (cwd: string) => invoke<GitCommandResult>("git_pull", { cwd });
+export const gitPush = (cwd: string) => invoke<GitCommandResult>("git_push", { cwd });
+export const gitDiscard = (cwd: string, path: string) =>
+  invoke<GitCommandResult>("git_discard", { cwd, path });
+
+export type GitBlame = { ok: boolean; text: string; stderr: string };
+export const gitBlame = (cwd: string, path: string, line: number) =>
+  invoke<GitBlame>("git_blame", { cwd, path, line });
+
+export const gitStatusUntracked = (cwd: string) =>
+  invoke<string[]>("git_status_untracked", { cwd });
 
 export type FileTreeNode = { name: string; path: string; kind: "file" | "dir" };
 export const listFileTree = (cwd: string, query?: string) =>
@@ -261,6 +337,19 @@ export const listAgentsDir = () =>
 export const workspaceMtime = (cwd: string) => invoke<number>("workspace_mtime", { cwd });
 export const readUsageHistory = () =>
   invoke<{ at: number; used: number; size: number }[]>("read_usage_history");
+export type TokenTurnRow = {
+  at: number;
+  cwd: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreate: number;
+  total: number;
+  modelCalls: number;
+  costTicks: number;
+};
+export const readTokenTurns = () => invoke<TokenTurnRow[]>("read_token_turns");
 
 export type GrokCliLog = { stream: "stdout" | "stderr"; line: string };
 export const onGrokCliLog = (handler: (row: GrokCliLog) => void): Promise<UnlistenFn> =>
@@ -313,16 +402,34 @@ export async function windowFocused(): Promise<boolean> {
   }
 }
 
+/** Start a native window move from a titlebar drag strip. */
+export function beginWindowDrag(): void {
+  void getCurrentWindow().startDragging().catch(() => {});
+}
+
 export const onWindowFocus = (handler: (focused: boolean) => void): Promise<UnlistenFn> =>
   getCurrentWindow().onFocusChanged(({ payload }) => handler(payload));
 
-export const onAcpMessage = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
-  listen<JsonRpc>("acp-message", (e) => handler(e.payload));
-export const onAcpRequest = (handler: (msg: JsonRpc) => void): Promise<UnlistenFn> =>
-  listen<JsonRpc>("acp-request", (e) => handler(e.payload));
-export const onAcpStderr = (handler: (line: string) => void): Promise<UnlistenFn> =>
-  listen<string>("acp-stderr", (e) => handler(e.payload));
-export const onAgentExit = (handler: () => void): Promise<UnlistenFn> =>
-  listen("agent-exit", () => handler());
+export const onAcpMessage = (handler: (msg: JsonRpc, agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("acp-message", (e) => {
+    const ev = acpMessageFromEvent(e.payload);
+    handler(ev.payload as JsonRpc, ev.agentId);
+  });
+export const onAcpRequest = (handler: (msg: JsonRpc, agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("acp-request", (e) => {
+    const ev = acpMessageFromEvent(e.payload);
+    handler(ev.payload as JsonRpc, ev.agentId);
+  });
+export const onAcpStderr = (handler: (line: string, agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("acp-stderr", (e) => {
+    const { line, agentId } = stderrFromAcpEvent(e.payload);
+    handler(line, agentId);
+  });
+export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<UnlistenFn> =>
+  listen<unknown>("agent-exit", (e) => {
+    handler(acpMessageFromEvent(e.payload).agentId);
+  });
 export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
   listen("tray-open-last", () => handler());
+
+export { doctorAll, installMarketplaceSkill } from "./lib/workbench-api";

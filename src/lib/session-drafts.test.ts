@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { getDraft, loadDrafts, setDraft } from "./session-drafts";
+import {
+  NONE_SESSION_KEY,
+  draftKey,
+  getDraft,
+  getSessionRailTab,
+  loadDrafts,
+  setDraft,
+  setSessionRailTab,
+} from "./session-drafts";
 
 describe("loadDrafts", () => {
   it("returns empty map for missing input", () => {
@@ -54,5 +62,46 @@ describe("setDraft", () => {
 describe("getDraft", () => {
   it("returns empty string for missing session", () => {
     expect(getDraft({}, "missing")).toBe("");
+  });
+});
+
+describe("draft key __none__", () => {
+  it("maps empty and null session ids to __none__", () => {
+    expect(NONE_SESSION_KEY).toBe("__none__");
+    expect(draftKey(null)).toBe("__none__");
+    expect(draftKey(undefined)).toBe("__none__");
+    expect(draftKey("")).toBe("__none__");
+    expect(draftKey("__none__")).toBe("__none__");
+    expect(draftKey("s1")).toBe("s1");
+  });
+
+  it("persists no-session drafts under __none__", () => {
+    const next = setDraft({}, "", "composer text");
+    expect(next).toEqual({ [NONE_SESSION_KEY]: "composer text" });
+    expect(getDraft(next, "")).toBe("composer text");
+    expect(getDraft(next, null)).toBe("composer text");
+    expect(getDraft(next, NONE_SESSION_KEY)).toBe("composer text");
+  });
+
+  it("loads empty-string keys as __none__", () => {
+    expect(loadDrafts({ "": "old", s1: "keep" })).toEqual({
+      [NONE_SESSION_KEY]: "old",
+      s1: "keep",
+    });
+  });
+
+  it("clears the __none__ draft when text is empty", () => {
+    const base = setDraft({}, NONE_SESSION_KEY, "x");
+    expect(setDraft(base, "", "")).toEqual({});
+  });
+});
+
+describe("session rail tab", () => {
+  it("records last tab per session without mutating the map", () => {
+    const base = {};
+    const next = setSessionRailTab(base, "s1", "changes");
+    expect(base).toEqual({});
+    expect(getSessionRailTab(next, "s1")).toBe("changes");
+    expect(getSessionRailTab(next, "missing")).toBeUndefined();
   });
 });

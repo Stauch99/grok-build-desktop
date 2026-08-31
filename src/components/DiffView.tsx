@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { diffLines, rowMark } from "../lib/diff";
 import { basename } from "../lib/text";
+import { IconCopy, IconFinder, IconMaximize, IconMinimize } from "../icons";
 
 export type DiffViewProps = {
   path: string;
@@ -44,8 +45,10 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
               className="file-open"
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
+              title={expanded ? "折叠" : "全文"}
+              aria-label={expanded ? "折叠" : "全文"}
             >
-              {expanded ? "折叠" : "全文"}
+              {expanded ? <IconMinimize size={14} /> : <IconMaximize size={14} />}
             </button>
           ) : null}
           <button
@@ -55,7 +58,7 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
             aria-label="复制新内容"
             onClick={() => void navigator.clipboard.writeText(newText ?? "")}
           >
-            复制
+            <IconCopy size={14} />
           </button>
           {onOpen && path ? (
             <button
@@ -65,7 +68,7 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
               aria-label="在访达中打开"
               onClick={() => onOpen(path)}
             >
-              访达
+              <IconFinder size={14} />
             </button>
           ) : null}
         </span>

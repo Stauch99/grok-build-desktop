@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   formatStatsFooter,
   parseUsageSplit,
+  sparklinePoints,
+  splitCostByModel,
   statsLine,
   turnStatsFromItems,
   usageBreakdownLines,
+  usageHoverLines,
+  usageRingDash,
   usageRingPercents,
   usageTrend,
 } from "./usage-split";
@@ -41,6 +45,30 @@ describe("usageBreakdownLines", () => {
   });
 });
 
+describe("usageHoverLines", () => {
+  it("leads with compact used/size and percent, then named slices", () => {
+    expect(usageHoverLines({ input: 100, output: 20, cache: 5, used: 12500, size: 200000 })).toEqual([
+      "上下文 12.5k / 200k · 6%",
+      "input 100",
+      "output 20",
+      "cache 5",
+    ]);
+  });
+
+  it("dashes missing counts", () => {
+    expect(usageHoverLines({})).toEqual(["上下文 — / — · 0%"]);
+  });
+});
+
+describe("usageRingDash", () => {
+  it("maps percent onto the circle circumference", () => {
+    const full = usageRingDash(100, 5);
+    const half = usageRingDash(50, 5);
+    expect(full.dash).toBeCloseTo(full.circumference);
+    expect(half.dash).toBeCloseTo(full.circumference / 2);
+  });
+});
+
 describe("statsLine", () => {
   it("is null without a start time", () => {
     expect(statsLine({})).toBeNull();
@@ -65,29 +93,61 @@ describe("turnStatsFromItems", () => {
         [
           { kind: "user", at: 1000 },
           { kind: "assistant", at: 1300, until: 2000 },
-          { kind: "user", at: 3000 },
         ],
         50,
       ),
     ).toEqual({ ttftMs: 300, toksPerSec: 50 });
+  });
+
+  it("tracks the open turn after a new user message instead of the previous reply", () => {
+    expect(
+      turnStatsFromItems(
+        [
+          { kind: "user", at: 1000 },
+          { kind: "assistant", at: 1300, until: 2000 },
+          { kind: "user", at: 3000 },
+        ],
+        50,
+        { now: 3600, live: true },
+      ),
+    ).toEqual({ ttftMs: 600, toksPerSec: 0 });
+  });
+
+  it("uses now as the end time while the current turn is streaming", () => {
+    expect(
+      turnStatsFromItems(
+        [
+          { kind: "user", at: 1000 },
+          { kind: "assistant", at: 1300, until: 1500 },
+        ],
+        40,
+        { now: 2000, live: true },
+      ),
+    ).toEqual({ ttftMs: 300, toksPerSec: 40 });
   });
 });
 
 describe("formatStatsFooter", () => {
   it("joins compact latency, rate, and session tokens", () => {
     expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 })).toBe(
-      "TTFT 300ms · 50 tok/s · 12.4k tok",
+      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
     );
   });
 
-  it("collapses long TTFT into minutes", () => {
+  it("collapses long TTFT into minutes and hides a zero rate", () => {
     expect(formatStatsFooter({ ttftMs: 342000, toksPerSec: 0, sessionTokens: 847 })).toBe(
-      "TTFT 5.7m · 0 tok/s · 847 tok",
+      "首字 5.7m · 速率 — · 已用 847",
     );
   });
 
   it("uses dashes when a value is missing", () => {
-    expect(formatStatsFooter({})).toBe("TTFT — · — tok/s · — tok");
+    expect(formatStatsFooter({})).toBe("首字 — · 速率 — · 已用 —");
+  });
+
+  it("switches labels with locale", () => {
+    expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 }, "en")).toBe(
+      "TTFT 300ms · Rate 50 tok/s · Used 12.4k",
+    );
   });
 });
 
@@ -104,5 +164,48 @@ describe("usageTrend", () => {
     );
     expect(pts).toHaveLength(1);
     expect(pts[0]?.used).toBe(2);
+  });
+});
+
+describe("splitCostByModel", () => {
+  it("sums cost ticks by model", () => {
+    expect(
+      splitCostByModel([
+        { model: "grok-4.6", cost: 10 },
+        { model: "grok-4.5", cost: 3 },
+        { model: "grok-4.6", cost: 2 },
+      ]),
+    ).toEqual({ "grok-4.6": 12, "grok-4.5": 3 });
+  });
+
+  it("buckets missing or blank models as unknown", () => {
+    expect(splitCostByModel([{ cost: 4 }, { model: "  ", cost: 1 }, { model: "grok-4.6", cost: 5 }])).toEqual({
+      unknown: 5,
+      "grok-4.6": 5,
+    });
+  });
+
+  it("returns an empty record for no ticks", () => {
+    expect(splitCostByModel([])).toEqual({});
+  });
+});
+
+describe("sparklinePoints", () => {
+  it("maps usageHistory into an svg polyline in time order", () => {
+    expect(
+      sparklinePoints(
+        [
+          { at: 30, used: 100 },
+          { at: 10, used: 0 },
+          { at: 20, used: 50 },
+        ],
+        100,
+        20,
+      ),
+    ).toBe("0,20 50,10 100,0");
+  });
+
+  it("is empty when there is no history", () => {
+    expect(sparklinePoints([], 100, 20)).toBe("");
   });
 });

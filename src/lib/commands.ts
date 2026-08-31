@@ -1,4 +1,5 @@
-export type HubTab = "skills" | "mcp" | "plugins" | "marketplace" | "hooks";
+export type HubTab = "skills" | "mcp" | "marketplace" | "hooks";
+export const HUB_TABS: HubTab[] = ["skills", "mcp", "marketplace", "hooks"];
 
 export type CommandDef = {
   name: string;
@@ -21,6 +22,7 @@ export type CommandDef = {
     | "imagine-video"
     | "agents"
     | "memory"
+    | "dream"
     | "rewind";
   hubTab?: HubTab;
 };
@@ -59,16 +61,16 @@ export const SLASH_COMMANDS: CommandDef[] = [
   { name: "/remember", hint: "写入一条记忆" },
   { name: "/memory", hint: "记忆", local: "memory" },
   { name: "/flush", hint: "立刻写入记忆" },
-  { name: "/dream", hint: "整理记忆" },
+  { name: "/dream", hint: "整理记忆", local: "dream" },
   { name: "/skills", hint: "技能列表", local: "hub", hubTab: "skills" },
   { name: "/mcps", hint: "MCP 服务器", local: "hub", hubTab: "mcp" },
   { name: "/hooks", hint: "Hooks", local: "hub", hubTab: "hooks" },
-  { name: "/plugins", hint: "插件", local: "hub", hubTab: "plugins" },
+  { name: "/plugins", hint: "技能", local: "hub", hubTab: "skills" },
   { name: "/marketplace", hint: "市场", local: "hub", hubTab: "marketplace" },
   { name: "/imagine", hint: "图片", local: "imagine" },
   { name: "/imagine-video", hint: "视频", local: "imagine-video" },
   { name: "/dashboard", hint: "会话总览", local: "dashboard" },
-  { name: "/export", hint: "导出会话", local: "export" },
+  { name: "/export", hint: "复制全部对话", local: "export" },
   { name: "/copy", hint: "复制上一条回复", local: "copy" },
   { name: "/config-agents", hint: "代理", local: "agents" },
   { name: "/settings", hint: "打开设置", local: "settings" },
@@ -85,6 +87,6 @@ export function filterCommands(query: string, extra: { name: string; hint?: stri
     seen.add(c.name);
     return true;
   });
-  if (!q) return all.slice(0, 16);
-  return all.filter((c) => c.name.slice(1).includes(q) || c.hint.toLowerCase().includes(q)).slice(0, 16);
+  if (!q) return all.slice(0, 48);
+  return all.filter((c) => c.name.slice(1).includes(q) || c.hint.toLowerCase().includes(q)).slice(0, 48);
 }

@@ -6,4 +6,13 @@ src-tauri/gen/
 *.log
 .vite/
 *.tsbuildinfo
+*.dmg
+*.app
+*.msi
+*.exe
 .superpowers/
+.worktrees/
+.tmp-acp-probe/
+.tmp-ui-check/
+docs/ui-audit/**/*.png
+docs/ui-audit/**/CAPTURE_LOG.txt

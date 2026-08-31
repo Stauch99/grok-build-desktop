@@ -59,10 +59,37 @@ export function escapeText(text: string): string {
 export function textFromContent(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
-  if (typeof content === "object" && content !== null && "text" in content) {
-    return String((content as { text?: unknown }).text ?? "");
+  if (Array.isArray(content)) {
+    return content.map(textFromContent).join("");
+  }
+  if (typeof content === "object" && content !== null) {
+    const rec = content as { text?: unknown; thinking?: unknown; think?: unknown };
+    if (rec.text != null) return String(rec.text);
+    if (rec.thinking != null) return String(rec.thinking);
+    if (rec.think != null) return String(rec.think);
   }
   return "";
+}
+
+/** Tool verbose / result payload from ACP `rawOutput` (Grok, Codex, Kimi). */
+export function textFromRawOutput(raw: unknown): string {
+  if (!raw) return "";
+  if (typeof raw === "string") return raw;
+  const rec = asRecord(raw);
+  if (typeof rec.formatted_output === "string") return rec.formatted_output;
+  if (typeof rec.output === "string") return rec.output;
+  const nested = rec.Content ?? rec.content;
+  if (typeof nested === "string") return nested;
+  const inner = asRecord(nested);
+  if (typeof inner.content === "string") return inner.content;
+  if (typeof inner.text === "string") return inner.text;
+  const fromContent = textFromContent(raw);
+  if (fromContent) return fromContent;
+  try {
+    return JSON.stringify(raw, null, 2);
+  } catch {
+    return "";
+  }
 }
 
 export function asRecord(v: unknown): Record<string, unknown> {
@@ -83,8 +110,14 @@ export function surfaceStderr(line: string): string | null {
   if (/worker quit|Transport channel closed|request::Error|os error 61|Connection reset/i.test(t)) {
     return null;
   }
-  if (!/error|fail|fatal|panic/i.test(t)) return null;
+  if (!/error|fail|fatal|panic/i.test(t) && !shouldClearBusyOnAgentStderr(line)) return null;
   return t.replace(/^\d{4}-\d{2}-\d{2}[T ][\d:.Z+-]+\s*/i, "").slice(0, 140);
+}
+
+export function shouldClearBusyOnAgentStderr(line: string): boolean {
+  const t = cleanLogLine(line);
+  if (!t) return false;
+  return /\[SYSTEM_ERROR\]|Authentication required|Prompt for session .+\sfailed/i.test(t);
 }
 
 export function resolveOpenTarget(href: string, cwd = ""): string | null {
@@ -110,7 +143,7 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
 
 /** Extensions worth turning into a clickable, previewable file reference. */
 const LINKABLE_EXT =
-  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp";
+  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp|png|jpg|jpeg|gif|webp|bmp|ico|tif|tiff|heic|avif|mp4|webm|mov|m4v|ogv";
 
 const ABSOLUTE_PATH = /(^|[\s(])(\/(?:Users|home|tmp|var|opt)\/[^\s<)'"]+|~\/[^\s<)'"]+)/g;
 

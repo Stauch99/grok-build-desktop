@@ -1,3 +1,5 @@
+import { t, type Locale } from "./i18n";
+
 export type UsageSplit = {
   used?: number;
   size?: number;
@@ -55,6 +57,19 @@ export function usageBreakdownLines(u: UsageSplit): string[] {
   return lines;
 }
 
+export function usageRingDash(percent: number, radius: number): { circumference: number; dash: number } {
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.min(100, Math.max(0, percent)) / 100;
+  return { circumference, dash: circumference * pct };
+}
+
+export function usageHoverLines(u: UsageSplit, locale: Locale = "zh"): string[] {
+  const p = usageRingPercents(u);
+  const used = u.used == null ? "—" : compactCount(u.used);
+  const size = u.size == null ? "—" : compactCount(u.size);
+  return [t(locale, "usage.hover", { used, size, pct: String(p.used) }), ...usageBreakdownLines(u)];
+}
+
 export type StatsLine = { ttftMs: number; toksPerSec: number };
 
 export function statsLine(opts: {
@@ -78,25 +93,34 @@ export function statsLine(opts: {
 export function turnStatsFromItems(
   items: { kind: string; at?: number; until?: number }[],
   outputTokens?: number,
+  opts?: { now?: number; live?: boolean },
 ): StatsLine | null {
-  let assistant: { at?: number; until?: number } | undefined;
-  let user: { at?: number } | undefined;
+  let userIdx = -1;
   for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (!assistant) {
-      if (it.kind === "assistant") assistant = it;
-      continue;
-    }
-    if (it.kind === "user") {
-      user = it;
+    if (items[i].kind === "user") {
+      userIdx = i;
       break;
     }
   }
+  if (userIdx < 0) return null;
+  const user = items[userIdx];
+  let firstAt: number | undefined;
+  let lastUntil: number | undefined;
+  for (let i = userIdx + 1; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind !== "assistant" && it.kind !== "thought") continue;
+    if (firstAt == null && it.at != null) firstAt = it.at;
+    if (it.until != null) lastUntil = it.until;
+    else if (it.at != null) lastUntil = it.at;
+  }
+  const live = opts?.live === true;
+  const now = opts?.now;
+  if (firstAt == null && !live) return null;
   return statsLine({
-    startedAt: user?.at,
-    firstTokenAt: assistant?.at,
-    endedAt: assistant?.until,
-    outputTokens,
+    startedAt: user.at,
+    firstTokenAt: firstAt ?? now,
+    endedAt: live ? now : lastUntil,
+    outputTokens: firstAt == null ? 0 : outputTokens,
   });
 }
 
@@ -106,11 +130,11 @@ export type StatsFooter = {
   sessionTokens?: number | null;
 };
 
-export function formatStatsFooter(s: StatsFooter): string {
+export function formatStatsFooter(s: StatsFooter, locale: Locale = "zh"): string {
   const ttft = s.ttftMs == null ? "—" : compactLatency(s.ttftMs);
-  const rate = s.toksPerSec == null ? "—" : String(Math.round(s.toksPerSec));
+  const rate = s.toksPerSec == null || s.toksPerSec <= 0 ? "—" : `${Math.round(s.toksPerSec)} tok/s`;
   const tok = s.sessionTokens == null ? "—" : compactCount(s.sessionTokens);
-  return `TTFT ${ttft} · ${rate} tok/s · ${tok} tok`;
+  return t(locale, "stats.footer", { ttft, rate, tok });
 }
 
 function compactLatency(ms: number): string {
@@ -130,4 +154,33 @@ function compactCount(n: number): string {
 function compactUnit(n: number): string {
   if (n >= 100) return String(Math.round(n));
   return n.toFixed(1).replace(/\.0$/, "");
+}
+
+export function splitCostByModel(ticks: { model?: string; cost: number }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const tick of ticks) {
+    const key = tick.model?.trim() || "unknown";
+    out[key] = (out[key] ?? 0) + tick.cost;
+  }
+  return out;
+}
+
+export function sparklinePoints(
+  points: { at: number; used: number }[],
+  width: number,
+  height: number,
+): string {
+  if (points.length === 0) return "";
+  const ordered = [...points].sort((a, b) => a.at - b.at);
+  const values = ordered.map((p) => p.used);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  return ordered
+    .map((p, i) => {
+      const x = ordered.length === 1 ? width / 2 : (i / (ordered.length - 1)) * width;
+      const y = span === 0 ? height / 2 : height - ((p.used - min) / span) * height;
+      return `${x},${y}`;
+    })
+    .join(" ");
 }

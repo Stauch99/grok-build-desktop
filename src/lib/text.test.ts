@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, surfaceStderr, textFromContent } from "./text";
+import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent, textFromRawOutput } from "./text";
 
 describe("basename", () => {
   it("takes the last path segment", () => {
@@ -116,6 +116,12 @@ describe("linkifyLocalPaths", () => {
     expect(linkifyLocalPaths("<p>see src/App.tsx.bak</p>")).not.toContain("file-link");
   });
 
+  it("linkifies a cited image so it can be previewed inline", () => {
+    const html = linkifyLocalPaths("<p>见图 /Users/foxie/out/cover.png</p>");
+    expect(html).toContain('href="/Users/foxie/out/cover.png"');
+    expect(linkifyLocalPaths("<p>改了 assets/hero.webp</p>")).toContain('href="assets/hero.webp"');
+  });
+
   it("does not linkify inside an existing tag attribute", () => {
     const html = linkifyLocalPaths('<a href="src/App.tsx">src/App.tsx</a>');
     expect(html.match(/class="file-link"/g) ?? []).toHaveLength(1);
@@ -131,6 +137,26 @@ describe("surfaceStderr", () => {
   it("keeps a real failure line", () => {
     expect(surfaceStderr("failed to start agent: permission denied")).toMatch(/permission denied/);
   });
+  it("keeps a Codex prompt auth failure", () => {
+    expect(
+      surfaceStderr(
+        "[SYSTEM_ERROR] Prompt for session abc failed: RequestError: Authentication required: refresh token",
+      ),
+    ).toMatch(/Authentication required/);
+    expect(surfaceStderr("Authentication required")).toBe("Authentication required");
+  });
+});
+
+describe("shouldClearBusyOnAgentStderr", () => {
+  it("clears busy on a prompt SYSTEM_ERROR, not on MCP transport noise", () => {
+    expect(
+      shouldClearBusyOnAgentStderr(
+        "[SYSTEM_ERROR] Prompt for session abc failed: RequestError: Authentication required",
+      ),
+    ).toBe(true);
+    expect(shouldClearBusyOnAgentStderr("worker quit with fatal: Transport channel closed")).toBe(false);
+    expect(shouldClearBusyOnAgentStderr("")).toBe(false);
+  });
 });
 
 describe("textFromContent", () => {
@@ -138,5 +164,21 @@ describe("textFromContent", () => {
     expect(textFromContent({ type: "text", text: "hello" })).toBe("hello");
     expect(textFromContent("plain")).toBe("plain");
     expect(textFromContent(null)).toBe("");
+  });
+
+  it("joins text blocks and thinking fields", () => {
+    expect(textFromContent([{ type: "text", text: "a" }, { text: "b" }])).toBe("ab");
+    expect(textFromContent({ thinking: "hmm" })).toBe("hmm");
+  });
+});
+
+describe("textFromRawOutput", () => {
+  it("reads grok nested Content, codex formatted_output, and kimi output", () => {
+    expect(
+      textFromRawOutput({ type: "ListDir", Content: { content: "/tmp\n" } }),
+    ).toBe("/tmp\n");
+    expect(textFromRawOutput({ formatted_output: "ok" })).toBe("ok");
+    expect(textFromRawOutput({ output: "read 12 lines" })).toBe("read 12 lines");
+    expect(textFromRawOutput("plain")).toBe("plain");
   });
 });

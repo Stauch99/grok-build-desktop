@@ -1,78 +1,125 @@
-import type { IIconProps } from "@icon-park/react/lib/runtime";
+import type { TablerIcon } from "@tabler/icons-react";
 import {
-  Branch,
-  ChartHistogram,
-  CheckSmall,
-  Close,
-  Comments,
-  Copy,
-  Down,
-  Edit,
-  Filter,
-  FolderClose,
-  FolderOpen,
-  LayoutTwo,
-  MacFinder,
-  Moon,
-  MoreOne,
-  Plug,
-  Plus,
-  Redo,
-  Search,
-  Setting,
-  Star,
-  SunOne,
-  Terminal,
-  Undo,
-  Up,
-} from "@icon-park/react";
+  IconArrowBackUp,
+  IconArrowUp,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconBulb,
+  IconChartBar,
+  IconCheck as TablerCheck,
+  IconChevronDown,
+  IconChevronUp as TablerChevronUp,
+  IconCircle,
+  IconCircleCheck,
+  IconCircleDot,
+  IconCode as TablerCode,
+  IconCopy as TablerCopy,
+  IconDeviceFloppy,
+  IconDots,
+  IconExternalLink,
+  IconEye as TablerEye,
+  IconFileSearch as TablerFileSearch,
+  IconFileText,
+  IconFileTypeDoc as TablerFileDoc,
+  IconFileTypePdf as TablerFilePdf,
+  IconFileTypePpt as TablerFilePpt,
+  IconFileTypeXls as TablerFileXls,
+  IconFileTypeZip as TablerFileZip,
+  IconFilter as TablerFilter,
+  IconFolder as TablerFolder,
+  IconFolderOpen as TablerFolderOpen,
+  IconFolderPlus as TablerFolderPlus,
+  IconGitBranch,
+  IconGitFork as TablerGitFork,
+  IconLayoutSidebar,
+  IconLayoutSidebarRight,
+  IconListDetails as TablerListDetails,
+  IconMarkdown as TablerMarkdown,
+  IconMessageCircle,
+  IconMoon as TablerMoon,
+  IconPencil,
+  IconPhoto as TablerPhoto,
+  IconPlayerStop,
+  IconPlug as TablerPlug,
+  IconPlus as TablerPlus,
+  IconRefresh as TablerRefresh,
+  IconSearch as TablerSearch,
+  IconSettings,
+  IconStar as TablerStar,
+  IconStarFilled as TablerStarFilled,
+  IconSun as TablerSun,
+  IconTerminal2,
+  IconThumbDown as TablerThumbDown,
+  IconThumbUp as TablerThumbUp,
+  IconX,
+} from "@tabler/icons-react";
 
-type Ico = { size?: number; className?: string };
+export type Ico = { size?: number; className?: string };
 
-type ParkIcon = (props: IIconProps) => React.ReactElement;
-
-const park = {
-  theme: "outline" as const,
-  strokeWidth: 3,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-
-/** Nominal sizes from defaults/callers are scaled ~25% for IconPark outline fit. */
-const ICON_SCALE = 0.75;
-
-function renderSize(nominal: number): number {
-  return Math.round(nominal * ICON_SCALE);
-}
-
-function wrap(Park: ParkIcon, defaultSize = 16) {
+function wrap(Tabler: TablerIcon, defaultSize = 16, stroke: number | undefined = 1.75) {
   return function Icon({ size = defaultSize, className }: Ico) {
-    return <Park {...park} size={renderSize(size)} className={className} aria-hidden />;
+    return (
+      <Tabler
+        size={size}
+        stroke={stroke}
+        className={className ? `grok-ico ${className}` : "grok-ico"}
+        aria-hidden
+      />
+    );
   };
 }
 
-export const IconPlus = wrap(Plus);
-export const IconChevron = wrap(Down, 12);
-export const IconFolder = wrap(FolderClose);
-export const IconFolderOpen = wrap(FolderOpen);
-export const IconChat = wrap(Comments);
-export const IconMore = wrap(MoreOne);
-export const IconCopy = wrap(Copy);
-export const IconUp = wrap(Up);
-export const IconFinder = wrap(MacFinder);
-export const IconPanel = wrap(LayoutTwo);
-export const IconGear = wrap(Setting);
-export const IconSearch = wrap(Search);
-export const IconSpark = wrap(Star, 22);
-export const IconCheck = wrap(CheckSmall, 12);
-export const IconChart = wrap(ChartHistogram, 22);
-export const IconSun = wrap(SunOne);
-export const IconMoon = wrap(Moon);
-export const IconBranch = wrap(Branch, 14);
-export const IconUndo = wrap(Undo, 14);
-export const IconPlug = wrap(Plug, 14);
-export const IconClose = wrap(Close);
-export const IconResend = wrap(Redo, 14);
-export const IconEdit = wrap(Edit, 14);
-export const IconFilter = wrap(Filter);
-export const IconTerminal = wrap(Terminal);
+export const IconPlus = wrap(TablerPlus);
+export const IconChevron = wrap(IconChevronDown, 12);
+export const IconChevronUp = wrap(TablerChevronUp, 12);
+export const IconFolder = wrap(TablerFolder);
+export const IconFolderOpen = wrap(TablerFolderOpen);
+export const IconFolderPlus = wrap(TablerFolderPlus);
+export const IconChat = wrap(IconMessageCircle);
+export const IconMore = wrap(IconDots);
+export const IconCopy = wrap(TablerCopy);
+export const IconUp = wrap(IconArrowUp);
+export const IconFinder = wrap(IconExternalLink);
+export const IconEye = wrap(TablerEye, 14);
+export const IconPanel = wrap(IconLayoutSidebarRight);
+export const IconSidebar = wrap(IconLayoutSidebar, 18);
+export const IconGear = wrap(IconSettings);
+export const IconSearch = wrap(TablerSearch);
+export const IconSpark = wrap(TablerStar, 22);
+export const IconStar = wrap(TablerStar, 14);
+export const IconStarFilled = wrap(TablerStarFilled, 14, undefined);
+export const IconCheck = wrap(TablerCheck, 12);
+export const IconChart = wrap(IconChartBar, 22);
+export const IconSun = wrap(TablerSun);
+export const IconMoon = wrap(TablerMoon);
+export const IconBranch = wrap(IconGitBranch, 14);
+export const IconGitFork = wrap(TablerGitFork);
+export const IconUndo = wrap(IconArrowBackUp, 14);
+export const IconPlug = wrap(TablerPlug, 14);
+export const IconClose = wrap(IconX);
+export const IconRefresh = wrap(TablerRefresh, 14);
+export const IconResend = IconRefresh;
+export const IconEdit = wrap(IconPencil, 14);
+export const IconFilter = wrap(TablerFilter);
+export const IconTerminal = wrap(IconTerminal2);
+export const IconLight = wrap(IconBulb);
+export const IconFileSearch = wrap(TablerFileSearch);
+export const IconFileTxt = wrap(IconFileText);
+export const IconFilePdf = wrap(TablerFilePdf, 22);
+export const IconFileDoc = wrap(TablerFileDoc, 22);
+export const IconFileXls = wrap(TablerFileXls, 22);
+export const IconFilePpt = wrap(TablerFilePpt, 22);
+export const IconFileZip = wrap(TablerFileZip, 22);
+export const IconPhoto = wrap(TablerPhoto, 22);
+export const IconStop = wrap(IconPlayerStop);
+export const IconSave = wrap(IconDeviceFloppy);
+export const IconCode = wrap(TablerCode);
+export const IconMarkdown = wrap(TablerMarkdown);
+export const IconListDetails = wrap(TablerListDetails);
+export const IconMaximize = wrap(IconArrowsMaximize);
+export const IconMinimize = wrap(IconArrowsMinimize);
+export const IconTodoOff = wrap(IconCircle);
+export const IconTodoOn = wrap(IconCircleCheck);
+export const IconTodoBusy = wrap(IconCircleDot);
+export const IconThumbUp = wrap(TablerThumbUp);
+export const IconThumbDown = wrap(TablerThumbDown);

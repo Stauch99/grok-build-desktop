@@ -31,6 +31,13 @@ describe("filterCommands", () => {
     expect(hits.some((command) => command.name === "/bridge")).toBe(true);
   });
 
+  it("keeps later extras on a bare slash so installed skills stay visible", () => {
+    const extra = Array.from({ length: 20 }, (_, i) => ({ name: `skill-${i}`, hint: "s" }));
+    const hits = filterCommands("/", extra);
+    expect(hits.some((c) => c.name === "/skill-0")).toBe(true);
+    expect(hits.some((c) => c.name === "/skill-19")).toBe(true);
+  });
+
   it("keeps direct conversation and local desktop actions", () => {
     const names = SLASH_COMMANDS.map((command) => command.name);
     expect(names).toEqual(expect.arrayContaining([
@@ -44,6 +51,17 @@ describe("filterCommands", () => {
       "/imagine-video",
       "/config-agents",
     ]));
+  });
+
+  it("aliases /plugins to the skills hub tab", () => {
+    const plugins = SLASH_COMMANDS.find((c) => c.name === "/plugins");
+    expect(plugins?.local).toBe("hub");
+    expect(plugins?.hubTab).toBe("skills");
+  });
+
+  it("runs /dream on the desktop", () => {
+    const dream = SLASH_COMMANDS.find((c) => c.name === "/dream");
+    expect(dream?.local).toBe("dream");
   });
 });
 

@@ -1,13 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptManualProjects,
+  decideTitleCommit,
   displayTitle,
   filterProjectTree,
   groupSessions,
+  keepExistingDirs,
   mergeProjectPaths,
   countDescendants,
   nestByParent,
   setTitleOverride,
 } from "./projects";
+
+describe("adoptManualProjects", () => {
+  it("drops auto-discovered folders until the user adds projects by hand", () => {
+    expect(adoptManualProjects(["/old/a", "/old/b"], false)).toEqual({ projects: [], reset: true });
+    expect(adoptManualProjects(["/old/a"], undefined)).toEqual({ projects: [], reset: true });
+  });
+
+  it("keeps the allow-list after the cutover", () => {
+    expect(adoptManualProjects(["/work/app"], true)).toEqual({ projects: ["/work/app"], reset: false });
+    expect(adoptManualProjects(undefined, true)).toEqual({ projects: [], reset: false });
+  });
+});
 
 describe("mergeProjectPaths", () => {
   it("dedupes paths", () => {
@@ -16,6 +31,19 @@ describe("mergeProjectPaths", () => {
     expect(merged).toContain("/a/app");
     expect(merged).toContain("/b/proj");
     expect(merged).toContain("/c/x");
+  });
+});
+
+describe("keepExistingDirs", () => {
+  it("drops saved paths whose directory no longer exists", () => {
+    const live = new Set(["/work/app"]);
+    expect(keepExistingDirs(["/work/app", "/gone/old", "/work/app/"], (p) => live.has(p))).toEqual([
+      "/work/app",
+    ]);
+  });
+
+  it("keeps an empty list empty", () => {
+    expect(keepExistingDirs([], () => true)).toEqual([]);
   });
 });
 
@@ -41,12 +69,41 @@ describe("displayTitle / setTitleOverride", () => {
     expect(displayTitle(s, { a: " 手改 " })).toBe("手改");
     expect(displayTitle({ id: "x", title: "" }, {})).toBe("未命名会话");
   });
+  it("falls back to first 40 chars of preview when title is empty", () => {
+    const long = "这是一段很长的首条用户消息用来做会话预览标题超过四十个字就会被截断";
+    expect(displayTitle({ id: "s1", title: "" }, {}, { s1: long })).toBe(long.slice(0, 40));
+    expect(displayTitle({ id: "s1", title: "  " }, {}, { s1: "  简短预览  " })).toBe("简短预览");
+  });
+  it("does not use preview when override or generated title exists", () => {
+    expect(displayTitle({ id: "s1", title: "生成名" }, {}, { s1: "预览" })).toBe("生成名");
+    expect(displayTitle({ id: "s1", title: "" }, { s1: "手改" }, { s1: "预览" })).toBe("手改");
+  });
+  it("falls back to 未命名会话 when preview is missing or blank", () => {
+    expect(displayTitle({ id: "s1", title: "" }, {}, { s1: "   " })).toBe("未命名会话");
+    expect(displayTitle({ id: "s1", title: "" }, {}, {})).toBe("未命名会话");
+  });
   it("clears override on empty", () => {
     expect(setTitleOverride({ a: "手改" }, "a", "  ")).toEqual({});
   });
   it("caps at 80 chars", () => {
     const next = setTitleOverride({}, "a", "字".repeat(90));
     expect(next.a).toHaveLength(80);
+  });
+});
+
+describe("decideTitleCommit", () => {
+  it("cancels when there is no editing id or the draft is blank", () => {
+    expect(decideTitleCommit("hello", null)).toEqual({ action: "cancel" });
+    expect(decideTitleCommit("   ", "s1")).toEqual({ action: "cancel" });
+  });
+
+  it("rejects --auto so it cannot be stored as a title", () => {
+    expect(decideTitleCommit("--auto", "s1")).toEqual({ action: "reject-auto" });
+    expect(decideTitleCommit("  --auto  ", "s1")).toEqual({ action: "reject-auto" });
+  });
+
+  it("applies a trimmed title", () => {
+    expect(decideTitleCommit("  新名字  ", "s1")).toEqual({ action: "apply", id: "s1", title: "新名字" });
   });
 });
 

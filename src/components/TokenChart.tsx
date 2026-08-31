@@ -34,7 +34,8 @@ export function TokenChart({ points, days, onDays }: TokenChartProps) {
         <p className="float-empty">还没有 token 用量历史。</p>
       ) : (
         <div
-          className="token-bars"
+          className="token-bars pane-in"
+          key={days}
           role="img"
           aria-label={`${days} 天用量`}
         >

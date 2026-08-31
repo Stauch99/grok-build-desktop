@@ -1,3 +1,8 @@
+import { useEffect } from "react";
+import { IconGrokClose } from "../grok-icons";
+import type { Locale } from "../lib/i18n";
+import { useT } from "../lib/locale-context";
+import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
 import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
 import { ImagineGallery } from "./ImagineGallery";
@@ -13,13 +18,13 @@ export type ExtraPage =
   | "memory"
   | "usage";
 
-const TITLES: Record<ExtraPage, string> = {
-  imagine: "图片",
-  "imagine-video": "视频",
-  dashboard: "会话总览",
-  agents: "代理",
-  memory: "记忆",
-  usage: "用量",
+const TITLE_KEYS: Record<ExtraPage, string> = {
+  imagine: "extra.imagine",
+  "imagine-video": "extra.imagineVideo",
+  dashboard: "extra.dashboard",
+  agents: "extra.agents",
+  memory: "extra.memory",
+  usage: "extra.usage",
 };
 
 export type ExtraOverlayProps = {
@@ -35,6 +40,12 @@ export type ExtraOverlayProps = {
   memoryPath?: string;
   agentsPath?: string;
   cwd?: string;
+  locale?: Locale;
+  diary?: DiaryEntry[];
+  status?: OverlayStatus;
+  corpus?: string | null;
+  onDreamNow?: () => void;
+  userMdPath?: string;
   usagePoints: { at: number; used: number; size: number }[];
   usageDays: 7 | 30;
   onUsageDays: (d: 7 | 30) => void;
@@ -57,24 +68,41 @@ export function ExtraOverlay({
   memoryPath,
   agentsPath,
   cwd,
+  locale = "zh",
+  diary = [],
+  status = { kind: "idle", lastAt: null },
+  corpus = null,
+  onDreamNow,
+  userMdPath,
   usagePoints,
   usageDays,
   onUsageDays,
   subagents,
 }: ExtraOverlayProps) {
+  const t = useT();
+  useEffect(() => {
+    if (!page) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [page, onClose]);
+
   if (!page) return null;
+  const title = t(TITLE_KEYS[page]);
 
   return (
     <div className="settings-layer" role="presentation">
       <div className="settings-backdrop" onClick={onClose} />
-      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={TITLES[page]}>
+      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <header className="settings-head">
-          <strong>{TITLES[page]}</strong>
-          <button type="button" className="btn ghost" onClick={onClose} aria-label="关闭">
-            关闭
+          <strong>{title}</strong>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
+            <IconGrokClose size={16} />
           </button>
         </header>
-        <div className="settings-body">
+        <div className="settings-body pane-in" key={page}>
           {page === "imagine" || page === "imagine-video" ? (
             <ImagineGallery
               images={images}
@@ -82,10 +110,11 @@ export function ExtraOverlay({
               onOpen={onOpenPath}
               onSlash={onSlash}
               mode={page === "imagine-video" ? "video" : "image"}
+              cwd={cwd}
             />
           ) : null}
           {page === "dashboard" ? <DashboardPanel sessions={dashboard} onOpen={onOpenSession} /> : null}
-          {page === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} onSlash={onSlash} /> : null}
+          {page === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} /> : null}
           {page === "memory" ? (
             <MemoryWorkspace
               memoryPath={memoryPath}
@@ -93,6 +122,12 @@ export function ExtraOverlay({
               cwd={cwd}
               onOpen={onOpenPath}
               onEdit={onOpenPath}
+              diary={diary}
+              status={status}
+              corpus={corpus}
+              onDreamNow={onDreamNow}
+              onOpenUserMd={userMdPath ? () => onOpenPath(userMdPath) : undefined}
+              locale={locale}
             />
           ) : null}
           {page === "usage" ? (

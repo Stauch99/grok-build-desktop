@@ -1,5 +1,9 @@
 import type { GitChange } from "../api";
-import { statusMark, totalChanges } from "../lib/git";
+import { canDiscardChange, changePreviewTarget, discardConfirm, statusMark, totalChanges } from "../lib/git";
+import { fileListEntry } from "../lib/file-row";
+import { IconRefresh } from "../icons";
+import { FileListRow } from "./FileListRow";
+import { useT } from "../lib/locale-context";
 
 export type ChangesPanelProps = {
   changes: GitChange[];
@@ -8,6 +12,7 @@ export type ChangesPanelProps = {
   onPreview: (abs: string) => void;
   onReveal: (abs: string) => void;
   onRefresh: () => void;
+  onDiscard?: (path: string) => void;
 };
 
 /**
@@ -21,9 +26,11 @@ export function ChangesPanel({
   onPreview,
   onReveal,
   onRefresh,
+  onDiscard,
 }: ChangesPanelProps) {
+  const t = useT();
   if (!isRepo) {
-    return <p className="float-empty">当前目录不是 git 仓库</p>;
+    return <p className="float-empty">{t("git.notRepo")}</p>;
   }
 
   const totals = totalChanges(changes);
@@ -33,49 +40,65 @@ export function ChangesPanel({
       <div className="changes-head">
         <span className="changes-total">
           {totals.files === 0 ? (
-            "工作区干净"
+            t("git.clean")
           ) : (
             <>
-              {totals.files} 个文件
+              {t("git.files", { n: totals.files })}
               <span className="stat-add"> +{totals.added}</span>
               <span className="stat-del"> −{totals.removed}</span>
             </>
           )}
         </span>
-        <button type="button" className="file-open" onClick={onRefresh} title="重新读取">
-          刷新
+        <button type="button" className="file-open" onClick={onRefresh} title={t("git.refresh")} aria-label={t("git.refresh")}>
+          <IconRefresh size={14} />
         </button>
       </div>
 
       {changes.length > 0 && (
         <div className="file-list">
-          {changes.map((c) => (
-            <div className="change-row" key={c.abs || c.path}>
-              <span className={`change-mark ${c.status}`} title={c.status}>
-                {statusMark(c.status)}
-              </span>
-              <button
-                type="button"
-                className="file-item"
-                title={c.path}
-                onClick={() => onPreview(c.abs)}
-              >
-                {c.path}
-              </button>
-              <span className="change-stat">
-                {c.added > 0 && <span className="stat-add">+{c.added}</span>}
-                {c.removed > 0 && <span className="stat-del">−{c.removed}</span>}
-              </span>
-              <button
-                type="button"
-                className="file-open"
-                title="在访达中打开"
-                onClick={() => onReveal(c.abs)}
-              >
-                访达
-              </button>
-            </div>
-          ))}
+          {changes.map((c) => {
+            const target = changePreviewTarget(c);
+            const discardable = !!onDiscard && canDiscardChange(c.status);
+            const { name, crumb } = fileListEntry(c.path);
+            const revealAt = c.abs || c.path;
+            return (
+              <FileListRow
+                key={c.abs || c.path}
+                name={name}
+                crumb={crumb}
+                path={c.path}
+                onOpen={() => onPreview(target)}
+                onReveal={() => onReveal(revealAt)}
+                leading={
+                  <span className={`change-mark ${c.status}`} title={c.status}>
+                    {statusMark(c.status)}
+                  </span>
+                }
+                trailing={
+                  <>
+                    <span className="change-stat">
+                      {c.added > 0 && <span className="stat-add">+{c.added}</span>}
+                      {c.removed > 0 && <span className="stat-del">−{c.removed}</span>}
+                    </span>
+                    {discardable ? (
+                      <button
+                        type="button"
+                        className="file-open change-discard"
+                        title={t("git.discardHint")}
+                        aria-label={t("git.discardPath", { path: c.path })}
+                        onClick={() => {
+                          if (!window.confirm(discardConfirm(c.path))) return;
+                          onDiscard(c.path);
+                        }}
+                      >
+                        {t("git.discard")}
+                      </button>
+                    ) : null}
+                  </>
+                }
+              />
+            );
+          })}
         </div>
       )}
     </div>

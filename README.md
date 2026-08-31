@@ -1,80 +1,150 @@
-# Grok Build Desktop
+<h1 align="center">
+  <img src="docs/readme/logo.png" alt="Grok Build Desktop" width="120">
+  <br>
+  Grok Build Desktop
+</h1>
 
-**Grok Build Desktop — 本地 coding-agent 工作台**
+<p align="center">
+  <strong>Native ACP workbench for coding agents.</strong>
+</p>
 
-面向 Grok ACP/CLI 的原生桌面工作区与控制中心。它帮助你组织项目和会话、监督运行与许可、审阅文件和改动；Grok CLI 负责 agent runtime、模型调用与工具执行，桌面端不重写 agent。
+<p align="center">
+  Chat, sessions, permissions, Git, and file review live on the desktop.<br>
+  The model loop stays in the CLI you already run.
+</p>
 
-```
-React 界面  --Tauri/ACP-->  grok agent stdio
-```
+<p align="center">
+  <a href="https://github.com/Stauch99/grok-build-desktop/stargazers"><img src="https://img.shields.io/github/stars/Stauch99/grok-build-desktop?style=social" alt="Stars"></a>
+  <a href="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml"><img src="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT"></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white" alt="Tauri 2"></a>
+  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/Protocol-ACP-111111" alt="ACP"></a>
+</p>
 
-## 产品边界
+<p align="center">
+  <a href="#中文">中文</a>
+  ·
+  <a href="docs/HANDOFF.md">Handoff</a>
+  ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-- 桌面端提供轻量文件预览/编辑与 Git 审阅，不是完整 IDE；复杂编辑、调试和版本控制仍交给专用工具。
-- 前端使用 Web 技术实现，但随 Tauri 作为原生桌面应用运行，不是可在浏览器部署的 WebUI。
-- 本版本不支持浏览器模式或远程模式。
-- 「回到这里」只还原会话中有已知 diff 记录的文件改动，不是完整工作区回滚；未记录或无法识别的改动不会被还原。
+<p align="center">
+  <img src="docs/readme/hero.png" alt="Empty workbench: new chat, workspace chrome, composer">
+</p>
 
-## 需要
+This is a **community** desktop client. It is not an official xAI, Anthropic, OpenAI, or Moonshot product.
 
-- macOS 13+ 为当前开发与验证环境；打包配置包含 Windows 与 Linux
-- 文件打开使用系统启动器：macOS `open --`、Linux `xdg-open`、Windows `explorer`
-- 「在终端打开」本版本仅调用 macOS Terminal.app；其他平台会失败
-- 已安装并登录的 Grok Build CLI（`~/.grok/bin/grok`）
-- Node 22+、Rust（开发和打包时）
+## Preview
 
-## 开发
+Empty-state captures. No real projects, sessions, or file names.
+
+| Chat | Git | Dashboard |
+| :---: | :---: | :---: |
+| <img src="docs/readme/preview-main.png" alt="Empty main window"> | <img src="docs/readme/preview-git.png" alt="Git rail, empty"> | <img src="docs/readme/preview-dashboard.png" alt="Dashboard empty state"> |
+
+## Why this exists
+
+Coding CLIs already know how to plan, edit, and run tools. What they lack is a calm place to *watch* that work: sessions beside projects, a permission card when the agent wants the network, a diff you can rewind, a Git pane that does not steal the chat.
+
+Grok Build Desktop is that place. It speaks [Agent Client Protocol](https://agentclientprotocol.com/) over stdio. It does not reimplement the model loop.
+
+## Agents
+
+| Agent | How it starts |
+| --- | --- |
+| **Grok** | `grok agent stdio` |
+| **Kimi** | `kimi acp` |
+| **Claude** | `npx -y @agentclientprotocol/claude-agent-acp@0.70.0` |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@1.7.0` |
+
+## What you get
+
+- **Projects and sessions** — pin, archive, split panes, resume from each CLI’s own history
+- **Live turn** — streaming text, thoughts, plans, classified tool calls, permission cards
+- **Workbench chrome** — explorer, preview (Markdown + Mermaid), Git status / history / commit, review rail
+- **One Skills / MCP plane** — canonical store is `~/.agents`, then synced into each enabled CLI
+- **Honest empty states** — if a CLI has no analog (hooks, personas, imagine), the UI says so instead of faking it
+
+What it is **not**: a full IDE, a browser web UI, or a replacement for `git`, `lldb`, or your `$EDITOR`.
+
+## Requirements
+
+- macOS 13+ is the development and verification environment. Tauri also bundles Windows (NSIS/MSI) and Linux (deb/AppImage).
+- Node 22+ and a current Rust toolchain (for `tauri dev` / `tauri build`)
+- At least one ACP CLI installed and logged in (Grok, Kimi, Claude Code, or Codex)
+
+## Quick start
 
 ```bash
+git clone https://github.com/Stauch99/grok-build-desktop.git
+cd grok-build-desktop
 npm install
 npm test
 npm run tauri dev
 ```
 
-仅构建前端：
+Frontend-only typecheck and tests (no Rust):
 
 ```bash
-npm run build
+npm run typecheck
+npm test
 ```
 
-## 打包
+Production bundle:
 
 ```bash
 npm run tauri build
 ```
 
-macOS 产物位于 `src-tauri/target/release/bundle/macos/Grok Build.app` 和 `dmg/`；其他平台产物由 Tauri 对应 bundle target 生成。
+macOS artifacts land in `src-tauri/target/release/bundle/macos/` and `dmg/`.
 
-## 能力
+## Architecture in one picture
 
-### Core workflow
+```
+React chrome  ──AgentPort──►  Tauri AgentHost (one ACP child per agentId)
+                                   │
+                    GrokAdapter / KimiAdapter / ClaudeAdapter / CodexAdapter
+                                   │
+                              CLI stdio (ACP)
+```
 
-- 工作区列表可分组/筛选/置顶项目
-- 账号菜单进入设置与扩展
-- 审阅栏四宫格入口（终端为系统终端 + 本会话 bash 工具）
-- 项目目录与会话列表（读取 `~/.grok/sessions`），支持父子树、置顶、归档
-- 不绑定目录的「独立对话」收件箱，可移入项目
-- 新建/恢复会话、并列双窗格，流式文本、思考与计划
-- 运行状态、排队/改向、卡死提示、完成/许可系统通知
-- 许可请求与 Agent / Plan / 始终批准模式，模型和许可设置写回 `config.toml`
-- 工具调用按终端、读取、编辑、搜索、写入分类展示
+UI talks to sessions only through `AgentPort`. Skills and MCP go through `AgentsStore` (`~/.agents`), not per-CLI copies of the hub. See [docs/HANDOFF.md](docs/HANDOFF.md) if you are forking or adding a fifth agent.
 
-### Coding support
+## Status and boundaries
 
-- `@` 引用工作区文件、斜杠命令与 ⌘K 命令面板
-- 轻量文件预览/编辑；Markdown 渲染（含 Mermaid）、源码、复制和系统打开
-- 行级 diff：行号、增删标记、未改动段折叠和大改动截断说明
-- Git 状态、分支领先/落后、改动统计、Git 历史与隔离 worktree 会话
-- 「本次改动」展示相对 HEAD 的文件和增删行数
-- 「回到这里」仅处理会话内已知 diff-backed 文件变化，并在执行前预览；不是完整工作区回滚
+- Desktop-only. No browser mode, no remote control plane.
+- “Rewind to here” restores files that have a **known session diff**. It is not a full workspace rollback.
+- “Open in terminal” currently launches macOS Terminal.app.
+- Imagine / video stays on the existing Grok path. Other providers are out of scope for this wave.
+- No in-app auto-update. Install new builds yourself.
 
-### Administration
+## Docs
 
-- 扩展中心管理技能、MCP、插件、市场和 Hooks
-- 会话总览、图片、视频、代理、记忆、用量与审阅相关入口
-- 主题、密度、对话行为、快捷键、托盘和 CLI 健康信息
-- 当前版本不提供应用内更新；新版本通过外部发布渠道获取并手动安装
+| Doc | For |
+| --- | --- |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | Forkers and secondary development |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Issues, PRs, tests |
+| [SECURITY.md](SECURITY.md) | Vulnerability reports |
+| [docs/superpowers/specs/2026-08-30-multi-agent-acp-workbench-design.md](docs/superpowers/specs/2026-08-30-multi-agent-acp-workbench-design.md) | Locked product decisions |
 
-## 说明
+## License
 
-这是社区桌面客户端，不是 xAI 官方应用。
+[MIT](LICENSE) © 2026 Stauch
+
+---
+
+## 中文
+
+<p align="center">
+  <img src="docs/readme/logo.png" alt="Grok Build Desktop" width="72">
+</p>
+
+<p align="center">
+  <strong>给 coding agent 用的原生桌面工作台。</strong><br>
+  项目、会话、许可、Git、文件审阅在这里完成；模型调用和工具执行仍由各家 CLI 负责。
+</p>
+
+当前对接 Grok（`grok agent stdio`）、Kimi（`kimi acp`）、Claude 与 Codex（固定版本的官方 ACP 适配包）。技能与 MCP 的源目录是 `~/.agents`，再同步到各 CLI，而不是四套平行后台。
+
+这是社区客户端，不是 xAI / Anthropic / OpenAI / Moonshot 官方应用。二次开发请读 [docs/HANDOFF.md](docs/HANDOFF.md)。
