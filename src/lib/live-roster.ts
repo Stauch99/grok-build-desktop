@@ -61,3 +61,15 @@ export function parentsToExpandForLive(sessions: SessionSummary[]): string[] {
   }
   return [...parents];
 }
+
+export function sessionsWithLiveRoster(
+  base: SessionSummary[],
+  items: ChatItem[],
+  opts: { agentId: AgentId; parentSessionId: string | null; cwd: string; nowIso: string },
+): SessionSummary[] {
+  if (!opts.parentSessionId) return base;
+  return mergeLiveRoster(
+    base,
+    liveRosterFromTools(items, { ...opts, parentSessionId: opts.parentSessionId }),
+  );
+}

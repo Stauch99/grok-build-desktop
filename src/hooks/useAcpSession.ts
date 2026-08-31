@@ -39,6 +39,7 @@ import { agentChipLabel } from "../lib/agent-chip";
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
+import { isLiveRosterId } from "../lib/live-roster";
 import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
 import {
@@ -896,6 +897,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   async function resumeSession(s: SessionSummary) {
+    if (isLiveRosterId(s.id)) {
+      const parentId = s.parentSessionId;
+      if (!parentId) return;
+      s = { ...s, id: parentId, parentSessionId: undefined, sessionKind: undefined };
+    }
     const d = depsRef.current;
     const planned = planOpenSession({
       session: s,

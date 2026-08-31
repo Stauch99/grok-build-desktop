@@ -84,6 +84,7 @@ import { firstHitIndex } from "../lib/search-highlight";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
 import { bindingFor, matchBinding } from "../lib/shortcuts-table";
 import { subagentStatusFromTool } from "../lib/subagent";
+import { parentsToExpandForLive, sessionToOpen, sessionsWithLiveRoster } from "../lib/live-roster";
 import { describePlan, planRevert, previewRevert } from "../lib/checkpoint";
 import { worktreeName } from "../lib/git";
 import { dequeue, emptyQueue, type QueueState } from "../lib/prompt-queue";
@@ -296,6 +297,7 @@ export function useAppModel() {
   const refreshSessionsRef = useRef<(inbox?: string) => Promise<void>>(async () => {});
   const acpListedRef = useRef<Partial<Record<AgentId, SessionSummary[]>>>({});
   const diskSessionsRef = useRef<SessionSummary[]>([]);
+  const allSessionsRef = useRef<SessionSummary[]>([]);
   const onAcpSessionListRef = useRef<(agentId: AgentId, rows: SessionSummary[]) => void>(() => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
@@ -1376,6 +1378,7 @@ export function useAppModel() {
   }
 
   async function openSession(s: SessionSummary) {
+    s = sessionToOpen(s, allSessionsRef.current);
     const existing = paneOfSession(liveBindings(), s.id);
     const planned = planOpenSession({
       session: s,
@@ -1682,10 +1685,31 @@ export function useAppModel() {
     currentTitleRef.current = currentTitle;
   }, [currentTitle]);
 
-  const allSessions = useMemo(
-    () => [...inboxSessions, ...sessions],
-    [inboxSessions, sessions],
-  );
+  const allSessions = useMemo(() => {
+    const base = [...inboxSessions, ...sessions];
+    return sessionsWithLiveRoster(base, chat.items, {
+      agentId: selectedAgentId,
+      parentSessionId: sessionId,
+      cwd: cwd || "",
+      nowIso: new Date().toISOString(),
+    });
+  }, [inboxSessions, sessions, chat.items, selectedAgentId, sessionId, cwd]);
+
+  useEffect(() => {
+    allSessionsRef.current = allSessions;
+  }, [allSessions]);
+
+  useEffect(() => {
+    for (const id of parentsToExpandForLive(allSessions)) {
+      setCollapsedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setExpandedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    }
+  }, [allSessions]);
 
   const palette = useCommandPalette({
     sources: {

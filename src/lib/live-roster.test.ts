@@ -8,6 +8,7 @@ import {
   mergeLiveRoster,
   parentsToExpandForLive,
   sessionToOpen,
+  sessionsWithLiveRoster,
 } from "./live-roster";
 
 function tool(partial: Pick<ChatItem & { kind: "tool" }, "id" | "title" | "status">): ChatItem {
@@ -84,5 +85,19 @@ describe("parentsToExpandForLive", () => {
         row({ id: liveRosterId("claude", "c1"), parentSessionId: "parent", sessionKind: "subagent" }),
       ]),
     ).toEqual(["parent"]);
+  });
+});
+
+describe("sessionsWithLiveRoster", () => {
+  it("no-ops without a parent id", () => {
+    const base = [row({ id: "a" })];
+    expect(
+      sessionsWithLiveRoster(base, [], {
+        agentId: "claude",
+        parentSessionId: null,
+        cwd: "/w",
+        nowIso: "t",
+      }),
+    ).toBe(base);
   });
 });
