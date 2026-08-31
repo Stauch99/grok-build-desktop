@@ -1,23 +1,53 @@
-# Grok Build Desktop
+<h1 align="center">
+  <img src="docs/readme/logo.png" alt="Grok Build Desktop" width="120">
+  <br>
+  Grok Build Desktop
+</h1>
 
-[![CI](https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
-[![ACP](https://img.shields.io/badge/Protocol-ACP-111111)](https://agentclientprotocol.com/)
+<p align="center">
+  <strong>Native ACP workbench for coding agents.</strong>
+</p>
 
-**A native desktop workbench for ACP coding agents.** Chat, sessions, permissions, Git, and file review live here. The agent runtime stays in the CLI.
+<p align="center">
+  Chat, sessions, permissions, Git, and file review live on the desktop.<br>
+  The model loop stays in the CLI you already run.
+</p>
 
-[中文说明](#中文) · [Handoff](docs/HANDOFF.md) · [Contributing](CONTRIBUTING.md)
+<p align="center">
+  <a href="https://github.com/Stauch99/grok-build-desktop/stargazers"><img src="https://img.shields.io/github/stars/Stauch99/grok-build-desktop?style=social" alt="Stars"></a>
+  <a href="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml"><img src="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT"></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white" alt="Tauri 2"></a>
+  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/Protocol-ACP-111111" alt="ACP"></a>
+</p>
 
-![Main window](docs/ui-audit/2026-08-30/01-main.png)
+<p align="center">
+  <a href="#中文">中文</a>
+  ·
+  <a href="docs/HANDOFF.md">Handoff</a>
+  ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <img src="docs/readme/hero.png" alt="Main window: projects, empty thread, composer">
+</p>
 
 This is a **community** desktop client. It is not an official xAI, Anthropic, OpenAI, or Moonshot product.
+
+## Preview
+
+| Chat | Git | Dashboard |
+| :---: | :---: | :---: |
+| <img src="docs/readme/preview-main.png" alt="Main window"> | <img src="docs/readme/preview-git.png" alt="Git rail"> | <img src="docs/readme/preview-dashboard.png" alt="Session dashboard"> |
 
 ## Why this exists
 
 Coding CLIs already know how to plan, edit, and run tools. What they lack is a calm place to *watch* that work: sessions beside projects, a permission card when the agent wants the network, a diff you can rewind, a Git pane that does not steal the chat.
 
 Grok Build Desktop is that place. It speaks [Agent Client Protocol](https://agentclientprotocol.com/) over stdio. It does not reimplement the model loop.
+
+## Agents
 
 | Agent | How it starts |
 | --- | --- |
@@ -104,7 +134,14 @@ UI talks to sessions only through `AgentPort`. Skills and MCP go through `Agents
 
 ## 中文
 
-Grok Build Desktop 是面向 ACP coding agent 的**原生桌面工作台**：项目与会话、许可、Git、文件审阅在这里完成；模型调用和工具执行仍由各家 CLI 负责。
+<p align="center">
+  <img src="docs/readme/logo.png" alt="Grok Build Desktop" width="72">
+</p>
+
+<p align="center">
+  <strong>给 coding agent 用的原生桌面工作台。</strong><br>
+  项目、会话、许可、Git、文件审阅在这里完成；模型调用和工具执行仍由各家 CLI 负责。
+</p>
 
 当前对接 Grok（`grok agent stdio`）、Kimi（`kimi acp`）、Claude 与 Codex（固定版本的官方 ACP 适配包）。技能与 MCP 的源目录是 `~/.agents`，再同步到各 CLI，而不是四套平行后台。
 
