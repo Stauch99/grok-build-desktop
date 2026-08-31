@@ -211,8 +211,8 @@ fn scan_claude_jsonl(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
     };
     let mut rows = Vec::new();
     for project in projects.flatten() {
-        let path = project.path();
-        if !path.is_dir() {
+        let project_path = project.path();
+        if !project_path.is_dir() {
             continue;
         }
         let name = project.file_name();
@@ -220,18 +220,57 @@ fn scan_claude_jsonl(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
         if name_str.is_empty() || name_str.starts_with('.') {
             continue;
         }
-        let Ok(files) = fs::read_dir(&path) else {
+        let Ok(files) = fs::read_dir(&project_path) else {
             continue;
         };
+        let mut project_rows = Vec::new();
         for file in files.flatten() {
             let file_path = file.path();
             if file_path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
             if let Some(row) = parse_claude_jsonl(&file_path, agent_id) {
-                rows.push(row);
+                project_rows.push(row);
             }
         }
+        for parent in project_rows {
+            rows.extend(scan_claude_subagents(&project_path, &parent));
+            rows.push(parent);
+        }
+    }
+    rows
+}
+
+fn scan_claude_subagents(project_path: &Path, parent: &ScannedSession) -> Vec<ScannedSession> {
+    let sub_dir = project_path.join(&parent.id).join("subagents");
+    if !sub_dir.is_dir() {
+        return Vec::new();
+    }
+    let Ok(entries) = fs::read_dir(&sub_dir) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for entry in entries.flatten() {
+        let file_path = entry.path();
+        if file_path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.contains("prompt_suggestion") {
+            continue;
+        }
+        let Some(mut row) = parse_claude_jsonl(&file_path, &parent.agent_id) else {
+            continue;
+        };
+        row.parent_session_id = Some(parent.id.clone());
+        row.session_kind = Some("subagent".into());
+        if row.cwd.is_empty() {
+            row.cwd = parent.cwd.clone();
+        }
+        if let Some(stripped) = row.id.strip_prefix("agent-") {
+            row.id = stripped.to_string();
+        }
+        rows.push(row);
     }
     rows
 }
@@ -449,6 +488,54 @@ mod tests {
         fs::create_dir_all(root.join("-Users-foxie")).unwrap();
         let rows = scan_agent_sessions(&root, "claude", ScanMode::ClaudeJsonl);
         assert!(rows.is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn claude_subagent_jsonl_nests_under_parent_uuid() {
+        let root = uniq();
+        let proj = root.join("-Users-foxie-work");
+        let parent = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let child = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        fs::create_dir_all(proj.join(parent).join("subagents")).unwrap();
+        fs::write(
+            proj.join(format!("{parent}.jsonl")),
+            format!(
+                "{}\n",
+                r#"{"type":"user","cwd":"/Users/foxie/work","sessionId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","customTitle":"main"}"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            proj.join(parent)
+                .join("subagents")
+                .join(format!("agent-{child}.jsonl")),
+            format!(
+                "{}\n",
+                r#"{"type":"user","cwd":"/Users/foxie/work","sessionId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","isSidechain":true,"customTitle":"中文技巧"}"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            proj.join(parent)
+                .join("subagents")
+                .join("agent-aprompt_suggestion-zzzz.jsonl"),
+            "{\"type\":\"user\"}\n",
+        )
+        .unwrap();
+        let rows = scan_agent_sessions(&root, "claude", ScanMode::ClaudeJsonl);
+        let kids: Vec<_> = rows
+            .iter()
+            .filter(|r| r.session_kind.as_deref() == Some("subagent"))
+            .collect();
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].id, child);
+        assert_eq!(kids[0].parent_session_id.as_deref(), Some(parent));
+        assert_eq!(kids[0].cwd, "/Users/foxie/work");
+        assert_eq!(kids[0].title, "中文技巧");
+        assert!(rows
+            .iter()
+            .any(|r| r.id == parent && r.parent_session_id.is_none()));
         fs::remove_dir_all(root).ok();
     }
 
