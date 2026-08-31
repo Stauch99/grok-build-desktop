@@ -12,3 +12,5 @@ src-tauri/gen/
 *.exe
 .superpowers/
 .worktrees/
+.tmp-acp-probe/
+.tmp-ui-check/

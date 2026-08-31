@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Handoff (architecture)
+    url: https://github.com/Stauch99/grok-build-desktop/blob/feat/multi-agent-workbench/docs/HANDOFF.md
+    about: Read this before proposing a fifth agent or a host rewrite.
+  - name: Discussions via issues
+    url: https://github.com/Stauch99/grok-build-desktop/issues
+    about: Questions that are not bugs — pick the Question template after a maintainer enables it, or comment on a related issue.

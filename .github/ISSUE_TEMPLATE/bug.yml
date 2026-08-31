@@ -1,0 +1,57 @@
+name: Bug report
+description: Something is broken in the workbench or an ACP adapter.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks. Please search existing issues first. Do **not** paste `auth.json`, API keys, or session files.
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - grok
+        - kimi
+        - claude
+        - codex
+        - workbench (UI / Git / preview, not a CLI)
+        - unknown
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+      placeholder: "0.4.0 or abc1234"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 15.x
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: Expected vs actual. One issue per report.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: ACP stderr or a redacted console snippet. Strip tokens.
