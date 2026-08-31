@@ -123,6 +123,8 @@ export function shouldClearBusyOnSettledChat(opts: {
   now: number;
   items: ChatItem[];
   settleMs?: number;
+  /** Wall time when assistant text first appeared, if items have no clocks. */
+  seenAssistantAt?: number | null;
 }): boolean {
   if (!opts.busy) return false;
   if (
@@ -135,9 +137,11 @@ export function shouldClearBusyOnSettledChat(opts: {
   if (!opts.items.some((it) => it.kind === "assistant" && it.text.trim())) return false;
   let last = 0;
   for (const it of opts.items) {
+    if (it.kind === "user") continue;
     const t = it.until ?? it.at;
     if (typeof t === "number" && t > last) last = t;
   }
+  if (!last && opts.seenAssistantAt) last = opts.seenAssistantAt;
   if (!last) return false;
   return opts.now - last >= (opts.settleMs ?? SETTLED_TURN_MS);
 }

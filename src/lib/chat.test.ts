@@ -381,6 +381,22 @@ describe("shouldClearBusyOnSettledChat", () => {
     const live = [...items, { kind: "tool" as const, id: "t", title: "Read", status: "in_progress" as const, at: 4 }];
     expect(shouldClearBusyOnSettledChat({ busy: true, now: 9_000, items: live })).toBe(false);
   });
+
+  it("does not treat the user send time as the end of the turn", () => {
+    const noClock = [
+      { kind: "user" as const, id: "u", text: "ping", at: 1 },
+      { kind: "assistant" as const, id: "a", text: "pong" },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 1 + 4000, items: noClock })).toBe(false);
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 10_000,
+        items: noClock,
+        seenAssistantAt: 10_000 - 4000,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("formatElapsed", () => {

@@ -327,14 +327,26 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   busyRef.current = busy;
   const chatRef = useRef(chat);
   chatRef.current = chat;
+  const seenAssistantAtRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!busy) return;
+    if (!busy) {
+      seenAssistantAtRef.current = null;
+      return;
+    }
     const tick = () => {
+      const items = chatRef.current.items;
+      if (
+        seenAssistantAtRef.current == null &&
+        items.some((it) => it.kind === "assistant" && it.text.trim())
+      ) {
+        seenAssistantAtRef.current = Date.now();
+      }
       if (
         shouldClearBusyOnSettledChat({
           busy: true,
           now: Date.now(),
-          items: chatRef.current.items,
+          items,
+          seenAssistantAt: seenAssistantAtRef.current,
         })
       ) {
         busyRef.current = false;
