@@ -164,7 +164,7 @@ fn scan_kimi_agents(parent: &ScannedSession) -> Vec<ScannedSession> {
         }
         rows.push(ScannedSession {
             agent_id: parent.agent_id.clone(),
-            id: name.clone(),
+            id: format!("{}/{}", parent.id, name),
             title: name,
             updated_at: parent.updated_at.clone(),
             dir: path.to_string_lossy().into_owned(),
@@ -450,7 +450,11 @@ mod tests {
 
     #[test]
     fn missing_root_yields_no_sessions() {
-        let rows = scan_agent_sessions(PathBuf::from("/no/such/claude-projects").as_path(), "claude", ScanMode::ClaudeJsonl);
+        let rows = scan_agent_sessions(
+            PathBuf::from("/no/such/claude-projects").as_path(),
+            "claude",
+            ScanMode::ClaudeJsonl,
+        );
         assert!(rows.is_empty());
     }
 
@@ -692,18 +696,70 @@ mod tests {
         let inner = root.join("wd_x").join(sid);
         fs::create_dir_all(inner.join("agents").join("main")).unwrap();
         fs::create_dir_all(inner.join("agents").join("researcher")).unwrap();
-        fs::write(inner.join("state.json"), r#"{"title":"调研","cwd":"/work/proj","updatedAt":"9"}"#).unwrap();
+        fs::write(
+            inner.join("state.json"),
+            r#"{"title":"调研","cwd":"/work/proj","updatedAt":"9"}"#,
+        )
+        .unwrap();
         fs::write(inner.join("agents").join("main").join("wire.jsonl"), "{}\n").unwrap();
-        fs::write(inner.join("agents").join("researcher").join("wire.jsonl"), "{}\n").unwrap();
+        fs::write(
+            inner.join("agents").join("researcher").join("wire.jsonl"),
+            "{}\n",
+        )
+        .unwrap();
         let rows = scan_agent_sessions(&root, "kimi", ScanMode::ImmediateDirs);
         let parent = rows.iter().find(|r| r.id == sid).unwrap();
         assert_eq!(parent.parent_session_id, None);
-        let kids: Vec<_> = rows.iter().filter(|r| r.parent_session_id.as_deref() == Some(sid)).collect();
+        let kids: Vec<_> = rows
+            .iter()
+            .filter(|r| r.parent_session_id.as_deref() == Some(sid))
+            .collect();
         assert_eq!(kids.len(), 1);
-        assert_eq!(kids[0].id, "researcher");
+        assert_eq!(kids[0].id, format!("{sid}/researcher"));
+        assert_eq!(kids[0].title, "researcher");
         assert_eq!(kids[0].session_kind.as_deref(), Some("subagent"));
         assert_eq!(kids[0].cwd, "/work/proj");
         assert!(!rows.iter().any(|r| r.id == "main"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn kimi_agents_ids_are_unique_across_parents() {
+        let root = uniq();
+        let a = "session_a";
+        let b = "session_b";
+        for sid in [a, b] {
+            let inner = root.join("wd_x").join(sid);
+            fs::create_dir_all(inner.join("agents").join("researcher")).unwrap();
+            fs::write(
+                inner.join("state.json"),
+                r#"{"title":"t","cwd":"/work","updatedAt":"1"}"#,
+            )
+            .unwrap();
+            fs::write(
+                inner.join("agents").join("researcher").join("wire.jsonl"),
+                "{}\n",
+            )
+            .unwrap();
+        }
+        let rows = scan_agent_sessions(&root, "kimi", ScanMode::ImmediateDirs);
+        let kids: Vec<_> = rows
+            .iter()
+            .filter(|r| r.session_kind.as_deref() == Some("subagent"))
+            .collect();
+        assert_eq!(kids.len(), 2);
+        let ids: Vec<String> = kids.iter().map(|k| k.id.clone()).collect();
+        assert!(ids.contains(&format!("{a}/researcher")));
+        assert!(ids.contains(&format!("{b}/researcher")));
+        assert_ne!(ids[0], ids[1]);
+        let parents: Vec<_> = kids
+            .iter()
+            .filter_map(|k| k.parent_session_id.as_deref())
+            .collect();
+        assert!(parents.contains(&a));
+        assert!(parents.contains(&b));
+        assert_ne!(kids[0].parent_session_id, kids[1].parent_session_id);
+        assert!(kids.iter().all(|k| k.title == "researcher"));
         fs::remove_dir_all(root).ok();
     }
 
