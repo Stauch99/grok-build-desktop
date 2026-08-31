@@ -10,6 +10,8 @@ pub struct ScannedSession {
     pub updated_at: String,
     pub dir: String,
     pub cwd: String,
+    pub parent_session_id: Option<String>,
+    pub session_kind: Option<String>,
 }
 
 pub enum ScanMode {
@@ -93,6 +95,8 @@ pub fn scan_named_subdirs(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
             updated_at,
             dir: path.to_string_lossy().to_string(),
             cwd: String::new(),
+            parent_session_id: None,
+            session_kind: None,
         });
     }
     rows
@@ -131,6 +135,8 @@ fn scan_session_children(wrapper: &ScannedSession) -> Vec<ScannedSession> {
                 .unwrap_or_else(|| wrapper.updated_at.clone()),
             dir: path.to_string_lossy().into_owned(),
             cwd: meta.cwd.unwrap_or_default(),
+            parent_session_id: None,
+            session_kind: None,
         });
     }
     rows
@@ -271,6 +277,8 @@ fn parse_claude_jsonl(path: &Path, agent_id: &str) -> Option<ScannedSession> {
         updated_at: file_mtime_secs(path),
         dir: path.to_string_lossy().into_owned(),
         cwd,
+        parent_session_id: None,
+        session_kind: None,
     })
 }
 
@@ -334,6 +342,8 @@ fn parse_codex_rollout(path: &Path, agent_id: &str) -> Option<ScannedSession> {
         updated_at,
         dir: path.to_string_lossy().into_owned(),
         cwd,
+        parent_session_id: None,
+        session_kind: None,
     })
 }
 
@@ -474,6 +484,8 @@ mod tests {
                 updated_at: "1".into(),
                 dir: "/tmp/a".into(),
                 cwd: "/Users/foxie/Documents/GlobalEdu".into(),
+                parent_session_id: None,
+                session_kind: None,
             },
             ScannedSession {
                 agent_id: "codex".into(),
@@ -482,6 +494,8 @@ mod tests {
                 updated_at: "2".into(),
                 dir: "/tmp/b".into(),
                 cwd: "/Users/foxie/Documents/ZAOYI".into(),
+                parent_session_id: None,
+                session_kind: None,
             },
             ScannedSession {
                 agent_id: "claude".into(),
@@ -490,6 +504,8 @@ mod tests {
                 updated_at: "3".into(),
                 dir: "/tmp/c".into(),
                 cwd: String::new(),
+                parent_session_id: None,
+                session_kind: None,
             },
             ScannedSession {
                 agent_id: "kimi".into(),
@@ -498,6 +514,8 @@ mod tests {
                 updated_at: "4".into(),
                 dir: "/tmp/d".into(),
                 cwd: "/Users/foxie/Documents/GlobalEdu".into(),
+                parent_session_id: None,
+                session_kind: None,
             },
         ];
         let cwds = collect_cwds(&rows);
@@ -517,6 +535,33 @@ mod tests {
         assert!(keep_row_for_cwd("/other", ""));
         assert!(keep_row_for_cwd("", ""));
         assert!(keep_row_for_cwd("/some/project", "/some/project"));
+    }
+
+    #[test]
+    fn parent_fields_default_none_on_named_dirs() {
+        let root = uniq();
+        fs::create_dir_all(root.join("abc")).unwrap();
+        let rows = scan_named_subdirs(&root, "kimi");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].parent_session_id, None);
+        assert_eq!(rows[0].session_kind, None);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn scanned_session_can_carry_subagent_parent() {
+        let row = ScannedSession {
+            agent_id: "claude".into(),
+            id: "agent-1".into(),
+            title: "agent-1".into(),
+            updated_at: "1".into(),
+            dir: "/tmp/a".into(),
+            cwd: "/work".into(),
+            parent_session_id: Some("parent-uuid".into()),
+            session_kind: Some("subagent".into()),
+        };
+        assert_eq!(row.parent_session_id.as_deref(), Some("parent-uuid"));
+        assert_eq!(row.session_kind.as_deref(), Some("subagent"));
     }
 
     #[test]

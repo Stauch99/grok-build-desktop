@@ -760,8 +760,8 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
                 created_at: String::new(),
                 num_messages: 0,
                 dir: Some(row.dir),
-                session_kind: None,
-                parent_session_id: None,
+                session_kind: row.session_kind,
+                parent_session_id: row.parent_session_id,
                 last_turn_summary: None,
                 last_turn_summary_prompt_id: None,
             });
