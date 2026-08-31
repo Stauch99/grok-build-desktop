@@ -27,6 +27,8 @@ function mapOne(raw: unknown, agentId: AgentId): SessionSummary | null {
   if (!id) return null;
   const meta = asRecord(rec._meta);
   const messageCount = meta.messageCount;
+  const parentSessionId =
+    stringField(rec, "parentSessionId") || stringField(meta, "parentSessionId") || undefined;
   return {
     id,
     cwd: typeof rec.cwd === "string" ? rec.cwd : "",
@@ -35,6 +37,7 @@ function mapOne(raw: unknown, agentId: AgentId): SessionSummary | null {
     createdAt: typeof rec.createdAt === "string" ? rec.createdAt : "",
     numMessages: typeof messageCount === "number" ? messageCount : 1,
     agentId,
+    ...(parentSessionId ? { parentSessionId } : {}),
   };
 }
 
@@ -58,7 +61,19 @@ export function mapAcpListedSessions(result: unknown, agentId: AgentId): Session
 export function unionSessionsById(disk: SessionSummary[], acp: SessionSummary[]): SessionSummary[] {
   const map = new Map<string, SessionSummary>();
   for (const row of disk) map.set(sessionKey(row), row);
-  for (const row of acp) map.set(sessionKey(row), row);
+  for (const row of acp) {
+    const key = sessionKey(row);
+    const prev = map.get(key);
+    if (prev && !row.parentSessionId && prev.parentSessionId) {
+      map.set(key, {
+        ...row,
+        parentSessionId: prev.parentSessionId,
+        ...(prev.sessionKind ? { sessionKind: prev.sessionKind } : {}),
+      });
+    } else {
+      map.set(key, row);
+    }
+  }
   return [...map.values()];
 }
 

@@ -85,6 +85,12 @@ Stay mechanical. Copy Grok’s adapter shape; do not special-case the UI.
 7. Tests first: spawn argv, doctor DTO, session scan empty-on-missing-dir, allowlist.
 8. UI should keep using `AgentPort` / `portFor(id)`. A new `if (agent === "…")` in `App.tsx` is usually a design smell.
 
+## Subagents and session catalog
+
+- Disk: Grok `subagents/meta.json`; Claude `<uuid>/subagents/agent-*.jsonl`; Kimi `agents/<id>` except `main`.
+- Live: tool aliases in `src/lib/subagent.ts` (Task, Agent, spawn_subagent, swarm). Running tools become `live:{agentId}:{toolId}` nested rows. Never session/load those ids.
+- Manifest: `src-tauri/src/agent_manifest.rs`. Spawn argv still `agents.toml` + `adapters.rs`.
+
 ## UI rules that save you a week
 
 - **Chrome vs thread.** Layout, rails, composer dock, and overlays belong in `useAppModel` + `App.tsx`. Turn content belongs in `useAcpSession` + `Thread`.

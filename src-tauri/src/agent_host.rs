@@ -139,6 +139,17 @@ pub(crate) fn spawn_npx_adapter(
     (PathBuf::from("npx"), vec!["-y".into(), pkg.into()])
 }
 
+pub(crate) fn npx_adapter_resolves(
+    pkg: &str,
+    npx_root: &Path,
+    lookup: impl Fn(&str) -> Option<PathBuf>,
+) -> bool {
+    lookup("npx").is_some() || {
+        let (cmd, _) = spawn_npx_adapter(pkg, npx_root, &lookup);
+        cmd.file_name().and_then(|n| n.to_str()) == Some("node")
+    }
+}
+
 pub(crate) fn default_spawn_profile(id: AgentId) -> SpawnProfile {
     match id {
         AgentId::Grok => SpawnProfile {
@@ -480,5 +491,27 @@ mod tests {
         assert_eq!(args, vec![entry.to_string_lossy().to_string()]);
         let _ = std::fs::remove_dir_all(&empty);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn npx_adapter_resolves_with_cached_entry_and_node() {
+        let root = std::env::temp_dir().join(format!("npx-resolve-{}", std::process::id()));
+        let pkg = root.join("hash").join("node_modules").join("@agentclientprotocol").join("claude-agent-acp");
+        std::fs::create_dir_all(pkg.join("dist")).unwrap();
+        std::fs::write(pkg.join("package.json"), r#"{"version":"0.70.0"}"#).unwrap();
+        std::fs::write(pkg.join("dist").join("index.js"), "1").unwrap();
+        let node = root.join("node");
+        std::fs::write(&node, "").unwrap();
+        assert!(npx_adapter_resolves(
+            "@agentclientprotocol/claude-agent-acp@0.70.0",
+            &root,
+            |_| Some(node.clone()),
+        ));
+        assert!(!npx_adapter_resolves(
+            "@agentclientprotocol/claude-agent-acp@0.70.0",
+            &root.join("missing"),
+            |_| None,
+        ));
+        std::fs::remove_dir_all(root).ok();
     }
 }

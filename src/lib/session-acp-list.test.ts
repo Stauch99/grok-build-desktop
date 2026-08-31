@@ -99,6 +99,14 @@ describe("mapAcpListedSessions", () => {
     expect(mapAcpListedSessions({}, "claude")).toEqual([]);
     expect(mapAcpListedSessions({ sessions: null }, "codex")).toEqual([]);
   });
+
+  it("maps parentSessionId from ACP rows", () => {
+    const rows = mapAcpListedSessions(
+      { sessions: [{ sessionId: "child", cwd: "/w", parentSessionId: "parent" }] },
+      "kimi",
+    );
+    expect(rows[0].parentSessionId).toBe("parent");
+  });
 });
 
 describe("unionSessionsById", () => {
@@ -125,6 +133,14 @@ describe("unionSessionsById", () => {
       [row({ id: "s1", agentId: "kimi", title: "kimi" })],
     );
     expect(out.map((s) => s.agentId)).toEqual(["grok", "kimi"]);
+  });
+
+  it("keeps disk parent when ACP omits it", () => {
+    const disk = [row({ id: "child", agentId: "kimi", parentSessionId: "parent", title: "disk" })];
+    const acp = [row({ id: "child", agentId: "kimi", title: "acp" })];
+    const out = unionSessionsById(disk, acp);
+    expect(out[0].title).toBe("acp");
+    expect(out[0].parentSessionId).toBe("parent");
   });
 });
 
