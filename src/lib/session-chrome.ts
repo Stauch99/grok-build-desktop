@@ -16,6 +16,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Grok composer stubs are 0-message with no disk dir. Imported CLI rows stay listed. */
 export function isEmptyDraft(s: SessionSummary): boolean {
+  if (s.sessionKind === "subagent") return false;
   if ((s.numMessages ?? 0) > 0) return false;
   if (s.dir) return false;
   if (s.agentId && s.agentId !== "grok") return false;

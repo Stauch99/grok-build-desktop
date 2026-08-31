@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../api";
 import {
   isArchived,
+  isEmptyDraft,
   isPinned,
   partitionPinned,
   shouldAutoExpand,
@@ -137,6 +138,33 @@ describe("partitionPinned", () => {
     const { pinned, rest } = partitionPinned(sessions, ["c", "a"]);
     expect(pinned.map((x) => x.id)).toEqual(["a", "c"]);
     expect(rest.map((x) => x.id)).toEqual(["b"]);
+  });
+});
+
+describe("isEmptyDraft", () => {
+  it("keeps live subagent rows with zero-looking drafts out of the trash filter", () => {
+    expect(
+      isEmptyDraft(
+        s({
+          id: "live:claude:c1",
+          numMessages: 1,
+          sessionKind: "subagent",
+          parentSessionId: "p",
+          agentId: "claude",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isEmptyDraft(
+        s({
+          id: "live:claude:c1",
+          numMessages: 0,
+          dir: undefined,
+          sessionKind: "subagent",
+          agentId: "claude",
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
