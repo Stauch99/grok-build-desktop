@@ -138,4 +138,13 @@ describe("resumeComposerDraft", () => {
   it("leaves an empty stored draft empty", () => {
     expect(resumeComposerDraft([{ kind: "user", text: "hi" }], "")).toBe("");
   });
+
+  it("skips tool items that have no text", () => {
+    const items = [
+      { kind: "user", text: "先改 header" },
+      { kind: "tool" },
+      { kind: "assistant", text: "改好了" },
+    ];
+    expect(resumeComposerDraft(items, outgoing)).toBe(outgoing);
+  });
 });
