@@ -1,4 +1,5 @@
 import { classifyTool, previewLines } from "../lib/tool-render";
+import { useT } from "../lib/locale-context";
 import { DiffView } from "./DiffView";
 
 export type ToolResultDiff = {
@@ -16,15 +17,6 @@ export type ToolResultProps = {
   onOpenPath?: (path: string) => void;
 };
 
-const KIND_LABEL: Record<string, string> = {
-  bash: "终端",
-  read: "读取",
-  edit: "编辑",
-  search: "搜索",
-  write: "写入",
-  other: "工具",
-};
-
 /**
  * Fold body content for a tool call (no Fold wrapper — parent owns collapse).
  * The class from `classifyTool` drives a color rail so a run of tool cards is
@@ -38,14 +30,16 @@ export function ToolResult({
   diff,
   onOpenPath,
 }: ToolResultProps) {
+  const t = useT();
   const kind = classifyTool(title, toolKind);
   const preview = previewLines(detail);
+  const kindLabel = t(`tool.${kind}`);
 
   return (
     <div className="tool-result" data-tool-class={kind} data-status={status}>
       <div className="tool-result-title">
-        <span className="tool-kind">{KIND_LABEL[kind] ?? kind}</span>
-        <span className="tool-title">{title || toolKind || "工具调用"}</span>
+        <span className="tool-kind">{kindLabel}</span>
+        <span className="tool-title">{title || toolKind || t("tool.call")}</span>
         {status ? <span className={`fold-meta ${status}`}>{status}</span> : null}
       </div>
       {diff ? (
@@ -58,7 +52,7 @@ export function ToolResult({
       ) : preview ? (
         <pre>{preview}</pre>
       ) : (
-        <p className="tool-empty">无详细输出</p>
+        <p className="tool-empty">{t("tool.empty")}</p>
       )}
     </div>
   );

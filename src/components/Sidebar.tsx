@@ -17,6 +17,7 @@ import {
 } from "../lib/sidebar-list";
 import { AccountMenu } from "./AccountMenu";
 import { ShortcutKbd } from "./ShortcutHint";
+import { sessionTreeNavIndex } from "../lib/session-tree-keys";
 import { SessionBranch } from "./SessionBranch";
 import { SidebarListMenu } from "./SidebarListMenu";
 import type { WeeklyUsage } from "../lib/weekly-usage";
@@ -203,18 +204,28 @@ export function Sidebar({
   }
 
   function onSessionTreeKeyDown(e: KeyboardEvent<HTMLElement>) {
-    if (e.key !== "Tab") return;
-    const groups = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-session-group]"));
-    if (groups.length < 2) return;
-    const current =
-      e.target instanceof Element ? e.target.closest<HTMLElement>("[data-session-group]") : null;
-    const i = current ? groups.indexOf(current) : -1;
-    if (i < 0) return;
-    const next = e.shiftKey ? i - 1 : i + 1;
-    if (next < 0 || next >= groups.length) return;
+    if (e.key === "Tab") {
+      const groups = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-session-group]"));
+      if (groups.length < 2) return;
+      const current =
+        e.target instanceof Element ? e.target.closest<HTMLElement>("[data-session-group]") : null;
+      const i = current ? groups.indexOf(current) : -1;
+      if (i < 0) return;
+      const next = e.shiftKey ? i - 1 : i + 1;
+      if (next < 0 || next >= groups.length) return;
+      e.preventDefault();
+      const stop = groups[next].querySelector<HTMLElement>(".project-head, [data-group-tab]");
+      (stop ?? groups[next]).focus();
+      return;
+    }
+    const rows = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button.session"));
+    if (rows.length === 0) return;
+    const current = e.target instanceof Element ? e.target.closest<HTMLButtonElement>("button.session") : null;
+    const index = current ? rows.indexOf(current) : 0;
+    const next = sessionTreeNavIndex(e.key, { index, count: rows.length });
+    if (next == null) return;
     e.preventDefault();
-    const stop = groups[next].querySelector<HTMLElement>(".project-head, [data-group-tab]");
-    (stop ?? groups[next]).focus();
+    rows[next]?.focus();
   }
 
   const branchProps = {

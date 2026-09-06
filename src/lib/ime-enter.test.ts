@@ -3,6 +3,7 @@ import {
   applyImeComposition,
   emptyImeEnterState,
   IME_ENTER_GRACE_MS,
+  imeBlocksDigitHotkey,
   imeBlocksEnter,
 } from "./ime-enter";
 
@@ -43,3 +44,11 @@ describe("imeBlocksEnter", () => {
     ).toBe(false);
   });
 });
+
+describe("imeBlocksDigitHotkey", () => {
+  it("blocks session switch chords while composing", () => {
+    expect(imeBlocksDigitHotkey({ isComposing: true })).toBe(true);
+    expect(imeBlocksDigitHotkey({ isComposing: false })).toBe(false);
+  });
+});
+

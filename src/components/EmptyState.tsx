@@ -1,12 +1,15 @@
-import type { DoctorInfo } from "../api";
+import type { AgentDoctor } from "../lib/agent-doctor";
+import { doctorActionHint, emptyDoctorKind } from "../lib/agent-doctor";
+import { useT } from "../lib/locale-context";
 
 export type EmptyStateProps = {
-  info: DoctorInfo | null;
+  doctor: Pick<AgentDoctor, "binary" | "authPresent" | "loginHint" | "agentId"> | null;
+  agentLabel: string;
   cwd: string;
   projectCount: number;
   onPickProject: () => void;
   onInbox?: () => void;
-  onCopyLogin?: () => void;
+  onCopyLogin?: (text: string) => void;
   onBrowseWorkspace?: () => void;
 };
 
@@ -17,28 +20,39 @@ type Step =
 
 /**
  * Doctor-style onboarding when the thread has no messages yet.
- * Surfaces the first real blocker (CLI, auth, project) before generic guidance.
+ * Surfaces the first real blocker (CLI, auth, project) for the selected agent.
  */
-export function EmptyState({ info, cwd, projectCount, onPickProject, onInbox, onCopyLogin, onBrowseWorkspace }: EmptyStateProps) {
-  let title = "选择或新建对话";
-  const steps: Step[] = [];
+export function EmptyState({
+  doctor,
+  agentLabel,
+  cwd,
+  projectCount,
+  onPickProject,
+  onInbox,
+  onCopyLogin,
+  onBrowseWorkspace,
+}: EmptyStateProps) {
+  const t = useT();
+  const kind = emptyDoctorKind({ doctor, cwd, projectCount });
+  if (kind === "hidden") return null;
 
-  if (info && !info.grokPath) {
-    title = "找不到 grok CLI";
-    steps.push({ kind: "text", text: "请先安装 Grok Build CLI（~/.grok/bin/grok）。" });
-  } else if (info && !info.authPresent) {
-    title = "尚未登录";
-    steps.push({ kind: "text", text: "在终端运行 grok login 后再打开。" });
-    if (onCopyLogin) steps.push({ kind: "ghost", label: "复制 grok login", onClick: onCopyLogin });
-  } else if (!cwd && projectCount === 0) {
-    title = "还没有项目";
-    steps.push({ kind: "primary", label: "选择项目文件夹", onClick: onPickProject });
-    if (onBrowseWorkspace) steps.push({ kind: "ghost", label: "浏览目录", onClick: onBrowseWorkspace });
-    if (onInbox) {
-      steps.push({ kind: "ghost", label: "先在收件箱里试试", onClick: onInbox });
-    }
+  let title = t("empty.pickThread");
+  const steps: Step[] = [];
+  const hint = doctor ? doctorActionHint(doctor)[0] : undefined;
+
+  if (kind === "cli") {
+    title = t("empty.cliMissing", { agent: agentLabel });
+    steps.push({ kind: "text", text: t("empty.cliHint", { agent: agentLabel, hint: hint ?? "" }) });
+    if (onCopyLogin && hint) steps.push({ kind: "ghost", label: t("empty.copyLogin"), onClick: () => onCopyLogin(hint) });
+  } else if (kind === "auth") {
+    title = t("empty.authMissing", { agent: agentLabel });
+    steps.push({ kind: "text", text: t("empty.authHint", { cmd: hint ?? "" }) });
+    if (onCopyLogin && hint) steps.push({ kind: "ghost", label: t("empty.copyLogin"), onClick: () => onCopyLogin(hint) });
   } else {
-    return null;
+    title = t("empty.noProject");
+    steps.push({ kind: "primary", label: t("empty.pickProject"), onClick: onPickProject });
+    if (onBrowseWorkspace) steps.push({ kind: "ghost", label: t("empty.browse"), onClick: onBrowseWorkspace });
+    if (onInbox) steps.push({ kind: "ghost", label: t("empty.tryInbox"), onClick: onInbox });
   }
 
   const textSteps = steps.filter((s): s is Extract<Step, { kind: "text" }> => s.kind === "text");

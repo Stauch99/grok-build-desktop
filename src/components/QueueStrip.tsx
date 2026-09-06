@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { queueLabel, type QueueState } from "../lib/prompt-queue";
+import { useLocale, useT } from "../lib/locale-context";
 
 export type QueueStripProps = {
   queue: QueueState;
@@ -13,12 +14,14 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
   const queueDraggedRef = useRef(false);
   const [editQueuedId, setEditQueuedId] = useState<number | null>(null);
   const [editQueuedText, setEditQueuedText] = useState("");
-  const label = queueLabel(queue);
+  const t = useT();
+  const locale = useLocale();
+  const label = queueLabel(queue, locale);
 
   if (queue.items.length === 0) return null;
 
   return (
-    <div className="queue-strip" aria-label="排队中的消息">
+    <div className="queue-strip" aria-label={t("queue.strip")}>
       <span className="queue-count">{label}</span>
       {queue.items.map((q, i) =>
         editQueuedId === q.id ? (
@@ -26,7 +29,7 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
             key={q.id}
             className="queue-edit"
             value={editQueuedText}
-            aria-label="编辑排队消息"
+            aria-label={t("queue.edit")}
             autoFocus
             onChange={(e) => setEditQueuedText(e.target.value)}
             onBlur={() => {
@@ -43,12 +46,9 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
             }}
           />
         ) : (
-          <button
+          <div
             key={q.id}
-            type="button"
             className="queue-item"
-            aria-label={`排队：${q.text}`}
-            title={onReorder ? "拖动排序，双击编辑，点 × 移出" : "双击编辑，点 × 移出"}
             draggable={!!onReorder}
             onDragStart={(e) => {
               if (!onReorder) return;
@@ -76,26 +76,35 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
             onDragEnd={() => {
               dragFromRef.current = null;
             }}
-            onDoubleClick={() => {
-              setEditQueuedId(q.id);
-              setEditQueuedText(q.text);
-            }}
-            onClick={(e) => {
-              if (queueDraggedRef.current) {
-                queueDraggedRef.current = false;
-                return;
-              }
-              const t = e.target;
-              if (t instanceof HTMLElement && t.classList.contains("queue-x")) {
-                onRemove(q.id);
-              }
-            }}
           >
-            <span className="queue-text">{q.text}</span>
-            <span className="queue-x" aria-label="移出队列">
+            <button
+              type="button"
+              className="queue-text"
+              aria-label={t("queue.queued", { text: q.text })}
+              title={onReorder ? t("queue.dragHint") : t("queue.editHint")}
+              onDoubleClick={() => {
+                setEditQueuedId(q.id);
+                setEditQueuedText(q.text);
+              }}
+              onKeyDown={(e) => {
+                if (!onReorder || !e.altKey) return;
+                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                e.preventDefault();
+                const to = e.key === "ArrowUp" ? i - 1 : i + 1;
+                onReorder(i, to);
+              }}
+            >
+              {q.text}
+            </button>
+            <button
+              type="button"
+              className="queue-x"
+              aria-label={t("queue.remove")}
+              onClick={() => onRemove(q.id)}
+            >
               ×
-            </span>
-          </button>
+            </button>
+          </div>
         ),
       )}
     </div>

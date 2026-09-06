@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TOAST_CLEAR_MS, clearTimeoutRef, scheduleTimeout } from "../lib/timeout-ref";
+import { toastDurationMs, clearTimeoutRef, scheduleTimeout } from "../lib/timeout-ref";
 
 export type ToastAction = {
   actionLabel: string;
@@ -24,7 +24,7 @@ export function useToast() {
         }
       : undefined;
     setToast({ message: msg, actionLabel: action?.actionLabel, onAction });
-    scheduleTimeout(timer, () => setToast(null), TOAST_CLEAR_MS);
+    scheduleTimeout(timer, () => setToast(null), toastDurationMs(!!action));
   }, []);
   useEffect(() => () => clearTimeoutRef(timer), []);
   return { toast, showToast };

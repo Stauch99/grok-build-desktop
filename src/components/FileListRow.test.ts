@@ -69,7 +69,7 @@ describe("ExplorerPane dir Finder button", () => {
 });
 
 describe("file-finder hover CSS", () => {
-  const css = source("../styles.css");
+  const css = source("../styles.css") + "\n" + source("../styles/panes.css") + "\n" + source("../styles/workspace.css") + "\n" + source("../styles/shell.css") + "\n" + source("../styles/overlays.css") + "\n" + source("../styles/extras.css");
 
   it("hides Finder icons until the row is hovered or focused", () => {
     expect(ruleBlock(css, ".file-entry .file-finder")).toMatch(/opacity:\s*0/);

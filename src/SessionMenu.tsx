@@ -1,4 +1,5 @@
 import type { SessionSummary } from "./api";
+import { useT } from "./lib/locale-context";
 
 export type SessionMenuState = {
   kind: "header" | "row";
@@ -44,7 +45,7 @@ export function SessionMenu({
   onCopyId,
   onCopyCwd,
   onSplit,
-  onSplitLabel = "向右拆开",
+  onSplitLabel,
   onFork,
   onPin,
   onArchive,
@@ -52,24 +53,26 @@ export function SessionMenu({
   archived = false,
   onDelete,
 }: Props) {
+  const t = useT();
+  const splitLabel = onSplitLabel ?? t("pane.splitRight");
   return (
     <div className="menu" style={{ top, left }} role="menu">
-      <button type="button" onClick={onRename}>重命名</button>
-      <button type="button" onClick={onRestore} disabled={!hasOverride}>恢复自动标题</button>
+      <button type="button" onClick={onRename}>{t("menu.rename")}</button>
+      <button type="button" onClick={onRestore} disabled={!hasOverride}>{t("menu.restoreTitle")}</button>
       <button type="button" onClick={onNew}>{onNewLabel}</button>
-      {onSplit ? <button type="button" onClick={onSplit}>{onSplitLabel}</button> : null}
-      {onFork ? <button type="button" onClick={onFork}>分叉</button> : null}
-      {onMoveToProject ? <button type="button" onClick={onMoveToProject}>移入项目…</button> : null}
+      {onSplit ? <button type="button" onClick={onSplit}>{splitLabel}</button> : null}
+      {onFork ? <button type="button" onClick={onFork}>{t("menu.fork")}</button> : null}
+      {onMoveToProject ? <button type="button" onClick={onMoveToProject}>{t("menu.moveToProject")}</button> : null}
       <div className="sep" />
-      <button type="button" onClick={onReveal ?? undefined} disabled={!onReveal}>在访达中显示</button>
-      <button type="button" onClick={onCopyId}>复制会话 ID</button>
-      <button type="button" onClick={onCopyCwd} disabled={!session.cwd}>复制项目路径</button>
+      <button type="button" onClick={onReveal ?? undefined} disabled={!onReveal}>{t("menu.reveal")}</button>
+      <button type="button" onClick={onCopyId}>{t("menu.copyId")}</button>
+      <button type="button" onClick={onCopyCwd} disabled={!session.cwd}>{t("menu.copyCwd")}</button>
       <div className="sep" />
-      {onPin ? <button type="button" onClick={onPin}>{pinned ? "取消置顶" : "置顶"}</button> : null}
+      {onPin ? <button type="button" onClick={onPin}>{pinned ? t("menu.unpin") : t("menu.pin")}</button> : null}
       {onArchive ? (
-        <button type="button" onClick={onArchive}>{archived ? "取消归档" : "归档"}</button>
+        <button type="button" onClick={onArchive}>{archived ? t("menu.unarchive") : t("menu.archive")}</button>
       ) : null}
-      <button type="button" className="danger" onClick={onDelete}>删除</button>
+      <button type="button" className="danger" onClick={onDelete}>{t("menu.delete")}</button>
     </div>
   );
 }
@@ -100,9 +103,10 @@ export function ProjectMenu({
   pinned: boolean;
   onPin: () => void;
 }) {
+  const t = useT();
   return (
     <div className="menu" style={{ top, left }} role="menu">
-      <button type="button" onClick={onPin}>{pinned ? "取消置顶" : "置顶"}</button>
+      <button type="button" onClick={onPin}>{pinned ? t("menu.unpin") : t("menu.pin")}</button>
     </div>
   );
 }

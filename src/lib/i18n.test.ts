@@ -104,8 +104,16 @@ describe("i18n", () => {
 
 describe("fallbackCopy", () => {
   it("returns error-boundary title and retry for each locale", () => {
-    expect(fallbackCopy("zh")).toEqual({ title: "出了点问题", retry: "重试" });
-    expect(fallbackCopy("en")).toEqual({ title: "Something went wrong", retry: "Retry" });
+    expect(fallbackCopy("zh")).toEqual({
+      title: "出了点问题",
+      retry: "重试",
+      copy: "复制诊断信息",
+    });
+    expect(fallbackCopy("en")).toEqual({
+      title: "Something went wrong",
+      retry: "Retry",
+      copy: "Copy diagnostics",
+    });
   });
 });
 

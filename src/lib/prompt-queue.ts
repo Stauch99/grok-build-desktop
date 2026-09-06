@@ -1,3 +1,5 @@
+import { t, type Locale } from "./i18n";
+
 export type QueuedPrompt = { id: number; text: string };
 
 export type QueueState = { items: QueuedPrompt[]; nextId: number };
@@ -8,11 +10,11 @@ const MAX_QUEUED = 10;
 
 /** Blank text is dropped; the queue is capped so a stuck turn cannot grow it forever. */
 export function enqueue(state: QueueState, text: string): QueueState {
-  const t = text.trim();
-  if (!t) return state;
+  const trimmed = text.trim();
+  if (!trimmed) return state;
   if (state.items.length >= MAX_QUEUED) return state;
   return {
-    items: [...state.items, { id: state.nextId, text: t }],
+    items: [...state.items, { id: state.nextId, text: trimmed }],
     nextId: state.nextId + 1,
   };
 }
@@ -45,8 +47,8 @@ export function reorderQueue(state: QueueState, from: number, to: number): Queue
   return { ...state, items: next };
 }
 
-export function queueLabel(state: QueueState): string {
-  return state.items.length === 0 ? "" : `已排队 ${state.items.length} 条`;
+export function queueLabel(state: QueueState, locale: Locale = "zh"): string {
+  return state.items.length === 0 ? "" : t(locale, "queue.count", { n: state.items.length });
 }
 
 /** Replace queued text. Blank replacement removes the item. */

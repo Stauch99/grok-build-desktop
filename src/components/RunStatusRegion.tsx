@@ -13,11 +13,20 @@ const TONE: Record<string, "live" | "danger" | "ok" | "warn" | "neutral"> = {
 
 export function RunStatusRegion({ status }: { status: RunStatus }) {
   if (status.kind === "idle") return null;
+  const live =
+    status.kind === "disconnected" || status.kind === "stalled" || status.kind === "trust-required"
+      ? "assertive"
+      : "polite";
   return (
     <DockCapsule
       tone={TONE[status.kind] ?? "neutral"}
       className={`run-status-region ${status.kind}`}
+      label={status.label}
     >
+      <span className="sr-only" aria-live={live} aria-atomic="true">
+        {status.label}
+        {status.detail ? ` ${status.detail}` : ""}
+      </span>
       <span className="run-status-dot" aria-hidden="true" />
       <strong>{status.label}</strong>
       {status.detail ? <span>{status.detail}</span> : null}

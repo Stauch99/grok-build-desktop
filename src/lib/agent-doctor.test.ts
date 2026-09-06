@@ -7,6 +7,7 @@ import {
   defaultLoginHint,
   doctorActionHint,
   emptyDoctor,
+  emptyDoctorKind,
 } from "./agent-doctor";
 
 describe("defaultAgentHome", () => {
@@ -95,3 +96,31 @@ describe("doctorActionHint", () => {
     ).toEqual([]);
   });
 });
+
+describe("emptyDoctorKind", () => {
+  it("asks for the selected agent's CLI, not grok by default", () => {
+    expect(emptyDoctorKind({ doctor: emptyDoctor("kimi", "/Users/me"), cwd: "", projectCount: 0 })).toBe("cli");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: false },
+        cwd: "",
+        projectCount: 0,
+      }),
+    ).toBe("auth");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: true },
+        cwd: "",
+        projectCount: 0,
+      }),
+    ).toBe("project");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: true },
+        cwd: "/repo",
+        projectCount: 1,
+      }),
+    ).toBe("hidden");
+  });
+});
+

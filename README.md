@@ -74,6 +74,12 @@ What it is **not**: a full IDE, a browser web UI, or a replacement for `git`, `l
 - Node 22+ and a current Rust toolchain (for `tauri dev` / `tauri build`)
 - At least one ACP CLI installed and logged in (Grok, Kimi, Claude Code, or Codex)
 
+## Download
+
+Prebuilt installers are published on [GitHub Releases](https://github.com/Stauch99/grok-build-desktop/releases) (macOS `.dmg`, Windows NSIS/MSI, Linux `.deb` / AppImage). The app has no in-app auto-update — install a new build when you want one.
+
+You still need at least one ACP CLI installed and logged in.
+
 ## Quick start
 
 ```bash

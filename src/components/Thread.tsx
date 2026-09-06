@@ -38,6 +38,9 @@ import { UserTurn } from "./UserTurn";
 import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 import { chatWidthCss } from "../lib/chat-width";
+import { tocActiveId } from "../lib/toc-active";
+import { restoreVirtualScrollIndex } from "../lib/virtual-scroll-anchor";
+import { useT } from "../lib/locale-context";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -73,15 +76,16 @@ export function UsageMark({
   pct: number | null;
   compactPercent?: number;
 }) {
+  const t = useT();
   const tone = usageTone(pct, compactPercent);
   const used = usage?.used ?? 0;
   const size = usage?.size;
   const title =
     pct != null && size
-      ? `上下文 ${pct}%（${used}/${size}）`
-      : "打开会话后显示窗口占用";
+      ? t("thread.usagePct", { pct, used, size })
+      : t("thread.usageIdle");
   return (
-    <span className={`usage-chip usage-chip-${tone}`} title={title}>
+    <span className={`usage-chip usage-chip-${tone}`} data-tip={title}>
       <span className="usage-bar" aria-hidden>
         <span className="usage-bar-fill" style={{ width: `${pct ?? 0}%` }} />
       </span>
@@ -102,6 +106,7 @@ export function WaitPill({
   note?: string;
   onStop: () => void;
 }) {
+  const t = useT();
   return (
     <div className={`wait-pill${note ? " stalled" : ""}`}>
       <span className="wait-status" aria-hidden>
@@ -114,7 +119,7 @@ export function WaitPill({
         </span>
       ) : null}
       <span className="wait-time">{elapsed}</span>
-      <button type="button" className="wait-stop" onClick={onStop} title="停止" aria-label="停止">
+      <button type="button" className="wait-stop" onClick={onStop} data-tip={t("thread.stop")} aria-label={t("thread.stop")}>
         <IconStop size={16} />
       </button>
     </div>
@@ -188,6 +193,7 @@ export const ChatRow = memo(function ChatRow({
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
 }) {
+  const t = useT();
   const openPathAbs = (p: string) => {
     const target = p.startsWith("/") ? p : cwd ? `${cwd.replace(/\/$/, "")}/${p}` : p;
     void openPath(target);
@@ -197,6 +203,7 @@ export const ChatRow = memo(function ChatRow({
     return (
       <div
         id={`turn-${paneId}-${item.id}`}
+        data-turn-id={item.id}
         className={`turn-user${highlightQuery && item.text.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}`}
       >
         <UserTurn
@@ -233,8 +240,8 @@ export const ChatRow = memo(function ChatRow({
             <button
               type="button"
               onClick={() => void navigator.clipboard.writeText(item.text)}
-              aria-label="复制"
-              title="复制"
+              aria-label={t("thread.copy")}
+              data-tip={t("thread.copy")}
             >
               <IconGrokCopy />
             </button>
@@ -247,7 +254,7 @@ export const ChatRow = memo(function ChatRow({
     const preview = item.text.replace(/\s+/g, " ").slice(0, 72);
     return (
       <Fold
-        label={preview ? `思考  ${preview}${item.text.length > 72 ? "…" : ""}` : "思考"}
+        label={preview ? `${t("thread.think")}  ${preview}${item.text.length > 72 ? "…" : ""}` : t("thread.think")}
         meta={thoughtDuration(item.at, item.until)}
       >
         <div className="thought">{item.text}</div>
@@ -256,7 +263,7 @@ export const ChatRow = memo(function ChatRow({
   }
   if (item.kind === "plan") {
     return (
-      <Fold label="计划">
+      <Fold label={t("thread.plan")}>
         {item.entries.map((e, i) => (
           <div key={`${e.content}-${i}`}>{e.content}</div>
         ))}
@@ -265,8 +272,8 @@ export const ChatRow = memo(function ChatRow({
   }
   if (item.kind === "compact") {
     return (
-      <article className="compact-card" aria-label="压缩">
-        <strong>{item.phase === "completed" ? "压缩完成" : "开始压缩"}</strong>
+      <article className="compact-card" aria-label={t("thread.compact")}>
+        <strong>{item.phase === "completed" ? t("thread.compactDone") : t("thread.compactStart")}</strong>
         {item.used != null && item.size != null ? (
           <span className="hub-meta">{item.used} / {item.size}</span>
         ) : null}
@@ -274,7 +281,7 @@ export const ChatRow = memo(function ChatRow({
     );
   }
   const stat = diffStatLabel(item.diff);
-  const toolLabel = `${item.title || item.toolKind || "工具调用"}${stat ? ` ${stat}` : ""}`;
+  const toolLabel = `${item.title || item.toolKind || t("tool.call")}${stat ? ` ${stat}` : ""}`;
   return (
     <Fold label={toolLabel} meta={item.status}>
       <ToolResult
@@ -479,11 +486,15 @@ export function ThreadColumn({
   highlightQuery,
   jumpId,
 }: ThreadColumnProps) {
+  const t = useT();
   const [tocHover, setTocHover] = useState<{
     top: number;
     left: number;
     text: string;
   } | null>(null);
+  const [tocActive, setTocActive] = useState<string | null>(null);
+  const wasVirtualRef = useRef(false);
+  const anchorIndexRef = useRef(0);
   const [, setLiveTick] = useState(0);
   const liveClock = useRef({ announced: "", lastAt: 0 });
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
@@ -541,6 +552,50 @@ export function ThreadColumn({
     ],
   );
   const listActive = virtualize && !empty;
+  const skipVirtualFlip = useRef(true);
+
+  useLayoutEffect(() => {
+    if (skipVirtualFlip.current) {
+      skipVirtualFlip.current = false;
+      wasVirtualRef.current = listActive;
+      return;
+    }
+    const next = restoreVirtualScrollIndex(wasVirtualRef.current, listActive, anchorIndexRef.current);
+    wasVirtualRef.current = listActive;
+    if (next == null) return;
+    if (listActive) {
+      listRef.current?.scrollToRow({ index: next, align: "start", behavior: "instant" });
+      return;
+    }
+    const block = blocks[next];
+    const id = block?.kind === "item" ? block.item.id : null;
+    if (id) {
+      chatRef.current?.querySelector(`#turn-${paneId}-${id}`)?.scrollIntoView({ block: "start" });
+    }
+  }, [listActive, blocks, paneId, chatRef, listRef]);
+
+  useEffect(() => {
+    const root = (listActive ? listRef.current?.element : chatRef.current) ?? null;
+    if (!root || turns.length < 2) return;
+    const seen = new Map<string, number>();
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.turnId;
+          if (!id) continue;
+          seen.set(id, entry.intersectionRatio);
+        }
+        const id = tocActiveId([...seen.entries()].map(([id, ratio]) => ({ id, ratio })));
+        if (!id) return;
+        setTocActive(id);
+        const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === id);
+        if (idx >= 0) anchorIndexRef.current = idx;
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    );
+    root.querySelectorAll("[data-turn-id]").forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [listActive, blocks, turns.length, chatRef, listRef]);
 
   useEffect(() => {
     if (!busy) return;
@@ -667,14 +722,14 @@ export function ThreadColumn({
           element scroll away with the content, which put the table of contents
           out of reach unless you were already at the top. */}
       {turns.length > 1 && (
-        <nav className="toc" aria-label="对话目录">
+        <nav className="toc" aria-label={t("thread.toc")}>
           {turns.map((u) => {
             const tip = u.text.replace(/\s+/g, " ").slice(0, 80);
             return (
               <button
                 key={u.id}
                 type="button"
-                className="toc-tick"
+                className={`toc-tick${tocActive === u.id ? " on" : ""}`}
                 aria-label={tip}
                 onMouseEnter={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();

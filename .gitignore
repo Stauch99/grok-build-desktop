@@ -12,7 +12,9 @@ src-tauri/gen/
 *.exe
 .superpowers/
 .worktrees/
+.tmp-*/
 .tmp-acp-probe/
 .tmp-ui-check/
+**/.DS_Store
 docs/ui-audit/**/*.png
 docs/ui-audit/**/CAPTURE_LOG.txt

@@ -5,6 +5,7 @@ import { IconGitFork, IconUndo } from "../icons";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { rewriteLocalMediaHtml } from "../lib/media";
 import { escapeText, linkifyLocalPaths } from "../lib/text";
+import { useT } from "../lib/locale-context";
 
 export type UserTurnProps = {
   text: string;
@@ -39,6 +40,7 @@ export function UserTurn({
   clock,
   sessionModel,
 }: UserTurnProps) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const showModelChip = !!(model && sessionModel && model !== sessionModel);
@@ -101,17 +103,17 @@ export function UserTurn({
         </div>
       ) : null}
       <div className="msg-actions">
-        <button type="button" onClick={onCopy} aria-label="复制" title="复制">
+        <button type="button" onClick={onCopy} aria-label={t("thread.copy")} data-tip={t("thread.copy")}>
           <IconGrokCopy />
         </button>
-        <button type="button" onClick={onResend} aria-label="重发" title="重发">
+        <button type="button" onClick={onResend} aria-label={t("thread.resend")} data-tip={t("thread.resend")}>
           <IconGrokRegenerate />
         </button>
         {onEditResend ? (
           <button
             type="button"
-            aria-label="编辑后重发"
-            title="编辑后重发"
+            aria-label={t("thread.editResend")}
+            data-tip={t("thread.editResend")}
             onClick={() => {
               setDraft(text);
               setEditing(true);
@@ -123,15 +125,15 @@ export function UserTurn({
         {onRewind ? (
           <button
             type="button"
-            title="把这一轮之后的文件改动还原"
-            aria-label="回到这里"
+            data-tip={t("thread.rewindFiles")}
+            aria-label={t("thread.rewindHere")}
             onClick={onRewind}
           >
             <IconUndo size={14} />
           </button>
         ) : null}
         {onFork ? (
-          <button type="button" title="从此处分叉" aria-label="从此处分叉" onClick={onFork}>
+          <button type="button" data-tip={t("thread.forkHere")} aria-label={t("thread.forkHere")} onClick={onFork}>
             <IconGitFork size={16} />
           </button>
         ) : null}

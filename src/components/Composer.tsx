@@ -669,6 +669,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     <div
       ref={wrapRef}
       className={`composer-wrap${fileDragOver ? " file-drag-over" : ""}${takeover !== "bar" ? " composer-takeover" : ""}`}
+      data-mode={mode}
       style={{ ["--thread" as string]: threadWidth }}
       onPaste={onPasteFiles}
     >

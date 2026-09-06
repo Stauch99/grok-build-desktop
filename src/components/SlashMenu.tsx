@@ -1,5 +1,6 @@
 import type { CommandDef } from "../lib/commands";
 import { commandGroup } from "../lib/slash-groups";
+import { useT } from "../lib/locale-context";
 
 export type SlashMenuProps = {
   open: boolean;
@@ -9,10 +10,11 @@ export type SlashMenuProps = {
 };
 
 export function SlashMenu({ open, items, active, onPick }: SlashMenuProps) {
+  const t = useT();
   if (!open || items.length === 0) return null;
 
   return (
-    <div className="mention" role="listbox" aria-label="斜杠命令">
+    <div className="mention" role="listbox" aria-label={t("slash.commands")}>
       {items.map((c, i) => {
         const group = commandGroup(c);
         return (

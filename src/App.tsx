@@ -21,7 +21,6 @@ import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
 import { maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
 import { busyComposerHint, paneComposerTakeover, SIDEBAR_RAIL } from "./lib/shell-ia";
-import { GROK_LOGIN_CMD } from "./lib/agent-health";
 import { forkAtSlash } from "./lib/turn-files";
 import { RecapCard } from "./components/RecapCard";
 import { GoalBar } from "./components/GoalBar";
@@ -59,12 +58,12 @@ import { GitChip } from "./components/GitBar";
 import { GitPane } from "./components/GitPane";
 import { DiffSummary } from "./components/DiffSummary";
 import { PlanCompleteCard } from "./components/PlanCompleteCard";
-import { SubagentCard } from "./components/SubagentCard";
 import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
 import { Composer } from "./components/Composer";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
+import { Skeleton } from "./components/Skeleton";
 import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
 import { snapshotMtimes } from "./lib/memory-dock";
@@ -365,7 +364,7 @@ export function App() {
     const paneSession = sid
       ? sessions.find((s) => s.id === sid) ?? inboxSessions.find((s) => s.id === sid) ?? null
       : paneId === MAIN_PANE ? current : null;
-    const paneTitle = paneSession ? displayTitle(paneSession, titles) : "新会话";
+    const paneTitle = paneSession ? displayTitle(paneSession, titles) : t(locale, "chrome.newSession");
     const mentions = extra
       ? selectPaneMentionSource(extra.cwd, extraMentionData[paneId] ?? null)
       : { dirs: workspaceEntries.filter((e) => e.kind === "dir").map((e) => e.name), changes: changes.map((c) => c.path) };
@@ -420,7 +419,7 @@ export function App() {
         >
           <div className="title-wrap">
             <span className="crumb-cwd" title={paneCwd}>
-              {inboxCwd && paneCwd && sameCwd(paneCwd, inboxCwd) ? "无目录" : basename(paneCwd || "")}
+              {inboxCwd && paneCwd && sameCwd(paneCwd, inboxCwd) ? t(locale, "cwd.none") : basename(paneCwd || "")}
             </span>
             <span className="crumb-sep">/</span>
             {editingTitleId && sid && editingTitleId === sid ? (
@@ -446,26 +445,26 @@ export function App() {
               />
             ) : sid ? (
               <>
-                <button type="button" className="session-title-btn" title={paneTitle} onClick={() => beginEditTitle(sid)}>
+                <button type="button" className="session-title-btn" data-tip={paneTitle} title={paneTitle} onClick={() => beginEditTitle(sid)}>
                   {paneTitle}
                 </button>
-                <button type="button" className="icon-btn" title="复制全部对话" aria-label="复制全部对话" onClick={() => copyAllConversation(paneChat.items)}>
+                <button type="button" className="icon-btn" data-tip={t(locale, "thread.copyAll")} aria-label={t(locale, "thread.copyAll")} onClick={() => copyAllConversation(paneChat.items)}>
                   <IconGrokCopy size={16} />
                 </button>
-                <button type="button" className="icon-btn" data-menu-trigger aria-label="会话操作" onClick={(e) => openMenu("header", sid, e.currentTarget)}>
+                <button type="button" className="icon-btn" data-menu-trigger aria-label={t(locale, "session.actions")} onClick={(e) => openMenu("header", sid, e.currentTarget)}>
                   <IconGrokMore size={18} />
                 </button>
               </>
             ) : (
-              <span className="title-static">新会话</span>
+              <span className="title-static">{t(locale, "chrome.newSession")}</span>
             )}
           </div>
           <div className="head-actions">
             <button
               type="button"
               className="icon-btn shortcut-host"
-              title="Dashboard"
-              aria-label="Dashboard"
+              title={t(locale, "rail.dashboard")}
+              aria-label={t(locale, "rail.dashboard")}
               aria-expanded={reviewOpen}
               onClick={() => {
                 const next = !reviewOpen;
@@ -477,7 +476,7 @@ export function App() {
               <ShortcutKbd id="review" />
             </button>
             {paneCount > 1 ? (
-              <button type="button" className="icon-btn" title={t(locale, "pane.close")} aria-label={t(locale, "pane.close")} onClick={() => closePaneLeaf(paneId)}>
+              <button type="button" className="icon-btn" data-tip={t(locale, "pane.close")} aria-label={t(locale, "pane.close")} onClick={() => closePaneLeaf(paneId)}>
                 <IconGrokClose size={16} />
               </button>
             ) : null}
@@ -510,8 +509,8 @@ export function App() {
             <button
               type="button"
               className="jump-bottom"
-              title="回到底部"
-              aria-label="回到底部"
+              title={t(locale, "thread.scrollBottom")}
+              aria-label={t(locale, "thread.scrollBottom")}
               onClick={() => {
                 if (paneId === MAIN_PANE) {
                   setAtBottom(true);
@@ -580,7 +579,7 @@ export function App() {
             {paneBusy && (
               <WaitPill
                 status={liveWorkStatus(paneChat.items)}
-                elapsed={busyAt != null ? formatElapsed(Date.now() - busyAt + clock * 0) : "0秒"}
+        elapsed={busyAt != null ? formatElapsed(Date.now() - busyAt + clock * 0) : formatElapsed(0)}
                 onStop={() => void cancelTurn(paneId)}
               />
             )}
@@ -699,7 +698,7 @@ return (
       />
       {!sidebarCollapsed && (
       <Resizer
-        ariaLabel="调整侧栏宽度"
+        ariaLabel={t(locale, "sidebar.resize")}
         className="sidebar-resizer"
         value={sidebarWidth}
         min={SIDEBAR.min}
@@ -765,12 +764,12 @@ return (
               <MenuSelect
                 variant="inline"
                 className="crumb-cwd"
-                ariaLabel="工作目录"
-                title={cwdLocked ? "项目内对话开始后不能再换目录" : "选择工作目录"}
+                ariaLabel={t(locale, "cwd.pick")}
+                title={cwdLocked ? t(locale, "cwd.locked") : t(locale, "cwd.pick")}
                 disabled={cwdLocked}
                 value={cwd || inboxCwd}
                 options={[
-                  ...(inboxCwd ? [{ value: inboxCwd, label: "无目录" }] : []),
+                  ...(inboxCwd ? [{ value: inboxCwd, label: t(locale, "cwd.none") }] : []),
                   ...projects.map((p) => ({ value: p, label: basename(p), hint: p })),
                 ]}
                 onChange={(next) => void switchWorkdir(next)}
@@ -810,8 +809,8 @@ return (
                   <button
                     type="button"
                     className="icon-btn"
-                    title="复制全部对话"
-                    aria-label="复制全部对话"
+                    data-tip={t(locale, "thread.copyAll")}
+                    aria-label={t(locale, "thread.copyAll")}
                     onClick={() => copyAllConversation(chat.items)}
                   >
                     <IconGrokCopy size={16} />
@@ -824,14 +823,14 @@ return (
                     type="button"
                     className="icon-btn"
                     data-menu-trigger
-                    aria-label="会话操作"
+                    aria-label={t(locale, "session.actions")}
                     onClick={(e) => openMenu("header", sessionId, e.currentTarget)}
                   >
                     <IconGrokMore size={18} />
                   </button>
                 </>
               ) : (
-                <span className="title-static">新会话</span>
+                <span className="title-static">{t(locale, "chrome.newSession")}</span>
               )}
             </div>
             <div className="head-actions">
@@ -841,7 +840,7 @@ return (
               {jobs.length > 0 && (
                 <div className="chip-wrap">
                   <button type="button" className="btn ghost" aria-expanded={jobsOpen} onClick={() => setJobsOpen((o) => !o)}>
-                    任务 {jobs.length}
+                    {t(locale, "jobs.count", { n: jobs.length })}
                   </button>
                   {jobsOpen ? (
                     <div className="chip-menu" role="menu">
@@ -855,12 +854,23 @@ return (
               {catalog.length > 0 && (
                 <div className="chip-wrap">
                   <button type="button" className="btn ghost" aria-expanded={catalogOpen} onClick={() => setCatalogOpen((o) => !o)}>
-                    子代理 {catalog.length}
+                    {t(locale, "subagent.count", { n: catalog.length })}
                   </button>
                   {catalogOpen ? (
                     <div className="chip-menu" role="menu">
                       {catalog.map((s) => (
-                        <button key={s.id} type="button" onClick={() => setCatalogOpen(false)}>{s.name} · {s.status}</button>
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setCatalogOpen(false);
+                            if (!s.sessionId) return;
+                            const sess = findSessionById(s.sessionId);
+                            if (sess) void openSession(sess);
+                          }}
+                        >
+                          {s.name}
+                        </button>
                       ))}
                     </div>
                   ) : null}
@@ -870,8 +880,8 @@ return (
                 <button
                   type="button"
                   className="icon-btn shortcut-host"
-                  title="Dashboard"
-                  aria-label="Dashboard"
+                  data-tip={t(locale, "rail.dashboard")}
+                  aria-label={t(locale, "rail.dashboard")}
                   aria-expanded={reviewOpen}
                   onClick={() => {
                     const next = !reviewOpen;
@@ -897,13 +907,14 @@ return (
               emptyTitle=""
               emptyNode={
                 <EmptyState
-                  info={info}
+                  doctor={doctors.find((d) => d.agentId === selectedAgentId) ?? null}
+                  agentLabel={agentChipLabel(selectedAgentId)}
                   cwd={cwd}
                   projectCount={projects.length}
                   onPickProject={() => void addProject()}
                   onInbox={() => void startInboxSession()}
-                  onCopyLogin={() => {
-                    void navigator.clipboard.writeText(GROK_LOGIN_CMD);
+                  onCopyLogin={(text) => {
+                    void navigator.clipboard.writeText(text);
                     showToast(t(locale, "toast.copiedLogin"));
                   }}
                   onBrowseWorkspace={() => setMillerOpen(true)}
@@ -928,8 +939,8 @@ return (
               <button
                 type="button"
                 className="jump-bottom"
-                title="回到底部"
-                aria-label="回到底部"
+                title={t(locale, "thread.scrollBottom")}
+                aria-label={t(locale, "thread.scrollBottom")}
                 onClick={() => {
                   setAtBottom(true);
                   chatEl.current?.scrollTo({ top: chatEl.current.scrollHeight, behavior: "smooth" });
@@ -941,8 +952,7 @@ return (
           </div>
           {loadingSession && (
             <div className="overlay">
-              <div className="spinner" />
-              <div>{t(locale, "toast.loadingSession")}</div>
+              <Skeleton label={t(locale, "toast.loadingSession")} rows={4} />
             </div>
           )}
           <Composer
@@ -988,7 +998,7 @@ return (
             onOverflow={showToast}
             workspaceLabel={inboxCwd && cwd && sameCwd(cwd, inboxCwd) ? t(locale, "sidebar.inbox") : cwd ? basename(cwd) : ""}
             workspaceOptions={[
-              ...(inboxCwd ? [{ path: INBOX_PIN, label: "独立对话" }] : []),
+              ...(inboxCwd ? [{ path: INBOX_PIN, label: t(locale, "sidebar.inbox") }] : []),
               ...projects.map((p) => ({ path: p, label: basename(p) })),
             ]}
             onWorkspace={(path) => {
@@ -1008,8 +1018,8 @@ return (
                   <button
                     type="button"
                     className="icon-btn fork-btn"
-                    title="分叉会话"
-                    aria-label="分叉会话"
+                    data-tip={t(locale, "palette.fork")}
+                    aria-label={t(locale, "palette.fork")}
                     onClick={() => void sendPrompt("/fork")}
                   >
                     <IconGitFork size={16} />
@@ -1063,11 +1073,6 @@ return (
                 />
               ) : null}
               <RunStatusRegion status={runStatus} />
-              {subagentCards.map((s) =>
-                s.status ? (
-                  <SubagentCard key={s.id} name={s.name} status={s.status} mcpInheritance="inherit" />
-                ) : null,
-              )}
               {goalView ? (
                 <GoalBar goal={goalView.text} startedAt={goalView.startedAt} live={mainPaneBusy} />
               ) : null}
@@ -1204,7 +1209,7 @@ return (
             if (inboxCwd && sameCwd(menuSession.cwd, inboxCwd)) void startInboxSession();
             else void startSession(menuSession.cwd);
           }}
-          onNewLabel={inboxCwd && sameCwd(menuSession.cwd, inboxCwd) ? "新对话" : "在此项目新开会话"}
+          onNewLabel={inboxCwd && sameCwd(menuSession.cwd, inboxCwd) ? t(locale, "palette.newChat") : t(locale, "palette.newSession")}
           onMoveToProject={
             inboxCwd && sameCwd(menuSession.cwd, inboxCwd) && projects.length > 0
               ? () => {
@@ -1266,8 +1271,8 @@ return (
           <div className="settings-backdrop" onClick={() => setSettingsOpen(false)} />
           <div className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div className="settings-head">
-              <h2 id="settings-title">设置</h2>
-              <button type="button" className="icon-btn" aria-label="关闭" title="关闭" onClick={() => setSettingsOpen(false)}>
+              <h2 id="settings-title">{t(locale, "settings.title")}</h2>
+              <button type="button" className="icon-btn" aria-label={t(locale, "common.close")} data-tip={t(locale, "common.close")} onClick={() => setSettingsOpen(false)}>
                 <IconGrokClose size={16} />
               </button>
             </div>
@@ -1402,13 +1407,13 @@ return (
         subagents={subagentCards.map((s) => ({
           id: s.id,
           name: s.name,
-          status: s.status ?? "running",
+          status: s.status,
         }))}
       />
 
       {movePick && (
         <div className="menu" style={{ top: movePick.top, left: movePick.left }} role="menu">
-          <div className="footnote" style={{ padding: "6px 10px 4px" }}>移入项目</div>
+          <div className="footnote" style={{ padding: "6px 10px 4px" }}>{t(locale, "menu.moveToProject")}</div>
           {projects.map((p) => (
             <button key={p} type="button" onClick={() => void moveInboxToProject(movePick.id, p)}>
               {basename(p)}

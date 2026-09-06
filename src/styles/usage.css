@@ -1,0 +1,200 @@
+/* ---- usage bar, turn chrome, kbd, rewind, context ---- */
+
+.usage-bar {
+  display: inline-block;
+  width: 48px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+  flex: none;
+}
+.usage-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+  border-radius: inherit;
+}
+.usage-chip-ok { color: var(--faint); }
+.usage-chip-warn { color: var(--warn); }
+.usage-chip-warn .usage-bar-fill { background: var(--warn); }
+.usage-chip-hot { color: var(--danger); font-size: var(--ui-small); }
+.usage-chip-hot .usage-bar-fill { background: var(--danger); }
+
+.turn-sep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 10px;
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+  letter-spacing: 0.02em;
+}
+.turn-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.turn-meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 0 4px;
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+}
+.turn-model {
+  color: var(--accent-deep);
+}
+
+.plan-card {
+  border: 1px solid var(--line);
+  background: var(--bg-alt);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  margin: 0 0 16px;
+}
+.plan-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: var(--ui-small);
+}
+.plan-card .todo { margin: 0; }
+
+.empty-doctor {
+  max-width: 28rem;
+  margin: 0 auto;
+  gap: 10px;
+}
+.empty-doctor p { color: var(--muted); }
+.empty-doctor .btn { margin-top: 4px; }
+
+.mode-chip kbd,
+.send-btn kbd,
+.palette-foot kbd,
+.queue-item kbd {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-side);
+  color: var(--faint);
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+.mode-chip kbd { margin-left: 6px; margin-right: 0; }
+
+.shortcut-host { position: relative; }
+.shortcut-kbd {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 1px 5px;
+  min-height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 10%, var(--bg-alt));
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+}
+.icon-btn.shortcut-host,
+.send-btn.shortcut-host {
+  overflow: visible;
+}
+.icon-btn .shortcut-kbd,
+.send-btn .shortcut-kbd {
+  position: absolute;
+  margin: 0;
+  right: -2px;
+  bottom: -4px;
+  min-height: 16px;
+  padding: 1px 4px;
+  font-size: 10px;
+  box-shadow: var(--shadow);
+}
+.alt-send.shortcut-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu button:has(.shortcut-kbd) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.palette-foot {
+  flex: none;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.palette-foot kbd { margin-right: 0; }
+
+.ctx-plan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+}
+.ctx-plan-name { font-size: var(--ui-small); }
+.ctx-plan-preview,
+.ctx-dir {
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+}
+.ctx-group { margin: 0 0 8px; }
+
+.context-panel h4 {
+  margin: 12px 0 6px;
+  font-size: var(--ui-small);
+}
+.context-panel h4:first-child { margin-top: 0; }
+.rule-row,
+.plan-file-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 4px;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: var(--ui-small);
+}
+.rule-row:hover,
+.plan-file-row:hover { background: var(--bg-hover); }
+.rule-dir,
+.plan-file-preview {
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+}
+.rule-group {
+  margin: 0 0 4px;
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+}
+

@@ -1,8 +1,10 @@
+import { useState } from "react";
 import type { GitChange } from "../api";
 import { canDiscardChange, changePreviewTarget, discardConfirm, statusMark, totalChanges } from "../lib/git";
 import { fileListEntry } from "../lib/file-row";
 import { IconRefresh } from "../icons";
 import { FileListRow } from "./FileListRow";
+import { AppModal } from "./AppModal";
 import { useT } from "../lib/locale-context";
 
 export type ChangesPanelProps = {
@@ -29,6 +31,7 @@ export function ChangesPanel({
   onDiscard,
 }: ChangesPanelProps) {
   const t = useT();
+  const [pendingDiscard, setPendingDiscard] = useState<string | null>(null);
   if (!isRepo) {
     return <p className="float-empty">{t("git.notRepo")}</p>;
   }
@@ -49,7 +52,7 @@ export function ChangesPanel({
             </>
           )}
         </span>
-        <button type="button" className="file-open" onClick={onRefresh} title={t("git.refresh")} aria-label={t("git.refresh")}>
+        <button type="button" className="file-open" onClick={onRefresh} data-tip={t("git.refresh")} aria-label={t("git.refresh")}>
           <IconRefresh size={14} />
         </button>
       </div>
@@ -84,12 +87,9 @@ export function ChangesPanel({
                       <button
                         type="button"
                         className="file-open change-discard"
-                        title={t("git.discardHint")}
+                        data-tip={t("git.discardHint")}
                         aria-label={t("git.discardPath", { path: c.path })}
-                        onClick={() => {
-                          if (!window.confirm(discardConfirm(c.path))) return;
-                          onDiscard(c.path);
-                        }}
+                        onClick={() => setPendingDiscard(c.path)}
                       >
                         {t("git.discard")}
                       </button>
@@ -101,6 +101,17 @@ export function ChangesPanel({
           })}
         </div>
       )}
+      <AppModal
+        open={pendingDiscard != null}
+        title={t("git.discardTitle")}
+        body={discardConfirm(pendingDiscard ?? "")}
+        confirmLabel={t("git.discard")}
+        onConfirm={() => {
+          if (pendingDiscard) onDiscard?.(pendingDiscard);
+          setPendingDiscard(null);
+        }}
+        onCancel={() => setPendingDiscard(null)}
+      />
     </div>
   );
 }

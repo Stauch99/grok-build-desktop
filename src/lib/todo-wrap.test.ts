@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { appCss } from "./css-source";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../styles.css"),
-  "utf8",
-);
+const css = appCss();
 
 function ruleBlock(selector: string): string {
   const start = css.indexOf(`${selector} {`);

@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PERMISSION_FOCUS_MS,
+  TOAST_ACTION_MS,
   TOAST_CLEAR_MS,
   clearTimeoutRef,
   scheduleTimeout,
+  toastDurationMs,
   type TimeoutRef,
 } from "./timeout-ref";
 
@@ -54,5 +56,11 @@ describe("toast and focus delays", () => {
   it("toast stays up for 2800ms and permission focus waits 200ms", () => {
     expect(TOAST_CLEAR_MS).toBe(2800);
     expect(PERMISSION_FOCUS_MS).toBe(200);
+  });
+
+  it("keeps action toasts long enough to undo", () => {
+    expect(TOAST_ACTION_MS).toBe(6000);
+    expect(toastDurationMs(false)).toBe(TOAST_CLEAR_MS);
+    expect(toastDurationMs(true)).toBe(TOAST_ACTION_MS);
   });
 });

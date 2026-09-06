@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SHORTCUTS,
   bindingFor,
+  eventToBinding,
   formatBinding,
   matchBinding,
   parseBinding,
+  shortcutConflictIds,
   showsModHint,
 } from "./shortcuts-table";
 
@@ -51,5 +53,22 @@ describe("shortcuts table", () => {
     expect(showsModHint("Mod+N")).toBe(true);
     expect(showsModHint("Escape")).toBe(false);
     expect(showsModHint("Shift+Tab")).toBe(false);
+  });
+
+  it("records a key event as a binding string", () => {
+    expect(
+      eventToBinding({ key: "k", metaKey: true, ctrlKey: false, shiftKey: false }),
+    ).toBe("Mod+K");
+    expect(
+      eventToBinding({ key: "Tab", metaKey: false, ctrlKey: false, shiftKey: true }),
+    ).toBe("Shift+Tab");
+    expect(
+      eventToBinding({ key: "Escape", metaKey: false, ctrlKey: false, shiftKey: false }),
+    ).toBe("Escape");
+  });
+
+  it("finds colliding shortcut ids", () => {
+    expect(shortcutConflictIds({ palette: "Mod+N" })).toEqual(["new-chat", "palette"]);
+    expect(shortcutConflictIds({})).toEqual([]);
   });
 });

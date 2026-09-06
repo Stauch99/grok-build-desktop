@@ -17,6 +17,7 @@ import { onTaggedAcpRequest } from "../lib/workbench-api";
 import type { PermissionPane } from "../lib/permission-view";
 import { notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
+import { recordLocalEvent } from "../lib/telemetry";
 
 export type PermissionQueue = {
   permissions: QueuedPermission[];
@@ -35,8 +36,12 @@ export function usePermissionQueue(opts: {
   focusedPaneRef: React.MutableRefObject<PermissionPane | null>;
   focusedRef: React.MutableRefObject<boolean>;
   currentTitleRef: React.MutableRefObject<string>;
+  telemetry?: boolean;
   onTimeoutNotice?: () => void;
 }): PermissionQueue {
+  const telemetry = opts.telemetry ?? false;
+  const telemetryRef = useRef(telemetry);
+  telemetryRef.current = telemetry;
   const [permissions, setPermissions] = useState<QueuedPermission[]>([]);
   const onTimeoutRef = useRef(opts.onTimeoutNotice);
   onTimeoutRef.current = opts.onTimeoutNotice;
@@ -45,9 +50,10 @@ export function usePermissionQueue(opts: {
     try {
       await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }, permissionReplyAgent(request.agentId));
     } finally {
+      recordLocalEvent(telemetry, "permission.answer");
       setPermissions((q) => removePermission(q, request));
     }
-  }, []);
+  }, [telemetry]);
 
   const cancelPermission = useCallback(async (request: QueuedPermission) => {
     await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } }, permissionReplyAgent(request.agentId));
@@ -61,6 +67,7 @@ export function usePermissionQueue(opts: {
       const parsed = permissionFromAcpRequest(msg as AcpPermissionMessage, agentId);
       if (!parsed) return;
       setPermissions((q) => enqueuePermission(q, parsed));
+      recordLocalEvent(telemetryRef.current, "permission.show");
     }).then((fn) => {
       if (cancelled) {
         fn();

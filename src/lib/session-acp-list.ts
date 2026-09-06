@@ -64,17 +64,34 @@ export function unionSessionsById(disk: SessionSummary[], acp: SessionSummary[])
   for (const row of acp) {
     const key = sessionKey(row);
     const prev = map.get(key);
-    if (prev && !row.parentSessionId && prev.parentSessionId) {
-      map.set(key, {
-        ...row,
-        parentSessionId: prev.parentSessionId,
-        ...(prev.sessionKind ? { sessionKind: prev.sessionKind } : {}),
-      });
-    } else {
+    if (!prev) {
       map.set(key, row);
+      continue;
     }
+    map.set(key, {
+      ...row,
+      ...(!row.parentSessionId && prev.parentSessionId
+        ? { parentSessionId: prev.parentSessionId }
+        : {}),
+      ...(!row.sessionKind && prev.sessionKind ? { sessionKind: prev.sessionKind } : {}),
+      ...(!row.dir && prev.dir ? { dir: prev.dir } : {}),
+      ...(!row.toolUseId && prev.toolUseId ? { toolUseId: prev.toolUseId } : {}),
+    });
   }
   return [...map.values()];
+}
+
+export function omitListedSession(
+  listed: Partial<Record<AgentId, SessionSummary[]>>,
+  sessionId: string,
+): Partial<Record<AgentId, SessionSummary[]>> {
+  const next: Partial<Record<AgentId, SessionSummary[]>> = { ...listed };
+  for (const key of Object.keys(next) as AgentId[]) {
+    const rows = next[key];
+    if (!rows) continue;
+    next[key] = rows.filter((row) => row.id !== sessionId && row.parentSessionId !== sessionId);
+  }
+  return next;
 }
 
 export async function maybeFetchAcpSessionList(args: {

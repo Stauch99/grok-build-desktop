@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useT } from "../lib/locale-context";
 
 export type AppModalProps = {
   open: boolean;
@@ -14,6 +15,7 @@ export type AppModalProps = {
  * is not blocked and the chrome stays on palette-layer styles.
  */
 export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel }: AppModalProps) {
+  const t = useT();
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel 
         <p className="hint rewind-summary">{body}</p>
         <div className="set-actions rewind-actions">
           <button type="button" className="btn" onClick={onCancel}>
-            取消
+            {t("composer.cancel")}
           </button>
           <button type="button" className="btn primary" ref={confirmRef} onClick={onConfirm}>
             {confirmLabel}

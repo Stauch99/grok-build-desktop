@@ -22,6 +22,7 @@ export type SessionSummary = {
   dir?: string | null;
   sessionKind?: string | null;
   parentSessionId?: string | null;
+  toolUseId?: string | null;
   lastTurnSummary?: string | null;
   lastTurnSummaryPromptId?: string | null;
   agentId?: string | null;

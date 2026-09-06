@@ -34,6 +34,7 @@ import type { AgentDoctor } from "./lib/agent-doctor";
 import { DEFAULT_MEMORY_SETTINGS } from "./lib/memory-settings";
 import { nextDreamAgent } from "./lib/memory-settings-ui";
 import { doctorAll } from "./lib/workbench-api";
+import { readLocalEvents, resetLocalEvents } from "./lib/telemetry";
 
 type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
 
@@ -177,6 +178,7 @@ export function SettingsPanel({
   const [note, setNote] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
   const [settingsQuery, setSettingsQuery] = useState("");
+  const [telemetryTick, setTelemetryTick] = useState(0);
   const [confirm, setConfirm] = useState<{
     title: string;
     body: string;
@@ -749,6 +751,31 @@ export function SettingsPanel({
                           <i />
                         </button>
                       </div>
+                      {cli?.telemetry ? (
+                        <div className="set-stack">
+                          <p className="hint">{t(locale, "telemetry.localHint")}</p>
+                          {Object.keys(readLocalEvents()).length > 0 ? (
+                            <pre className="hub-preview" key={telemetryTick}>
+                              {Object.entries(readLocalEvents())
+                                .sort(([a], [b]) => a.localeCompare(b))
+                                .map(([k, n]) => `${k} ${n}`)
+                                .join("\n")}
+                            </pre>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            onClick={() => {
+                              resetLocalEvents();
+                              setTelemetryTick((n) => n + 1);
+                            }}
+                          >
+                            {t(locale, "telemetry.reset")}
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="hint">{t(locale, "telemetry.localHint")}</p>
+                      )}
                     </div>
                   ) : null}
                   {chatModelCard ? (

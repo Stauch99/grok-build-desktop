@@ -20,6 +20,8 @@ describe("enqueue", () => {
     for (let i = 0; i < 15; i++) q = enqueue(q, `p${i}`);
     expect(q.items).toHaveLength(10);
     expect(q.items[9].text).toBe("p9");
+    const full = q;
+    expect(enqueue(full, "overflow")).toBe(full);
   });
 });
 

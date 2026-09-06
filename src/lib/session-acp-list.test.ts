@@ -3,6 +3,7 @@ import type { SessionSummary } from "../api";
 import {
   mapAcpListedSessions,
   maybeFetchAcpSessionList,
+  omitListedSession,
   sessionListAdvertised,
   unionSessionsById,
 } from "./session-acp-list";
@@ -141,6 +142,55 @@ describe("unionSessionsById", () => {
     const out = unionSessionsById(disk, acp);
     expect(out[0].title).toBe("acp");
     expect(out[0].parentSessionId).toBe("parent");
+  });
+
+  it("keeps disk dir when ACP omits it", () => {
+    const disk = [
+      row({
+        id: "e799",
+        agentId: "claude",
+        title: "e799",
+        dir: "/Users/foxie/.claude/projects/p/e799.jsonl",
+      }),
+    ];
+    const acp = [row({ id: "e799", agentId: "claude", title: "继续" })];
+    const out = unionSessionsById(disk, acp);
+    expect(out[0].title).toBe("继续");
+    expect(out[0].dir).toBe("/Users/foxie/.claude/projects/p/e799.jsonl");
+  });
+
+  it("keeps disk toolUseId when ACP omits it", () => {
+    const disk = [
+      row({
+        id: "child",
+        agentId: "claude",
+        parentSessionId: "parent",
+        sessionKind: "subagent",
+        toolUseId: "toolu_1",
+        title: "disk",
+      }),
+    ];
+    const acp = [row({ id: "child", agentId: "claude", title: "acp" })];
+    const out = unionSessionsById(disk, acp);
+    expect(out[0].title).toBe("acp");
+    expect(out[0].toolUseId).toBe("toolu_1");
+    expect(out[0].parentSessionId).toBe("parent");
+  });
+});
+
+describe("omitListedSession", () => {
+  it("drops the id from every agent list so a refresh cannot resurrect it", () => {
+    const listed = {
+      claude: [
+        row({ id: "gone", agentId: "claude" }),
+        row({ id: "kid", agentId: "claude", parentSessionId: "gone" }),
+        row({ id: "keep", agentId: "claude" }),
+      ],
+      grok: [row({ id: "gone", agentId: "grok" })],
+    };
+    const next = omitListedSession(listed, "gone");
+    expect(next.claude?.map((s) => s.id)).toEqual(["keep"]);
+    expect(next.grok).toEqual([]);
   });
 });
 

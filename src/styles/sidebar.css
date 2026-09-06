@@ -145,7 +145,6 @@
 .project-sessions {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur) var(--ease);
 }
 .project-sessions.open {
   grid-template-rows: 1fr;
@@ -260,7 +259,6 @@
 .session-kids {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur) var(--ease);
 }
 .session-kids.open {
   grid-template-rows: 1fr;

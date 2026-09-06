@@ -53,6 +53,7 @@ import { asRecord, shouldClearBusyOnAgentStderr, surfaceStderr } from "../lib/te
 import { resolveOutgoingPrompt } from "../lib/memory-inject";
 import { chatHasPromptHistory, dismissInjected, markInjected, markStarted } from "../lib/memory-inject-session";
 import { isDreamSession } from "../lib/memory-dream-acp";
+import { t, type Locale } from "../lib/i18n";
 import { maybeFetchAcpSessionList } from "../lib/session-acp-list";
 
 const MAIN_PANE = "main";
@@ -308,6 +309,7 @@ export type AcpSessionDeps = {
   injectUserMemory: boolean;
   userMd: string | null;
   doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
+  locale?: Locale;
 };
 
 export type AcpSession = {
@@ -1077,7 +1079,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (!pane) return;
       const next = enqueue(pane.queue, text);
       if (next === pane.queue) {
-        d.showToast("队列已满，等这一轮结束");
+        d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
         return;
       }
       patchExtra(dest, (prev) => ({ ...prev, queue: next, draft: "" }));
@@ -1085,7 +1087,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     const next = enqueue(d.queueRef.current, text);
     if (next === d.queueRef.current) {
-      d.showToast("队列已满，等这一轮结束");
+      d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
       return;
     }
     d.queueRef.current = next;

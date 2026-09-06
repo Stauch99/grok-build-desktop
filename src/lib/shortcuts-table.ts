@@ -49,6 +49,52 @@ export function showsModHint(spec: string): boolean {
   return parseBinding(spec).mod;
 }
 
+export function eventToBinding(e: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}): string | null {
+  const key = e.key;
+  if (key === "Meta" || key === "Control" || key === "Shift" || key === "Alt") return null;
+  const parts: string[] = [];
+  if (e.metaKey || e.ctrlKey) parts.push("Mod");
+  if (e.shiftKey && key !== "Tab") parts.push("Shift");
+  if (key === "Tab" && e.shiftKey) return "Shift+Tab";
+  if (key === "Escape") return parts.length ? `${parts.join("+")}+Escape` : "Escape";
+  if (key.length === 1) {
+    parts.push(key.toUpperCase());
+    return parts.join("+");
+  }
+  parts.push(key);
+  return parts.join("+");
+}
+
+export function resolvedShortcuts(overrides: Record<string, string> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of DEFAULT_SHORTCUTS) {
+    out[row.id] = bindingFor(overrides, row.id);
+  }
+  return out;
+}
+
+/** Ids that share a binding with another action, sorted. */
+export function shortcutConflictIds(overrides: Record<string, string> | undefined): string[] {
+  const resolved = resolvedShortcuts(overrides);
+  const byBind = new Map<string, string[]>();
+  for (const [id, spec] of Object.entries(resolved)) {
+    const key = spec.toLowerCase();
+    const list = byBind.get(key) ?? [];
+    list.push(id);
+    byBind.set(key, list);
+  }
+  const ids: string[] = [];
+  for (const list of byBind.values()) {
+    if (list.length > 1) ids.push(...list);
+  }
+  return [...new Set(ids)].sort();
+}
+
 function formatKey(key: string): string {
   if (key === "escape") return "Esc";
   if (key === "tab") return "Tab";

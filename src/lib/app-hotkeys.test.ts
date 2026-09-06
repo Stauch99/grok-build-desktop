@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchAppShortcut, modHeldFromEvent } from "./app-hotkeys";
+import { matchAppShortcut, modHeldFromEvent, paneNeedsCloseConfirm } from "./app-hotkeys";
 
 const chord = (key: string, extra: { shiftKey?: boolean; repeat?: boolean } = {}) => ({
   key,
@@ -44,6 +44,14 @@ describe("matchAppShortcut", () => {
 
   it("ignores key repeat so new-chat does not fire in a burst", () => {
     expect(matchAppShortcut(chord("n", { repeat: true }), {})).toBeNull();
+  });
+});
+
+describe("paneNeedsCloseConfirm", () => {
+  it("asks when a pane is busy or has a draft", () => {
+    expect(paneNeedsCloseConfirm({ busy: false, draft: "" })).toBe(false);
+    expect(paneNeedsCloseConfirm({ busy: true, draft: "" })).toBe(true);
+    expect(paneNeedsCloseConfirm({ busy: false, draft: "  hi " })).toBe(true);
   });
 });
 

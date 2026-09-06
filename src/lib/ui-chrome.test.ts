@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { appCss, cssFile } from "./css-source";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 function css(rel: string): string {
-  return readFileSync(join(root, rel), "utf8");
+  return rel === "src/styles.css" ? appCss() : cssFile(rel);
 }
 
 describe("settings dialog chrome", () => {
@@ -76,6 +77,18 @@ describe("composer dock stack", () => {
     expect(sheet).toMatch(/\.dock-capsule-pill\s*\{[^}]*border-radius:\s*999px/);
     expect(sheet).toMatch(/\.dock-capsule-card\s*\{[^}]*border-radius:\s*12px/);
   });
+
+  it("keeps subagents in the header catalog, not the composer dock", () => {
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app).not.toMatch(/SubagentChipRow|SubagentCard/);
+    expect(app).not.toMatch(/mcpInheritance/);
+    const header = app.slice(app.indexOf("subagent.count"), app.indexOf("subagent.count") + 900);
+    expect(header).toMatch(/openSession/);
+    const model = readFileSync(join(root, "src/hooks/useAppModel.ts"), "utf8");
+    expect(model).toMatch(/subagentChips\(/);
+    const sheet = css("src/styles.css");
+    expect(sheet).not.toMatch(/\.subagent-shell\s*\{/);
+  });
 });
 
 describe("usage mix dashboard", () => {
@@ -126,6 +139,18 @@ describe("workspace header title hierarchy", () => {
     expect(title).toBeTruthy();
     expect(title).toMatch(/color:\s*var\(--text\)/);
     expect(title).toMatch(/font-weight:\s*([56]00)/);
+  });
+});
+
+describe("header subagent menu", () => {
+  it("opens downward from the header and scrolls long catalogs", () => {
+    const sheet = css("src/styles.css");
+    const block = sheet.match(/\.head-actions \.chip-menu\s*\{[^}]+\}/)?.[0];
+    expect(block).toBeTruthy();
+    expect(block).toMatch(/top:\s*calc\(100% \+ 4px\)/);
+    expect(block).toMatch(/bottom:\s*auto/);
+    expect(block).toMatch(/overflow-y:\s*auto/);
+    expect(block).toMatch(/max-height:/);
   });
 });
 
@@ -292,8 +317,8 @@ describe("sidebar window drag", () => {
 
 describe("session row pane drag", () => {
   it("does not capture the pointer on mousedown so a click can open the session", () => {
-    const src = readFileSync(join(root, "src/hooks/useAppModel.ts"), "utf8");
-    const fn = src.slice(src.indexOf("function beginPaneDrag"), src.indexOf("function onExtraDraftChange"));
+    const src = readFileSync(join(root, "src/hooks/pane-tree-actions.ts"), "utf8");
+    const fn = src.slice(src.indexOf("export function beginPaneDrag"), src.indexOf("export function onExtraDraftChange") >= 0 ? src.indexOf("export function onExtraDraftChange") : src.length);
     expect(fn).toMatch(/window\.addEventListener\("pointermove"/);
     expect(fn.indexOf("setPointerCapture")).toBe(-1);
     expect(fn).toMatch(/dragStarted/);

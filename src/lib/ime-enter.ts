@@ -34,3 +34,8 @@ export function imeBlocksEnter(e: EnterKeyLike, ime: ImeEnterState, now = 0): bo
   if (ime.endedAt > 0 && now - ime.endedAt < IME_ENTER_GRACE_MS) return true;
   return false;
 }
+
+/** ⌘1–9 must not steal IME candidate selection. */
+export function imeBlocksDigitHotkey(e: { isComposing?: boolean }): boolean {
+  return !!e.isComposing;
+}

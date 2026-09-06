@@ -70,3 +70,12 @@ describe("formatMemoryLabel", () => {
     expect(formatMemoryLabel("notes.md")).toBe("notes.md");
   });
 });
+
+describe("memory dock timing", () => {
+  it("keeps hold and fade as a single source of truth", async () => {
+    const { MEMORY_DOCK_FADE_MS, MEMORY_DOCK_HOLD_MS } = await import("./memory-dock");
+    expect(MEMORY_DOCK_HOLD_MS).toBe(3000);
+    expect(MEMORY_DOCK_FADE_MS).toBe(400);
+  });
+});
+

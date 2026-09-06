@@ -29,6 +29,9 @@ export function formatMemoryLabel(path: string): string {
   return basename(path);
 }
 
+export const MEMORY_DOCK_HOLD_MS = 3000;
+export const MEMORY_DOCK_FADE_MS = 400;
+
 export function snapshotMtimes(changes: MemoryChange[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const c of changes) {

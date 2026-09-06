@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadLocalPaletteFrecency, recordLocalPaletteUse, type FrecencyMap } from "../lib/frecency";
 import { filterPalette, paletteKey, type PaletteItem } from "../lib/palette";
+import { hoverMovesHighlight, pointerSourceFromMove, type HighlightInput } from "../lib/pointer-lock";
 import { trapFocus } from "../lib/trap-focus";
 import { useT } from "../lib/locale-context";
 import { bindingFor, formatBinding } from "../lib/shortcuts-table";
@@ -28,8 +29,11 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
   const listRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const previousActive = useRef<HTMLElement | null>(null);
+  const inputSource = useRef<HighlightInput>("pointer");
+  const listId = "palette-listbox";
 
   const hits = useMemo(() => filterPalette(items, query, 40, frecency), [items, query, frecency]);
+  const activeId = hits[index] ? `palette-opt-${hits[index].id}` : undefined;
 
   function execute(id: string) {
     setFrecency(recordLocalPaletteUse(id));
@@ -69,7 +73,7 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
       className="palette-layer"
       role="dialog"
       aria-modal="true"
-      aria-label="命令面板"
+      aria-label={t("palette.panelLabel")}
       onKeyDown={(e) => {
         if (e.key === "Tab" && layerRef.current) trapFocus(layerRef.current, e.nativeEvent);
       }}
@@ -80,12 +84,18 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
           ref={inputRef}
           className="palette-input"
           value={query}
-          placeholder="跳转会话、切换项目、运行命令…"
-          aria-label="搜索命令"
+          placeholder={t("palette.placeholder")}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls={listId}
+          aria-activedescendant={activeId}
+          aria-autocomplete="list"
+          aria-label={t("palette.search")}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
             e.preventDefault();
+            inputSource.current = "keyboard";
             const next = paletteKey({ index, hits, query }, e.key);
             if (next.index !== index) setIndex(next.index);
             if (next.action === "close") onClose();
@@ -93,8 +103,17 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
             if (next.action === "search" && next.search) onSearch(next.search);
           }}
         />
-        <div className="palette-list" ref={listRef} role="listbox">
-          {hits.length === 0 && <p className="palette-empty">没有匹配项</p>}
+        <div
+          className="palette-list"
+          id={listId}
+          ref={listRef}
+          role="listbox"
+          onMouseMove={(e) => {
+            const next = pointerSourceFromMove(e.nativeEvent);
+            if (next) inputSource.current = next;
+          }}
+        >
+          {hits.length === 0 && <p className="palette-empty">{t("palette.empty")}</p>}
           {hits.map((hit, i) => {
             const GROUP_KEYS: Record<string, string> = {
               "操作": "palette.group.actions",
@@ -109,11 +128,14 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
                 {header && <div className="palette-group">{t(GROUP_KEYS[header] ?? header)}</div>}
                 <button
                   type="button"
+                  id={`palette-opt-${hit.id}`}
                   role="option"
                   aria-selected={i === index}
                   data-row={i}
                   className={`palette-row${i === index ? " on" : ""}`}
-                  onMouseEnter={() => setIndex(i)}
+                  onMouseEnter={() => {
+                    if (hoverMovesHighlight(inputSource.current)) setIndex(i);
+                  }}
                   onClick={() => execute(hit.id)}
                 >
                   <span className="palette-label">{hit.label}</span>
@@ -124,7 +146,7 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
           })}
         </div>
         <div className="palette-foot">
-          <kbd>{paletteChord}</kbd> 打开 · <kbd>Esc</kbd> 关闭 · <kbd>↑↓</kbd> 选择 · <kbd>Enter</kbd> 执行
+          <kbd>{paletteChord}</kbd> {t("palette.hint")}
         </div>
       </div>
     </div>

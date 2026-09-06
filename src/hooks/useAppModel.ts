@@ -59,18 +59,9 @@ import { parseInspect, skillSlashCommands, type InspectReport } from "../lib/ins
 import {
   MAIN_PANE,
   applyDrop,
-  canSplit,
-  closePane,
-  dragStarted,
-  dropZone,
   ensureMainLeaf,
-  hitPane,
-  layoutRects,
   leafIds,
   paneOfSession,
-  previewRect,
-  resolveDrop,
-  setRatio,
   singlePane,
   type Bindings,
   type PaneNode,
@@ -82,8 +73,8 @@ import { recapIdentity, shouldShowSessionRecap } from "../lib/session-recap";
 import { exportTranscript } from "../lib/session-local";
 import { firstHitIndex } from "../lib/search-highlight";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
-import { bindingFor, matchBinding } from "../lib/shortcuts-table";
-import { subagentStatusFromTool } from "../lib/subagent";
+import { paneNeedsCloseConfirm } from "../lib/app-hotkeys";
+import { tapDanger, type ConfirmState } from "../lib/confirm";
 import { liveBusyIds, lookupSession, parentsToExpandForLive, sessionToOpen, sessionsWithLiveRoster } from "../lib/live-roster";
 import { describePlan, planRevert, previewRevert } from "../lib/checkpoint";
 import { worktreeName } from "../lib/git";
@@ -97,11 +88,11 @@ import { shouldPollBilling } from "../lib/auth-kind";
 import { doctorAll, importAgentsMcpFirstOpen, readAgentModelSource } from "../lib/workbench-api";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { brandSessionList } from "../lib/session-list";
-import { unionSessionsById } from "../lib/session-acp-list";
+import { omitListedSession, unionSessionsById } from "../lib/session-acp-list";
 import { agentSendBlockReason, blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
-import { subagentCatalog } from "../lib/subagent-tree";
+import { subagentChips } from "../lib/subagent-tree";
 import { nextGoalView, type GoalView } from "../lib/goal-bar";
 import { turnStatsFromItems } from "../lib/usage-split";
 import { activityKey, stallNote } from "../lib/stall";
@@ -140,6 +131,15 @@ import { parseWeeklyUsage, type WeeklyUsage } from "../lib/weekly-usage";
 import { BILLING_POLL_MS, scheduleIdle, shouldBlockIdleComposer, shouldRunChipWarmup } from "../lib/agent-warmup";
 import { reviewOwnerKey, useReviewController } from "./useReviewController";
 import { useSessionHotkeys } from "./useSessionHotkeys";
+import { useAppHotkeys } from "./useAppHotkeys";
+import {
+  beginPaneDrag as beginPaneDragAction,
+  closePaneLeaf as closePaneLeafAction,
+  newChatInFocus as newChatInFocusAction,
+  onPaneRatio as onPaneRatioAction,
+  splitRight as splitRightAction,
+  type PaneTreeActionDeps,
+} from "./pane-tree-actions";
 import { useAcpSession, type ExtraPaneState } from "./useAcpSession";
 import { useDreamJob } from "./useDreamJob";
 import { useGitWatcher } from "./useGitWatcher";
@@ -161,6 +161,7 @@ export type AppConfirm = {
 } & (
   | { kind: "delete-session"; session: SessionSummary }
   | { kind: "move-inbox"; sessionId: string; dest: string }
+  | { kind: "close-pane"; paneId: string }
 );
 
 const FALLBACK_CATALOG = emptyCatalog("grok");
@@ -187,6 +188,7 @@ export function useAppModel() {
   const [managed, setManaged] = useState<{ path: string; text: string; exists: boolean } | null>(null);
   const [usageHistory, setUsageHistory] = useState<{ at: number; used: number; size: number }[]>([]);
   const [appConfirm, setAppConfirm] = useState<AppConfirm | null>(null);
+  const cancelArmRef = useRef<ConfirmState | null>(null);
   const [usageDays, setUsageDays] = useState<7 | 30>(7);
   const [jumpTurnId, setJumpTurnId] = useState<string | null>(null);
   const [doctorNote, setDoctorNote] = useState<string | null>(null);
@@ -348,6 +350,7 @@ export function useAppModel() {
     extraPanes,
     persist: (partial) => persistRef.current(partial),
     showToast,
+    locale,
     setCwd,
     setInboxCwd,
     setDraft,
@@ -537,6 +540,7 @@ export function useAppModel() {
     focusedPaneRef: focusedPermissionPaneRef,
     focusedRef,
     currentTitleRef,
+    telemetry: !!cli?.telemetry,
     onTimeoutNotice: () => showToast(permissionTimeoutNotice()),
   });
 
@@ -688,17 +692,6 @@ export function useAppModel() {
       cancelled = true;
     };
   }, [extraCwdKey]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (matchBinding(bindingFor(shortcuts, "hub"), e)) {
-        e.preventDefault();
-        openHub("skills");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts]);
 
   useEffect(() => {
     if (!cwd) {
@@ -1290,6 +1283,7 @@ export function useAppModel() {
   async function commitRemoveSession(s: SessionSummary) {
     try {
       await deleteSession(s.id);
+      acpListedRef.current = omitListedSession(acpListedRef.current, s.id);
       const next = setTitleOverride(titles, s.id, "");
       setTitles(next);
       persist({ titles: next });
@@ -1406,139 +1400,47 @@ export function useAppModel() {
     focusPane(focusedPaneIdRef.current);
   }
 
+  function paneTreeDeps(): PaneTreeActionDeps {
+    return {
+      paneTreeRef,
+      extraPanesRef,
+      sessionIdRef,
+      focusedPaneIdRef,
+      allSessionsRef,
+      workColRef,
+      titles,
+      locale,
+      setPaneTree,
+      setExtraPanes,
+      setPaneDrag,
+      showToast,
+      focusPane,
+      applyMainFromExtra,
+      liveBindings,
+      commitDrop,
+      startNewInPane,
+      startNewChat,
+    };
+  }
+
   async function splitRight(s: SessionSummary) {
-    s = sessionToOpen(s, allSessionsRef.current);
-    const bindings = liveBindings();
-    const existing = paneOfSession(bindings, s.id);
-    if (existing) {
-      focusPane(existing);
-      return;
-    }
-    const target = focusedPaneIdRef.current;
-    const work = workColRef.current?.getBoundingClientRect();
-    const outer: Rect = work
-      ? { left: work.left, top: work.top, right: work.right, bottom: work.bottom }
-      : { left: 0, top: 0, right: 960, bottom: 720 };
-    const hit = layoutRects(paneTreeRef.current, outer).find((leaf) => leaf.id === target);
-    const rect = hit?.rect ?? outer;
-    if (!canSplit(rect, "right")) {
-      showToast(t(locale, "pane.tooSmall"));
-      return;
-    }
-    const drop = resolveDrop({
-      tree: paneTreeRef.current,
-      bindings,
-      sessionId: s.id,
-      targetPane: target,
-      zone: "right",
-      targetRect: rect,
-    });
-    if (!drop.ok) {
-      showToast(t(locale, "pane.tooSmall"));
-      return;
-    }
-    await commitDrop(drop);
+    await splitRightAction(paneTreeDeps(), s);
   }
 
   function closePaneLeaf(paneId: string) {
-    const tree = paneTreeRef.current;
-    if (leafIds(tree).length <= 1) return;
-    const closed = closePane(tree, paneId);
-    if (!closed) return;
-    const extras = { ...extraPanesRef.current };
-    if (paneId !== MAIN_PANE) delete extras[paneId];
-    const ensured = ensureMainLeaf(closed.tree, {
-      ...Object.fromEntries(leafIds(closed.tree).map((id) => [id, id === MAIN_PANE ? sessionIdRef.current : extras[id]?.sessionId ?? null])),
-    });
-    if (ensured.retargetFrom) {
-      const extra = extras[ensured.retargetFrom];
-      delete extras[ensured.retargetFrom];
-      if (extra) applyMainFromExtra(extra);
-    }
-    const keep = new Set(leafIds(ensured.tree));
-    for (const id of Object.keys(extras)) {
-      if (!keep.has(id)) delete extras[id];
-    }
-    setPaneTree(ensured.tree);
-    setExtraPanes(extras);
-    const nextFocus = leafIds(ensured.tree).includes(focusedPaneIdRef.current) && focusedPaneIdRef.current !== paneId
-      ? focusedPaneIdRef.current
-      : MAIN_PANE;
-    focusPane(nextFocus);
+    closePaneLeafAction(paneTreeDeps(), paneId);
   }
 
   async function newChatInFocus() {
-    if (focusedPaneIdRef.current !== MAIN_PANE && extraPanesRef.current[focusedPaneIdRef.current]) {
-      await startNewInPane(focusedPaneIdRef.current);
-      return;
-    }
-    await startNewChat();
+    await newChatInFocusAction(paneTreeDeps());
   }
 
   function onPaneRatio(splitId: string, ratio: number) {
-    setPaneTree((node) => setRatio(node, splitId, ratio));
+    onPaneRatioAction(paneTreeDeps(), splitId, ratio);
   }
 
   function beginPaneDrag(e: { button: number; clientX: number; clientY: number }, s: SessionSummary) {
-    s = sessionToOpen(s, allSessionsRef.current);
-    if (e.button !== 0) return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let started = false;
-    let last: ResolvedDrop | null = null;
-    const title = displayTitle(s, titles);
-    const subtitle = s.cwd ? basename(s.cwd) : undefined;
-    const onMove = (ev: PointerEvent) => {
-      if (!started && !dragStarted(ev.clientX - startX, ev.clientY - startY)) return;
-      if (!started) {
-        started = true;
-        document.documentElement.classList.add("pane-dragging");
-      }
-      const work = workColRef.current?.getBoundingClientRect();
-      if (!work) {
-        last = null;
-        setPaneDrag({ sessionId: s.id, title, subtitle, x: ev.clientX, y: ev.clientY, preview: null, allowed: false, resolved: null });
-        return;
-      }
-      const outer = { left: work.left, top: work.top, right: work.right, bottom: work.bottom };
-      const point = { x: ev.clientX, y: ev.clientY };
-      const hit = hitPane(paneTreeRef.current, outer, point);
-      if (!hit) {
-        last = null;
-        setPaneDrag({ sessionId: s.id, title, subtitle, x: ev.clientX, y: ev.clientY, preview: null, allowed: false, resolved: null });
-        return;
-      }
-      const zone = dropZone(point, hit.rect);
-      const resolved = resolveDrop({
-        tree: paneTreeRef.current,
-        bindings: liveBindings(),
-        sessionId: s.id,
-        targetPane: hit.id,
-        zone,
-        targetRect: hit.rect,
-      });
-      last = resolved.ok ? resolved : null;
-      setPaneDrag({
-        sessionId: s.id,
-        title,
-        subtitle,
-        x: ev.clientX,
-        y: ev.clientY,
-        preview: previewRect(hit.rect, zone),
-        allowed: resolved.ok,
-        resolved,
-      });
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      document.documentElement.classList.remove("pane-dragging");
-      const resolved = started ? last : null;
-      setPaneDrag(null);
-      if (resolved) void commitDrop(resolved);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    beginPaneDragAction(paneTreeDeps(), e, s);
   }
 
   function onExtraDraftChange(paneId: string, value: string) {
@@ -1840,7 +1742,8 @@ export function useAppModel() {
     setAppConfirm(null);
     if (!pending) return;
     if (pending.kind === "delete-session") void commitRemoveSession(pending.session);
-    else void commitMoveInbox(pending.sessionId, pending.dest);
+    else if (pending.kind === "move-inbox") void commitMoveInbox(pending.sessionId, pending.dest);
+    else closePaneLeaf(pending.paneId);
   }
 
   const sidebarSections = useMemo(
@@ -1866,6 +1769,67 @@ export function useAppModel() {
     () => sidebarSections.flatMap((section) => section.rows.map((r) => r.session.id)).slice(0, 9),
     [sidebarSections],
   );
+
+  useAppHotkeys({
+    shortcuts,
+    overlayOpen:
+      settingsOpen ||
+      hubOpen ||
+      palette.open ||
+      millerOpen ||
+      !!appConfirm ||
+      !!menu ||
+      extraPage != null ||
+      rewindTarget != null,
+    canClosePane: leafIds(paneTree).length > 1,
+    telemetry: !!cli?.telemetry,
+    handlers: {
+      palette: () => palette.setOpen(true),
+      "new-chat": () => void newChatInFocus(),
+      settings: () => setSettingsOpen(true),
+      hub: () => openHub("skills"),
+      "focus-composer": () => composerRef.current?.focus(),
+      review: () => {
+        const next = !reviewOpen;
+        review.toggle(defaultRail);
+        persist(persistReviewOpen(next));
+      },
+      "close-pane": () => {
+        const paneId = focusedPaneIdRef.current;
+        const extra = extraPanesRef.current[paneId];
+        const paneBusy = paneId === MAIN_PANE ? busy : !!extra?.busy;
+        const paneDraft = paneId === MAIN_PANE ? draft : extra?.draft ?? "";
+        if (paneNeedsCloseConfirm({ busy: paneBusy, draft: paneDraft })) {
+          setAppConfirm({
+            kind: "close-pane",
+            paneId,
+            title: t(locale, "hotkey.closePaneTitle"),
+            body: t(locale, "hotkey.closePaneBody"),
+            confirmLabel: t(locale, "pane.close"),
+          });
+          return;
+        }
+        closePaneLeaf(paneId);
+      },
+      cancel: () => {
+        const paneId = focusedPaneIdRef.current;
+        const extra = extraPanesRef.current[paneId];
+        const paneBusy = paneId === MAIN_PANE ? busy : !!extra?.busy;
+        const dest = paneId === MAIN_PANE ? MAIN_PANE : paneId;
+        if (!paneBusy) {
+          void cancelTurn(dest);
+          return;
+        }
+        const tapped = tapDanger(cancelArmRef.current, "cancel-turn", Date.now());
+        cancelArmRef.current = tapped.next;
+        if (!tapped.confirmed) {
+          showToast(t(locale, "hotkey.cancelAgain"));
+          return;
+        }
+        void cancelTurn(dest);
+      },
+    },
+  });
 
   useSessionHotkeys({
     enabled: !settingsOpen && !menu && !palette.open,
@@ -1938,6 +1902,7 @@ export function useAppModel() {
     extraComposerRefs,
     rewindLastEdit: rewindIndex.lastEdit,
     cli,
+    locale,
     selectedAgentId,
     modelRows,
     persist,
@@ -1984,16 +1949,14 @@ export function useAppModel() {
     };
   }, [rewindTarget, chat.items]);
 
-  const subagentCards = useMemo(() => {
-    const out: { id: string; name: string; status: ReturnType<typeof subagentStatusFromTool> }[] = [];
-    for (const item of chat.items) {
-      if (item.kind !== "tool") continue;
-      const status = subagentStatusFromTool(item.title, item.status);
-      if (!status) continue;
-      out.push({ id: item.id, name: item.title, status });
-    }
-    return out;
-  }, [chat.items]);
+  const subagentCards = useMemo(
+    () =>
+      subagentChips(chat.items, allSessions, {
+        parentSessionId: sessionId,
+        agentId: selectedAgentId,
+      }),
+    [chat.items, allSessions, sessionId, selectedAgentId],
+  );
 
   const planComplete =
     mode === "plan" && plan.length > 0 && plan.every((e) => e.status === "completed");
@@ -2041,7 +2004,7 @@ export function useAppModel() {
     if (reconciledReviewTab !== reviewTab) review.setTab(reconciledReviewTab);
   }, [reconciledReviewTab, reviewTab]);
   const jobs = headerJobs(chat.items);
-  const catalog = subagentCatalog(chat.items);
+  const catalog = subagentCards;
   const goal = goalView?.text ?? null;
   const health = agentHealth({ ready, connecting, sawExit });
   const runStatus = deriveRunStatus({ disconnected: health === "disconnected", trustRequired: !!(inspect && cwd && inspect.projectTrusted === false), pending: mainPermissionView.statusPending, running: mainPaneBusy, stalled: !!stallText, stallDetail: stallText, planComplete });

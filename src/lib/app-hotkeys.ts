@@ -38,6 +38,10 @@ export function matchAppShortcut(
   return null;
 }
 
+export function paneNeedsCloseConfirm(opts: { busy: boolean; draft: string }): boolean {
+  return opts.busy || opts.draft.trim().length > 0;
+}
+
 export function modHeldFromEvent(
   _held: boolean,
   e: { type: "keydown" | "keyup" | "blur"; metaKey: boolean; ctrlKey: boolean },

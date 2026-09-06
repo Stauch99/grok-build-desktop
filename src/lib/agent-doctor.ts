@@ -74,3 +74,18 @@ export function emptyDoctor(id: AgentId, userHome: string): AgentDoctor {
     loginHint: defaultLoginHint(id),
   };
 }
+
+export type EmptyDoctorKind = "hidden" | "cli" | "auth" | "project";
+
+/** First-run empty thread: gate on the selected agent, not grok. */
+export function emptyDoctorKind(opts: {
+  doctor: Pick<{ binary: string | null; authPresent: boolean }, "binary" | "authPresent"> | null;
+  cwd: string;
+  projectCount: number;
+}): EmptyDoctorKind {
+  const { doctor, cwd, projectCount } = opts;
+  if (doctor && !doctor.binary) return "cli";
+  if (doctor && !doctor.authPresent) return "auth";
+  if (!cwd && projectCount === 0) return "project";
+  return "hidden";
+}

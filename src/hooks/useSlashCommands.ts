@@ -6,6 +6,7 @@ import type { AgentModelRow } from "../lib/agent-models";
 import { snapModelChange } from "../lib/agent-models";
 import type { CommandDef, HubTab } from "../lib/commands";
 import { parseRenameArgs } from "../lib/commands";
+import { t, type Locale } from "../lib/i18n";
 import type { Mode } from "../lib/mode";
 import { modeLabel, slashForMode } from "../lib/mode";
 import { formatSessionInfo, exportTranscript, lastAssistantText } from "../lib/session-local";
@@ -16,6 +17,7 @@ import type { ExtraPage } from "../components/ExtraOverlay";
 import type { ComposerHandle } from "../components/Composer";
 import type { WebuiState } from "../api";
 import type { ExtraPaneState } from "./useAcpSession";
+import { recordLocalEvent } from "../lib/telemetry";
 import { MAIN_PANE } from "../lib/pane-tree";
 
 export type SplitSlashAction = "mode-plan" | "mode-yolo" | "mode-agent" | "main-only" | "prompt";
@@ -51,6 +53,7 @@ export type SlashCommandDeps = {
   cli: CliSettings | null;
   selectedAgentId: AgentId;
   modelRows: AgentModelRow[];
+  locale: Locale;
   persist: (partial: WebuiState) => void;
   showToast: (msg: string) => void;
   setMode: (mode: Mode) => void;
@@ -93,13 +96,14 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     const d = depsRef.current;
     d.setMode(next);
     d.persist({ mode: next });
+    recordLocalEvent(!!d.cli?.telemetry, `mode.${next}`);
     const extra = dest !== MAIN_PANE;
     const paneBusy = extra ? !!d.extraPanes[dest]?.busy : d.mainPaneBusy;
     const live = extra
       ? !!(d.extraPanes[dest]?.sessionId && d.readyRef.current)
       : !!(d.sessionIdRef.current && d.readyRef.current && !d.loadingSession);
     if (live && paneBusy) {
-      d.showToast("将在下一轮生效");
+      d.showToast(t(d.locale, "mode.nextTurn"));
       return;
     }
     if (live) {
@@ -117,7 +121,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       }
       return;
     }
-    d.showToast(`已记下 ${modeLabel(next)}，下一轮会话生效`);
+    d.showToast(t(d.locale, "mode.noted", { mode: modeLabel(next, d.locale) }));
   }
 
   function applyModel(next: string) {

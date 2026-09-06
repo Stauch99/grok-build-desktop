@@ -60,7 +60,7 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
   return (
     <aside
       className={`review-rail${leaving ? " rail-out" : ""}`}
-      aria-label="Dashboard"
+      aria-label={t("rail.dashboard")}
       role="region"
       style={width ? { width, flexBasis: width } : undefined}
     >
@@ -76,7 +76,7 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
                 id={`review-peer-${pane.id}`}
                 aria-selected={peer === pane.id}
                 aria-label={label}
-                title={label}
+                data-tip={label}
                 onClick={() => selectPeer(pane.id)}
               >
                 <span className="review-pane-icon">{peerIcon(pane.id)}</span>
@@ -86,7 +86,7 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
             );
           })}
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label={t("rail.close")} title={t("rail.close")}>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t("rail.close")} data-tip={t("rail.close")}>
           <IconGrokClose size={16} />
         </button>
       </header>

@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export type NotifyReason = "turn-done" | "permission";
 
 export type NotifyInput = {
@@ -26,12 +28,13 @@ export function notifyText(
   reason: NotifyReason,
   sessionTitle: string,
   detail = "",
+  locale: "zh" | "en" = "zh",
 ): { title: string; body: string } {
-  const name = sessionTitle.trim() || "会话";
+  const name = sessionTitle.trim() || t(locale, "notify.session");
   if (reason === "permission") {
-    return { title: "需要许可", body: detail ? `${name} · ${detail}` : name };
+    return { title: t(locale, "notify.needPerm"), body: detail ? `${name} · ${detail}` : name };
   }
-  return { title: "任务完成", body: detail ? `${name} · ${detail}` : name };
+  return { title: t(locale, "notify.done"), body: detail ? `${name} · ${detail}` : name };
 }
 
 /** Dock badge: pending permissions first, then turns that finished while away. */

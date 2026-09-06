@@ -98,12 +98,12 @@ export function ComposerChips({
         <button
           type="button"
           className={`model-chip${differs ? " differs" : ""}`}
-          aria-label="切换默认模型"
+          aria-label={t("composer.switchModel")}
           aria-expanded={modelOpen}
-          title={
+          data-tip={
             differs
-              ? `本会话运行在 ${sessionModel}，默认模型是 ${model}`
-              : "默认模型"
+              ? t("composer.modelSession", { session: sessionModel ?? "", model })
+              : t("composer.modelDefault")
           }
           onClick={onToggleModel}
         >
@@ -125,7 +125,7 @@ export function ComposerChips({
             ))}
             <div className="sep" />
             <button type="button" onClick={onOpenSettings}>
-              在设置中管理…
+              {t("composer.manageInSettings")}
             </button>
           </div>
         )}
@@ -136,8 +136,8 @@ export function ComposerChips({
           <button
             type="button"
             className="effort-chip"
-            aria-label="推理力度"
-            title="推理力度（写入默认设置）"
+            aria-label={t("settings.effort")}
+            data-tip={t("composer.effortHint")}
             aria-expanded={effortOpen}
             onClick={onToggleEffort}
           >
