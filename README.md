@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/Stauch99/grok-build-desktop/stargazers"><img src="https://img.shields.io/github/stars/Stauch99/grok-build-desktop?style=social" alt="Stars"></a>
+  <a href="https://github.com/Stauch99/grok-build-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/Stauch99/grok-build-desktop?label=release" alt="Latest release"></a>
   <a href="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml"><img src="https://github.com/Stauch99/grok-build-desktop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT"></a>
   <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white" alt="Tauri 2"></a>
