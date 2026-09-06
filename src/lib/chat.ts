@@ -1,4 +1,5 @@
 import { parseAcpRecord } from "./acp-events";
+import { stickyToolName } from "./subagent";
 import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
 
@@ -24,6 +25,7 @@ export type ChatItem =
       id: string;
       title: string;
       toolKind?: string;
+      toolName?: string;
       status: ToolStatus;
       detail?: string;
       diff?: DiffBlock;
@@ -115,6 +117,14 @@ export function liveWorkStatus(items: ChatItem[]): string {
   return "工作中";
 }
 
+/** Items after the latest user message — the in-flight turn, or empty while waiting. */
+export function itemsAfterLastUser(items: ChatItem[]): ChatItem[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.kind === "user") return items.slice(i + 1);
+  }
+  return items;
+}
+
 /** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
 export const SETTLED_TURN_MS = 4_000;
 
@@ -127,17 +137,17 @@ export function shouldClearBusyOnSettledChat(opts: {
   seenAssistantAt?: number | null;
 }): boolean {
   if (!opts.busy) return false;
+  const turn = itemsAfterLastUser(opts.items);
   if (
-    opts.items.some(
+    turn.some(
       (it) => it.kind === "tool" && (it.status === "pending" || it.status === "in_progress"),
     )
   ) {
     return false;
   }
-  if (!opts.items.some((it) => it.kind === "assistant" && it.text.trim())) return false;
+  if (!turn.some((it) => it.kind === "assistant" && it.text.trim())) return false;
   let last = 0;
-  for (const it of opts.items) {
-    if (it.kind === "user") continue;
+  for (const it of turn) {
     const t = it.until ?? it.at;
     if (typeof t === "number" && t > last) last = t;
   }
@@ -161,9 +171,8 @@ export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
 }
 
 /**
- * Copy sits under an assistant bubble. Hide it while that turn is still
- * streaming — otherwise the button wedges itself between later chunks.
- * Finished turns keep the control even if a later turn is in flight.
+ * Streaming cursor follows the in-flight assistant turn. Finished turns
+ * stay settled even if a later turn is in flight.
  */
 export function assistantCopyReady(
   items: ChatItem[],
@@ -357,9 +366,11 @@ export function applyChatUpdate(
       if (idx >= 0) {
         const cur = items[idx];
         if (cur.kind === "tool") {
+          const title = toolLabel(update, cur.title);
           items[idx] = {
             ...cur,
-            title: toolLabel(update, cur.title),
+            title,
+            toolName: stickyToolName(cur.toolName, String(update.title ?? "")),
             toolKind: String(update.kind ?? cur.toolKind ?? ""),
             status: asStatus(update.status, cur.status),
             detail: detail ?? cur.detail,
@@ -368,10 +379,12 @@ export function applyChatUpdate(
           };
         }
       } else {
+        const title = toolLabel(update);
         items.push({
           kind: "tool",
           id,
-          title: toolLabel(update),
+          title,
+          toolName: stickyToolName(undefined, String(update.title ?? title)),
           toolKind: String(update.kind ?? ""),
           status: asStatus(update.status, "pending"),
           detail,

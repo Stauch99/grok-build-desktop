@@ -17,6 +17,13 @@
   font-size: var(--ui-small);
   font-weight: 600;
   color: var(--text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .permission p { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
 .permission-cmd {
@@ -29,10 +36,14 @@
   font-size: 12px;
   line-height: 1.45;
   color: var(--code);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: calc(1.45em * 2 + 16px);
-  overflow: auto;
 }
 .permission-hint {
   margin: 0 0 8px;

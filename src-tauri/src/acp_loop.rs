@@ -48,9 +48,15 @@ pub(crate) fn handle_agent_request(
                             content.truncate(MAX_FS_BYTES);
                         }
                         if let Some(n) = limit {
-                            content = content.lines().take(n as usize).collect::<Vec<_>>().join("\n");
+                            content = content
+                                .lines()
+                                .take(n as usize)
+                                .collect::<Vec<_>>()
+                                .join("\n");
                         }
-                        Some(json!({ "jsonrpc": "2.0", "id": id, "result": { "content": content } }))
+                        Some(
+                            json!({ "jsonrpc": "2.0", "id": id, "result": { "content": content } }),
+                        )
                     }
                     Err(e) => Some(json!({
                         "jsonrpc": "2.0",
@@ -143,16 +149,12 @@ pub(crate) fn spawn_reader(
                             let _ = tx.send(reply.to_string()).await;
                             continue;
                         }
-                        let _ = app_out.emit(
-                            "acp-message",
-                            tagged_acp_event(agent_id, generation, msg),
-                        );
+                        let _ = app_out
+                            .emit("acp-message", tagged_acp_event(agent_id, generation, msg));
                     }
                     ParsedStdio::Message(msg) => {
-                        let _ = app_out.emit(
-                            "acp-message",
-                            tagged_acp_event(agent_id, generation, msg),
-                        );
+                        let _ = app_out
+                            .emit("acp-message", tagged_acp_event(agent_id, generation, msg));
                     }
                     ParsedStdio::Log(text) => {
                         let _ = app_out.emit(
@@ -165,7 +167,11 @@ pub(crate) fn spawn_reader(
                 Err(e) => {
                     let _ = app_out.emit(
                         "acp-stderr",
-                        tagged_acp_event(agent_id, generation, json!(format!("stdout read error: {e}"))),
+                        tagged_acp_event(
+                            agent_id,
+                            generation,
+                            json!(format!("stdout read error: {e}")),
+                        ),
                     );
                     break;
                 }

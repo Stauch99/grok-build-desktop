@@ -66,7 +66,7 @@ export function UserTurn({
               onEditResend?.(next);
             }}
           >
-            发送
+            {t("composer.send")}
           </button>
           <button
             type="button"
@@ -76,7 +76,7 @@ export function UserTurn({
               setEditing(false);
             }}
           >
-            取消
+            {t("sidebar.cancel")}
           </button>
         </div>
       </article>

@@ -32,6 +32,18 @@ export function slashForMode(mode: Mode): "/plan" | "/always-approve" | "/auto" 
   return "/auto";
 }
 
+/**
+ * Grok `/always-approve` is a toggle. Sending it while the CLI is already
+ * always-approve turns the session back to ask — the chip would lie.
+ */
+export function shouldSendModeSlash(
+  next: Mode,
+  cli: { yolo?: boolean; permissionMode?: string } | null | undefined,
+): boolean {
+  if (next !== "yolo") return true;
+  return !(cli?.yolo || cli?.permissionMode === "always-approve");
+}
+
 export function nextMode(mode: Mode): Mode {
   if (mode === "agent") return "plan";
   if (mode === "plan") return "yolo";

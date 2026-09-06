@@ -11,3 +11,20 @@ export function sessionTreeNavIndex(
   if (key === "End") return opts.count - 1;
   return null;
 }
+
+export type SessionTreeNav =
+  | { type: "move"; index: number }
+  | { type: "toggle-expand" };
+
+/** ArrowLeft/Right expand or collapse parents; otherwise move like Up/Down. */
+export function sessionTreeNav(
+  key: string,
+  opts: { index: number; count: number; hasKids: boolean; expanded: boolean },
+): SessionTreeNav | null {
+  if (key === "ArrowRight" && opts.hasKids && !opts.expanded) return { type: "toggle-expand" };
+  if (key === "ArrowLeft" && opts.hasKids && opts.expanded) return { type: "toggle-expand" };
+  const mapped = key === "ArrowRight" ? "ArrowDown" : key === "ArrowLeft" ? "ArrowUp" : key;
+  const index = sessionTreeNavIndex(mapped, opts);
+  if (index == null) return null;
+  return { type: "move", index };
+}

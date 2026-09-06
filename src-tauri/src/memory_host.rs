@@ -28,7 +28,10 @@ pub fn read_at(root: &Path, day: &str) -> Result<Snapshot, String> {
         user_md: read_capped(&resolve_under(root, Path::new("USER.md"))?)?,
         dreams_md: read_capped(&resolve_under(root, Path::new("DREAMS.md"))?)?,
         daily_md: read_capped(&resolve_under(root, &daily_rel(day)?)?)?,
-        state_json: read_capped(&resolve_under(root, &Path::new(".dreams").join("state.json"))?)?,
+        state_json: read_capped(&resolve_under(
+            root,
+            &Path::new(".dreams").join("state.json"),
+        )?)?,
         memory_root: root.to_string_lossy().into_owned(),
     })
 }
@@ -48,7 +51,10 @@ pub fn write_at(root: &Path, patch: WritePatch) -> Result<(), String> {
         write_capped(&resolve_under(root, &daily_rel(day)?)?, &text)?;
     }
     if let Some(text) = patch.state_json {
-        write_capped(&resolve_under(root, &Path::new(".dreams").join("state.json"))?, &text)?;
+        write_capped(
+            &resolve_under(root, &Path::new(".dreams").join("state.json"))?,
+            &text,
+        )?;
     }
     Ok(())
 }
@@ -113,9 +119,7 @@ fn resolve_under(root: &Path, rel: &Path) -> Result<PathBuf, String> {
 
 fn read_capped(path: &Path) -> Result<String, String> {
     match std::fs::read(path) {
-        Ok(bytes) if bytes.len() > MAX_FILE_BYTES => {
-            Err("file exceeds 64 KiB size limit".into())
-        }
+        Ok(bytes) if bytes.len() > MAX_FILE_BYTES => Err("file exceeds 64 KiB size limit".into()),
         Ok(bytes) => String::from_utf8(bytes).map_err(|e| e.to_string()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(err) => Err(err.to_string()),

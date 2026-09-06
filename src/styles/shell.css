@@ -67,7 +67,8 @@ span.crumb-cwd {
   padding: 6px 8px;
   border-radius: var(--radius-xl);
   min-width: 0;
-  flex: 1 1 0;
+  flex: 0 1 auto;
+  max-width: 42ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -86,6 +87,12 @@ span.crumb-cwd {
   color: var(--muted);
 }
 .title-wrap .icon-btn { flex: none; }
+.workspace-head-drag {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 48px;
+  min-height: 100%;
+}
 .head-actions {
   display: flex;
   align-items: center;
@@ -228,7 +235,7 @@ span.crumb-cwd {
   border: 0;
   background: transparent;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -258,7 +265,7 @@ span.crumb-cwd {
 .cwd-chip {
   border: 0;
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
   max-width: min(240px, 42vw);
   min-width: 0;
   display: inline-flex;
@@ -461,8 +468,8 @@ span.crumb-cwd {
   border-radius: 0;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 48%, transparent);
-  font-size: var(--ui-small);
+  color: var(--text);
+  font-size: var(--md-size, 15px);
 }
 .wait-status {
   flex: none;

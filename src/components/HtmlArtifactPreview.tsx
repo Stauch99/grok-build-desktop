@@ -1,3 +1,5 @@
+import { useT } from "../lib/locale-context";
+
 export const HTML_FRAME_SANDBOX = "";
 
 export function buildSrcDoc(html: string): string {
@@ -15,7 +17,8 @@ export type HtmlArtifactPreviewProps = {
  * Sandboxed HTML preview. Empty sandbox = no privileges. Not a live app host.
  */
 export function HtmlArtifactPreview({ html, title }: HtmlArtifactPreviewProps) {
-  const heading = title?.trim() || "预览";
+  const t = useT();
+  const heading = title?.trim() || t("preview.heading");
   const srcDoc = buildSrcDoc(html);
 
   return (

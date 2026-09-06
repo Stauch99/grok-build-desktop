@@ -71,12 +71,64 @@ export function changePreviewTarget(change: GitChange): string {
 }
 
 export function gitRemoteEnabled(status: GitStatus | null, busy = false): boolean {
-  return !!status?.isRepo && !busy;
+  return !!status?.isRepo && !busy && !!status.remote;
+}
+
+export type GitSyncKind = "add-remote" | "publish" | "sync";
+
+export function gitSyncKind(status: GitStatus | null): GitSyncKind | null {
+  if (!status?.isRepo) return null;
+  if (!status.remote) return "add-remote";
+  if (!status.hasUpstream) return "publish";
+  return "sync";
+}
+
+export function gitPullEnabled(status: GitStatus | null, busy = false): boolean {
+  return gitSyncKind(status) === "sync" && !busy;
+}
+
+export function gitPushEnabled(status: GitStatus | null, busy = false): boolean {
+  const kind = gitSyncKind(status);
+  return (kind === "publish" || kind === "sync") && !busy;
+}
+
+export function gitRemoteUrlOk(url: string): boolean {
+  const value = url.trim();
+  if (value.length < 8 || value.length > 512) return false;
+  if (value.startsWith("-") || /\s/.test(value)) return false;
+  return /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/i.test(value);
+}
+
+/** Collapse raw git stderr into a short, actionable line. */
+export function mapGitStderr(stderr: string): string | null {
+  const text = stderr.replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("no configured push destination") ||
+    lower.includes("no remote repository specified")
+  ) {
+    return "当前仓库没有远程地址";
+  }
+  if (
+    lower.includes("couldn't find remote ref") ||
+    lower.includes("could not find remote branch")
+  ) {
+    return "当前分支尚未发布到远程，请先推送";
+  }
+  if (
+    lower.includes("no tracking information") ||
+    lower.includes("has no upstream branch") ||
+    lower.includes("no upstream configured")
+  ) {
+    return "当前分支还没有远程跟踪，请先推送";
+  }
+  return null;
 }
 
 export function gitCommandError(res: GitCommandResult, fallback: string): string | null {
   if (res.ok) return null;
-  return res.stderr.trim() || fallback;
+  return mapGitStderr(res.stderr) || res.stderr.trim() || fallback;
 }
 
 export function gitWorkDir(git: { root?: string } | null, cwd: string): string {
@@ -150,15 +202,21 @@ export async function runBusyGit(
   opts: GitBusyRun,
   run: (dir: string) => Promise<GitCommandResult>,
   fallback: string,
-): Promise<void> {
-  if (!canStartGitBusy(opts)) return;
+): Promise<string | null> {
+  if (!canStartGitBusy(opts)) return null;
   opts.setBusy(true);
   try {
     const err = gitCommandError(await run(opts.dir), fallback);
-    if (err) opts.toast(err);
-    else await opts.refresh();
+    if (err) {
+      opts.toast(err);
+      return err;
+    }
+    await opts.refresh();
+    return null;
   } catch (e) {
-    opts.toast(String(e));
+    const msg = String(e);
+    opts.toast(msg);
+    return msg;
   } finally {
     opts.setBusy(false);
   }

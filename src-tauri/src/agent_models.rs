@@ -93,7 +93,9 @@ pub(crate) fn kimi_bundle_from_toml(text: &str) -> SlimBundle {
     let mut models = Vec::new();
     if let Some(tbl) = doc.get("models").and_then(|i| i.as_table()) {
         for (key, item) in tbl.iter() {
-            let Some(model_tbl) = item.as_table() else { continue };
+            let Some(model_tbl) = item.as_table() else {
+                continue;
+            };
             let id = key.trim();
             if id.is_empty() {
                 continue;
@@ -144,7 +146,12 @@ pub(crate) fn slim_codex_cache(v: &Value) -> Vec<SlimModelDto> {
                 continue;
             }
         }
-        let Some(id) = row.get("slug").and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty()) else {
+        let Some(id) = row
+            .get("slug")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
             continue;
         };
         let label = row
@@ -165,7 +172,11 @@ pub(crate) fn slim_codex_cache(v: &Value) -> Vec<SlimModelDto> {
             .map(|levels| {
                 levels
                     .iter()
-                    .filter_map(|l| l.get("effort").and_then(|e| e.as_str()).map(|s| s.trim().to_string()))
+                    .filter_map(|l| {
+                        l.get("effort")
+                            .and_then(|e| e.as_str())
+                            .map(|s| s.trim().to_string())
+                    })
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<_>>()
             })
@@ -201,7 +212,10 @@ fn slim_grok_cache(v: Value) -> Value {
     let mut out = serde_json::Map::new();
     for (id, row) in models {
         let info = row.get("info");
-        let hidden = info.and_then(|i| i.get("hidden")).and_then(|h| h.as_bool()).unwrap_or(false);
+        let hidden = info
+            .and_then(|i| i.get("hidden"))
+            .and_then(|h| h.as_bool())
+            .unwrap_or(false);
         if hidden {
             continue;
         }
@@ -431,12 +445,14 @@ pub async fn patch_agent_model_settings(
             }
             AgentId::Claude => {
                 let path = claude_settings_path(&home);
-                let next = patch_claude_json(&read_text(&path), model.as_deref(), effort.as_deref())?;
+                let next =
+                    patch_claude_json(&read_text(&path), model.as_deref(), effort.as_deref())?;
                 write_text(&path, &next)?;
             }
             AgentId::Codex => {
                 let path = codex_config_path(&home);
-                let next = patch_codex_toml(&read_text(&path), model.as_deref(), effort.as_deref())?;
+                let next =
+                    patch_codex_toml(&read_text(&path), model.as_deref(), effort.as_deref())?;
                 write_text(&path, &next)?;
             }
         }
@@ -478,7 +494,11 @@ token = "leak-me"
         assert!(!dumped.contains("api_key"));
         assert_eq!(bundle.current_model.as_deref(), Some("kimi-code/k3"));
         assert_eq!(bundle.current_effort.as_deref(), Some("high"));
-        let k3 = bundle.models.iter().find(|m| m.id == "kimi-code/k3").unwrap();
+        let k3 = bundle
+            .models
+            .iter()
+            .find(|m| m.id == "kimi-code/k3")
+            .unwrap();
         assert_eq!(k3.label.as_deref(), Some("Kimi K3"));
         assert_eq!(k3.efforts, vec!["low", "high", "max"]);
         let custom = bundle.models.iter().find(|m| m.id == "custom").unwrap();
@@ -488,7 +508,9 @@ token = "leak-me"
 
     #[test]
     fn claude_excerpt_keeps_only_model_and_effort() {
-        let v = claude_excerpt(r#"{"model":"opus[1m]","effortLevel":"max","env":{"ANTHROPIC_API_KEY":"sk-ant"}}"#);
+        let v = claude_excerpt(
+            r#"{"model":"opus[1m]","effortLevel":"max","env":{"ANTHROPIC_API_KEY":"sk-ant"}}"#,
+        );
         let dumped = v.to_string();
         assert!(!dumped.contains("sk-ant"));
         assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("opus[1m]"));

@@ -1,3 +1,5 @@
+import { useT } from "../lib/locale-context";
+
 export type ManagedConfigViewProps = {
   path: string;
   text: string;
@@ -8,15 +10,16 @@ export type ManagedConfigViewProps = {
  * Read-only managed_config / requirements.toml. No edit surface here.
  */
 export function ManagedConfigView({ path, text, exists }: ManagedConfigViewProps) {
+  const t = useT();
   return (
     <div>
       <h3>managed_config</h3>
       {exists ? (
-        <pre className="hub-preview" title={path}>
-          {text || "（空）"}
+        <pre className="hub-preview" data-tip={path}>
+          {text || t("managed.emptyText")}
         </pre>
       ) : (
-        <p className="float-empty">没有 managed_config</p>
+        <p className="float-empty">{t("managed.missing")}</p>
       )}
     </div>
   );

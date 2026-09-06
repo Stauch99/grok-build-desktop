@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODE_OPTIONS, modeLabel, modeNeedsConfirm, nextMode, slashForMode, type Mode } from "./mode";
+import { MODE_OPTIONS, modeLabel, modeNeedsConfirm, nextMode, shouldSendModeSlash, slashForMode, type Mode } from "./mode";
 
 describe("mode helpers", () => {
   it("labels never say Auto", () => {
@@ -27,6 +27,14 @@ describe("mode helpers", () => {
     expect(nextMode("agent")).toBe("plan");
     expect(nextMode("plan")).toBe("yolo");
     expect(nextMode("yolo")).toBe("agent");
+  });
+
+  it("does not send /always-approve when the CLI is already always-approve (toggle would turn it off)", () => {
+    expect(shouldSendModeSlash("yolo", { yolo: true, permissionMode: "ask" })).toBe(false);
+    expect(shouldSendModeSlash("yolo", { yolo: false, permissionMode: "always-approve" })).toBe(false);
+    expect(shouldSendModeSlash("yolo", { yolo: false, permissionMode: "ask" })).toBe(true);
+    expect(shouldSendModeSlash("plan", { yolo: true, permissionMode: "always-approve" })).toBe(true);
+    expect(shouldSendModeSlash("agent", { yolo: false, permissionMode: "ask" })).toBe(true);
   });
 
   it("asks before switching into 始终批准", () => {

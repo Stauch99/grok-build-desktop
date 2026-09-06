@@ -106,10 +106,7 @@ mod tests {
 
     #[test]
     fn subscription_only() {
-        assert_eq!(
-            classify_auth(true, false),
-            AuthKind::Subscription
-        );
+        assert_eq!(classify_auth(true, false), AuthKind::Subscription);
         let d = doctor_from_evidence("grok", "/home/.grok".into(), true, false, None, None);
         assert_eq!(d.auth_kind, "subscription");
         assert!(d.auth_present);

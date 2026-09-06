@@ -2,7 +2,7 @@ import type { SessionSummary } from "../api";
 import type { AgentId } from "./agent-id";
 import type { ChatItem } from "./chat";
 import { isLiveRosterId, liveRosterId } from "./live-roster";
-import { subagentDisplayName, subagentStatusFromTool, type SubagentStatus } from "./subagent";
+import { subagentDisplayName, subagentStatusFromItem, type SubagentStatus } from "./subagent";
 
 export function subagentCatalog(
   items: ChatItem[],
@@ -11,7 +11,7 @@ export function subagentCatalog(
   const out: Array<{ id: string; name: string; status: SubagentStatus }> = [];
   for (const it of items) {
     if (it.kind !== "tool") continue;
-    const status = subagentStatusFromTool(it.title, it.status, agentId);
+    const status = subagentStatusFromItem(it, agentId);
     if (!status) continue;
     const name = subagentDisplayName(it.title);
     out.push({ id: it.id, name, status });

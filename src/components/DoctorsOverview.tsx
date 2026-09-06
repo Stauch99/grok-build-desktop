@@ -1,5 +1,6 @@
 import { doctorActionHint, type AgentDoctor } from "../lib/agent-doctor";
 import { doctorOverviewLine } from "../lib/agent-port";
+import { useT } from "../lib/locale-context";
 
 export function DoctorsOverview({
   doctors,
@@ -8,6 +9,7 @@ export function DoctorsOverview({
   doctors: AgentDoctor[];
   onCopied?: (cmd: string) => void;
 }) {
+  const t = useT();
   if (!doctors.length) return null;
   return (
     <ul className="set-doctors">
@@ -23,7 +25,7 @@ export function DoctorsOverview({
                     key={cmd}
                     type="button"
                     className="set-doctor-copy"
-                    title="复制命令"
+                    data-tip={t("git.copyCommand")}
                     onClick={() => {
                       void navigator.clipboard.writeText(cmd).then(() => onCopied?.(cmd));
                     }}

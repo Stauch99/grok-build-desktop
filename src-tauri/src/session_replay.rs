@@ -34,6 +34,12 @@ pub fn resolve_transcript(path: &Path) -> Option<PathBuf> {
     if kimi.is_file() {
         return Some(kimi);
     }
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let sibling = path.with_file_name(format!("{name}.jsonl"));
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
     None
 }
 
@@ -41,11 +47,7 @@ pub fn replay_session(path: &Path, after_byte: Option<u64>) -> Result<ReplayPage
     let Some(transcript) = resolve_transcript(path) else {
         return Ok(empty_page());
     };
-    if transcript
-        .file_name()
-        .and_then(|n| n.to_str())
-        == Some("updates.jsonl")
-    {
+    if transcript.file_name().and_then(|n| n.to_str()) == Some("updates.jsonl") {
         return Ok(empty_page());
     }
     replay_vendor_jsonl(&transcript, after_byte)
@@ -86,6 +88,7 @@ fn replay_vendor_jsonl(path: &Path, after_byte: Option<u64>) -> Result<ReplayPag
     let mut reader = BufReader::new(file);
     let mut buf = Vec::new();
     let mut rows = Vec::new();
+    let sidechain = allow_sidechain(path);
     loop {
         buf.clear();
         let n = reader.read_until(b'\n', &mut buf).map_err(io)?;
@@ -99,7 +102,7 @@ fn replay_vendor_jsonl(path: &Path, after_byte: Option<u64>) -> Result<ReplayPag
         let Ok(line) = std::str::from_utf8(&buf) else {
             continue;
         };
-        rows.extend(parse_vendor_line(line));
+        rows.extend(parse_vendor_line(line, sidechain));
     }
     Ok(ReplayPage {
         rows,
@@ -108,14 +111,18 @@ fn replay_vendor_jsonl(path: &Path, after_byte: Option<u64>) -> Result<ReplayPag
     })
 }
 
-fn parse_vendor_line(line: &str) -> Vec<Value> {
+fn allow_sidechain(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == "subagents")
+}
+
+fn parse_vendor_line(line: &str, allow_sidechain: bool) -> Vec<Value> {
     let Ok(value) = serde_json::from_str::<Value>(line.trim_end()) else {
         return Vec::new();
     };
     if let Some(rows) = parse_kimi_wire(&value) {
         return rows;
     }
-    if let Some(rows) = parse_claude_transcript(&value) {
+    if let Some(rows) = parse_claude_transcript(&value, allow_sidechain) {
         return rows;
     }
     parse_codex_event(&value).unwrap_or_default()
@@ -307,8 +314,8 @@ fn parse_kimi_loop(event: &Value, ts: Option<u64>) -> Vec<Value> {
     }
 }
 
-fn parse_claude_transcript(value: &Value) -> Option<Vec<Value>> {
-    if value.get("isSidechain").and_then(|v| v.as_bool()) == Some(true) {
+fn parse_claude_transcript(value: &Value, allow_sidechain: bool) -> Option<Vec<Value>> {
+    if !allow_sidechain && value.get("isSidechain").and_then(|v| v.as_bool()) == Some(true) {
         return Some(Vec::new());
     }
     let kind = value.get("type").and_then(|v| v.as_str())?;
@@ -317,7 +324,25 @@ fn parse_claude_transcript(value: &Value) -> Option<Vec<Value>> {
     }
     let ts = ts_from(value);
     let content = value.get("message")?.get("content")?;
+    if kind == "user" && claude_hide_user(value, content) {
+        return Some(Vec::new());
+    }
     Some(claude_rows(kind, content, ts))
+}
+
+fn claude_hide_user(value: &Value, content: &Value) -> bool {
+    if value.get("isMeta").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    let text = json_text(content);
+    let t = text.trim_start();
+    t.starts_with("<local-command-caveat>")
+        || t.starts_with("<command-name>")
+        || t.starts_with("<command-message>")
+        || t.starts_with("<command-args>")
+        || t.starts_with("<local-command-stdout>")
+        || t.starts_with("<task-notification>")
+        || t.starts_with("<system-reminder>")
 }
 
 fn claude_rows(kind: &str, content: &Value, ts: Option<u64>) -> Vec<Value> {
@@ -443,7 +468,10 @@ fn parse_codex_response_item(payload: &Value, ts: Option<u64>) -> Vec<Value> {
         .into_iter()
         .collect(),
         "function_call" | "custom_tool_call" => {
-            let id = payload.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+            let id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if id.is_empty() {
                 return Vec::new();
             }
@@ -462,7 +490,10 @@ fn parse_codex_response_item(payload: &Value, ts: Option<u64>) -> Vec<Value> {
             )]
         }
         "function_call_output" | "custom_tool_call_output" => {
-            let id = payload.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+            let id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if id.is_empty() {
                 return Vec::new();
             }
@@ -497,11 +528,7 @@ mod tests {
             .filter_map(|row| {
                 let update = row.get("update")?;
                 let kind = update.get("sessionUpdate")?.as_str()?.to_string();
-                let text = update
-                    .get("content")?
-                    .get("text")?
-                    .as_str()?
-                    .to_string();
+                let text = update.get("content")?.get("text")?.as_str()?.to_string();
                 Some((kind, text))
             })
             .collect()
@@ -602,7 +629,65 @@ mod tests {
         );
         let result = &page.rows[3]["update"];
         assert_eq!(result["status"], "completed");
-        assert_eq!(result["content"][0]["content"]["text"], "export const n = 1");
+        assert_eq!(
+            result["content"][0]["content"]["text"],
+            "export const n = 1"
+        );
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn claude_session_dir_replays_sibling_jsonl() {
+        let dir = uniq("claude_sid_dir");
+        fs::create_dir_all(dir.join("subagents")).unwrap();
+        fs::write(
+            PathBuf::from(format!("{}.jsonl", dir.display())),
+            concat!(
+                r#"{"type":"user","message":{"role":"user","content":"请你在 X 上全面深度调研"},"cwd":"/proj"}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"先开几个调研员"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&dir, None).unwrap();
+        assert_eq!(
+            texts(&page),
+            vec![
+                (
+                    "user_message_chunk".into(),
+                    "请你在 X 上全面深度调研".into()
+                ),
+                ("agent_message_chunk".into(), "先开几个调研员".into()),
+            ]
+        );
+        fs::remove_dir_all(&dir).ok();
+        let _ = fs::remove_file(PathBuf::from(format!("{}.jsonl", dir.display())));
+    }
+
+    #[test]
+    fn claude_subagent_jsonl_replays_sidechain_turns() {
+        let dir = uniq("claude_subagents");
+        let path = dir.join("subagents").join("agent-ab4a5fb3123330325.jsonl");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","isSidechain":true,"message":{"role":"user","content":"你是写作项目调研员"}}"#,
+                "\n",
+                r#"{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"先搜近四个月动态"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&path, None).unwrap();
+        assert_eq!(
+            texts(&page),
+            vec![
+                ("user_message_chunk".into(), "你是写作项目调研员".into()),
+                ("agent_message_chunk".into(), "先搜近四个月动态".into()),
+            ]
+        );
         fs::remove_dir_all(dir).ok();
     }
 
@@ -631,6 +716,46 @@ mod tests {
                 ("agent_message_chunk".into(), "我先摸代码".into()),
             ]
         );
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn claude_jsonl_hides_harness_user_messages() {
+        let path = uniq("claude_harness.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","message":{"role":"user","content":"继续"}}"#,
+                "\n",
+                r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>Caveat: DO NOT respond</local-command-caveat>"}}"#,
+                "\n",
+                r#"{"type":"user","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>"}}"#,
+                "\n",
+                r#"{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to opus</local-command-stdout>"}}"#,
+                "\n",
+                r#"{"type":"user","message":{"role":"user","content":"<task-notification>\n<summary>No completion record was found for 6 background agents</summary>\n</task-notification>"}}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"好"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&path, None).unwrap();
+        assert_eq!(
+            texts(&page),
+            vec![
+                ("user_message_chunk".into(), "继续".into()),
+                ("agent_message_chunk".into(), "好".into()),
+            ]
+        );
+        let blob = texts(&page)
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!blob.contains("local-command-caveat"));
+        assert!(!blob.contains("command-name"));
+        assert!(!blob.contains("task-notification"));
         fs::remove_file(path).ok();
     }
 

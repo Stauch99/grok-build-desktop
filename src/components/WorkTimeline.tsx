@@ -14,6 +14,7 @@ import {
 } from "../icons";
 import { DotMatrix } from "./DotMatrix";
 import { ToolResult } from "./ToolResult";
+import { useT } from "../lib/locale-context";
 
 function ToolIcon({ kind }: { kind: ReturnType<typeof classifyTool> }) {
   const size = 18;
@@ -77,14 +78,15 @@ export function WorkLiveRow({
   startedAt?: number;
   onStop: () => void;
 }) {
+  const t = useT();
   const label =
-    startedAt != null ? `工作了 ${formatElapsed(Date.now() - startedAt)}` : "工作中";
+    startedAt != null ? t("timeline.worked", { elapsed: formatElapsed(Date.now() - startedAt) }) : t("timeline.working");
   return (
     <button
       type="button"
       className="work-live"
-      aria-label={`停止 · ${label}`}
-      title="停止"
+      aria-label={t("timeline.stopAria", { label })}
+      data-tip={t("thread.stop")}
       onClick={onStop}
     >
       <span className="spine-ico" aria-hidden>
@@ -144,7 +146,7 @@ export function WorkTimeline({
       >
         <span className="spine-verb">{verb}</span>
         {detail ? (
-          <span className="spine-detail" title={detail}>
+          <span className="spine-detail" data-tip={detail}>
             {detail}
           </span>
         ) : null}
@@ -194,7 +196,7 @@ export function WorkTimeline({
                       key={item.id}
                       type="button"
                       className="spine-sub"
-                      title={line}
+                      data-tip={line}
                       onClick={() => onInspectTool?.(item)}
                     >
                       <span className="spine-detail">{line}</span>

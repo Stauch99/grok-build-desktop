@@ -94,7 +94,11 @@ pub(crate) fn parse_npx_pkg(spec: &str) -> Option<(&str, &str)> {
     Some((name, ver))
 }
 
-pub(crate) fn cached_npx_entry(npx_root: &Path, package_name: &str, version: &str) -> Option<PathBuf> {
+pub(crate) fn cached_npx_entry(
+    npx_root: &Path,
+    package_name: &str,
+    version: &str,
+) -> Option<PathBuf> {
     let entries = std::fs::read_dir(npx_root).ok()?;
     for ent in entries.flatten() {
         let mut pkg_dir = ent.path().join("node_modules");
@@ -354,11 +358,17 @@ mod tests {
         };
         assert_eq!(
             extra_spawn_env(AgentId::Codex, lookup),
-            vec![("CODEX_PATH".into(), PathBuf::from("/opt/homebrew/bin/codex"))]
+            vec![(
+                "CODEX_PATH".into(),
+                PathBuf::from("/opt/homebrew/bin/codex")
+            )]
         );
         assert_eq!(
             extra_spawn_env(AgentId::Claude, lookup),
-            vec![("CLAUDE_CODE_EXECUTABLE".into(), PathBuf::from("/Users/me/.local/bin/claude"))]
+            vec![(
+                "CLAUDE_CODE_EXECUTABLE".into(),
+                PathBuf::from("/Users/me/.local/bin/claude")
+            )]
         );
         assert!(extra_spawn_env(AgentId::Grok, lookup).is_empty());
         assert!(extra_spawn_env(AgentId::Kimi, lookup).is_empty());
@@ -420,7 +430,10 @@ mod tests {
             parse_stdout_line(r#"{"jsonrpc":"2.0","result":{}}"#),
             ParsedStdio::Message(json!({"jsonrpc":"2.0","result":{}}))
         );
-        assert_eq!(parse_stdout_line("not json"), ParsedStdio::Log("not json".into()));
+        assert_eq!(
+            parse_stdout_line("not json"),
+            ParsedStdio::Log("not json".into())
+        );
     }
 
     #[test]
@@ -496,7 +509,11 @@ mod tests {
     #[test]
     fn npx_adapter_resolves_with_cached_entry_and_node() {
         let root = std::env::temp_dir().join(format!("npx-resolve-{}", std::process::id()));
-        let pkg = root.join("hash").join("node_modules").join("@agentclientprotocol").join("claude-agent-acp");
+        let pkg = root
+            .join("hash")
+            .join("node_modules")
+            .join("@agentclientprotocol")
+            .join("claude-agent-acp");
         std::fs::create_dir_all(pkg.join("dist")).unwrap();
         std::fs::write(pkg.join("package.json"), r#"{"version":"0.70.0"}"#).unwrap();
         std::fs::write(pkg.join("dist").join("index.js"), "1").unwrap();

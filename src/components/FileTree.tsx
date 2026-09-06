@@ -1,3 +1,5 @@
+import { useT } from "../lib/locale-context";
+
 export type FileTreeNode = { name: string; path: string; kind: "file" | "dir" };
 
 export type FileTreeProps = {
@@ -14,9 +16,10 @@ function asMention(path: string): string {
 }
 
 /**
- * Searchable workspace list. Click a row to preview;「加入对话」inserts `@path`.
+ * Searchable workspace list. Click a row to preview; join-chat inserts `@path`.
  */
 export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReveal }: FileTreeProps) {
+  const t = useT();
   const q = query.trim().toLowerCase();
   const visible = q
     ? nodes.filter(
@@ -31,7 +34,7 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
       <button
         type="button"
         className="file-item"
-        title={node.path}
+        data-tip={node.path}
         onClick={() => onPreview(node.path)}
       >
         {node.name}
@@ -39,7 +42,7 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
       <button
         type="button"
         className="btn ghost"
-        title="加入对话"
+        data-tip={t("file.joinChat")}
         onClick={() => onAddToChat(asMention(node.path))}
       >
         @
@@ -52,28 +55,28 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
       <input
         className="hub-search"
         value={query}
-        placeholder="搜索文件"
-        aria-label="搜索文件"
+        placeholder={t("file.search")}
+        aria-label={t("file.search")}
         onChange={(e) => onQuery(e.target.value)}
       />
       {visible.length === 0 ? (
         <div>
           <p className="float-empty">
-            {q ? "没有匹配的文件。换一个词，或清空搜索。" : "工作区还没有可列出的文件。"}
+            {q ? t("file.noMatch") : t("explorer.noFiles")}
           </p>
           {!q && onReveal ? (
             <div className="set-actions">
               <button type="button" className="btn ghost" onClick={onReveal}>
-                在访达打开
+                {t("hub.openFinder")}
               </button>
             </div>
           ) : null}
         </div>
       ) : (
         <div className="file-list">
-          {dirs.length > 0 ? <div className="file-folder">文件夹</div> : null}
+          {dirs.length > 0 ? <div className="file-folder">{t("file.folders")}</div> : null}
           {dirs.map(renderRow)}
-          {files.length > 0 ? <div className="file-folder">文件</div> : null}
+          {files.length > 0 ? <div className="file-folder">{t("file.files")}</div> : null}
           {files.map(renderRow)}
         </div>
       )}

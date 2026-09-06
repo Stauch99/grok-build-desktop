@@ -60,7 +60,7 @@ export function AccountMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={title}
-        title={title}
+        data-tip={title}
         onClick={() => setOpen((o) => !o)}
       >
         {copy.percent != null ? (

@@ -58,10 +58,7 @@ mod tests {
 
     #[test]
     fn write_creates_parent_dirs() {
-        let dir = std::env::temp_dir().join(format!(
-            "agents_files_test_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("agents_files_test_{}", std::process::id()));
         let path = dir.join("nested").join("mcp.json");
         let _ = std::fs::remove_dir_all(&dir);
         write_agents_file_text(&path, r#"{"servers":[]}"#).expect("write");

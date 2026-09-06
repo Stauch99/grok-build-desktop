@@ -97,16 +97,63 @@ export function ProjectMenu({
   left,
   pinned,
   onPin,
+  groups = [],
+  currentGroupId = null,
+  onMoveToGroup,
+  onUngroup,
+  onCreateGroup,
 }: {
   top: number;
   left: number;
   pinned: boolean;
   onPin: () => void;
+  groups?: { id: string; name: string }[];
+  currentGroupId?: string | null;
+  onMoveToGroup?: (groupId: string) => void;
+  onUngroup?: () => void;
+  onCreateGroup?: () => void;
 }) {
   const t = useT();
   return (
     <div className="menu" style={{ top, left }} role="menu">
       <button type="button" onClick={onPin}>{pinned ? t("menu.unpin") : t("menu.pin")}</button>
+      {onMoveToGroup || onCreateGroup ? <div className="sep" /> : null}
+      {groups.map((group) => (
+        <button
+          key={group.id}
+          type="button"
+          disabled={group.id === currentGroupId}
+          onClick={() => onMoveToGroup?.(group.id)}
+        >
+          {t("sidebar.moveToGroup", { name: group.name })}
+        </button>
+      ))}
+      {onCreateGroup ? (
+        <button type="button" onClick={onCreateGroup}>{t("sidebar.newGroup")}</button>
+      ) : null}
+      {currentGroupId && onUngroup ? (
+        <button type="button" onClick={onUngroup}>{t("sidebar.ungroupProject")}</button>
+      ) : null}
+    </div>
+  );
+}
+
+export function GroupMenu({
+  top,
+  left,
+  onRename,
+  onDelete,
+}: {
+  top: number;
+  left: number;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="menu" style={{ top, left }} role="menu">
+      <button type="button" onClick={onRename}>{t("sidebar.renameGroup")}</button>
+      <button type="button" className="danger" onClick={onDelete}>{t("sidebar.deleteGroup")}</button>
     </div>
   );
 }

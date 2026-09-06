@@ -16,6 +16,7 @@
   --faint: hsl(0 0% 52%);
   --accent: hsl(207 100% 51.6%);
   --accent-deep: hsl(206.7 100% 42.4%);
+  --brand: #0078FC;
   --cta: hsl(0 0% 2%);
   --cta-text: hsl(0 0% 99%);
   --ok: hsl(142 42% 32%);
@@ -28,7 +29,7 @@
   --shadow-l: 0 14px 62px #00000040;
   --font: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
   --display: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
-  --serif: "Source Serif 4", "Songti SC", "Noto Serif SC", Georgia, serif;
+  --serif: "Noto Serif SC", "Noto Serif", "Source Serif 4", "Songti SC", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --radius: 8px;
   --radius-xl: 12px;

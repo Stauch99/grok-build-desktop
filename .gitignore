@@ -18,3 +18,8 @@ src-tauri/gen/
 **/.DS_Store
 docs/ui-audit/**/*.png
 docs/ui-audit/**/CAPTURE_LOG.txt
+prototype/
+design/
+test-results/
+playwright-report/
+playwright/.cache/

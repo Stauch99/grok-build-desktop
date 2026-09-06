@@ -10,6 +10,7 @@ import {
 } from "../lib/checkpoint";
 import { rewindHint } from "../lib/rewind-unify";
 import { DiffView } from "./DiffView";
+import { useT } from "../lib/locale-context";
 
 export type RewindDialogProps = {
   open: boolean;
@@ -24,6 +25,7 @@ export type RewindDialogProps = {
  * Parent owns the plan, disk writes, and when this dialog is shown.
  */
 export function RewindDialog({ open, plan, rows, onConfirm, onCancel }: RewindDialogProps) {
+  const t = useT();
   const [phrase, setPhrase] = useState("");
   const canConfirm = rewindPhraseConfirmed(phrase);
 
@@ -47,8 +49,8 @@ export function RewindDialog({ open, plan, rows, onConfirm, onCancel }: RewindDi
   return (
     <div className="palette-layer" role="presentation">
       <div className="palette-backdrop" onClick={onCancel} />
-      <div className="palette rewind-dialog" role="dialog" aria-modal="true" aria-label="还原到这里">
-        <div className="palette-group">还原到这里</div>
+      <div className="palette rewind-dialog" role="dialog" aria-modal="true" aria-label={t("rewind.title")}>
+        <div className="palette-group">{t("rewind.title")}</div>
         <p className="rewind-summary">{describePlan(plan)}</p>
         <p className="hint">{rewindHint("files")}</p>
 
@@ -64,7 +66,7 @@ export function RewindDialog({ open, plan, rows, onConfirm, onCancel }: RewindDi
                 ) : (
                   <>
                     {row.kind === "delete" ? (
-                      <p className="rewind-delete-note">将删除 {row.path}</p>
+                      <p className="rewind-delete-note">{t("rewind.deleteNote", { path: row.path })}</p>
                     ) : null}
                     <DiffView
                       path={row.path}
@@ -79,7 +81,7 @@ export function RewindDialog({ open, plan, rows, onConfirm, onCancel }: RewindDi
           {plan.unknown.length > 0 && (
             <ul className="rewind-unknown">
               {plan.unknown.map((label) => (
-                <li key={label}>无法还原：{label}</li>
+                <li key={label}>{t("rewind.fail", { label })}</li>
               ))}
             </ul>
           )}
@@ -97,10 +99,10 @@ export function RewindDialog({ open, plan, rows, onConfirm, onCancel }: RewindDi
         />
         <div className="set-actions rewind-actions">
           <button type="button" className="btn" onClick={onCancel}>
-            取消
+            {t("composer.cancel")}
           </button>
           <button type="button" className="btn primary" onClick={onConfirm} disabled={!canConfirm}>
-            还原这些文件
+            {t("rewind.confirm")}
           </button>
         </div>
       </div>

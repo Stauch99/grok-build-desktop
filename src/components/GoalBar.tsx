@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatElapsed } from "../lib/chat";
+import { useT } from "../lib/locale-context";
 import { DockCapsule } from "./ComposerDock";
 
 export type GoalBarProps = {
@@ -10,6 +11,7 @@ export type GoalBarProps = {
 
 /** Current ACP plan item as a capsule above the composer. */
 export function GoalBar({ goal, startedAt, live = false }: GoalBarProps) {
+  const t = useT();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -19,13 +21,13 @@ export function GoalBar({ goal, startedAt, live = false }: GoalBarProps) {
 
   return (
     <DockCapsule
-      kicker="目标"
+      kicker={t("goal.kicker")}
       meta={formatElapsed(now - startedAt)}
       tone={live ? "live" : "neutral"}
       className="goal-bar"
-      label="当前目标"
+      label={t("goal.label")}
     >
-      <span title={goal}>{goal}</span>
+      <span data-tip={goal}>{goal}</span>
     </DockCapsule>
   );
 }

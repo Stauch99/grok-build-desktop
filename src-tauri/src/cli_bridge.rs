@@ -25,14 +25,7 @@ fn grok_args_allowed(args: &[String]) -> bool {
     let head = args.first().map(String::as_str).unwrap_or("");
     matches!(
         head,
-        "inspect"
-            | "mcp"
-            | "plugin"
-            | "models"
-            | "login"
-            | "--version"
-            | "--help"
-            | "help"
+        "inspect" | "mcp" | "plugin" | "models" | "login" | "--version" | "--help" | "help"
     )
 }
 
@@ -46,7 +39,9 @@ fn grok_flag_ok(arg: &str) -> bool {
     let name = rest.split_once('=').map(|(n, _)| n).unwrap_or(rest);
     let mut chars = name.chars();
     match chars.next() {
-        Some(c) if c.is_ascii_alphanumeric() => chars.all(|c| c.is_ascii_alphanumeric() || c == '-'),
+        Some(c) if c.is_ascii_alphanumeric() => {
+            chars.all(|c| c.is_ascii_alphanumeric() || c == '-')
+        }
         _ => false,
     }
 }
@@ -107,7 +102,10 @@ pub(crate) fn append_desktop_audit_to(file: &Path, op: &str, path: &str) -> std:
         .unwrap_or(0);
     let line = serde_json::json!({ "ts": ts, "op": op, "path": path });
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(file)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)?;
     writeln!(f, "{line}")?;
     Ok(())
 }
@@ -176,7 +174,8 @@ pub(crate) fn write_paste_file(
     if bytes.len() as u64 > ATTACHMENT_BYTE_CAP {
         return Err(AppError::Message("文件太大".into()));
     }
-    let ext = sanitize_paste_ext(ext).ok_or_else(|| AppError::Message("无法保存这个附件".into()))?;
+    let ext =
+        sanitize_paste_ext(ext).ok_or_else(|| AppError::Message("无法保存这个附件".into()))?;
     let dest = paste_dest(home, &ext, stamp);
     write_nofollow(&dest, bytes).map_err(|e| AppError::Message(e.to_string()))?;
     Ok(dest)
@@ -205,7 +204,8 @@ pub(crate) fn import_dropped_file_to(
     if !raw.is_absolute() {
         return Err(AppError::Message("附件路径必须是绝对路径".into()));
     }
-    let meta = std::fs::symlink_metadata(&raw).map_err(|_| AppError::Message("附件不存在".into()))?;
+    let meta =
+        std::fs::symlink_metadata(&raw).map_err(|_| AppError::Message("附件不存在".into()))?;
     if meta.file_type().is_symlink() {
         return Err(AppError::Message("不能添加这个附件".into()));
     }
@@ -260,7 +260,11 @@ pub async fn import_dropped_file(path: String) -> AppResult<Value> {
 }
 
 #[tauri::command]
-pub async fn save_paste_bytes(bytes: Vec<u8>, ext: String, name: Option<String>) -> AppResult<Value> {
+pub async fn save_paste_bytes(
+    bytes: Vec<u8>,
+    ext: String,
+    name: Option<String>,
+) -> AppResult<Value> {
     tokio::task::spawn_blocking(move || {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -331,7 +335,11 @@ fn attach_cwd(cmd: &mut Command, cwd: Option<&str>) {
     }
 }
 
-async fn grok_output(args: &[String], cwd: Option<&str>, secs: u64) -> AppResult<(Option<i32>, String, String)> {
+async fn grok_output(
+    args: &[String],
+    cwd: Option<&str>,
+    secs: u64,
+) -> AppResult<(Option<i32>, String, String)> {
     if !grok_argv_ok(args) {
         return Err(AppError::Message("不允许的 grok 子命令".into()));
     }
@@ -354,7 +362,9 @@ async fn grok_output(args: &[String], cwd: Option<&str>, secs: u64) -> AppResult
 
 fn long_timeout(args: &[String]) -> u64 {
     let joined = args.join(" ");
-    if joined.contains("plugin install") || joined.contains("plugin marketplace") || joined.contains("mcp doctor")
+    if joined.contains("plugin install")
+        || joined.contains("plugin marketplace")
+        || joined.contains("mcp doctor")
     {
         GROK_LONG_TIMEOUT_SECS
     } else {
@@ -370,7 +380,11 @@ pub async fn run_grok(args: Vec<String>, cwd: Option<String>) -> AppResult<Value
 }
 
 #[tauri::command]
-pub async fn run_grok_stream(app: AppHandle, args: Vec<String>, cwd: Option<String>) -> AppResult<Value> {
+pub async fn run_grok_stream(
+    app: AppHandle,
+    args: Vec<String>,
+    cwd: Option<String>,
+) -> AppResult<Value> {
     if !grok_argv_ok(&args) {
         return Err(AppError::Message("不允许的 grok 子命令".into()));
     }
@@ -381,9 +395,7 @@ pub async fn run_grok_stream(app: AppHandle, args: Vec<String>, cwd: Option<Stri
         .stderr(std::process::Stdio::piped());
     apply_grok_env(&mut cmd);
     attach_cwd(&mut cmd, cwd.as_deref());
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Message(e.to_string()))?;
+    let mut child = cmd.spawn().map_err(|e| AppError::Message(e.to_string()))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let app_out = app.clone();
@@ -425,17 +437,25 @@ pub async fn run_grok_stream(app: AppHandle, args: Vec<String>, cwd: Option<Stri
 }
 
 fn resolve_scoped_target(raw: &Path, root: &Path) -> AppResult<PathBuf> {
-    let root = root.canonicalize().map_err(|_| AppError::Message("invalid allow root".into()))?;
+    let root = root
+        .canonicalize()
+        .map_err(|_| AppError::Message("invalid allow root".into()))?;
     let mut missing = Vec::new();
     let mut cursor = raw;
     let resolved = loop {
         if let Ok(mut canon) = cursor.canonicalize() {
-            for part in missing.iter().rev() { canon.push(part); }
+            for part in missing.iter().rev() {
+                canon.push(part);
+            }
             break canon;
         }
-        let name = cursor.file_name().ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
+        let name = cursor
+            .file_name()
+            .ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
         missing.push(name.to_os_string());
-        cursor = cursor.parent().ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
+        cursor = cursor
+            .parent()
+            .ok_or_else(|| AppError::Message("不能写入这个路径".into()))?;
     };
     if !is_under(&resolved, &root) || is_blocked_path(&resolved) {
         return Err(AppError::Message("不能写入这个路径".into()));
@@ -443,11 +463,17 @@ fn resolve_scoped_target(raw: &Path, root: &Path) -> AppResult<PathBuf> {
     Ok(resolved)
 }
 
-fn project_scoped_path(cwd: Option<&str>, trusted: Option<&Path>, relative: &Path) -> Option<PathBuf> {
+fn project_scoped_path(
+    cwd: Option<&str>,
+    trusted: Option<&Path>,
+    relative: &Path,
+) -> Option<PathBuf> {
     let raw = cwd.map(str::trim).filter(|s| !s.is_empty())?;
     let dir = PathBuf::from(raw).canonicalize().ok()?;
     let trusted = trusted?.canonicalize().ok()?;
-    if dir != trusted || dir == Path::new("/") { return None; }
+    if dir != trusted || dir == Path::new("/") {
+        return None;
+    }
     resolve_scoped_target(&dir.join(relative), &dir).ok()
 }
 
@@ -455,9 +481,12 @@ fn project_config_path(cwd: Option<&str>, trusted: Option<&Path>) -> Option<Path
     project_scoped_path(cwd, trusted, Path::new(".grok/config.toml"))
 }
 
-
 #[tauri::command]
-pub async fn read_config_text(state: State<'_, Arc<AppState>>, scope: String, cwd: Option<String>) -> AppResult<Value> {
+pub async fn read_config_text(
+    state: State<'_, Arc<AppState>>,
+    scope: String,
+    cwd: Option<String>,
+) -> AppResult<Value> {
     let path = if scope == "project" {
         project_config_path(cwd.as_deref(), state.workspace.lock().await.as_deref())
             .ok_or_else(|| AppError::Message("没有项目配置路径".into()))?
@@ -476,7 +505,12 @@ pub async fn read_config_text(state: State<'_, Arc<AppState>>, scope: String, cw
 }
 
 #[tauri::command]
-pub async fn write_config_text(state: State<'_, Arc<AppState>>, scope: String, text: String, cwd: Option<String>) -> AppResult<()> {
+pub async fn write_config_text(
+    state: State<'_, Arc<AppState>>,
+    scope: String,
+    text: String,
+    cwd: Option<String>,
+) -> AppResult<()> {
     reject_oversized_config_text(&text)?;
     let _guard = state.config_write.lock().await;
     let path = if scope == "project" {
@@ -485,10 +519,7 @@ pub async fn write_config_text(state: State<'_, Arc<AppState>>, scope: String, t
     } else {
         config_path()
     };
-    if path
-        .to_string_lossy()
-        .contains("auth.json")
-    {
+    if path.to_string_lossy().contains("auth.json") {
         return Err(AppError::Message("不能写 auth".into()));
     }
     if let Some(parent) = path.parent() {
@@ -508,7 +539,8 @@ fn allow_write(canon: &Path, allow_root: Option<&Path>) -> bool {
         return false;
     }
     if let Ok(home) = grok_home().canonicalize() {
-        if is_under(canon, &home) && canon.file_name().and_then(|n| n.to_str()) != Some("auth.json") {
+        if is_under(canon, &home) && canon.file_name().and_then(|n| n.to_str()) != Some("auth.json")
+        {
             return true;
         }
     }
@@ -558,7 +590,11 @@ pub(crate) fn write_nofollow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
     #[cfg(not(unix))]
     {
-        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        if path
+            .symlink_metadata()
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "refusing to write through a symlink",
@@ -612,9 +648,12 @@ pub async fn write_allowed_text(
         if !raw.is_absolute() {
             return Err(AppError::Message("path must be absolute".into()));
         }
-        let trusted = crate::trusted_desktop_root(workspace.as_deref(), allow_root.as_deref()).map_err(AppError::Message)?;
+        let trusted = crate::trusted_desktop_root(workspace.as_deref(), allow_root.as_deref())
+            .map_err(AppError::Message)?;
         let canon = scoped_write_target(&raw, trusted.as_deref())?;
-        if let Some(parent) = canon.parent() { std::fs::create_dir_all(parent).map_err(|e| AppError::Message(e.to_string()))?; }
+        if let Some(parent) = canon.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| AppError::Message(e.to_string()))?;
+        }
         let checked = scoped_write_target(&canon, trusted.as_deref())?;
         write_nofollow(&checked, text.as_bytes()).map_err(|e| AppError::Message(e.to_string()))?;
         append_desktop_audit("write_allowed_text", &checked.display().to_string());
@@ -629,9 +668,12 @@ pub async fn git_log(cwd: String) -> AppResult<Value> {
     let Some(root) = crate::git_repo_root(&cwd).await else {
         return Ok(json!([]));
     };
-    let text = git_stdout(&root, &["log", "-30", "--format=%h\t%ad\t%s", "--date=short"])
-        .await
-        .unwrap_or_default();
+    let text = git_stdout(
+        &root,
+        &["log", "-30", "--format=%h\t%ad\t%s", "--date=short"],
+    )
+    .await
+    .unwrap_or_default();
     let rows: Vec<Value> = text
         .lines()
         .filter_map(|line| {
@@ -669,6 +711,7 @@ async fn git_run(root: &Path, args: &[&str], secs: u64) -> (bool, i32, String, S
     let run = Command::new("git")
         .arg("-C")
         .arg(root)
+        .args(["-c", "core.quotepath=false"])
         .args(args)
         .output();
     match tokio::time::timeout(Duration::from_secs(secs), run).await {
@@ -720,13 +763,84 @@ fn blame_rel_path(root: &Path, raw: &str) -> Option<String> {
     }
 }
 
+pub(crate) fn pick_default_remote(listing: &str) -> Option<String> {
+    let remotes: Vec<&str> = listing
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if remotes.iter().copied().any(|name| name == "origin") {
+        return Some("origin".into());
+    }
+    remotes.first().map(|name| (*name).to_string())
+}
+
+fn needs_upstream_setup(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("no tracking information")
+        || lower.contains("has no upstream branch")
+        || lower.contains("no configured push destination")
+        || lower.contains("no remote repository specified")
+        || lower.contains("no upstream configured")
+}
+
+fn missing_remote_ref(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("couldn't find remote ref")
+        || lower.contains("could not find remote branch")
+        || lower.contains("couldn't find remote branch")
+}
+
+async fn git_default_remote(root: &Path) -> Option<String> {
+    let (ok, _, stdout, _) = git_run(root, &["remote"], 8).await;
+    if !ok {
+        return None;
+    }
+    pick_default_remote(&stdout)
+}
+
+async fn git_current_branch(root: &Path) -> Option<String> {
+    let (ok, _, stdout, _) = git_run(root, &["rev-parse", "--abbrev-ref", "HEAD"], 8).await;
+    if !ok {
+        return None;
+    }
+    let branch = stdout.trim();
+    if branch.is_empty() || branch == "HEAD" {
+        None
+    } else {
+        Some(branch.to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn git_pull(cwd: String) -> AppResult<Value> {
     let Some(root) = guard_repo_cwd(&cwd) else {
         return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
     };
     let (ok, code, _, stderr) = git_run(&root, &["pull", "--ff-only"], 120).await;
-    Ok(git_cmd_result(ok, code, stderr))
+    if ok || !needs_upstream_setup(&stderr) {
+        return Ok(git_cmd_result(ok, code, stderr));
+    }
+    let Some(remote) = git_default_remote(&root).await else {
+        return Ok(git_cmd_result(false, code, stderr));
+    };
+    let Some(branch) = git_current_branch(&root).await else {
+        return Ok(git_cmd_result(false, code, stderr));
+    };
+    let (ok2, code2, _, err2) = git_run(&root, &["pull", "--ff-only", &remote, &branch], 120).await;
+    if ok2 {
+        let track = format!("{remote}/{branch}");
+        let _ = git_run(&root, &["branch", "--set-upstream-to", &track], 8).await;
+        return Ok(git_cmd_result(true, code2, err2));
+    }
+    if missing_remote_ref(&err2) {
+        return Ok(git_cmd_result(
+            false,
+            code2,
+            "当前分支尚未发布到远程，请先推送".into(),
+        ));
+    }
+    Ok(git_cmd_result(false, code2, err2))
 }
 
 #[tauri::command]
@@ -735,6 +849,43 @@ pub async fn git_push(cwd: String) -> AppResult<Value> {
         return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
     };
     let (ok, code, _, stderr) = git_run(&root, &["push"], 60).await;
+    if ok || !needs_upstream_setup(&stderr) {
+        return Ok(git_cmd_result(ok, code, stderr));
+    }
+    let Some(remote) = git_default_remote(&root).await else {
+        return Ok(git_cmd_result(false, code, stderr));
+    };
+    let (ok2, code2, _, err2) = git_run(&root, &["push", "-u", &remote, "HEAD"], 60).await;
+    Ok(git_cmd_result(ok2, code2, err2))
+}
+
+pub(crate) fn git_remote_url_ok(url: &str) -> bool {
+    let value = url.trim();
+    if value.len() < 8 || value.len() > 512 {
+        return false;
+    }
+    if value.starts_with('-') || value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    value.starts_with("https://")
+        || value.starts_with("http://")
+        || value.starts_with("git@")
+        || value.starts_with("ssh://")
+        || value.starts_with("git://")
+}
+
+#[tauri::command]
+pub async fn git_remote_add(cwd: String, url: String) -> AppResult<Value> {
+    if !git_remote_url_ok(&url) {
+        return Ok(git_cmd_result(false, 1, "invalid remote".into()));
+    }
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    if git_default_remote(&root).await.is_some() {
+        return Ok(git_cmd_result(false, 1, "远程已存在".into()));
+    }
+    let (ok, code, _, stderr) = git_run(&root, &["remote", "add", "origin", url.trim()], 8).await;
     Ok(git_cmd_result(ok, code, stderr))
 }
 
@@ -753,8 +904,12 @@ pub async fn git_discard(cwd: String, path: String) -> AppResult<Value> {
     }
     let (tracked, _, _, _) = git_run(&root, &["ls-files", "--error-unmatch", "--", &rel], 8).await;
     if tracked {
-        let (ok, code, _, stderr) =
-            git_run(&root, &["restore", "--worktree", "--source=HEAD", "--", &rel], 30).await;
+        let (ok, code, _, stderr) = git_run(
+            &root,
+            &["restore", "--worktree", "--source=HEAD", "--", &rel],
+            30,
+        )
+        .await;
         return Ok(git_cmd_result(ok, code, stderr));
     }
     let abs = root.join(&rel);
@@ -885,7 +1040,9 @@ pub async fn list_file_tree(cwd: String, query: Option<String>) -> AppResult<Val
 #[tauri::command]
 pub async fn hide_window(app: AppHandle) -> AppResult<()> {
     if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|e| AppError::Message(e.to_string()))?;
+        window
+            .hide()
+            .map_err(|e| AppError::Message(e.to_string()))?;
     }
     Ok(())
 }
@@ -932,11 +1089,13 @@ pub async fn trust_folder(cwd: String, trusted: bool) -> AppResult<()> {
         let mut doc = text.parse::<toml_edit::DocumentMut>().unwrap_or_default();
         let key = format!("folders.\"{}\"", dir.display());
         let folders = ensure_table(&mut doc, "folders");
-        let entry = folders.entry(&dir.display().to_string()).or_insert_with(|| {
-            let mut t = toml_edit::Table::new();
-            t.set_implicit(false);
-            toml_edit::Item::Table(t)
-        });
+        let entry = folders
+            .entry(&dir.display().to_string())
+            .or_insert_with(|| {
+                let mut t = toml_edit::Table::new();
+                t.set_implicit(false);
+                toml_edit::Item::Table(t)
+            });
         if let Some(tbl) = entry.as_table_like_mut() {
             tbl.insert("trusted", toml_edit::value(trusted));
             tbl.insert(
@@ -984,10 +1143,15 @@ fn skill_name_ok(name: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn create_skill(state: State<'_, Arc<AppState>>, input: CreateSkillInput) -> AppResult<Value> {
+pub async fn create_skill(
+    state: State<'_, Arc<AppState>>,
+    input: CreateSkillInput,
+) -> AppResult<Value> {
     let name = input.name.trim().to_lowercase();
     if !skill_name_ok(&name) {
-        return Err(AppError::Message("技能名只能用小写字母、数字和连字符".into()));
+        return Err(AppError::Message(
+            "技能名只能用小写字母、数字和连字符".into(),
+        ));
     }
     let desc = input
         .description
@@ -1065,7 +1229,12 @@ Write the procedure here.
     if input.scope != "project" {
         if let Some(canonical) = path.parent() {
             let home = dirs_home();
-            let flags = [("grok", true), ("kimi", true), ("claude", true), ("codex", true)];
+            let flags = [
+                ("grok", true),
+                ("kimi", true),
+                ("claude", true),
+                ("codex", true),
+            ];
             let _ = crate::skill_sync::sync_skill_to_agents(canonical, &home, &name, &flags);
         }
     }
@@ -1161,10 +1330,7 @@ pub async fn list_session_spills(session_id: String) -> AppResult<Vec<String>> {
 #[tauri::command]
 pub async fn list_imagine_artifacts(cwd: Option<String>) -> AppResult<Vec<String>> {
     tokio::task::spawn_blocking(move || {
-        let mut roots = vec![
-            grok_home().join("downloads"),
-            dirs_home().join("Downloads"),
-        ];
+        let mut roots = vec![grok_home().join("downloads"), dirs_home().join("Downloads")];
         if let Some(c) = cwd.as_deref().filter(|s| !s.is_empty()) {
             roots.push(PathBuf::from(c));
         }
@@ -1228,9 +1394,7 @@ pub async fn read_managed_config() -> AppResult<Value> {
     ];
     for path in candidates {
         if path.is_file() {
-            let text = tokio::fs::read_to_string(&path)
-                .await
-                .unwrap_or_default();
+            let text = tokio::fs::read_to_string(&path).await.unwrap_or_default();
             return Ok(json!({
                 "path": path.display().to_string(),
                 "text": text,
@@ -1246,7 +1410,10 @@ pub async fn read_managed_config() -> AppResult<Value> {
 }
 
 #[tauri::command]
-pub async fn set_notify_target(state: State<'_, Arc<AppState>>, session_id: Option<String>) -> AppResult<()> {
+pub async fn set_notify_target(
+    state: State<'_, Arc<AppState>>,
+    session_id: Option<String>,
+) -> AppResult<()> {
     *state.notify_target.lock().await = session_id.filter(|s| !s.is_empty());
     Ok(())
 }
@@ -1430,7 +1597,9 @@ fn decode_session_cwd(encoded: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16) {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 out.push(byte);
                 i += 3;
                 continue;
@@ -1449,8 +1618,16 @@ pub(crate) fn token_turn_from_record(value: &Value, cwd: &str) -> Option<Value> 
         return None;
     }
     let usage = update.get("usage")?;
-    let input = json_u64(usage.get("inputTokens").or_else(|| usage.get("input_tokens")));
-    let output = json_u64(usage.get("outputTokens").or_else(|| usage.get("output_tokens")));
+    let input = json_u64(
+        usage
+            .get("inputTokens")
+            .or_else(|| usage.get("input_tokens")),
+    );
+    let output = json_u64(
+        usage
+            .get("outputTokens")
+            .or_else(|| usage.get("output_tokens")),
+    );
     let cache_read = json_u64(
         usage
             .get("cachedReadTokens")
@@ -1462,7 +1639,11 @@ pub(crate) fn token_turn_from_record(value: &Value, cwd: &str) -> Option<Value> 
             .get("cacheCreationTokens")
             .or_else(|| usage.get("cache_creation_input_tokens")),
     );
-    let total = json_u64(usage.get("totalTokens").or_else(|| usage.get("total_tokens")));
+    let total = json_u64(
+        usage
+            .get("totalTokens")
+            .or_else(|| usage.get("total_tokens")),
+    );
     if input == 0 && output == 0 && cache_read == 0 && total == 0 {
         return None;
     }
@@ -1703,8 +1884,12 @@ mod security_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(label: &str) -> PathBuf {
-        let id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("grok-webui-{label}-{}-{id}", std::process::id()));
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("grok-webui-{label}-{}-{id}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         path
     }
@@ -1741,7 +1926,10 @@ mod security_tests {
 
     #[test]
     fn decode_session_cwd_unescapes_percent_path() {
-        assert_eq!(super::decode_session_cwd("%2FUsers%2Ffoxie%2Fwork"), "/Users/foxie/work");
+        assert_eq!(
+            super::decode_session_cwd("%2FUsers%2Ffoxie%2Fwork"),
+            "/Users/foxie/work"
+        );
     }
 
     #[test]
@@ -1804,12 +1992,14 @@ mod security_tests {
             Some(root.to_str().unwrap()),
             Some(&root),
             Path::new(".grok/skills/demo-skill/SKILL.md")
-        ).is_none());
+        )
+        .is_none());
         assert!(project_scoped_path(
             Some(root.to_str().unwrap()),
             Some(&root),
             Path::new(".grok/hooks/protect.json")
-        ).is_none());
+        )
+        .is_none());
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
     }
@@ -1920,7 +2110,9 @@ mod security_tests {
     fn validate_attachment_allows_directory_outside_workspace() {
         let root = temp_dir("attach-root").canonicalize().unwrap();
         let folder = temp_dir("attach-dir-outside").canonicalize().unwrap();
-        assert!(validate_attachment(folder.to_str().unwrap(), Some(root.to_str().unwrap())).is_ok());
+        assert!(
+            validate_attachment(folder.to_str().unwrap(), Some(root.to_str().unwrap())).is_ok()
+        );
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(folder);
     }
@@ -1934,19 +2126,29 @@ mod security_tests {
 
     #[test]
     fn skip_save_when_serialized_string_is_identical() {
-        assert!(should_skip_save(Some("{\"theme\":\"dark\"}"), "{\"theme\":\"dark\"}"));
-        assert!(!should_skip_save(Some("{\"theme\":\"dark\"}"), "{\"theme\":\"light\"}"));
+        assert!(should_skip_save(
+            Some("{\"theme\":\"dark\"}"),
+            "{\"theme\":\"dark\"}"
+        ));
+        assert!(!should_skip_save(
+            Some("{\"theme\":\"dark\"}"),
+            "{\"theme\":\"light\"}"
+        ));
         assert!(!should_skip_save(None, "{}"));
     }
 
     #[test]
     fn watch_path_ignored_skips_build_and_vcs_dirs() {
-        assert!(watch_path_ignored(Path::new("/proj/node_modules/pkg/index.js")));
+        assert!(watch_path_ignored(Path::new(
+            "/proj/node_modules/pkg/index.js"
+        )));
         assert!(watch_path_ignored(Path::new("/proj/.git/HEAD")));
         assert!(watch_path_ignored(Path::new("/proj/target/debug/app")));
         assert!(watch_path_ignored(Path::new("/proj/dist/index.js")));
         assert!(watch_path_ignored(Path::new("/proj/.next/cache")));
-        assert!(!watch_path_ignored(Path::new("/proj/src/lib/persist-cache.ts")));
+        assert!(!watch_path_ignored(Path::new(
+            "/proj/src/lib/persist-cache.ts"
+        )));
     }
 
     #[test]
@@ -1964,7 +2166,10 @@ mod security_tests {
     #[test]
     fn blame_rel_path_stays_inside_repo() {
         let root = Path::new("/work/app");
-        assert_eq!(blame_rel_path(root, "src/lib.rs").as_deref(), Some("src/lib.rs"));
+        assert_eq!(
+            blame_rel_path(root, "src/lib.rs").as_deref(),
+            Some("src/lib.rs")
+        );
         assert_eq!(
             blame_rel_path(root, "/work/app/src/lib.rs").as_deref(),
             Some("src/lib.rs")
@@ -2109,21 +2314,15 @@ mod security_tests {
         std::fs::create_dir(&dir).unwrap();
         std::fs::write(dir.join("inside.txt"), "keep").unwrap();
 
-        let deleted = super::git_discard(
-            root.to_string_lossy().into_owned(),
-            "scratch.txt".into(),
-        )
-        .await
-        .unwrap();
+        let deleted = super::git_discard(root.to_string_lossy().into_owned(), "scratch.txt".into())
+            .await
+            .unwrap();
         assert_eq!(deleted["ok"], true);
         assert!(!file.exists());
 
-        let wiped = super::git_discard(
-            root.to_string_lossy().into_owned(),
-            "scratch-dir".into(),
-        )
-        .await
-        .unwrap();
+        let wiped = super::git_discard(root.to_string_lossy().into_owned(), "scratch-dir".into())
+            .await
+            .unwrap();
         assert_eq!(wiped["ok"], false);
         assert!(dir.is_dir());
         assert!(dir.join("inside.txt").is_file());
@@ -2136,5 +2335,266 @@ mod security_tests {
         assert_eq!(pull["ok"], false);
         let push = super::git_push("/".into()).await.unwrap();
         assert_eq!(push["ok"], false);
+    }
+
+    #[test]
+    fn pick_default_remote_prefers_origin() {
+        assert_eq!(
+            super::pick_default_remote("origin\nupstream\n").as_deref(),
+            Some("origin")
+        );
+        assert_eq!(
+            super::pick_default_remote("github\n").as_deref(),
+            Some("github")
+        );
+        assert_eq!(super::pick_default_remote("  \n").as_deref(), None);
+    }
+
+    #[test]
+    fn git_remote_url_ok_accepts_https_and_ssh() {
+        assert!(super::git_remote_url_ok("https://github.com/org/repo.git"));
+        assert!(super::git_remote_url_ok("git@github.com:org/repo.git"));
+        assert!(super::git_remote_url_ok(
+            "ssh://git@github.com/org/repo.git"
+        ));
+        assert!(!super::git_remote_url_ok(""));
+        assert!(!super::git_remote_url_ok("origin"));
+        assert!(!super::git_remote_url_ok(
+            "-u https://github.com/org/repo.git"
+        ));
+        assert!(!super::git_remote_url_ok(
+            "https://github.com/org/repo.git extra"
+        ));
+    }
+
+    fn git_at(dir: &Path, args: &[&str]) -> std::process::Output {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .output()
+            .unwrap()
+    }
+
+    fn init_git_repo_with_commit(dir: &Path) {
+        init_git_repo(dir);
+        std::fs::write(dir.join("readme.txt"), "hi").unwrap();
+        assert!(git_at(dir, &["add", "readme.txt"]).status.success());
+        let commit = git_at(dir, &["commit", "-m", "init"]);
+        assert!(
+            commit.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+    }
+
+    fn init_bare_repo(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        let init = git_at(dir, &["init", "--bare", "-q"]);
+        assert!(
+            init.status.success(),
+            "git init --bare failed: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+    }
+
+    fn current_branch(dir: &Path) -> String {
+        let out = git_at(dir, &["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn git_push_publishes_branch_without_upstream() {
+        let origin = temp_dir("push-origin");
+        init_bare_repo(&origin);
+        let work = temp_dir("push-work");
+        init_git_repo_with_commit(&work);
+        assert!(git_at(
+            &work,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        )
+        .status
+        .success());
+        assert!(git_at(&work, &["checkout", "-b", "feat/handbook-pipeline"])
+            .status
+            .success());
+
+        let res = super::git_push(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert_eq!(res["ok"], true, "{res}");
+
+        let upstream = git_at(
+            &work,
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ],
+        );
+        assert!(
+            upstream.status.success(),
+            "{}",
+            String::from_utf8_lossy(&upstream.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&upstream.stdout).trim(),
+            "origin/feat/handbook-pipeline"
+        );
+        let _ = std::fs::remove_dir_all(&origin);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[tokio::test]
+    async fn git_pull_tracks_origin_when_upstream_missing() {
+        let origin = temp_dir("pull-origin");
+        init_bare_repo(&origin);
+        let seed = temp_dir("pull-seed");
+        init_git_repo_with_commit(&seed);
+        assert!(git_at(
+            &seed,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        )
+        .status
+        .success());
+        let pushed = git_at(&seed, &["push", "-u", "origin", "HEAD"]);
+        assert!(
+            pushed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&pushed.stderr)
+        );
+        let branch = current_branch(&seed);
+
+        let work = temp_dir("pull-work");
+        let clone = std::process::Command::new("git")
+            .args([
+                "clone",
+                "-q",
+                origin.to_str().unwrap(),
+                work.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            clone.status.success(),
+            "{}",
+            String::from_utf8_lossy(&clone.stderr)
+        );
+        assert!(git_at(&work, &["branch", "--unset-upstream"])
+            .status
+            .success());
+
+        std::fs::write(seed.join("readme.txt"), "hi\nmore").unwrap();
+        assert!(git_at(&seed, &["add", "readme.txt"]).status.success());
+        assert!(git_at(&seed, &["commit", "-m", "ahead"]).status.success());
+        assert!(git_at(&seed, &["push", "origin", "HEAD"]).status.success());
+
+        let res = super::git_pull(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert_eq!(res["ok"], true, "{res}");
+        let body = std::fs::read_to_string(work.join("readme.txt")).unwrap();
+        assert!(body.contains("more"), "{body}");
+        let upstream = git_at(
+            &work,
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ],
+        );
+        assert!(upstream.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&upstream.stdout).trim(),
+            format!("origin/{branch}")
+        );
+        let _ = std::fs::remove_dir_all(&origin);
+        let _ = std::fs::remove_dir_all(&seed);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[tokio::test]
+    async fn git_pull_unpublished_branch_asks_to_push_first() {
+        let origin = temp_dir("pull-none-origin");
+        init_bare_repo(&origin);
+        let seed = temp_dir("pull-none-seed");
+        init_git_repo_with_commit(&seed);
+        assert!(git_at(
+            &seed,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        )
+        .status
+        .success());
+        assert!(git_at(&seed, &["push", "-u", "origin", "HEAD"])
+            .status
+            .success());
+
+        let work = temp_dir("pull-none-work");
+        let clone = std::process::Command::new("git")
+            .args([
+                "clone",
+                "-q",
+                origin.to_str().unwrap(),
+                work.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(clone.status.success());
+        assert!(git_at(&work, &["checkout", "-b", "feat/local-only"])
+            .status
+            .success());
+
+        let res = super::git_pull(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert_eq!(res["ok"], false, "{res}");
+        let err = res["stderr"].as_str().unwrap_or("");
+        assert!(err.contains("尚未发布"), "{err}");
+        let _ = std::fs::remove_dir_all(&origin);
+        let _ = std::fs::remove_dir_all(&seed);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[tokio::test]
+    async fn git_remote_add_sets_origin() {
+        let work = temp_dir("remote-add");
+        init_git_repo_with_commit(&work);
+        let res = super::git_remote_add(
+            work.to_string_lossy().into_owned(),
+            "https://github.com/org/repo.git".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(res["ok"], true, "{res}");
+        let remotes = git_at(&work, &["remote"]);
+        assert_eq!(String::from_utf8_lossy(&remotes.stdout).trim(), "origin");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[tokio::test]
+    async fn git_remote_add_rejects_existing_remote() {
+        let work = temp_dir("remote-exists");
+        init_git_repo_with_commit(&work);
+        assert!(git_at(
+            &work,
+            &["remote", "add", "origin", "https://github.com/org/repo.git"],
+        )
+        .status
+        .success());
+        let res = super::git_remote_add(
+            work.to_string_lossy().into_owned(),
+            "https://github.com/org/other.git".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(res["ok"], false, "{res}");
+        assert!(res["stderr"].as_str().unwrap_or("").contains("远程已存在"));
+        let _ = std::fs::remove_dir_all(&work);
     }
 }

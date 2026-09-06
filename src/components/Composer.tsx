@@ -75,7 +75,7 @@ export type ComposerProps = {
   onSend: (text: string) => void;
   /** Secondary action offered only while busy — the one `onSend` did not do. */
   onAlt?: (text: string) => void;
-  /** Label for the secondary action, e.g. "改向" or "排队". */
+  /** Label for the secondary action, e.g. steer or queue. */
   altLabel?: string;
   busy: boolean;
   /** No workspace yet, or the session is still loading. */
@@ -90,11 +90,11 @@ export type ComposerProps = {
   cwd: string;
   grokHome?: string;
   listFiles: (query: string) => Promise<string[]>;
-  /** Optional file reader for “附带内容”. Falls back to `readTextFile`. */
+  /** Optional file reader for attached file contents. Falls back to `readTextFile`. */
   readFile?: (path: string) => Promise<string>;
   /** Relative folder paths offered in @-mentions. */
   mentionDirs?: string[];
-  /** Git working-tree relative paths for @-mentions and "本次改动". */
+  /** Git working-tree relative paths for @-mentions and this-turn changes. */
   mentionChanges?: string[];
 
   mode: Mode;
@@ -268,12 +268,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setAttachments((prev) => {
         const { next, dropped } = addAttachments(prev, incoming);
         if (dropped > 0) {
-          onOverflow?.(`最多 ${ATTACHMENT_CAP} 个附件，已忽略 ${dropped} 个`);
+          onOverflow?.(t("composer.maxAttach", { cap: ATTACHMENT_CAP, dropped }));
         }
         return next;
       });
     },
-    [onOverflow],
+    [onOverflow, t],
   );
 
   const ingestPaths = useCallback(
@@ -315,13 +315,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           const saved = await savePasteBytes(Array.from(buf), pasteFileExt(name, hit.file.type), name);
           incoming.push({ path: saved.path, kind: "file", bytes: saved.bytes, name: saved.name || name });
         } catch (err) {
-          const text = err instanceof Error && err.message.trim() ? err.message : "无法保存粘贴的附件";
+          const text = err instanceof Error && err.message.trim() ? err.message : t("composer.pasteFail");
           onOverflow?.(text);
         }
       }
       await ingestPaths(incoming);
     },
-    [ingestPaths, onOverflow],
+    [ingestPaths, onOverflow, t],
   );
 
   const dropZoneEl = useCallback((): Element | null => {
@@ -749,7 +749,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 type="button"
                 className={`alt-send${held && enterSends ? " shortcut-host" : ""}`}
                 disabled={!canSend}
-                title={
+                data-tip={
                   busyAltTitle ??
                   (altLabel === t("composer.steer")
                     ? t("composer.steerHint")
@@ -765,7 +765,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               type="button"
               className={`send-btn${held && !enterSends ? " shortcut-host" : ""}`}
               disabled={!canSend}
-              title={busy ? busySendTitle : idleSendTitle}
+              data-tip={busy ? busySendTitle : idleSendTitle}
               aria-label={busy ? busySendTitle : idleSendTitle}
               onClick={() => dispatchSend(onSend)}
             >
@@ -792,7 +792,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   className="cwd-chip"
                   aria-haspopup="listbox"
                   aria-expanded={wsOpen}
-                  title={workspaceLabel || undefined}
+                  data-tip={workspaceLabel || undefined}
                   onClick={() => {
                     setModeOpen(false);
                     setEffortOpen(false);

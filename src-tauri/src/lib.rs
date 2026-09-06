@@ -10,42 +10,41 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
 use walkdir::WalkDir;
 
-mod cli_bridge;
-mod rpc_allowlist;
+mod acp_loop;
+mod adapters;
+mod agent_doctor;
 mod agent_host;
 mod agent_manifest;
-mod agents_paths;
+mod agent_models;
+mod agent_registry;
 mod agents_files;
+mod agents_paths;
+mod cli_bridge;
 mod marketplace;
 mod mcp_import;
 mod mcp_toml;
-mod workbench_state;
-mod agent_doctor;
-mod adapters;
-mod skill_sync;
-mod session_scan;
+mod memory_host;
+mod rpc_allowlist;
 mod session_lookup;
 mod session_replay;
-mod acp_loop;
-mod agent_registry;
-mod agent_models;
-mod memory_host;
-use memory_host::{read_memory_host, write_memory_host};
-use agent_models::{patch_agent_model_settings, read_agent_model_source};
-use agent_host::{
-    extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool,
-};
+mod session_scan;
+mod session_usage;
+mod skill_sync;
+mod workbench_state;
 use acp_loop::{spawn_reader, spawn_writer};
-use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
+use agent_host::{extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool};
+use agent_models::{patch_agent_model_settings, read_agent_model_source};
 use cli_bridge::{
     create_skill, git_blame, git_branches, git_commit, git_discard, git_log, git_pull, git_push,
-    git_status_untracked, hide_window, list_agents_dir, list_file_tree,
-    list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal,
-    patch_compat, patch_skills_disabled, read_config_text, read_managed_config, read_models_cache,
-    read_usage_history, read_token_turns, run_grok, run_grok_stream, set_hide_on_close, set_notify_target,
-    trust_folder, watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
-    save_paste_bytes, import_dropped_file, stat_attachment,
+    git_remote_add, git_status_untracked, hide_window, import_dropped_file, list_agents_dir,
+    list_file_tree, list_imagine_artifacts, list_models_text, list_session_spills,
+    open_in_terminal, patch_compat, patch_skills_disabled, read_config_text, read_managed_config,
+    read_models_cache, read_token_turns, read_usage_history, run_grok, run_grok_stream,
+    save_paste_bytes, set_hide_on_close, set_notify_target, stat_attachment, trust_folder,
+    watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
 };
+use memory_host::{read_memory_host, write_memory_host};
+use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 
 pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
@@ -129,9 +128,13 @@ struct SessionSummary {
     parent_session_id: Option<String>,
     last_turn_summary: Option<String>,
     last_turn_summary_prompt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tool_use_id: Option<String>,
 }
 
-fn default_grok_agent() -> String { "grok".into() }
+fn default_grok_agent() -> String {
+    "grok".into()
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -241,16 +244,21 @@ pub(crate) enum PathAccess {
 }
 
 fn has_parent_traversal(path: &Path) -> bool {
-    path.components().any(|component| matches!(component, std::path::Component::ParentDir))
+    path.components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
 fn resolve_with_existing_ancestor(requested: &Path) -> Result<PathBuf, String> {
     let mut ancestor = requested;
     let mut suffix = Vec::new();
     while !ancestor.exists() {
-        let name = ancestor.file_name().ok_or_else(|| "path has no existing ancestor".to_string())?;
+        let name = ancestor
+            .file_name()
+            .ok_or_else(|| "path has no existing ancestor".to_string())?;
         suffix.push(name.to_os_string());
-        ancestor = ancestor.parent().ok_or_else(|| "path has no existing ancestor".to_string())?;
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| "path has no existing ancestor".to_string())?;
     }
     let mut resolved = ancestor.canonicalize().map_err(|e| e.to_string())?;
     for component in suffix.iter().rev() {
@@ -273,11 +281,21 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     false
 }
 
-pub(crate) fn trusted_workspace_for_hint(workspace: Option<&Path>, hint: Option<&str>) -> Result<PathBuf, String> {
-    let root = workspace.ok_or_else(|| "trusted workspace is not set".to_string())?.canonicalize().map_err(|e| e.to_string())?;
-    if root == Path::new("/") || is_blocked_path(&root) { return Err("trusted workspace is invalid".into()); }
+pub(crate) fn trusted_workspace_for_hint(
+    workspace: Option<&Path>,
+    hint: Option<&str>,
+) -> Result<PathBuf, String> {
+    let root = workspace
+        .ok_or_else(|| "trusted workspace is not set".to_string())?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if root == Path::new("/") || is_blocked_path(&root) {
+        return Err("trusted workspace is invalid".into());
+    }
     if let Some(raw) = hint.filter(|value| !value.trim().is_empty()) {
-        let hinted = PathBuf::from(raw).canonicalize().map_err(|e| e.to_string())?;
+        let hinted = PathBuf::from(raw)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
         if hinted == Path::new("/") || is_blocked_path(&hinted) {
             return Err("caller workspace does not match trusted workspace".into());
         }
@@ -296,7 +314,10 @@ pub(crate) fn trusted_workspace_for_hint(workspace: Option<&Path>, hint: Option<
     Ok(root)
 }
 
-pub(crate) fn trusted_desktop_root(workspace: Option<&Path>, hint: Option<&str>) -> Result<Option<PathBuf>, String> {
+pub(crate) fn trusted_desktop_root(
+    workspace: Option<&Path>,
+    hint: Option<&str>,
+) -> Result<Option<PathBuf>, String> {
     let hint = hint.map(str::trim).filter(|value| !value.is_empty());
     if workspace.is_none() && hint.is_none() {
         return Ok(None);
@@ -304,22 +325,39 @@ pub(crate) fn trusted_desktop_root(workspace: Option<&Path>, hint: Option<&str>)
     trusted_workspace_for_hint(workspace, hint).map(Some)
 }
 
-pub(crate) fn resolve_allowed_path(raw: &str, workspace: Option<&Path>, access: PathAccess) -> Result<PathBuf, String> {
-    if raw.is_empty() { return Err("empty path".into()); }
+pub(crate) fn resolve_allowed_path(
+    raw: &str,
+    workspace: Option<&Path>,
+    access: PathAccess,
+) -> Result<PathBuf, String> {
+    if raw.is_empty() {
+        return Err("empty path".into());
+    }
     let requested = PathBuf::from(raw);
-    if !requested.is_absolute() { return Err("path must be absolute".into()); }
-    if has_parent_traversal(&requested) { return Err("parent traversal is not allowed".into()); }
+    if !requested.is_absolute() {
+        return Err("path must be absolute".into());
+    }
+    if has_parent_traversal(&requested) {
+        return Err("parent traversal is not allowed".into());
+    }
     let canon = match access {
         PathAccess::Read => requested.canonicalize().map_err(|e| e.to_string())?,
         PathAccess::Write => resolve_with_existing_ancestor(&requested)?,
     };
-    if is_blocked_path(&canon) { return Err("path is blocked".into()); }
+    if is_blocked_path(&canon) {
+        return Err("path is blocked".into());
+    }
     if matches!(access, PathAccess::Write) {
-        let root = workspace.ok_or_else(|| "trusted workspace is not set".to_string())?.canonicalize().map_err(|e| e.to_string())?;
+        let root = workspace
+            .ok_or_else(|| "trusted workspace is not set".to_string())?
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
         if root == Path::new("/") || is_blocked_path(&root) {
             return Err("trusted workspace is invalid".into());
         }
-        if !canon.starts_with(&root) { return Err("path is outside the workspace".into()); }
+        if !canon.starts_with(&root) {
+            return Err("path is outside the workspace".into());
+        }
         return Ok(canon);
     }
     let allow_root = match workspace {
@@ -371,7 +409,10 @@ async fn doctor() -> DoctorInfo {
 }
 
 fn env_nonempty(name: &str) -> bool {
-    std::env::var(name).ok().map(|s| !s.trim().is_empty()).unwrap_or(false)
+    std::env::var(name)
+        .ok()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
 }
 
 async fn cli_version_of(path: &Path) -> Option<String> {
@@ -425,10 +466,38 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
         probe_agent_binary("codex"),
     );
     vec![
-        crate::agent_doctor::doctor_from_evidence("grok", grok_h.display().to_string(), grok_sub, grok_key, grok_bin.0, grok_bin.1),
-        crate::agent_doctor::doctor_from_evidence("kimi", kimi_h.display().to_string(), crate::agent_doctor::kimi_subscription_present(kimi_h), env_nonempty("KIMI_API_KEY"), kimi_bin.0, kimi_bin.1),
-        crate::agent_doctor::doctor_from_evidence("claude", claude_h.display().to_string(), claude_json.is_file(), env_nonempty("ANTHROPIC_API_KEY"), claude_bin.0, claude_bin.1),
-        crate::agent_doctor::doctor_from_evidence("codex", codex_h.display().to_string(), codex_h.join("auth.json").is_file(), env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"), codex_bin.0, codex_bin.1),
+        crate::agent_doctor::doctor_from_evidence(
+            "grok",
+            grok_h.display().to_string(),
+            grok_sub,
+            grok_key,
+            grok_bin.0,
+            grok_bin.1,
+        ),
+        crate::agent_doctor::doctor_from_evidence(
+            "kimi",
+            kimi_h.display().to_string(),
+            crate::agent_doctor::kimi_subscription_present(kimi_h),
+            env_nonempty("KIMI_API_KEY"),
+            kimi_bin.0,
+            kimi_bin.1,
+        ),
+        crate::agent_doctor::doctor_from_evidence(
+            "claude",
+            claude_h.display().to_string(),
+            claude_json.is_file(),
+            env_nonempty("ANTHROPIC_API_KEY"),
+            claude_bin.0,
+            claude_bin.1,
+        ),
+        crate::agent_doctor::doctor_from_evidence(
+            "codex",
+            codex_h.display().to_string(),
+            codex_h.join("auth.json").is_file(),
+            env_nonempty("OPENAI_API_KEY") || env_nonempty("CODEX_API_KEY"),
+            codex_bin.0,
+            codex_bin.1,
+        ),
     ]
 }
 
@@ -465,9 +534,19 @@ async fn start_agent(
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = mpsc::channel::<String>(64);
 
-    let grok_bin = if id == AgentId::Grok { resolve_grok() } else { None };
-    let registry = std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
-    let (cmd_path, args) = crate::adapters::spawn_argv(id, grok_bin.as_deref(), registry.as_deref()).ok_or_else(|| {
+    let grok_bin = if id == AgentId::Grok {
+        resolve_grok()
+    } else {
+        None
+    };
+    let registry =
+        std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
+    let (cmd_path, args) = crate::adapters::spawn_argv(
+        id,
+        grok_bin.as_deref(),
+        registry.as_deref(),
+    )
+    .ok_or_else(|| {
         if id == AgentId::Grok {
             AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
         } else {
@@ -493,7 +572,9 @@ async fn start_agent(
         cmd.env("PATH", path);
         cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
     }
-    let mut child = cmd.spawn().map_err(|e| AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str())))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::Message(format!("启动 {} agent 失败: {e}", id.as_str())))?;
     let grok_path = grok_bin;
 
     let stdout = child
@@ -533,10 +614,7 @@ async fn start_agent(
 }
 
 #[tauri::command]
-async fn stop_agent(
-    state: State<'_, Arc<AppState>>,
-    agent_id: Option<String>,
-) -> AppResult<()> {
+async fn stop_agent(state: State<'_, Arc<AppState>>, agent_id: Option<String>) -> AppResult<()> {
     if agent_id.is_none() {
         stop_agent_inner(&state).await;
     } else {
@@ -666,6 +744,12 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        tool_use_id: value
+            .get("tool_use_id")
+            .or_else(|| value.get("toolUseId"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -674,11 +758,17 @@ fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
     for s in summaries.iter() {
         let Some(dir) = s.dir.as_ref() else { continue };
         let sub = Path::new(dir).join("subagents");
-        let Ok(rd) = std::fs::read_dir(&sub) else { continue };
+        let Ok(rd) = std::fs::read_dir(&sub) else {
+            continue;
+        };
         for ent in rd.flatten() {
             let meta = ent.path().join("meta.json");
-            let Ok(text) = std::fs::read_to_string(&meta) else { continue };
-            let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(&meta) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
             let child = v
                 .get("child_session_id")
                 .or_else(|| v.get("subagent_id"))
@@ -734,7 +824,10 @@ fn cached_sessions() -> Vec<SessionSummary> {
     let cache = SESSIONS_DIR_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     if cli_bridge::cache_hit(guard.as_ref().map(|row| row.mtime), mtime) {
-        return guard.as_ref().map(|row| row.sessions.clone()).unwrap_or_default();
+        return guard
+            .as_ref()
+            .map(|row| row.sessions.clone())
+            .unwrap_or_default();
     }
     let sessions = scan_all_sessions();
     *guard = Some(SessionsDirCache {
@@ -742,6 +835,12 @@ fn cached_sessions() -> Vec<SessionSummary> {
         sessions: sessions.clone(),
     });
     sessions
+}
+
+fn invalidate_sessions_cache() {
+    if let Some(cache) = SESSIONS_DIR_CACHE.get() {
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
 }
 
 #[tauri::command]
@@ -765,6 +864,7 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
                 parent_session_id: row.parent_session_id,
                 last_turn_summary: None,
                 last_turn_summary_prompt_id: None,
+                tool_use_id: row.tool_use_id,
             });
         }
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -776,48 +876,11 @@ async fn list_sessions(cwd: Option<String>) -> AppResult<Vec<SessionSummary>> {
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-#[derive(Debug, Serialize)]
-struct SessionUsage {
-    used: u64,
-    size: u64,
-}
-
 #[tauri::command]
-async fn read_session_usage(session_id: String) -> AppResult<Option<SessionUsage>> {
+async fn read_session_usage(session_id: String) -> AppResult<Option<session_usage::SessionUsage>> {
     tokio::task::spawn_blocking(move || {
-        let Some(dir) = find_session_dir(&session_id) else {
-            return Ok(None);
-        };
-        let path = dir.join("signals.json");
-        if !path.is_file() {
-            return Ok(None);
-        }
-        let value: Value = match std::fs::read_to_string(&path) {
-            Ok(text) => match serde_json::from_str(&text) {
-                Ok(v) => v,
-                Err(_) => return Ok(None),
-            },
-            Err(_) => return Ok(None),
-        };
-        let used = value
-            .get("contextTokensUsed")
-            .and_then(|v| v.as_u64())
-            .or_else(|| {
-                value
-                    .get("contextWindowUsage")
-                    .and_then(|v| v.as_u64())
-                    .and_then(|pct| {
-                        value
-                            .get("contextWindowTokens")
-                            .and_then(|s| s.as_u64())
-                            .map(|size| size.saturating_mul(pct) / 100)
-                    })
-            });
-        let size = value.get("contextWindowTokens").and_then(|v| v.as_u64());
-        match (used, size) {
-            (Some(used), Some(size)) if size > 0 => Ok(Some(SessionUsage { used, size })),
-            _ => Ok(None),
-        }
+        Ok(find_session_dir(&session_id)
+            .and_then(|path| session_usage::session_usage_from_path(&path)))
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
@@ -847,7 +910,13 @@ fn parse_update_line(line: &str) -> Option<Value> {
     let ts_ms = value
         .get("timestamp")
         .and_then(|v| v.as_f64())
-        .map(|ts| if ts > 100_000_000_000.0 { ts } else { ts * 1000.0 })
+        .map(|ts| {
+            if ts > 100_000_000_000.0 {
+                ts
+            } else {
+                ts * 1000.0
+            }
+        })
         .map(|ms| ms as u64);
     let mut params = value.get("params").cloned().unwrap_or(value);
     if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
@@ -877,7 +946,10 @@ fn parse_update_line(line: &str) -> Option<Value> {
     }
 }
 
-pub(crate) fn read_updates_jsonl(path: &Path, after_byte: Option<u64>) -> AppResult<SessionUpdates> {
+pub(crate) fn read_updates_jsonl(
+    path: &Path,
+    after_byte: Option<u64>,
+) -> AppResult<SessionUpdates> {
     read_updates_jsonl_limited(path, after_byte, SESSION_UPDATES_TAIL_MAX)
 }
 
@@ -953,15 +1025,11 @@ pub(crate) fn session_updates_for_dir(
         return Ok(empty_session_updates());
     }
     if let Some(transcript) = crate::session_replay::resolve_transcript(dir) {
-        if transcript
-            .file_name()
-            .and_then(|n| n.to_str())
-            == Some("updates.jsonl")
-        {
+        if transcript.file_name().and_then(|n| n.to_str()) == Some("updates.jsonl") {
             return read_updates_jsonl(&transcript, after_byte);
         }
-        let page = crate::session_replay::replay_session(dir, after_byte)
-            .map_err(AppError::Message)?;
+        let page =
+            crate::session_replay::replay_session(dir, after_byte).map_err(AppError::Message)?;
         return Ok(SessionUpdates {
             rows: page.rows,
             next_byte: page.next_byte,
@@ -1064,25 +1132,36 @@ async fn load_webui_state() -> AppResult<Value> {
     let path = webui_path();
     let legacy = crate::agents_paths::grok_webui_path(&grok_home());
     if crate::workbench_state::should_copy_webui(path.is_file(), legacy.is_file()) {
-        let text = tokio::fs::read_to_string(&legacy).await.map_err(|e| AppError::Message(e.to_string()))?;
-        let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+        let text = tokio::fs::read_to_string(&legacy)
+            .await
+            .map_err(|e| AppError::Message(e.to_string()))?;
+        let raw: Value =
+            serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
         let migrated = crate::workbench_state::migrate_workbench_doc(raw);
         if let Some(parent) = path.parent() {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
-        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
-        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+        let out = serde_json::to_string_pretty(&migrated)
+            .map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out)
+            .await
+            .map_err(|e| AppError::Message(e.to_string()))?;
         return Ok(migrated);
     }
     if !path.is_file() {
         return Ok(json!({ "projects": [], "theme": "light", "model": "", "showThinking": true }));
     }
-    let text = tokio::fs::read_to_string(&path).await.map_err(|e| AppError::Message(e.to_string()))?;
+    let text = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?;
     let raw: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
     let migrated = crate::workbench_state::load_existing_workbench_doc(raw.clone());
     if migrated != raw {
-        let out = serde_json::to_string_pretty(&migrated).map_err(|e| AppError::Message(e.to_string()))?;
-        tokio::fs::write(&path, out).await.map_err(|e| AppError::Message(e.to_string()))?;
+        let out = serde_json::to_string_pretty(&migrated)
+            .map_err(|e| AppError::Message(e.to_string()))?;
+        tokio::fs::write(&path, out)
+            .await
+            .map_err(|e| AppError::Message(e.to_string()))?;
     }
     Ok(migrated)
 }
@@ -1091,32 +1170,57 @@ async fn load_webui_state() -> AppResult<Value> {
 async fn install_marketplace_skill(source: String) -> AppResult<String> {
     let src = PathBuf::from(source);
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
-    tokio::task::spawn_blocking(move || crate::marketplace::install_marketplace_skill_inner(&src, &agents))
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?
-        .map_err(AppError::Message)
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
+    tokio::task::spawn_blocking(move || {
+        crate::marketplace::install_marketplace_skill_inner(&src, &agents)
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+    .map_err(AppError::Message)
 }
 
 #[tauri::command]
-async fn sync_agent_skill(name: String, enabled: Vec<(String, bool)>) -> AppResult<Vec<(String, String)>> {
+async fn sync_agent_skill(
+    name: String,
+    enabled: Vec<(String, bool)>,
+) -> AppResult<Vec<(String, String)>> {
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let canonical = agents.join("skills").join(&name);
     let flags: Vec<(String, bool)> = enabled;
     tokio::task::spawn_blocking(move || {
         let pairs: Vec<(&str, bool)> = flags.iter().map(|(a, e)| (a.as_str(), *e)).collect();
         let rows = crate::skill_sync::sync_skill_to_agents(&canonical, &home, &name, &pairs);
-        Ok(rows.into_iter().map(|(a, r)| {
-            (a, match r { Ok(s) => s.to_string(), Err(e) => e })
-        }).collect())
-    }).await.map_err(|e| AppError::Message(e.to_string()))?
+        Ok(rows
+            .into_iter()
+            .map(|(a, r)| {
+                (
+                    a,
+                    match r {
+                        Ok(s) => s.to_string(),
+                        Err(e) => e,
+                    },
+                )
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
 async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let mcp_path = agents.join("mcp.json");
     let claude = home.join(".claude.json");
     let kimi = home.join(".kimi-code").join("mcp.json");
@@ -1124,17 +1228,25 @@ async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
         let canon = std::fs::read_to_string(&mcp_path).unwrap_or_default();
         let live_c = std::fs::read_to_string(&claude).unwrap_or_default();
         let live_k = std::fs::read_to_string(&kimi).unwrap_or_default();
-        let (out, conflicts) = crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k]);
-        if let Some(p) = mcp_path.parent() { let _ = std::fs::create_dir_all(p); }
+        let (out, conflicts) =
+            crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k]);
+        if let Some(p) = mcp_path.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
         std::fs::write(&mcp_path, out).map_err(|e| AppError::Message(e.to_string()))?;
         Ok(conflicts)
-    }).await.map_err(|e| AppError::Message(e.to_string()))?
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
 async fn read_agents_file(kind: String) -> AppResult<String> {
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
         .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
     tokio::task::spawn_blocking(move || Ok(crate::agents_files::read_agents_file_text(&path)))
@@ -1145,7 +1257,10 @@ async fn read_agents_file(kind: String) -> AppResult<String> {
 #[tauri::command]
 async fn write_agents_file(kind: String, text: String) -> AppResult<()> {
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
         .ok_or_else(|| AppError::Message(format!("unknown agents file kind: {kind}")))?;
     tokio::task::spawn_blocking(move || {
@@ -1156,12 +1271,20 @@ async fn write_agents_file(kind: String, text: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-async fn upsert_toml_mcp(kind: String, name: String, command: String, args: Vec<String>) -> AppResult<()> {
+async fn upsert_toml_mcp(
+    kind: String,
+    name: String,
+    command: String,
+    args: Vec<String>,
+) -> AppResult<()> {
     if kind != "grok-toml" && kind != "codex-toml" {
         return Err(AppError::Message("unknown toml kind".into()));
     }
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
         .ok_or_else(|| AppError::Message("unknown kind".into()))?;
     tokio::task::spawn_blocking(move || {
@@ -1179,7 +1302,10 @@ async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
         return Err(AppError::Message("unknown toml kind".into()));
     }
     let home = dirs_home();
-    let agents = crate::agents_paths::agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let agents = crate::agents_paths::agents_home_from(
+        &home,
+        std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
+    );
     let path = crate::agents_files::agents_file_path(&home, &agents, &kind)
         .ok_or_else(|| AppError::Message("unknown kind".into()))?;
     tokio::task::spawn_blocking(move || {
@@ -1193,7 +1319,8 @@ async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
 
 #[tauri::command]
 async fn save_webui_state(state: Value) -> AppResult<()> {
-    let text = serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
+    let text =
+        serde_json::to_string_pretty(&state).map_err(|e| AppError::Message(e.to_string()))?;
     {
         let cache = LAST_WEBUI_TEXT.get_or_init(|| std::sync::Mutex::new(None));
         let last = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -1222,9 +1349,9 @@ async fn list_project_roots() -> AppResult<Vec<String>> {
                 set.insert(row.cwd);
             }
         }
-        for cwd in crate::session_scan::collect_cwds(&crate::session_scan::scan_vendor_homes(
-            &dirs_home(),
-        )) {
+        for cwd in
+            crate::session_scan::collect_cwds(&crate::session_scan::scan_vendor_homes(&dirs_home()))
+        {
             set.insert(cwd);
         }
         Ok(set.into_iter().collect())
@@ -1234,12 +1361,15 @@ async fn list_project_roots() -> AppResult<Vec<String>> {
 }
 
 #[tauri::command]
-async fn delete_session(session_id: String) -> AppResult<()> {
+async fn delete_session(session_id: String, dir: Option<String>) -> AppResult<()> {
     tokio::task::spawn_blocking(move || {
         let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
-        match crate::session_lookup::find_session_dir_in(&session_id, &roots) {
-            Some((_, path)) => {
-                std::fs::remove_dir_all(path).map_err(|e| AppError::Message(e.to_string()))
+        match crate::session_lookup::resolve_delete_path(&session_id, dir.as_deref(), &roots) {
+            Some(path) => {
+                crate::session_lookup::remove_session_at(&path)
+                    .map_err(|e| AppError::Message(e.to_string()))?;
+                invalidate_sessions_cache();
+                Ok(())
             }
             None => Err(AppError::Message("session not found".into())),
         }
@@ -1266,7 +1396,11 @@ async fn ensure_inbox(path: Option<String>) -> AppResult<String> {
 }
 
 #[tauri::command]
-async fn move_session_to_cwd(session_id: String, dest_cwd: String, inbox_cwd: String) -> AppResult<SessionSummary> {
+async fn move_session_to_cwd(
+    session_id: String,
+    dest_cwd: String,
+    inbox_cwd: String,
+) -> AppResult<SessionSummary> {
     tokio::task::spawn_blocking(move || {
         let dest = normalize_cwd(&dest_cwd);
         let inbox = normalize_cwd(&inbox_cwd);
@@ -1276,10 +1410,13 @@ async fn move_session_to_cwd(session_id: String, dest_cwd: String, inbox_cwd: St
         if dest == inbox {
             return Err(AppError::Message("目标不能是收件箱".into()));
         }
-        let src_dir = find_session_dir(&session_id).ok_or_else(|| AppError::Message("session not found".into()))?;
+        let src_dir = find_session_dir(&session_id)
+            .ok_or_else(|| AppError::Message("session not found".into()))?;
         let summary_path = src_dir.join("summary.json");
-        let text = std::fs::read_to_string(&summary_path).map_err(|e| AppError::Message(e.to_string()))?;
-        let mut value: Value = serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
+        let text =
+            std::fs::read_to_string(&summary_path).map_err(|e| AppError::Message(e.to_string()))?;
+        let mut value: Value =
+            serde_json::from_str(&text).map_err(|e| AppError::Message(e.to_string()))?;
         let current = value
             .get("info")
             .and_then(|i| i.get("cwd"))
@@ -1300,23 +1437,23 @@ async fn move_session_to_cwd(session_id: String, dest_cwd: String, inbox_cwd: St
         } else {
             value["info"] = json!({ "id": session_id, "cwd": dest });
         }
-        let next_text = serde_json::to_string_pretty(&value).map_err(|e| AppError::Message(e.to_string()))?;
+        let next_text =
+            serde_json::to_string_pretty(&value).map_err(|e| AppError::Message(e.to_string()))?;
         std::fs::rename(&src_dir, &dest_dir).map_err(|e| AppError::Message(e.to_string()))?;
         if let Err(e) = std::fs::write(dest_dir.join("summary.json"), next_text) {
             let _ = std::fs::rename(&dest_dir, &src_dir);
             return Err(AppError::Message(e.to_string()));
         }
-        parse_summary(&dest_dir.join("summary.json")).ok_or_else(|| AppError::Message("搬家后无法读取会话".into()))
+        invalidate_sessions_cache();
+        parse_summary(&dest_dir.join("summary.json"))
+            .ok_or_else(|| AppError::Message("搬家后无法读取会话".into()))
     })
     .await
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
 #[tauri::command]
-async fn inspect_brief(
-    state: State<'_, Arc<AppState>>,
-    cwd: Option<String>,
-) -> AppResult<Value> {
+async fn inspect_brief(state: State<'_, Arc<AppState>>, cwd: Option<String>) -> AppResult<Value> {
     let grok = resolve_grok().ok_or_else(|| AppError::Message("找不到 grok".into()))?;
     let mut cmd = Command::new(grok);
     cmd.args(["inspect", "--json"]);
@@ -1417,13 +1554,7 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
             let name = ent.file_name().to_string_lossy().into_owned();
             if matches!(
                 name.as_str(),
-                "node_modules"
-                    | ".git"
-                    | "target"
-                    | "dist"
-                    | ".next"
-                    | "__pycache__"
-                    | ".DS_Store"
+                "node_modules" | ".git" | "target" | "dist" | ".next" | "__pycache__" | ".DS_Store"
             ) {
                 continue;
             }
@@ -1433,11 +1564,7 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
             let row = WorkspaceEntry {
                 name,
                 path: abs,
-                kind: if is_dir {
-                    "dir".into()
-                } else {
-                    "file".into()
-                },
+                kind: if is_dir { "dir".into() } else { "file".into() },
             };
             if is_dir {
                 dirs.push(row);
@@ -1488,9 +1615,14 @@ fn is_transient_path(canon: &Path) -> bool {
     if is_under(canon, &temp) {
         return true;
     }
-    ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
-        .iter()
-        .any(|root| is_under(canon, Path::new(root)))
+    [
+        "/tmp",
+        "/private/tmp",
+        "/var/folders",
+        "/private/var/folders",
+    ]
+    .iter()
+    .any(|root| is_under(canon, Path::new(root)))
 }
 
 fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: bool) -> bool {
@@ -1643,10 +1775,7 @@ struct RuleFile {
 
 fn rule_scope(dir: &Path, cwd: &Path, home: &Path) -> &'static str {
     // Home first: a project under $HOME must not classify ~/.claude as "parent".
-    if dir == home
-        || is_under(dir, &home.join(".claude"))
-        || is_under(dir, &home.join(".cursor"))
-    {
+    if dir == home || is_under(dir, &home.join(".claude")) || is_under(dir, &home.join(".cursor")) {
         "home"
     } else if dir == cwd || is_under(dir, cwd) {
         // `<cwd>/.claude/CLAUDE.md` lives in a subdirectory, but it is still
@@ -1866,10 +1995,7 @@ async fn search_session_text(
                 None
             };
             if snippet.is_none() {
-                let updates_path = entry
-                    .path()
-                    .parent()
-                    .map(|p| p.join("updates.jsonl"));
+                let updates_path = entry.path().parent().map(|p| p.join("updates.jsonl"));
                 if let Some(path) = updates_path {
                     if path.is_file() {
                         if let Ok(mut f) = std::fs::File::open(&path) {
@@ -1932,11 +2058,17 @@ fn path_is_dir(path: String) -> bool {
 
 fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     #[cfg(target_os = "macos")]
-    { ("open", vec!["--".into(), target.as_os_str().to_owned()]) }
+    {
+        ("open", vec!["--".into(), target.as_os_str().to_owned()])
+    }
     #[cfg(target_os = "linux")]
-    { ("xdg-open", vec![target.as_os_str().to_owned()]) }
+    {
+        ("xdg-open", vec![target.as_os_str().to_owned()])
+    }
     #[cfg(target_os = "windows")]
-    { ("explorer", vec![target.as_os_str().to_owned()]) }
+    {
+        ("explorer", vec![target.as_os_str().to_owned()])
+    }
 }
 
 fn decode_file_url(raw: &str) -> String {
@@ -1961,7 +2093,8 @@ fn decode_file_url(raw: &str) -> String {
 }
 
 fn reject_symlink(path: &Path) -> AppResult<()> {
-    let meta = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|_| AppError::Message("Review 目标不存在".into()))?;
     if meta.file_type().is_symlink() {
         return Err(AppError::Message("Review 目标不能是符号链接".into()));
     }
@@ -1973,8 +2106,10 @@ fn confirm_unfollowed(path: &Path) -> AppResult<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        let lstat = std::fs::symlink_metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
-        let followed = std::fs::metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        let lstat = std::fs::symlink_metadata(path)
+            .map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+        let followed =
+            std::fs::metadata(path).map_err(|_| AppError::Message("Review 目标不存在".into()))?;
         if lstat.dev() != followed.dev() || lstat.ino() != followed.ino() {
             return Err(AppError::Message("Review 目标不能是符号链接".into()));
         }
@@ -1982,32 +2117,84 @@ fn confirm_unfollowed(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_review_open_target(path: &str, workspace: Option<&Path>, hint: &str) -> AppResult<PathBuf> {
+fn validate_review_open_target(
+    path: &str,
+    workspace: Option<&Path>,
+    hint: &str,
+) -> AppResult<PathBuf> {
     let trimmed = path.trim();
-    if trimmed.is_empty() || trimmed.contains("://") || trimmed.starts_with('-') { return Err(AppError::Message("Review 目标不安全".into())); }
+    if trimmed.is_empty() || trimmed.contains("://") || trimmed.starts_with('-') {
+        return Err(AppError::Message("Review 目标不安全".into()));
+    }
     let root = trusted_workspace_for_hint(workspace, Some(hint)).map_err(AppError::Message)?;
     let requested = PathBuf::from(trimmed);
-    if has_parent_traversal(&requested) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
-    let unfollowed = if requested.is_absolute() { requested } else { root.join(requested) };
-    if is_blocked_path(&unfollowed) || !is_under(&unfollowed, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    if has_parent_traversal(&requested) {
+        return Err(AppError::Message("Review 目标不在当前工作区".into()));
+    }
+    let unfollowed = if requested.is_absolute() {
+        requested
+    } else {
+        root.join(requested)
+    };
+    if is_blocked_path(&unfollowed) || !is_under(&unfollowed, &root) {
+        return Err(AppError::Message("Review 目标不在当前工作区".into()));
+    }
     confirm_unfollowed(&unfollowed)?;
-    let target = unfollowed.canonicalize().map_err(|_| AppError::Message("Review 目标不存在".into()))?;
-    if is_blocked_path(&target) || !is_under(&target, &root) { return Err(AppError::Message("Review 目标不在当前工作区".into())); }
+    let target = unfollowed
+        .canonicalize()
+        .map_err(|_| AppError::Message("Review 目标不存在".into()))?;
+    if is_blocked_path(&target) || !is_under(&target, &root) {
+        return Err(AppError::Message("Review 目标不在当前工作区".into()));
+    }
     confirm_unfollowed(&unfollowed)?;
     let lower = unfollowed.to_string_lossy().to_lowercase();
-    if lower.split('/').any(|part| part.ends_with(".app")) || matches!(unfollowed.extension().and_then(|v| v.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")) { return Err(AppError::Message("Review 不允许打开应用或可执行文件".into())); }
+    if lower.split('/').any(|part| part.ends_with(".app"))
+        || matches!(
+            unfollowed
+                .extension()
+                .and_then(|v| v.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")
+        )
+    {
+        return Err(AppError::Message(
+            "Review 不允许打开应用或可执行文件".into(),
+        ));
+    }
     #[cfg(unix)]
-    if std::fs::symlink_metadata(&unfollowed).map(|m| { use std::os::unix::fs::PermissionsExt; m.permissions().mode() & 0o111 != 0 }).unwrap_or(false) { return Err(AppError::Message("Review 不允许打开可执行文件".into())); }
+    if std::fs::symlink_metadata(&unfollowed)
+        .map(|m| {
+            use std::os::unix::fs::PermissionsExt;
+            m.permissions().mode() & 0o111 != 0
+        })
+        .unwrap_or(false)
+    {
+        return Err(AppError::Message("Review 不允许打开可执行文件".into()));
+    }
     Ok(unfollowed)
 }
 
 #[tauri::command]
-async fn open_review_path(state: State<'_, Arc<AppState>>, path: String, allow_root: String) -> AppResult<()> {
+async fn open_review_path(
+    state: State<'_, Arc<AppState>>,
+    path: String,
+    allow_root: String,
+) -> AppResult<()> {
     let workspace = state.workspace.lock().await.clone();
     let target = validate_review_open_target(&path, workspace.as_deref(), &allow_root)?;
     let (program, args) = open_command(&target);
-    let status = Command::new(program).args(args).status().await.map_err(|e| AppError::Message(e.to_string()))?;
-    if !status.success() { return Err(AppError::Message(format!("open 失败: {}", target.display()))); }
+    let status = Command::new(program)
+        .args(args)
+        .status()
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    if !status.success() {
+        return Err(AppError::Message(format!(
+            "open 失败: {}",
+            target.display()
+        )));
+    }
     Ok(())
 }
 
@@ -2026,11 +2213,15 @@ async fn open_path(path: String) -> AppResult<()> {
     } else {
         trimmed.to_string()
     };
-    if !target.starts_with("http://") && !target.starts_with("https://") && open_path_arg_rejected(&target) {
+    if !target.starts_with("http://")
+        && !target.starts_with("https://")
+        && open_path_arg_rejected(&target)
+    {
         return Err(AppError::Message("invalid path".into()));
     }
     let (program, args) = open_command(Path::new(&target));
-    let status = Command::new(program).args(args)
+    let status = Command::new(program)
+        .args(args)
         .status()
         .await
         .map_err(|e| AppError::Message(e.to_string()))?;
@@ -2046,11 +2237,13 @@ pub(crate) fn config_path() -> PathBuf {
 }
 
 fn toml_bool(item: &toml_edit::Item) -> Option<bool> {
-    item.as_bool().or_else(|| item.as_str().and_then(|s| match s {
-        "true" | "True" => Some(true),
-        "false" | "False" => Some(false),
-        _ => None,
-    }))
+    item.as_bool().or_else(|| {
+        item.as_str().and_then(|s| match s {
+            "true" | "True" => Some(true),
+            "false" | "False" => Some(false),
+            _ => None,
+        })
+    })
 }
 
 #[tauri::command]
@@ -2109,10 +2302,7 @@ async fn read_cli_settings() -> AppResult<Value> {
         let mut mcp = Vec::new();
         if let Some(tbl) = doc.get("mcp_servers").and_then(|i| i.as_table()) {
             for (name, item) in tbl.iter() {
-                let enabled = item
-                    .get("enabled")
-                    .and_then(toml_bool)
-                    .unwrap_or(true);
+                let enabled = item.get("enabled").and_then(toml_bool).unwrap_or(true);
                 mcp.push(json!({ "name": name, "enabled": enabled }));
             }
         }
@@ -2139,7 +2329,10 @@ async fn read_cli_settings() -> AppResult<Value> {
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-pub(crate) fn ensure_table<'a>(doc: &'a mut toml_edit::DocumentMut, key: &str) -> &'a mut toml_edit::Table {
+pub(crate) fn ensure_table<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    key: &str,
+) -> &'a mut toml_edit::Table {
     if !doc.contains_key(key) {
         doc[key] = toml_edit::Item::Table(toml_edit::Table::new());
     }
@@ -2245,6 +2438,8 @@ struct GitStatus {
     dirty: u32,
     ahead: u32,
     behind: u32,
+    remote: String,
+    has_upstream: bool,
 }
 
 impl GitStatus {
@@ -2256,6 +2451,8 @@ impl GitStatus {
             dirty: 0,
             ahead: 0,
             behind: 0,
+            remote: String::new(),
+            has_upstream: false,
         }
     }
 }
@@ -2280,7 +2477,12 @@ fn is_noise_path(rel: &str) -> bool {
 }
 
 async fn git_output(dir: &Path, args: &[&str], secs: u64) -> Option<std::process::Output> {
-    let run = Command::new("git").arg("-C").arg(dir).args(args).output();
+    let run = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "core.quotepath=false"])
+        .args(args)
+        .output();
     match tokio::time::timeout(std::time::Duration::from_secs(secs), run).await {
         Ok(Ok(out)) => Some(out),
         _ => None,
@@ -2321,7 +2523,10 @@ pub(crate) async fn git_repo_root(cwd: &str) -> Option<PathBuf> {
     if root.is_empty() {
         None
     } else {
-        PathBuf::from(root).canonicalize().ok().or_else(|| Some(PathBuf::from(root)))
+        PathBuf::from(root)
+            .canonicalize()
+            .ok()
+            .or_else(|| Some(PathBuf::from(root)))
     }
 }
 
@@ -2350,6 +2555,22 @@ async fn git_status(cwd: String) -> AppResult<GitStatus> {
         Some((behind, ahead))
     })
     .unwrap_or((0, 0));
+    let remote = git_stdout(&root, &["remote"])
+        .await
+        .and_then(|s| cli_bridge::pick_default_remote(&s))
+        .unwrap_or_default();
+    let has_upstream = git_stdout(
+        &root,
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    )
+    .await
+    .map(|s| !s.trim().is_empty())
+    .unwrap_or(false);
     Ok(GitStatus {
         is_repo: true,
         root: root.to_string_lossy().into_owned(),
@@ -2357,6 +2578,8 @@ async fn git_status(cwd: String) -> AppResult<GitStatus> {
         dirty,
         ahead,
         behind,
+        remote,
+        has_upstream,
     })
 }
 
@@ -2434,8 +2657,7 @@ async fn git_changes(cwd: String) -> AppResult<Vec<GitChange>> {
 
         for line in numstat.lines() {
             let mut cols = line.splitn(3, '\t');
-            let (Some(added), Some(removed), Some(rel)) =
-                (cols.next(), cols.next(), cols.next())
+            let (Some(added), Some(removed), Some(rel)) = (cols.next(), cols.next(), cols.next())
             else {
                 continue;
             };
@@ -2608,6 +2830,79 @@ mod git_ref_tests {
     }
 }
 
+#[cfg(test)]
+mod git_status_sync_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("grok-webui-{label}-{}-{id}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn git_at(dir: &Path, args: &[&str]) -> std::process::Output {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .output()
+            .unwrap()
+    }
+
+    fn init_repo(dir: &Path) {
+        assert!(git_at(dir, &["init", "-q"]).status.success());
+        let _ = git_at(dir, &["config", "user.email", "test@example.com"]);
+        let _ = git_at(dir, &["config", "user.name", "test"]);
+        std::fs::write(dir.join("readme.txt"), "hi").unwrap();
+        assert!(git_at(dir, &["add", "readme.txt"]).status.success());
+        assert!(git_at(dir, &["commit", "-m", "init"]).status.success());
+    }
+
+    #[tokio::test]
+    async fn git_status_reports_no_remote_on_fresh_repo() {
+        let work = temp_dir("status-local");
+        init_repo(&work);
+        let st = git_status(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert!(st.is_repo);
+        assert!(st.remote.is_empty());
+        assert!(!st.has_upstream);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[tokio::test]
+    async fn git_status_reports_origin_without_upstream() {
+        let origin = temp_dir("status-origin");
+        assert!(git_at(&origin, &["init", "--bare", "-q"]).status.success());
+        let work = temp_dir("status-work");
+        init_repo(&work);
+        assert!(git_at(
+            &work,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        )
+        .status
+        .success());
+        let st = git_status(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert_eq!(st.remote, "origin");
+        assert!(!st.has_upstream);
+        let _ = std::fs::remove_dir_all(&origin);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+}
+
 #[tauri::command]
 async fn git_list_worktrees(cwd: String) -> AppResult<String> {
     let Some(root) = git_repo_root(&cwd).await else {
@@ -2666,7 +2961,8 @@ async fn restore_text_file(
     let workspace = state.workspace.lock().await.clone();
     tokio::task::spawn_blocking(move || {
         let no_root = || AppError::Message("没有可写的项目根目录".into());
-        let root = trusted_workspace_for_hint(workspace.as_deref(), Some(allow_root.trim())).map_err(|_| no_root())?;
+        let root = trusted_workspace_for_hint(workspace.as_deref(), Some(allow_root.trim()))
+            .map_err(|_| no_root())?;
         if root == Path::new("/") || root == dirs_home() {
             return Err(no_root());
         }
@@ -2888,6 +3184,7 @@ pub fn run() {
             git_commit,
             git_pull,
             git_push,
+            git_remote_add,
             git_discard,
             git_blame,
             git_status_untracked,
@@ -2932,7 +3229,11 @@ mod final_review_tests {
     use super::*;
 
     fn acp_path_root() -> PathBuf {
-        let root = std::env::temp_dir().join(format!("grok-acp-path-policy-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let root = std::env::temp_dir().join(format!(
+            "grok-acp-path-policy-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root.canonicalize().unwrap()
@@ -2943,10 +3244,18 @@ mod final_review_tests {
         let root = acp_path_root();
         let existing = root.join("existing.txt");
         std::fs::write(&existing, "ok").unwrap();
-        assert_eq!(resolve_allowed_path(existing.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(), existing);
+        assert_eq!(
+            resolve_allowed_path(existing.to_str().unwrap(), Some(&root), PathAccess::Read)
+                .unwrap(),
+            existing
+        );
         let new_file = root.join("nested").join("new.txt");
         std::fs::create_dir(root.join("nested")).unwrap();
-        assert_eq!(resolve_allowed_path(new_file.to_str().unwrap(), Some(&root), PathAccess::Write).unwrap(), new_file);
+        assert_eq!(
+            resolve_allowed_path(new_file.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .unwrap(),
+            new_file
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2955,12 +3264,18 @@ mod final_review_tests {
     fn acp_path_resolver_rejects_new_write_through_symlinked_parent() {
         use std::os::unix::fs::symlink;
         let root = acp_path_root();
-        let outside = root.parent().unwrap().join(format!("{}-outside", root.file_name().unwrap().to_string_lossy()));
+        let outside = root.parent().unwrap().join(format!(
+            "{}-outside",
+            root.file_name().unwrap().to_string_lossy()
+        ));
         let _ = std::fs::remove_dir_all(&outside);
         std::fs::create_dir_all(&outside).unwrap();
         symlink(&outside, root.join("link")).unwrap();
         let escaped = root.join("link").join("new.txt");
-        assert!(resolve_allowed_path(escaped.to_str().unwrap(), Some(&root), PathAccess::Write).is_err());
+        assert!(
+            resolve_allowed_path(escaped.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
     }
@@ -2971,20 +3286,37 @@ mod final_review_tests {
         let blocked = dirs_home().join(".ssh").join("new-key");
         assert!(resolve_allowed_path(blocked.to_str().unwrap(), None, PathAccess::Write).is_err());
         let outside = root.parent().unwrap().join("outside.txt");
-        assert!(resolve_allowed_path(outside.to_str().unwrap(), Some(&root), PathAccess::Write).is_err());
+        assert!(
+            resolve_allowed_path(outside.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_err()
+        );
         let traversal = root.join("sub").join("..").join("new.txt");
-        assert!(resolve_allowed_path(traversal.to_str().unwrap(), Some(&root), PathAccess::Write).is_err());
+        assert!(
+            resolve_allowed_path(traversal.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
-
 
     #[test]
     fn text_preview_applies_sensitive_path_guard_before_allowances() {
         let home = dirs_home();
         let grok = grok_home();
-        assert!(!allow_text_read_candidate(&grok.join("auth.json"), Some(&grok), true));
-        assert!(!allow_text_read_candidate(&home.join(".ssh/id_ed25519"), Some(&home), true));
-        assert!(!allow_text_read_candidate(&home.join(".gnupg/private-key"), Some(&home), true));
+        assert!(!allow_text_read_candidate(
+            &grok.join("auth.json"),
+            Some(&grok),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".ssh/id_ed25519"),
+            Some(&home),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".gnupg/private-key"),
+            Some(&home),
+            true
+        ));
     }
 
     #[test]
@@ -2994,10 +3326,27 @@ mod final_review_tests {
         let root = root.canonicalize().unwrap();
         let archive = root.join("artifact.zip");
         std::fs::write(&archive, b"zip").unwrap();
-        assert!(validate_review_open_target(archive.to_str().unwrap(), Some(&root), root.to_str().unwrap()).is_ok());
-        assert!(validate_review_open_target("https://example.com/file.zip", Some(&root), root.to_str().unwrap()).is_err());
-        assert!(validate_review_open_target(root.join("Bad.app").to_str().unwrap(), Some(&root), root.to_str().unwrap()).is_err());
-        assert!(validate_review_open_target("/bin/sh", Some(&root), root.to_str().unwrap()).is_err());
+        assert!(validate_review_open_target(
+            archive.to_str().unwrap(),
+            Some(&root),
+            root.to_str().unwrap()
+        )
+        .is_ok());
+        assert!(validate_review_open_target(
+            "https://example.com/file.zip",
+            Some(&root),
+            root.to_str().unwrap()
+        )
+        .is_err());
+        assert!(validate_review_open_target(
+            root.join("Bad.app").to_str().unwrap(),
+            Some(&root),
+            root.to_str().unwrap()
+        )
+        .is_err());
+        assert!(
+            validate_review_open_target("/bin/sh", Some(&root), root.to_str().unwrap()).is_err()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3009,11 +3358,19 @@ mod final_review_tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let root = root.canonicalize().unwrap();
-        let outside = root.parent().unwrap().join(format!("{}-outside.txt", root.file_name().unwrap().to_string_lossy()));
+        let outside = root.parent().unwrap().join(format!(
+            "{}-outside.txt",
+            root.file_name().unwrap().to_string_lossy()
+        ));
         std::fs::write(&outside, b"secret").unwrap();
         let link = root.join("escape.txt");
         symlink(&outside, &link).unwrap();
-        let err = validate_review_open_target(link.to_str().unwrap(), Some(&root), root.to_str().unwrap()).unwrap_err();
+        let err = validate_review_open_target(
+            link.to_str().unwrap(),
+            Some(&root),
+            root.to_str().unwrap(),
+        )
+        .unwrap_err();
         assert_eq!(err.to_string(), "Review 目标不能是符号链接");
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_file(&outside);
@@ -3022,8 +3379,16 @@ mod final_review_tests {
     #[test]
     fn text_preview_allows_workspace_files_but_rejects_canonical_escapes() {
         let root = Path::new("/workspace");
-        assert!(allow_text_read_candidate(&root.join("src/main.rs"), Some(root), true));
-        assert!(!allow_text_read_candidate(Path::new("/private/secret.txt"), Some(root), true));
+        assert!(allow_text_read_candidate(
+            &root.join("src/main.rs"),
+            Some(root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            Path::new("/private/secret.txt"),
+            Some(root),
+            true
+        ));
     }
 
     #[test]
@@ -3034,10 +3399,26 @@ mod final_review_tests {
         let nested = root.join("apps").join("web");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         std::fs::create_dir_all(&nested).unwrap();
-        assert!(allow_text_read_candidate(&root.join("pkg/a.ts"), Some(&nested), true));
-        assert!(allow_text_read_candidate(&home.join("Downloads/cover.md"), Some(&nested), true));
-        assert!(allow_text_read_candidate(&tmp.join("shot.png"), Some(&nested), true));
-        assert!(!allow_text_read_candidate(&home.join("Downloads/cover.md"), None, true));
+        assert!(allow_text_read_candidate(
+            &root.join("pkg/a.ts"),
+            Some(&nested),
+            true
+        ));
+        assert!(allow_text_read_candidate(
+            &home.join("Downloads/cover.md"),
+            Some(&nested),
+            true
+        ));
+        assert!(allow_text_read_candidate(
+            &tmp.join("shot.png"),
+            Some(&nested),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join("Downloads/cover.md"),
+            None,
+            true
+        ));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3055,14 +3436,23 @@ mod final_review_tests {
         let root = acp_path_root();
         let nested = root.join(".worktrees").join("session");
         std::fs::create_dir_all(&nested).unwrap();
-        let sibling = root.parent().unwrap().join(format!("{}-sibling", root.file_name().unwrap().to_string_lossy()));
+        let sibling = root.parent().unwrap().join(format!(
+            "{}-sibling",
+            root.file_name().unwrap().to_string_lossy()
+        ));
         let _ = std::fs::remove_dir_all(&sibling);
         std::fs::create_dir_all(&sibling).unwrap();
 
         let nested_hint = nested.to_str().unwrap();
         let root_hint = root.to_str().unwrap();
-        assert_eq!(trusted_workspace_for_hint(Some(&root), Some(nested_hint)).unwrap(), root);
-        assert_eq!(trusted_workspace_for_hint(Some(&nested), Some(root_hint)).unwrap(), nested.canonicalize().unwrap());
+        assert_eq!(
+            trusted_workspace_for_hint(Some(&root), Some(nested_hint)).unwrap(),
+            root
+        );
+        assert_eq!(
+            trusted_workspace_for_hint(Some(&nested), Some(root_hint)).unwrap(),
+            nested.canonicalize().unwrap()
+        );
         assert!(trusted_workspace_for_hint(Some(&root), Some(sibling.to_str().unwrap())).is_err());
 
         let _ = std::fs::remove_dir_all(root);
@@ -3073,15 +3463,28 @@ mod final_review_tests {
     fn desktop_root_rejects_forged_slash_and_keeps_grok_home_without_workspace() {
         let root = acp_path_root();
         let hint = root.to_str().unwrap();
-        assert_eq!(trusted_desktop_root(Some(&root), Some(hint)).unwrap().as_deref(), Some(root.as_path()));
+        assert_eq!(
+            trusted_desktop_root(Some(&root), Some(hint))
+                .unwrap()
+                .as_deref(),
+            Some(root.as_path())
+        );
         assert!(trusted_desktop_root(Some(&root), Some("/")).is_err());
         assert!(trusted_desktop_root(None, Some("/")).is_err());
         assert!(trusted_desktop_root(None, Some(hint)).is_err());
         assert_eq!(trusted_desktop_root(None, None).unwrap(), None);
         let grok = grok_home().join("config.toml");
         assert!(allow_text_read_candidate(&grok, None, true));
-        assert!(!allow_text_read_candidate(&grok_home().join("auth.json"), None, true));
-        assert!(!allow_text_read_candidate(&root.join("src/main.rs"), None, true));
+        assert!(!allow_text_read_candidate(
+            &grok_home().join("auth.json"),
+            None,
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &root.join("src/main.rs"),
+            None,
+            true
+        ));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3090,8 +3493,16 @@ mod final_review_tests {
         let root = acp_path_root();
         let new_file = root.join("new.txt");
         assert!(resolve_allowed_path(new_file.to_str().unwrap(), None, PathAccess::Write).is_err());
-        assert!(resolve_allowed_path(new_file.to_str().unwrap(), Some(&root), PathAccess::Write).is_ok());
-        assert!(resolve_allowed_path(new_file.to_str().unwrap(), Some(Path::new("/")), PathAccess::Write).is_err());
+        assert!(
+            resolve_allowed_path(new_file.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_ok()
+        );
+        assert!(resolve_allowed_path(
+            new_file.to_str().unwrap(),
+            Some(Path::new("/")),
+            PathAccess::Write
+        )
+        .is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3116,7 +3527,8 @@ mod final_review_tests {
         std::fs::write(&temp_skill, "---\nname: demo\n---\n").unwrap();
         let temp_canon = temp_skill.canonicalize().unwrap();
         assert_eq!(
-            resolve_allowed_path(temp_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            resolve_allowed_path(temp_skill.to_str().unwrap(), Some(&root), PathAccess::Read)
+                .unwrap(),
             temp_canon
         );
 
@@ -3126,7 +3538,8 @@ mod final_review_tests {
         std::fs::write(&home_skill, "---\nname: demo\n---\n").unwrap();
         let home_canon = home_skill.canonicalize().unwrap();
         assert_eq!(
-            resolve_allowed_path(home_skill.to_str().unwrap(), Some(&root), PathAccess::Read).unwrap(),
+            resolve_allowed_path(home_skill.to_str().unwrap(), Some(&root), PathAccess::Read)
+                .unwrap(),
             home_canon
         );
         assert_eq!(
@@ -3139,17 +3552,26 @@ mod final_review_tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-#[test]
+    #[test]
     fn launcher_arguments_are_platform_specific_and_literal() {
-    let target = Path::new("/tmp/a file; touch pwned");
-    let (program, args) = open_command(target);
-    #[cfg(target_os = "macos")]
-    { assert_eq!(program, "open"); assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]); }
-    #[cfg(target_os = "linux")]
-    { assert_eq!(program, "xdg-open"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
-    #[cfg(target_os = "windows")]
-    { assert_eq!(program, "explorer"); assert_eq!(args, vec![target.as_os_str().to_owned()]); }
-}
+        let target = Path::new("/tmp/a file; touch pwned");
+        let (program, args) = open_command(target);
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program, "open");
+            assert_eq!(args, vec!["--".into(), target.as_os_str().to_owned()]);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(program, "xdg-open");
+            assert_eq!(args, vec![target.as_os_str().to_owned()]);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(program, "explorer");
+            assert_eq!(args, vec![target.as_os_str().to_owned()]);
+        }
+    }
 
     #[test]
     fn explorer_slash_switch_rejects_select_and_allows_drive() {

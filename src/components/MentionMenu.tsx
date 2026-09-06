@@ -1,4 +1,5 @@
 import type { MentionHit } from "../lib/mentions";
+import { useT } from "../lib/locale-context";
 
 export type MentionMenuProps = {
   open: boolean;
@@ -10,9 +11,12 @@ export type MentionMenuProps = {
   onIncludeContent?: (next: boolean) => void;
 };
 
-function mentionGroupHint(group: MentionHit["group"]): string | undefined {
-  if (group === "dir") return "文件夹";
-  if (group === "change") return "改动";
+function mentionGroupHint(
+  group: MentionHit["group"],
+  t: (key: string) => string,
+): string | undefined {
+  if (group === "dir") return t("mention.dir");
+  if (group === "change") return t("mention.change");
   return undefined;
 }
 
@@ -25,6 +29,7 @@ export function MentionMenu({
   includeContent = false,
   onIncludeContent,
 }: MentionMenuProps) {
+  const t = useT();
   if (!open || items.length === 0) return null;
 
   return (
@@ -40,12 +45,12 @@ export function MentionMenu({
             checked={includeContent}
             onChange={(e) => onIncludeContent(e.target.checked)}
           />
-          附带内容
+          {t("mention.include")}
         </label>
       ) : null}
-      <div role="listbox" aria-label="提及">
+      <div role="listbox" aria-label={t("mention.list")}>
         {items.slice(0, 12).map((hit, i) => {
-          const hint = mentionGroupHint(hit.group);
+          const hint = mentionGroupHint(hit.group, t);
           return (
             <button
               key={hit.id}

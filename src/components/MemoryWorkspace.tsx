@@ -22,7 +22,7 @@ export type MemoryWorkspaceProps = {
 
 /**
  * User dream diary plus the cwd-scoped MEMORY.md / AGENTS.md rows,
- * folded under 项目文件.
+ * folded under project files.
  */
 export function MemoryWorkspace({
   memoryPath,
@@ -49,8 +49,8 @@ export function MemoryWorkspace({
       />
       <details className="memory-project-files">
         <summary>{t(locale, "memory.projectFiles")}</summary>
-        <DocRow heading="MEMORY.md" path={memoryPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
-        <DocRow heading="AGENTS.md" path={agentsPath} cwd={cwd} onOpen={onOpen} onEdit={onEdit} />
+        <DocRow heading="MEMORY.md" path={memoryPath} cwd={cwd} locale={locale} onOpen={onOpen} onEdit={onEdit} />
+        <DocRow heading="AGENTS.md" path={agentsPath} cwd={cwd} locale={locale} onOpen={onOpen} onEdit={onEdit} />
       </details>
     </div>
   );
@@ -60,12 +60,14 @@ function DocRow({
   heading,
   path,
   cwd,
+  locale,
   onOpen,
   onEdit,
 }: {
   heading: string;
   path?: string;
   cwd?: string;
+  locale: Locale;
   onOpen: (path: string) => void;
   onEdit: (path: string) => void;
 }) {
@@ -93,14 +95,14 @@ function DocRow({
     try {
       await writeAllowedText(path, text, cwd || null);
       setSaved(text);
-      setNote("已保存");
+      setNote(t(locale, "toast.saved"));
     } catch (e) {
       setNote(String(e));
     }
   }
 
   if (!path) {
-    return <p className="float-empty">还没有 {heading}</p>;
+    return <p className="float-empty">{t(locale, "memory.emptyKind", { heading })}</p>;
   }
 
   return (
@@ -110,7 +112,7 @@ function DocRow({
           <strong>{heading}</strong>
         </button>
         <div className="hub-row-side">
-          <button type="button" className="file-open" onClick={() => void beginEdit()} title="编辑" aria-label="编辑">
+          <button type="button" className="file-open" onClick={() => void beginEdit()} data-tip={t(locale, "preview.edit")} aria-label={t(locale, "preview.edit")}>
             <IconEdit size={14} />
           </button>
         </div>

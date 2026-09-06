@@ -1,7 +1,14 @@
 import { IconTodoBusy, IconTodoOff, IconTodoOn } from "../grok-icons";
+import { useT } from "../lib/locale-context";
 
 export function TodoMark({ status }: { status?: string }) {
-  const label = status === "completed" ? "已完成" : status === "in_progress" ? "进行中" : "未完成";
+  const t = useT();
+  const label =
+    status === "completed"
+      ? t("todo.completed")
+      : status === "in_progress"
+        ? t("todo.progress")
+        : t("todo.pending");
   const icon =
     status === "completed" ? (
       <IconTodoOn size={16} />

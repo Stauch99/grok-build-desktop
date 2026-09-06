@@ -71,6 +71,14 @@ describe("usage chart plot", () => {
 });
 
 describe("composer dock stack", () => {
+  it("keeps live run chrome in the thread, not duplicated above the composer", () => {
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app.match(/<WaitPill/g)).toBeNull();
+    expect(app).toMatch(/goalView && !mainPaneBusy/);
+    const thread = readFileSync(join(root, "src/components/Thread.tsx"), "utf8");
+    expect(thread).toMatch(/onStop=\{runBusy \? onCancel/);
+  });
+
   it("stacks capsules in a column above the input", () => {
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.composer-dock\s*\{[^}]*flex-direction:\s*column/);
@@ -206,11 +214,14 @@ describe("composer prompt", () => {
 
     const main = css("src/styles.css");
     const chip = main.match(/\.model-chip, \.mode-chip, \.effort-chip, \.agent-chip\s*\{[^}]+\}/)?.[0];
-    expect(chip).toMatch(/font-size:\s*(?:12px|var\(--md-size)/);
+    expect(chip).toMatch(/font-size:\s*var\(--md-size/);
     expect(chip).toMatch(/color:\s*var\(--faint\)/);
     expect(sheet).toMatch(/\.composer-meta-row\s*\{[^}]*font-size:\s*calc\(var\(--md-size(?:,\s*15px)?\)\s*-\s*2px\)/);
     expect(sheet).toMatch(/\.composer-meta-row \.cwd-chip[\s\S]{0,280}font-size:\s*inherit/);
     expect(sheet).toMatch(/\.composer-meta\s*\{[^}]*font-size:\s*inherit/);
+    expect(css("src/styles/shell.css")).toMatch(/\.cwd-chip\s*\{[^}]*font-size:\s*var\(--md-size/);
+    expect(css("src/styles/hub.css")).toMatch(/\.dock-capsule\s*\{[^}]*font-size:\s*var\(--md-size/);
+    expect(css("src/styles/shell.css")).toMatch(/\.wait-pill\s*\{[^}]*font-size:\s*var\(--md-size/);
 
     const src = readFileSync(join(root, "src/components/Composer.tsx"), "utf8");
     expect(src).not.toMatch(/composer\.placeholder/);
@@ -302,18 +313,63 @@ describe("session list presence tones", () => {
   });
 });
 
+describe("session list subagent chrome", () => {
+  it("hangs the descendant count in the tree indent with a gray fill", () => {
+    const sheet = css("src/styles/sidebar.css");
+    const count = sheet.match(/\.sess-kid-count\s*\{[^}]+\}/)?.[0];
+    expect(count).toMatch(/position:\s*absolute/);
+    expect(count).toMatch(/left:\s*-/);
+    expect(count).toMatch(/border-radius:\s*50%/);
+    expect(count).toMatch(/background:\s*color-mix/);
+    expect(count).not.toMatch(/background:\s*transparent/);
+    expect(sheet).not.toMatch(/\.sess-gutter\s*\{/);
+    expect(sheet).not.toMatch(/\.session \.count\s*\{/);
+  });
+
+  it("renders CLI identity as a square icon, not a colored text pill", () => {
+    const sheet = css("src/styles/sidebar.css");
+    const agent = sheet.match(/\.sess-agent\s*\{[^}]+\}/)?.[0];
+    expect(agent).toMatch(/width:\s*16px/);
+    expect(agent).not.toMatch(/padding:\s*1px 5px/);
+    expect(sheet).not.toMatch(/\.sess-agent-claude\s*\{[^}]*background:/);
+    expect(sheet).not.toMatch(/\.sess-agent-grok\s*\{[^}]*background:/);
+  });
+});
+
+describe("tauri window drag capability", () => {
+  it("allows startDragging for overlay titlebar regions", () => {
+    const caps = readFileSync(join(root, "src-tauri/capabilities/default.json"), "utf8");
+    expect(caps).toMatch(/core:window:allow-start-dragging/);
+  });
+});
+
 describe("sidebar window drag", () => {
-  it("makes the traffic strip a drag region except the header buttons", () => {
+  it("uses an empty traffic strip so titlebar drag is not eaten by header buttons", () => {
     const src = readFileSync(join(root, "src/components/Sidebar.tsx"), "utf8");
-    expect(src).toMatch(/className="side-traffic"[^>]*data-tauri-drag-region/);
     expect(src).toMatch(/className="side-traffic-drag"[^>]*data-tauri-drag-region/);
-    expect(src).toMatch(/beginWindowDrag/);
+    expect(src).toMatch(/className="side-traffic-drag"[\s\S]{0,200}beginWindowDrag/);
+    expect(src).not.toMatch(/className="side-traffic"[^>]*data-tauri-drag-region/);
 
     const sheet = css("src/styles/sidebar.css");
-    expect(sheet).toMatch(/\.side-traffic\s*\{[^}]*padding:\s*0 8px 0 80px/);
-    expect(sheet).toMatch(/\.side-traffic-drag\s*\{[^}]*flex:\s*1/);
-    expect(sheet).toMatch(/\.side-traffic-drag\s*\{[^}]*min-height:\s*100%/);
+    const drag = sheet.match(/\.side-traffic-drag\s*\{[^}]+\}/)?.[0];
+    expect(drag).toMatch(/flex:\s*1/);
+    expect(drag).toMatch(/min-width:\s*48px/);
     expect(sheet).toMatch(/\.side-actions\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+  });
+});
+
+describe("workspace header window drag", () => {
+  it("keeps an empty drag strip out of the button row", () => {
+    const src = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(src).toMatch(/className="workspace-head-drag"[^>]*data-tauri-drag-region/);
+    expect(src).toMatch(/className="workspace-head-drag"[\s\S]{0,240}beginWindowDrag/);
+    expect(src).not.toMatch(/className="workspace-head"[^>]*data-tauri-drag-region/);
+
+    const sheet = css("src/styles/shell.css");
+    const drag = sheet.match(/\.workspace-head-drag\s*\{[^}]+\}/)?.[0];
+    expect(drag).toMatch(/flex:\s*1/);
+    expect(drag).toMatch(/min-width:\s*48px/);
+    expect(sheet).toMatch(/\.head-actions\s*\{[^}]*-webkit-app-region:\s*no-drag/);
   });
 });
 
@@ -364,8 +420,115 @@ describe("thread body size", () => {
     const verb = sheet.match(/\.spine-verb\s*\{[^}]+\}/)?.[0];
     const detail = sheet.match(/\.spine-detail\s*\{[^}]+\}/)?.[0];
     const thought = sheet.match(/\.spine-body \.thought\s*\{[^}]+\}/)?.[0];
+    const run = sheet.match(/(?:^|\n)\.work-run-text\s*\{[^}]+\}/)?.[0];
     expect(verb).toMatch(/font-size:\s*var\(--md-size/);
     expect(detail).toMatch(/font-size:\s*var\(--md-size/);
     expect(thought).toMatch(/font-size:\s*var\(--md-size/);
+    expect(run).toMatch(/font-size:\s*var\(--md-size/);
+    expect(sheet).toMatch(/\.work-run\.live \.work-run-text\s*\{[^}]*color:\s*var\(--text\)/);
+  });
+
+  it("keeps inline code the same size as the surrounding paragraph", () => {
+    const sheet = css("src/styles/thread.css");
+    const inline = sheet.match(/(?:^|\n)\.md code\s*\{[^}]+\}/)?.[0];
+    expect(inline).toMatch(/font-size:\s*1em/);
+    expect(css("src/styles/settings.css")).toMatch(
+      /(?:^|\n)\.settings code\s*\{[^}]*font-size:\s*0\.92em/,
+    );
+  });
+
+  it("renders thread markdown in system UI with 10% taller leading and Noto Serif headings", () => {
+    const sheet = css("src/styles/thread.css");
+    const body = [...sheet.matchAll(/(?:^|\n)\.thread \.md\s*\{[^}]+\}/g)].at(-1)?.[0];
+    expect(body).toMatch(/font-family:\s*system-ui/);
+    expect(body).toMatch(/line-height:\s*1\.65/);
+    const heads = sheet.match(/\.thread \.md h1,\s*\.thread \.md h2[\s\S]*?\}/)?.[0] ?? "";
+    expect(heads).toMatch(/Noto Serif SC/);
+    expect(heads).toMatch(/Noto Serif/);
+    expect(heads).toMatch(/line-height:\s*1\.485/);
+    const main = readFileSync(join(root, "src/main.tsx"), "utf8");
+    expect(main).toMatch(/@fontsource\/noto-serif\//);
+    expect(main).toMatch(/@fontsource\/noto-serif-sc\//);
+    expect(css("src/styles/tokens.css")).toMatch(/--serif:\s*"Noto Serif SC"/);
+  });
+});
+
+describe("thread end reading pad", () => {
+  it("leaves extra scroll space under the last turn so reading sits above the composer", () => {
+    const sheet = css("src/styles/thread.css");
+    expect(sheet).toMatch(/--thread-end-pad:\s*min\(/);
+    expect(sheet).toMatch(/\.thread::after\s*\{[^}]*height:\s*var\(--thread-end-pad\)/);
+    expect(sheet).toMatch(/\.thread-list\s*\{[^}]*padding-bottom:\s*var\(--thread-end-pad\)/);
+    expect(sheet).toMatch(/\.new-chat-hero \.thread::after\s*\{[^}]*display:\s*none/);
+  });
+
+  it("fades the last 30px of the thread into the workspace", () => {
+    const sheet = css("src/styles/thread.css");
+    const fade = sheet.match(/\.chat-shell::after\s*\{[^}]+\}/)?.[0];
+    expect(fade).toMatch(/height:\s*30px/);
+    expect(fade).toMatch(/linear-gradient\(to bottom,\s*transparent,\s*var\(--bg\)\)/);
+    expect(fade).toMatch(/pointer-events:\s*none/);
+    expect(sheet).toMatch(/\.new-chat-hero \.chat-shell::after\s*\{[^}]*content:\s*none/);
+  });
+});
+
+describe("assistant copy control", () => {
+  it("sits to the right of the text, always visible, bottom-aligned", () => {
+    const sheet = css("src/styles/thread.css");
+    const msg = sheet.match(/(?:^|\n)\.msg\.assistant\s*\{[^}]+\}/)?.[0];
+    expect(msg).toMatch(/display:\s*flex/);
+    expect(msg).toMatch(/align-items:\s*flex-end/);
+    expect(sheet).not.toMatch(/\.msg\.assistant \.actions\s*\{[^}]*display:\s*none/);
+    expect(sheet).not.toMatch(/\.msg\.assistant:hover \.actions/);
+  });
+});
+
+describe("work-run expand layout", () => {
+  it("keeps the header on the same 22px spine column as the timeline", () => {
+    const sheet = css("src/styles/thread.css");
+    const head = sheet.match(/(?:^|\n)\.work-run-head\s*\{[^}]+\}/)?.[0];
+    const ico = sheet.match(/(?:^|\n)\.work-run-ico\s*\{[^}]+\}/)?.[0];
+    expect(head).toMatch(/grid-template-columns:\s*22px/);
+    expect(ico).toMatch(/width:\s*22px/);
+  });
+
+  it("does not scale the header on press", () => {
+    const sheet = css("src/styles/thread.css");
+    expect(sheet).toMatch(/\.work-run-head:active[\s\S]{0,80}transform:\s*none/);
+  });
+});
+
+describe("user turn actions", () => {
+  it("reserves the action row height while hiding it until hover", () => {
+    const sheet = css("src/styles/thread.css");
+    const row = sheet.match(/(?:^|\n)\.msg-actions\s*\{[^}]+\}/)?.[0];
+    expect(row).toMatch(/display:\s*flex/);
+    expect(row).toMatch(/visibility:\s*hidden/);
+    expect(row).not.toMatch(/display:\s*none/);
+    expect(sheet).toMatch(/\.msg\.user:hover \.msg-actions[\s\S]{0,160}visibility:\s*visible/);
+  });
+});
+
+describe("round-3 remaining wiring", () => {
+  it("lets the session tree keyboard target title rows, not a missing button.session", () => {
+    const sidebar = readFileSync(join(root, "src/components/Sidebar.tsx"), "utf8");
+    expect(sidebar).toMatch(/data-session-row/);
+    expect(sidebar).toMatch(/sessionTreeNav\(/);
+    const branch = readFileSync(join(root, "src/components/SessionBranch.tsx"), "utf8");
+    expect(branch).toMatch(/data-session-row=\{s\.id\}/);
+  });
+
+  it("keeps the review rail mounted through its exit animation", () => {
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app).toMatch(/usePresence\(/);
+    expect(app).toMatch(/leaving=\{reviewPresence\.leaving\}/);
+  });
+
+  it("pauses toasts while hovered or focused", () => {
+    const toast = readFileSync(join(root, "src/hooks/useToast.ts"), "utf8");
+    expect(toast).toMatch(/pauseToast/);
+    expect(toast).toMatch(/resumeToast/);
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app).toMatch(/onMouseEnter=\{pauseToast\}/);
   });
 });

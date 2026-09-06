@@ -26,12 +26,14 @@ import {
   type UsageBrandFilter,
 } from "../lib/token-usage";
 import { splitCostByModel } from "../lib/usage-split";
+import { useT } from "../lib/locale-context";
 
 type DaysKey = "7" | "30" | "all";
 
 const CHART_PLOT_PX = 128;
 
 export function UsageStats() {
+  const t = useT();
   const [turns, setTurns] = useState<TokenTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,19 +83,19 @@ export function UsageStats() {
     [visible],
   );
   const costRows = useMemo(() => modelCostRows(costByModel), [costByModel]);
-  const chartLabel = days === "30" ? "近 30 天" : days === "all" ? "近 30 天" : "近 7 天";
-  const rangeLabel = days === "30" ? "近 30 天" : days === "all" ? "全部记录" : "近 7 天";
+  const chartLabel = days === "30" || days === "all" ? t("usage.chart30") : t("usage.chart7");
+  const rangeLabel = days === "30" ? t("usage.chart30") : days === "all" ? t("usage.rangeAll") : t("usage.chart7");
   const brandLabel =
     brand === "all"
       ? "Grok Build"
       : (USAGE_BRAND_OPTIONS.find((o) => o.value === brand)?.label ?? brand);
   const factCols = 3 + (sum.cacheCreate > 0 ? 1 : 0);
   const mixLabel = [
-    `缓存 ${mix.cacheRead}%`,
-    `新增输入 ${mix.newInput}%`,
-    `输出 ${mix.output}%`,
-    mix.cacheCreate > 0 ? `缓存写入 ${mix.cacheCreate}%` : "",
-  ].filter(Boolean).join("，");
+    t("usage.cachePct", { n: mix.cacheRead }),
+    t("usage.newInputPct", { n: mix.newInput }),
+    t("usage.outputPct", { n: mix.output }),
+    mix.cacheCreate > 0 ? t("usage.cacheWritePct", { n: mix.cacheCreate }) : "",
+  ].filter(Boolean).join(", ");
 
   return (
     <div className="usage-stats">
@@ -108,46 +110,46 @@ export function UsageStats() {
           />
           <MenuSelect
             variant="inline"
-            ariaLabel="来源"
+            ariaLabel={t("usage.source")}
             value={cwd || "*"}
             onChange={(next) => setCwd(next === "*" ? "" : next)}
             options={[
-              { value: "*", label: "全部来源" },
+              { value: "*", label: t("usage.allSources") },
               ...sources.map((path) => ({ value: path, label: basename(path) || path })),
             ]}
           />
           <MenuSelect
             variant="inline"
-            ariaLabel="模型"
+            ariaLabel={t("usage.model")}
             value={model || "*"}
             onChange={(next) => setModel(next === "*" ? "" : next)}
             options={[
-              { value: "*", label: "全部模型" },
+              { value: "*", label: t("usage.allModels") },
               ...models.map((id) => ({ value: id, label: id })),
             ]}
           />
         </div>
         <div className="usage-toolbar-range">
-          <button type="button" className="icon-btn" onClick={() => void load()} disabled={loading} title="刷新" aria-label="刷新">
+          <button type="button" className="icon-btn" onClick={() => void load()} disabled={loading} data-tip={t("common.refresh")} aria-label={t("common.refresh")}>
             <IconRefresh size={16} />
           </button>
           <MenuSelect
             variant="inline"
-            ariaLabel="时间范围"
+            ariaLabel={t("usage.timeRange")}
             value={days}
             onChange={setDays}
             options={[
-              { value: "7", label: "7 天" },
-              { value: "30", label: "30 天" },
-              { value: "all", label: "全部" },
+              { value: "7", label: t("usage.days7") },
+              { value: "30", label: t("usage.days30") },
+              { value: "all", label: t("usage.all") },
             ]}
           />
         </div>
       </div>
 
       {error ? <p className="float-empty">{error}</p> : null}
-      {loading && turns.length === 0 ? <p className="float-empty">正在读取用量…</p> : null}
-      {!loading && !error && turns.length === 0 ? <p className="float-empty">还没有 token 用量记录。</p> : null}
+      {loading && turns.length === 0 ? <p className="float-empty">{t("usage.loading")}</p> : null}
+      {!loading && !error && turns.length === 0 ? <p className="float-empty">{t("usage.empty")}</p> : null}
 
       {turns.length > 0 ? (
         <article className="usage-card">
@@ -161,20 +163,20 @@ export function UsageStats() {
             </div>
             <dl className="usage-hero-kpis">
               <div>
-                <dt>成本</dt>
+                <dt>{t("usage.cost")}</dt>
                 <dd className="usage-cost">{formatUsdFromTicks(sum.costTicks)}</dd>
               </div>
               <div>
-                <dt>请求</dt>
+                <dt>{t("usage.requests")}</dt>
                 <dd>{formatInt(sum.requests)}</dd>
               </div>
             </dl>
           </header>
 
-          <div className="usage-mix" role="img" aria-label={`Token 构成：${mixLabel}`}>
+          <div className="usage-mix" role="img" aria-label={t("usage.mixAria", { label: mixLabel })}>
             <div className="usage-mix-head">
-              <span>构成</span>
-              <strong>{hit == null ? "命中率 N/A" : `命中率 ${hit.toFixed(1)}%`}</strong>
+              <span>{t("usage.mix")}</span>
+              <strong>{hit == null ? t("usage.hitNa") : t("usage.hitRate", { n: hit.toFixed(1) })}</strong>
             </div>
             <div className="usage-mix-track" aria-hidden>
               {mix.cacheRead > 0 ? <span className="usage-mix-cache" style={{ width: `${mix.cacheRead}%` }} /> : null}
@@ -184,24 +186,24 @@ export function UsageStats() {
             </div>
             <dl className="usage-facts" data-cols={factCols}>
               <div data-tone="new">
-                <dt>新增输入</dt>
+                <dt>{t("usage.newInput")}</dt>
                 <dd>{formatTokenZh(sum.newInput)}</dd>
                 <span>{mix.newInput}%</span>
               </div>
               <div data-tone="out">
-                <dt>输出</dt>
+                <dt>{t("usage.output")}</dt>
                 <dd>{formatTokenZh(sum.output)}</dd>
                 <span>{mix.output}%</span>
               </div>
               {sum.cacheCreate > 0 ? (
                 <div data-tone="write">
-                  <dt>缓存写入</dt>
+                  <dt>{t("usage.cacheWrite")}</dt>
                   <dd>{formatTokenZh(sum.cacheCreate)}</dd>
                   <span>{mix.cacheCreate}%</span>
                 </div>
               ) : null}
               <div data-tone="cache">
-                <dt>缓存命中</dt>
+                <dt>{t("usage.cacheHit")}</dt>
                 <dd>{formatTokenZh(sum.cacheRead)}</dd>
                 <span>{mix.cacheRead}%</span>
               </div>
@@ -212,13 +214,13 @@ export function UsageStats() {
             <figure className="usage-chart">
               <figcaption>
                 <span>{chartLabel}</span>
-                <span>峰值 {formatTokenZh(barMax)}</span>
+                <span>{t("usage.peak", { n: formatTokenZh(barMax) })}</span>
               </figcaption>
               <div
                 className="usage-chart-plot"
                 data-dense={bars.length > 10 || undefined}
                 role="list"
-                aria-label={`${chartLabel}每日用量`}
+                aria-label={t("usage.daily", { label: chartLabel })}
               >
                 {bars.map((b) => {
                   const h = chartBarPx(b.used, barMax, CHART_PLOT_PX);
@@ -248,12 +250,12 @@ export function UsageStats() {
 
           {costRows.length > 0 ? (
             <div className="usage-models-block">
-              <p className="usage-models-head">按模型</p>
+              <p className="usage-models-head">{t("usage.byModel")}</p>
               <ul className="usage-models">
               {costRows.map((row) => (
                 <li key={row.id}>
                   <div className="usage-model-top">
-                    <span title={row.id}>{row.id}</span>
+                    <span data-tip={row.id}>{row.id}</span>
                     <strong className="usage-cost">{formatUsdFromTicks(row.ticks)}</strong>
                   </div>
                   <div className="usage-model-track" aria-hidden>

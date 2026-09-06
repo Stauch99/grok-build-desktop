@@ -1,3 +1,4 @@
+import { useT } from "../lib/locale-context";
 import { DockCapsule } from "./ComposerDock";
 
 export type RecapCardProps = {
@@ -7,14 +8,15 @@ export type RecapCardProps = {
 
 /** Grok's last-turn recap, stacked in the composer dock until dismissed. */
 export function RecapCard({ text, onDismiss }: RecapCardProps) {
+  const t = useT();
   return (
     <DockCapsule
       variant="card"
-      kicker="回顾"
+      kicker={t("recap.kicker")}
       onDismiss={onDismiss}
-      dismissLabel="关闭回顾"
+      dismissLabel={t("recap.dismiss")}
       className="recap-card"
-      label="对话回顾"
+      label={t("recap.label")}
     >
       <p>{text}</p>
     </DockCapsule>

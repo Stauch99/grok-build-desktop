@@ -38,6 +38,7 @@ describe("sidebar collapse CSS", () => {
   it.each([
     [".project-sessions", ".project-sessions.open", ".project-sessions-inner"],
     [".session-kids", ".session-kids.open", ".session-kids-inner"],
+    [".group-projects", ".group-projects.open", ".group-projects-inner"],
   ] as const)("%s collapses to 0fr until .open", (closed, opened, inner) => {
     expect(ruleBlock(closed)).toMatch(/grid-template-rows:\s*0fr/);
     expect(ruleBlock(opened)).toMatch(/grid-template-rows:\s*1fr/);
@@ -48,10 +49,34 @@ describe("sidebar collapse CSS", () => {
   });
 });
 
+describe("project session clip", () => {
+  it("fades the last visible rows when a folder is truncated", () => {
+    const clip = ruleBlock(".project-sessions-clip.is-clipped::after");
+    expect(clip).toMatch(/pointer-events:\s*none/);
+    expect(clip).toMatch(/linear-gradient\(\s*to bottom,\s*transparent,\s*var\(--bg-side\)/);
+  });
+});
+
 describe("sidebar project indent", () => {
   it("nests folder sessions 16–18px past the folder label", () => {
     expect(ruleBlock(".project-sessions-inner")).toMatch(/padding-left:\s*1[6-8]px/);
     expect(ruleBlock(".project")).toMatch(/margin:\s*0 0 8px/);
+  });
+
+  it("does not indent projects under a user group past the group label", () => {
+    const inner = ruleBlock(".group-projects-inner");
+    expect(inner).not.toMatch(/padding-left/);
+    expect(inner).not.toMatch(/margin-left/);
+  });
+
+  it("styles group titles like 置顶 / 项目 band labels", () => {
+    const label = ruleBlock(".ws-band-label");
+    const head = ruleBlock(".group-head");
+    expect(head).toMatch(/font-size:\s*11px/);
+    expect(head).toMatch(/color:\s*var\(--faint\)/);
+    expect(head).toMatch(/font-weight:\s*500/);
+    expect(label).toMatch(/font-size:\s*11px/);
+    expect(label).toMatch(/color:\s*var\(--faint\)/);
   });
 
   it("indents fork children further than top-level folder sessions", () => {

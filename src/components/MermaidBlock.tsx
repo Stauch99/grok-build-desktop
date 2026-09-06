@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { getMermaidSvg, loadMermaid, setMermaidSvg } from "../lib/mermaid-once";
+import { useT } from "../lib/locale-context";
 
 type Props = {
   text: string;
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function MermaidBlock({ text, closed, dark }: Props) {
+  const t = useT();
   const rawId = useId().replace(/:/g, "");
   const [svg, setSvg] = useState<string | null>(() =>
     closed ? (getMermaidSvg(text, dark) ?? null) : null,
@@ -46,12 +48,12 @@ export default function MermaidBlock({ text, closed, dark }: Props) {
       .catch((e: unknown) => {
         if (cancelled) return;
         setSvg(null);
-        setError(e instanceof Error ? e.message : "无法绘制这张图");
+        setError(e instanceof Error ? e.message : t("mermaid.fail"));
       });
     return () => {
       cancelled = true;
     };
-  }, [text, closed, dark, rawId]);
+  }, [text, closed, dark, rawId, t]);
 
   if (!closed || error || !svg) {
     return (

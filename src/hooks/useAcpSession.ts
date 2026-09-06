@@ -18,6 +18,7 @@ import {
   afterByteFor,
   applySessionPage,
   emptyChat,
+  itemsAfterLastUser,
   shouldKeepSessionUpdate,
   shouldClearBusyOnSettledChat,
   type ChatState,
@@ -34,11 +35,11 @@ import { sameCwd } from "../lib/inbox";
 import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
-import { enqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
+import { tryEnqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
 import { agentChipLabel } from "../lib/agent-chip";
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
-import { getDraft, setDraft as writeDraft } from "../lib/session-drafts";
+import { getDraft, setDraft as writeDraft, resumeComposerDraft } from "../lib/session-drafts";
 import { isLiveRosterId } from "../lib/live-roster";
 import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
@@ -61,7 +62,7 @@ const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
 
 export function sessionIdFromNewResult(result: unknown): string {
   const sid = String(asRecord(result).sessionId ?? "");
-  if (!sid) throw new Error("session/new 没有返回 sessionId");
+  if (!sid) throw new Error(t("zh", "acp.noSessionId"));
   return sid;
 }
 
@@ -112,7 +113,7 @@ export function withPromptFail(chat: ChatState, text: string, at: number): ChatS
       {
         kind: "tool",
         id: `fail-${chat.nextId}`,
-        title: "请求失败",
+        title: t("zh", "acp.requestFailed"),
         status: "failed",
         detail: text,
         at,
@@ -137,6 +138,17 @@ export function abandonPendingForDest(
     pendingRpc.delete(id);
     pendingDest.delete(id);
   }
+}
+
+export function destHasPendingPrompt(
+  pendingRpc: Map<number, { method?: string }>,
+  pendingDest: Map<number, string>,
+  dest: string,
+): boolean {
+  for (const [id, pane] of pendingDest) {
+    if (pane === dest && pendingRpc.get(id)?.method === "session/prompt") return true;
+  }
+  return false;
 }
 
 export function ignoreAcpHistoryDuringResume(diskRowCount: number): boolean {
@@ -204,7 +216,7 @@ export function stderrToastText(eventAgent: AgentId, line: string): string | nul
 }
 
 export function agentExitToastText(eventAgent: AgentId): string {
-  return `${agentChipLabel(eventAgent)} 已退出`;
+  return t("zh", "acp.agentExited", { agent: agentChipLabel(eventAgent) });
 }
 
 export function extraPanesHitAgent(
@@ -398,9 +410,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     const tick = () => {
       const items = chatRef.current.items;
+      const turn = itemsAfterLastUser(items);
       if (
         seenAssistantAtRef.current == null &&
-        items.some((it) => it.kind === "assistant" && it.text.trim())
+        turn.some((it) => it.kind === "assistant" && it.text.trim())
       ) {
         seenAssistantAtRef.current = Date.now();
       }
@@ -498,6 +511,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   function adoptSession(id: string | null) {
+    if (id !== sessionIdRef.current) {
+      abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
+      pendingPrompt.current = null;
+    }
     sessionIdRef.current = id;
     setSessionId(id);
   }
@@ -554,7 +571,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           if (pendingRpc.current.has(id)) {
             pendingRpc.current.delete(id);
             pendingDest.current.delete(id);
-            reject(new Error(`${method} 超时`));
+            reject(new Error(t(depsRef.current.locale ?? "zh", "acp.timeout", { method })));
           }
         }, timeoutMs);
       }
@@ -826,7 +843,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const work = workDir || d.cwd;
     if (!work || (d.inboxCwd && sameCwd(work, d.inboxCwd))) {
-      d.showToast("先在输入栏选一个项目目录");
+      d.showToast(t(d.locale ?? "zh", "toast.pickProjectFirst"));
       return;
     }
     if (work !== d.cwd) d.setCwd(work);
@@ -866,7 +883,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const work = resolveLastWorkspace(d.lastWorkspace, d.projects, d.inboxCwd);
     if (!work) {
-      d.showToast("先在输入栏选一个项目目录");
+      d.showToast(t(d.locale ?? "zh", "toast.pickProjectFirst"));
       return;
     }
     try {
@@ -951,6 +968,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (token !== loadGen.current) return;
       const next = applySessionPage(updateCursors.current, s.id, page);
       setChat(next);
+      const stored = getDraft(d.sessionDrafts, s.id);
+      const restore = resumeComposerDraft(next.items, stored);
+      d.setDraft(restore);
+      if (restore !== stored) {
+        const drafts = writeDraft(d.sessionDrafts, s.id, restore);
+        d.setSessionDrafts(drafts);
+        d.persist({ drafts });
+      }
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id);
       setLoadingSession(false);
@@ -975,7 +1000,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     if (s.id === sessionIdRef.current) {
-      d.showToast("已在当前窗口");
+      d.showToast(t(d.locale ?? "zh", "toast.alreadyInWindow"));
       return;
     }
     d.onOpenSplit();
@@ -1067,7 +1092,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await ensureAgent(agentId);
       await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest, agentId });
     } catch (e) {
-      d.showToast(`改向失败，已改为排队：${String(e)}`);
+      d.showToast(t(d.locale ?? "zh", "toast.steerQueued", { error: String(e) }));
       queuePrompt(text, dest);
     }
   }
@@ -1077,21 +1102,27 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (dest !== MAIN_PANE) {
       const pane = d.extraPanes[dest];
       if (!pane) return;
-      const next = enqueue(pane.queue, text);
-      if (next === pane.queue) {
-        d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
+      const result = tryEnqueue(pane.queue, text);
+      if (!result.ok) {
+        if (result.reason === "full") {
+          d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
+          patchExtra(dest, (prev) => ({ ...prev, draft: text }));
+        }
         return;
       }
-      patchExtra(dest, (prev) => ({ ...prev, queue: next, draft: "" }));
+      patchExtra(dest, (prev) => ({ ...prev, queue: result.state, draft: "" }));
       return;
     }
-    const next = enqueue(d.queueRef.current, text);
-    if (next === d.queueRef.current) {
-      d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
+    const result = tryEnqueue(d.queueRef.current, text);
+    if (!result.ok) {
+      if (result.reason === "full") {
+        d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
+        d.setDraft(text);
+      }
       return;
     }
-    d.queueRef.current = next;
-    d.setQueue(next);
+    d.queueRef.current = result.state;
+    d.setQueue(result.state);
     d.setDraft("");
     if (sessionIdRef.current) {
       const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
@@ -1122,6 +1153,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const d = depsRef.current;
     const extra = dest !== MAIN_PANE;
     if (!text.trim() || loadingSession) return;
+    const destKey = extra ? dest : MAIN_PANE;
+    if (destHasPendingPrompt(pendingRpc.current, pendingDest.current, destKey)) {
+      abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey);
+      pendingPrompt.current = null;
+      const sid = extra
+        ? d.extraPanes[dest]?.sessionId
+        : runningSessionIdRef.current || sessionIdRef.current;
+      if (sid) {
+        await sendRaw(sessionCancelNotification(sid), paneAgent(destKey)).catch(() => {});
+      }
+      if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
+      else {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
     if (extra ? d.extraPanes[dest]?.busy : busyRef.current) return;
     if (!extra && text.startsWith("/")) {
       const name = text.split(/\s/)[0];
@@ -1200,11 +1247,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     echoedUser.current = true;
     setChat((prev) => withEchoedUser(prev, text, "u-local", Date.now()));
     d.setDraft("");
-    if (sessionIdRef.current) {
-      const nextDrafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
-      d.setSessionDrafts(nextDrafts);
-      d.persist({ drafts: nextDrafts });
-    }
+    let drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, text);
+    d.setSessionDrafts(drafts);
+    d.persist({ drafts });
     d.setAtBottom(true);
     pendingPrompt.current = "main";
     const existing = sessionIdRef.current;
@@ -1218,9 +1263,17 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await ensureAgent(agentId);
       let sid = sessionIdRef.current;
       if (!sid) sid = await createAcpSession(d.cwd || d.inboxCwd || ".");
-      if (sid !== existing) beginMainRun(sid);
+      if (sid !== existing) {
+        drafts = writeDraft(writeDraft(drafts, existing, ""), sid, text);
+        d.setSessionDrafts(drafts);
+        d.persist({ drafts });
+        beginMainRun(sid);
+      }
       if (d.cwd) await setWorkspace(d.cwd, sid);
       await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
+      drafts = writeDraft(drafts, sid, "");
+      d.setSessionDrafts(drafts);
+      d.persist({ drafts });
       startedRef.current = markStarted(startedRef.current, sid);
       if (wrapInjected) {
         const next = markInjected(injectedRef.current, sid, true);

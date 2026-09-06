@@ -227,7 +227,7 @@
   color: var(--muted);
   border-radius: var(--radius);
   padding: 5px 9px;
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
   white-space: nowrap;
 }
 .alt-send:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
@@ -235,7 +235,7 @@
 .wait-note {
   flex: none;
   color: var(--warn);
-  font-size: var(--ui-smaller);
+  font-size: var(--md-size, 15px);
   white-space: nowrap;
 }
 .pin-label.attention { color: var(--warn); }
@@ -270,7 +270,6 @@
 
 :focus { outline: none; }
 :focus-visible,
-.composer textarea:focus-visible,
 .hub-search:focus-visible,
 .git-msg:focus-visible,
 .user-turn-edit:focus-visible,

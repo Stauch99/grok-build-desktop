@@ -12,7 +12,7 @@ const TONE: Record<string, "live" | "danger" | "ok" | "warn" | "neutral"> = {
 };
 
 export function RunStatusRegion({ status }: { status: RunStatus }) {
-  if (status.kind === "idle") return null;
+  if (status.kind === "idle" || status.kind === "running") return null;
   const live =
     status.kind === "disconnected" || status.kind === "stalled" || status.kind === "trust-required"
       ? "assertive"

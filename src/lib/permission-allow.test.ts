@@ -6,6 +6,7 @@ import {
   isAllowOption,
   parseToolName,
   pickAllowOption,
+  shouldAutoApprovePermission,
   shouldSkipPermission,
 } from "./permission-allow";
 
@@ -115,6 +116,21 @@ describe("pickAllowOption", () => {
         { optionId: "c", name: "取消", kind: "cancel" },
       ]),
     ).toBeNull();
+  });
+});
+
+describe("shouldAutoApprovePermission", () => {
+  it("auto-approves tool permission cards in yolo, including bash", () => {
+    expect(shouldAutoApprovePermission(true, "permission")).toBe(true);
+  });
+
+  it("does not auto-answer AskUserQuestion cards", () => {
+    expect(shouldAutoApprovePermission(true, "question")).toBe(false);
+  });
+
+  it("leaves Agent/Plan on the normal allow-list path", () => {
+    expect(shouldAutoApprovePermission(false, "permission")).toBe(false);
+    expect(shouldAutoApprovePermission(false, "question")).toBe(false);
   });
 });
 

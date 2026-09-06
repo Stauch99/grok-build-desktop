@@ -19,6 +19,7 @@ import {
   IconMarkdown,
   IconPhoto,
 } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type AttachStripProps = {
   items: Attachment[];
@@ -53,11 +54,12 @@ function AttachKindIcon({ visual }: { visual: AttachmentVisualKind }) {
 }
 
 export function AttachStrip({ items, onRemove, cwd = "", grokHome = "" }: AttachStripProps) {
+  const t = useT();
   if (items.length === 0) return null;
   const roots = assetRoots(cwd, grokHome);
 
   return (
-    <div className="attach-strip" aria-label="附件">
+    <div className="attach-strip" aria-label={t("attach.strip")}>
       {items.map((item) => {
         const visual = attachmentVisualKind(item.name, item.kind);
         const layout = attachmentChipLayout(visual);
@@ -79,7 +81,7 @@ export function AttachStrip({ items, onRemove, cwd = "", grokHome = "" }: Attach
                   <AttachKindIcon visual={visual} />
                 </div>
                 <div className="attach-body">
-                  <div className="attach-name" title={item.path}>
+                  <div className="attach-name" data-tip={item.path}>
                     {item.name}
                   </div>
                   <div className="attach-meta">{attachmentMeta(item)}</div>
@@ -89,7 +91,7 @@ export function AttachStrip({ items, onRemove, cwd = "", grokHome = "" }: Attach
             <button
               type="button"
               className="attach-remove"
-              aria-label={`移除 ${item.name}`}
+              aria-label={t("attach.remove", { name: item.name })}
               onClick={() => onRemove(item.path)}
             >
               ×

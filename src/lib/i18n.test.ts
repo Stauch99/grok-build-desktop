@@ -34,6 +34,8 @@ describe("i18n", () => {
   });
 
   it("has user-memory settings copy", () => {
+    expect(t("zh", "settings.accent")).toBe("强调色");
+    expect(t("en", "settings.accent")).toBe("Accent");
     expect(t("zh", "settings.injectUserMemory")).toBe("用户画像注入");
     expect(t("en", "settings.dreamAgentId")).toBe("Dream with");
     expect(t("zh", "memory.loadedChip")).toBe("已加载记忆");
@@ -57,6 +59,14 @@ describe("i18n", () => {
     expect(t("zh", "perm.remember")).toBe("此会话内记住");
     expect(t("zh", "perm.allowOnce")).toBe("允许这次");
     expect(t("zh", "trust.danger")).toBe("这是危险目录");
+    expect(t("zh", "session.expandKids")).toBe("展开子会话");
+    expect(t("en", "session.collapseKids")).toBe("Collapse child sessions");
+    expect(t("zh", "toast.steerQueued")).toContain("已改为排队");
+    expect(t("en", "toast.queueFull")).toMatch(/Queue is full/);
+    expect(t("zh", "recap.kicker")).toBe("回顾");
+    expect(t("en", "mention.include")).toBe("Include file contents");
+    expect(t("zh", "agents.empty")).toContain("还没有");
+    expect(t("en", "perm.pickNine")).toMatch(/1–9/);
   });
 
   it("interpolates numbered placeholders", () => {
@@ -85,6 +95,9 @@ describe("i18n", () => {
     expect(t("en", "rail.review")).toBe("Dashboard");
     expect(t("zh", "sidebar.pin")).toBe("置顶");
     expect(t("en", "sidebar.pin")).toBe("Pinned");
+    expect(t("zh", "sidebar.newGroup")).toBe("新建分组");
+    expect(t("zh", "sidebar.moveToGroup", { name: "工作" })).toBe("移到「工作」");
+    expect(t("zh", "confirm.deleteGroupBody", { name: "工作" })).toContain("工作");
     expect(t("zh", "extra.dashboard")).toBe("会话总览");
     expect(t("en", "extra.dashboard")).toBe("Sessions");
     expect(t("zh", "pane.splitRight")).toBe("向右拆开");

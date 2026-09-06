@@ -35,7 +35,9 @@ import { DotMatrix } from "./DotMatrix";
 import { Markdown } from "./Markdown";
 import { ToolResult } from "./ToolResult";
 import { UserTurn } from "./UserTurn";
-import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
+import { WorkLiveRow } from "./WorkTimeline";
+import { WorkRun } from "./WorkRun";
+import { visibleWorkItems } from "../lib/work-run";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 import { chatWidthCss } from "../lib/chat-width";
 import { tocActiveId } from "../lib/toc-active";
@@ -235,18 +237,16 @@ export const ChatRow = memo(function ChatRow({
           live={!showCopy}
           onClick={(e) => handleMdClick(e, cwd, onPreviewPath)}
         />
-        {showCopy ? (
-          <div className="actions">
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(item.text)}
-              aria-label={t("thread.copy")}
-              data-tip={t("thread.copy")}
-            >
-              <IconGrokCopy />
-            </button>
-          </div>
-        ) : null}
+        <div className="actions">
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(item.text)}
+            aria-label={t("thread.copy")}
+            data-tip={t("thread.copy")}
+          >
+            <IconGrokCopy />
+          </button>
+        </div>
       </article>
     );
   }
@@ -309,6 +309,7 @@ type ThreadRowCtx = {
   lastWorkId: string | null;
   liveInTimeline: boolean;
   liveRow: ReactNode;
+  liveTick: number;
   busy: boolean;
   items: ChatItem[];
   onResendUser?: (text: string) => void;
@@ -317,6 +318,7 @@ type ThreadRowCtx = {
   onInspectTool?: (item: Extract<ChatItem, { kind: "tool" }>) => void;
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
+  onCancel: () => void;
 };
 
 function userTurnsBefore(blocks: ThreadBlock[], index: number): number {
@@ -351,6 +353,7 @@ function ThreadBlockView({
     lastWorkId,
     liveInTimeline,
     liveRow,
+    liveTick,
     items,
     busy,
     onResendUser,
@@ -359,24 +362,24 @@ function ThreadBlockView({
     onInspectTool,
     onPreviewPath,
     highlightQuery,
+    onCancel,
   } = ctx;
   const copyFor = (id: string) => assistantCopyReady(items, id, busy);
   if (block.kind === "work") {
-    const visible = showThinking
-      ? block.items
-      : block.items.filter((i) => i.kind !== "thought");
+    const visible = visibleWorkItems(block.items, showThinking);
     if (visible.length === 0) return null;
     const runBusy = liveInTimeline && lastWorkId === block.id;
     return (
-      <div className="work-cluster">
-        <WorkTimeline
-          items={visible}
-          busy={runBusy}
-          cwd={cwd}
-          live={runBusy ? liveRow : null}
-          onInspectTool={onInspectTool}
-        />
-      </div>
+      <WorkRun
+        items={visible}
+        busy={runBusy}
+        cwd={cwd}
+        live={runBusy ? liveRow : null}
+        onInspectTool={onInspectTool}
+        onStop={runBusy ? onCancel : undefined}
+        runId={block.id}
+        tick={runBusy ? liveTick : 0}
+      />
     );
   }
   const item = block.item;
@@ -495,7 +498,7 @@ export function ThreadColumn({
   const [tocActive, setTocActive] = useState<string | null>(null);
   const wasVirtualRef = useRef(false);
   const anchorIndexRef = useRef(0);
-  const [, setLiveTick] = useState(0);
+  const [liveTick, setLiveTick] = useState(0);
   const liveClock = useRef({ announced: "", lastAt: 0 });
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
@@ -505,8 +508,7 @@ export function ThreadColumn({
   const lastBlock = blocks[blocks.length - 1];
   const lastWorkVisible =
     lastBlock?.kind === "work" &&
-    (showThinking ? lastBlock.items : lastBlock.items.filter((i) => i.kind !== "thought"))
-      .length > 0;
+    visibleWorkItems(lastBlock.items, showThinking).length > 0;
   const liveInTimeline = busy && lastWorkVisible;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
   const liveRow = busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
@@ -522,6 +524,7 @@ export function ThreadColumn({
       lastWorkId,
       liveInTimeline,
       liveRow,
+      liveTick,
       busy,
       items: chat.items,
       onResendUser,
@@ -530,6 +533,7 @@ export function ThreadColumn({
       onInspectTool,
       onPreviewPath,
       highlightQuery,
+      onCancel,
     }),
     [
       paneId,
@@ -541,6 +545,7 @@ export function ThreadColumn({
       lastWorkId,
       liveInTimeline,
       liveRow,
+      liveTick,
       busy,
       chat.items,
       onResendUser,
@@ -549,6 +554,7 @@ export function ThreadColumn({
       onInspectTool,
       onPreviewPath,
       highlightQuery,
+      onCancel,
     ],
   );
   const listActive = virtualize && !empty;

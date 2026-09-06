@@ -1,5 +1,6 @@
 import { Children, type ReactNode } from "react";
 import { IconClose } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export function ComposerDock({ children }: { children: ReactNode }) {
   const items = Children.toArray(children).filter(Boolean);
@@ -28,11 +29,13 @@ export function DockCapsule({
   tone = "neutral",
   variant = "pill",
   onDismiss,
-  dismissLabel = "关闭",
+  dismissLabel,
   actions,
   className,
   label,
 }: DockCapsuleProps) {
+  const t = useT();
+  const closeLabel = dismissLabel ?? t("common.close");
   const classes = [
     "dock-capsule",
     `dock-capsule-${variant}`,
@@ -56,8 +59,8 @@ export function DockCapsule({
             type="button"
             className="icon-btn"
             onClick={onDismiss}
-            title={dismissLabel}
-            aria-label={dismissLabel}
+            data-tip={closeLabel}
+            aria-label={closeLabel}
           >
             <IconClose size={16} />
           </button>

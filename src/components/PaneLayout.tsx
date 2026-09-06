@@ -1,5 +1,6 @@
 import { useRef, type ReactNode } from "react";
 import { PANE_MIN, type PaneNode, type SplitDir } from "../lib/pane-tree";
+import { useT } from "../lib/locale-context";
 
 export function PaneLayout({
   tree,
@@ -43,6 +44,7 @@ function SplitDivider({
   ratio: number;
   onChange: (ratio: number) => void;
 }) {
+  const t = useT();
   const start = useRef({ pos: 0, ratio: 0, size: 1 });
   const axis = dir === "col" ? "x" : "y";
   return (
@@ -50,7 +52,7 @@ function SplitDivider({
       className={`resizer pane-split-resizer ${axis === "y" ? "resizer-row" : ""}`}
       role="separator"
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
-      aria-label={dir === "col" ? "调整左右分屏" : "调整上下分屏"}
+      aria-label={dir === "col" ? t("pane.resizeCol") : t("pane.resizeRow")}
       tabIndex={0}
       onPointerDown={(e) => {
         if (e.button !== 0) return;

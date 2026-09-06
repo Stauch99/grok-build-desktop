@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dequeue, editQueued, emptyQueue, enqueue, queueLabel, removeQueued, reorderQueue } from "./prompt-queue";
+import { dequeue, editQueued, emptyQueue, enqueue, queueLabel, removeQueued, reorderQueue, tryEnqueue } from "./prompt-queue";
 
 describe("enqueue", () => {
   it("appends with an incrementing id", () => {
@@ -90,6 +90,23 @@ describe("editQueued", () => {
   it("is a no-op for an unknown id", () => {
     const q = enqueue(emptyQueue(), "one");
     expect(editQueued(q, 99, "nope")).toBe(q);
+  });
+});
+
+describe("tryEnqueue", () => {
+  it("keeps the previous state when the queue is full so the composer can retain the draft", () => {
+    let q = emptyQueue();
+    for (let i = 0; i < 10; i++) q = enqueue(q, `p${i}`);
+    const result = tryEnqueue(q, "overflow");
+    expect(result).toEqual({ ok: false, reason: "full", state: q });
+    expect(result.state).toBe(q);
+  });
+
+  it("accepts trimmed text under the cap", () => {
+    const q = emptyQueue();
+    const result = tryEnqueue(q, "  hi  ");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.state.items).toEqual([{ id: 1, text: "hi" }]);
   });
 });
 

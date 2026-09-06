@@ -1,12 +1,14 @@
 import type { SessionSummary } from "../api";
 import type { PointerEvent } from "react";
 import { IconGrokMore } from "../grok-icons";
-import { IconChat, IconChevron } from "../icons";
+import { IconChat } from "../icons";
+import { AgentIcon } from "../lib/agent-icons";
 import { countDescendants, displayTitle, type SessionNode } from "../lib/projects";
 import { shouldAutoExpand } from "../lib/session-chrome";
 import { presenceClass, sessionPresence } from "../lib/session-presence";
 import { statusLabel, type SessionStatus } from "../lib/session-status";
 import { formatTokenCount, sessionAgentPill, type SidebarRow } from "../lib/sidebar-list";
+import { useT } from "../lib/locale-context";
 import { DotMatrix } from "./DotMatrix";
 
 function collectDescendantIds(node: SessionNode): string[] {
@@ -40,14 +42,14 @@ function SessionLeading({
       <>
         <IconChat size={16} className="sess-chat" />
         {showStatusDot ? (
-          <span className={`sess-dot ${status}`} title={label} aria-label={label} role="img" />
+          <span className={`sess-dot ${status}`} data-tip={label} aria-label={label} role="img" />
         ) : null}
       </>
     );
   }
 
   if (showStatusDot) {
-    return <span className={`sess-dot ${status}`} title={label} aria-label={label} role="img" />;
+    return <span className={`sess-dot ${status}`} data-tip={label} aria-label={label} role="img" />;
   }
 
   return null;
@@ -103,6 +105,7 @@ export function SessionBranch({
   hideProjectSubtitle = false,
   onDragSession,
 }: SessionBranchProps) {
+  const t = useT();
   const s = node.session;
   const pill = sessionAgentPill(s.agentId);
   const meta = rowMeta?.get(s.id);
@@ -139,8 +142,11 @@ export function SessionBranch({
     <>
       <div
         className={`session${depth ? " child" : ""}${tone ? ` ${tone}` : ""}`}
+        data-session-row={s.id}
+        data-has-kids={hasKids ? "1" : undefined}
+        data-expanded={expanded ? "1" : undefined}
         onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest(".more, .branch-chev, [data-menu-trigger]")) return;
+          if ((e.target as HTMLElement).closest(".more, .sess-kid-count, [data-menu-trigger]")) return;
           onDragSession?.(e, s);
         }}
         onContextMenu={(e) => {
@@ -152,15 +158,15 @@ export function SessionBranch({
         {hasKids ? (
           <button
             type="button"
-            className="branch-chev"
-            aria-label={expanded ? "收起子会话" : "展开子会话"}
+            className="sess-kid-count"
+            aria-label={expanded ? t("session.collapseKids") : t("session.expandKids")}
             aria-expanded={expanded}
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(s.id, expanded);
             }}
           >
-            <IconChevron size={14} />
+            {descCount}
           </button>
         ) : null}
         <button type="button" className="title" onClick={() => onOpen(s)}>
@@ -169,19 +175,18 @@ export function SessionBranch({
             <span className="sess-title">{displayTitle(s, titles)}</span>
             {subLine ? <span className="sess-sub">{subLine}</span> : null}
           </span>
-          <span className={pill.className}>{pill.label}</span>
+          <span className={pill.className} data-tip={pill.label} aria-label={pill.label} role="img">
+            <AgentIcon id={pill.agentId} size={16} />
+          </span>
         </button>
         {showTokens && rowToken !== undefined ? (
           <span className="sess-token">{formatTokenCount(rowToken)}</span>
-        ) : null}
-        {hasKids ? (
-          <span className="count">{descCount}</span>
         ) : null}
         <button
           type="button"
           className="more"
           data-menu-trigger
-          aria-label="会话操作"
+          aria-label={t("session.actions")}
           onClick={(e) => {
             e.stopPropagation();
             onMenu(s.id, e.currentTarget);

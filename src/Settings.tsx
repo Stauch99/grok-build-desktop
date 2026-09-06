@@ -28,6 +28,9 @@ import type { HubTab } from "./lib/commands";
 import type { InspectReport } from "./lib/inspect";
 import { enabledMcpCount } from "./lib/inspect";
 import { IconGrokSearch } from "./grok-icons";
+import { AccentSwatches } from "./components/AccentSwatches";
+import { DEFAULT_ACCENT_ID, type AccentId } from "./lib/accent";
+import brandLogoUrl from "./assets/brand-logo.png";
 import { agentChipLabel } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
 import type { AgentDoctor } from "./lib/agent-doctor";
@@ -67,6 +70,8 @@ type Props = {
   onLocale?: (l: Locale) => void;
   themeFamily?: "default" | "paper" | "ink";
   onThemeFamily?: (f: "default" | "paper" | "ink") => void;
+  accentId?: AccentId;
+  onAccentId?: (id: AccentId) => void;
   hideToTray?: boolean;
   onHideToTray?: (v: boolean) => void;
   defaultRail?: "tasks" | "changes" | "context";
@@ -155,6 +160,8 @@ export function SettingsPanel({
   onLocale,
   themeFamily = "default",
   onThemeFamily,
+  accentId = DEFAULT_ACCENT_ID,
+  onAccentId,
   hideToTray = true,
   onHideToTray,
   defaultRail = "tasks",
@@ -250,27 +257,28 @@ export function SettingsPanel({
   const overviewInspect = show(t(locale, "health.inspect"));
   const overviewMcp = show("MCP");
   const overviewAgent = show("Agent");
-  const overviewInbox = show("独立对话", "收件箱目录");
+  const overviewInbox = show(hay("settings.inbox"));
   const overviewHealth = overviewCli || overviewLogin || overviewInspect || overviewMcp || overviewAgent;
   const overviewHas = overviewHealth || overviewInbox;
 
   const appearanceDark = show(hay("settings.dark"));
   const appearanceFamily = show(hay("settings.themeFamily"), "默认 Paper 暖纸 Ink 高对比 Default Warm High contrast");
+  const appearanceAccent = show(hay("settings.accent"), "蓝 橙 绿 紫 粉 青 Blue Orange Green Purple Pink Teal");
   const appearanceLocale = show(hay("settings.locale"), "简体中文 English 中文");
   const appearanceWidth = show(hay("settings.chatWidth"), "窄 中 宽 填充 Narrow Medium Wide Fill");
   const appearanceFont = show(hay("settings.fontSize"), "较小 中 常规 Smaller Medium Regular 14 15 17");
   const appearanceRail = show(hay("settings.defaultRail"), "Dashboard 审阅");
   const appearanceTray = show(hay("settings.hideToTray"));
-  const appearanceTheme = appearanceDark || appearanceFamily;
+  const appearanceTheme = appearanceDark || appearanceFamily || appearanceAccent;
   const appearanceLayout = appearanceWidth || appearanceFont;
   const appearanceHas =
     appearanceTheme || appearanceLayout || appearanceLocale || appearanceRail || appearanceTray;
 
-  const sendDesc = "Enter 发送或 ⌘Enter Enter send";
-  const steerDesc = "排队到轮末或不打断正在跑的这一轮 立即改向 Queue steer";
+  const sendDesc = hay("settings.sendKey", "Enter 发送或 ⌘Enter Enter send");
+  const steerDesc = hay("settings.steer", "排队到轮末或不打断正在跑的这一轮 立即改向 Queue steer");
   const shortcutDesc = DEFAULT_SHORTCUTS.map((row) => `${row.action} ${row.defaultBinding}`).join(" ");
-  const chatSend = show(hay("settings.sendKey"), sendDesc);
-  const chatSteer = show(hay("settings.steer"), steerDesc);
+  const chatSend = show(sendDesc);
+  const chatSteer = show(steerDesc);
   const chatArchive = show(hay("settings.archive"));
   const chatThinking = show(hay("settings.thinking"));
   const chatCompact = show(hay("settings.compact"));
@@ -355,25 +363,25 @@ export function SettingsPanel({
                         {overviewCli ? (
                           <div className="set-row">
                             <label>{t(locale, "health.cli")}</label>
-                            <p>{info?.grokVersion || "未检测到"}</p>
+                            <p>{info?.grokVersion || t(locale, "settings.notDetected")}</p>
                           </div>
                         ) : null}
                         {overviewLogin ? (
                           <div className="set-row">
                             <label>{t(locale, "health.login")}</label>
-                            <p>{info?.authPresent ? "已登录" : "未登录"}</p>
+                            <p>{info?.authPresent ? t(locale, "settings.signedIn") : t(locale, "settings.signedOut")}</p>
                           </div>
                         ) : null}
                         {overviewInspect ? (
                           <div className="set-row">
                             <label>{t(locale, "health.inspect")}</label>
-                            <p>{skillCount} 技能 · {pluginCount} 插件 · {hookCount} hooks</p>
+                            <p>{t(locale, "settings.extCounts", { skills: skillCount, plugins: pluginCount, hooks: hookCount })}</p>
                           </div>
                         ) : null}
                         {overviewMcp ? (
                           <div className="set-row">
                             <label>MCP</label>
-                            <p>{mcpCount} 已启用</p>
+                            <p>{t(locale, "settings.mcpEnabledCount", { n: mcpCount })}</p>
                           </div>
                         ) : null}
                         {doctorNote ? <p className="hint">{doctorNote}</p> : null}
@@ -385,24 +393,30 @@ export function SettingsPanel({
                               <span
                                 className={`conn-chip${agentReady ? " ready" : agentConnecting ? " connecting" : ""}`}
                               >
-                                {agentReady ? "已连接" : agentConnecting ? "连接中" : agentDisconnected ? "已断开" : "未连接"}
+                                {agentReady
+                                  ? t(locale, "settings.connected")
+                                  : agentConnecting
+                                    ? t(locale, "settings.connecting")
+                                    : agentDisconnected
+                                      ? t(locale, "settings.disconnected")
+                                      : t(locale, "settings.notConnected")}
                               </span>
                             </p>
                           </div>
                         ) : null}
                         {overviewAgent && agentDisconnected && onRestartAgent ? (
                           <div className="set-actions">
-                            <button type="button" className="btn primary" onClick={onRestartAgent}>重启 grok</button>
+                            <button type="button" className="btn primary" onClick={onRestartAgent}>{t(locale, "settings.restart")}</button>
                           </div>
                         ) : null}
-                        <p className="hint">本地诊断可在终端运行 grok inspect。</p>
+                        <p className="hint">{t(locale, "settings.inspectHint")}</p>
                       </div>
                       <div className="set-actions">
                         <button type="button" className="btn primary" onClick={() => onOpenHub?.("mcp")}>
                           {t(locale, "hub.title")}
                         </button>
                         <button type="button" className="btn ghost" onClick={() => onRefreshHealth?.()}>
-                          刷新健康
+                          {t(locale, "settings.refreshHealth")}
                         </button>
                       </div>
                     </div>
@@ -447,8 +461,8 @@ export function SettingsPanel({
                   {overviewInbox ? (
                     <div className="set-card">
                       <div className="set-stack">
-                        <label>独立对话</label>
-                        <p className="hub-meta">{inboxCwd || "尚未设置"}</p>
+                        <label>{t(locale, "settings.inbox")}</label>
+                        <p className="hub-meta">{inboxCwd || t(locale, "settings.inboxUnset")}</p>
                       </div>
                       <div className="set-actions">
                         <button
@@ -461,14 +475,14 @@ export function SettingsPanel({
                               try {
                                 const next = await ensureInbox(dir);
                                 onInboxCwd(next);
-                                setNote("已记下收件箱目录");
+                                setNote(t(locale, "settings.inboxNoted"));
                               } catch (e) {
                                 setNote(String(e));
                               }
                             })();
                           }}
                         >
-                          选择目录
+                          {t(locale, "settings.chooseDir")}
                         </button>
                         <button
                           type="button"
@@ -478,14 +492,14 @@ export function SettingsPanel({
                               try {
                                 const next = await ensureInbox(null);
                                 onInboxCwd(next);
-                                setNote("已恢复默认收件箱");
+                                setNote(t(locale, "settings.inboxReset"));
                               } catch (e) {
                                 setNote(String(e));
                               }
                             })();
                           }}
                         >
-                          恢复默认
+                          {t(locale, "settings.resetInbox")}
                         </button>
                       </div>
                     </div>
@@ -525,6 +539,12 @@ export function SettingsPanel({
                             ]}
                             onChange={(v) => onThemeFamily?.(v as "default" | "paper" | "ink")}
                           />
+                        </div>
+                      ) : null}
+                      {appearanceAccent ? (
+                        <div className="set-stack">
+                          <label>{t(locale, "settings.accent")}</label>
+                          <AccentSwatches value={accentId} locale={locale} onChange={(id) => onAccentId?.(id)} />
                         </div>
                       ) : null}
                     </div>
@@ -878,7 +898,7 @@ export function SettingsPanel({
               <h3>{t(locale, "settings.extensions")}</h3>
               {searching && !extensionsHub ? emptyCopy : extensionsHub ? (
                 <div className="set-card">
-                  <p className="hub-meta">技能、MCP、插件、市场和 Hooks 在扩展中心管理。</p>
+                  <p className="hub-meta">{t(locale, "settings.hubHint")}</p>
                   <div className="set-actions">
                     <button type="button" className="btn primary" onClick={() => onOpenHub?.("skills")}>
                       {t(locale, "settings.openHub")}
@@ -901,16 +921,17 @@ export function SettingsPanel({
               <h3>{t(locale, "settings.about")}</h3>
               {searching && !aboutHas ? emptyCopy : (
                 <>
+                  <img className="about-logo" src={brandLogoUrl} width={48} height={48} alt="" />
                   {aboutMeta ? (
                     <div className="set-card">
                       {aboutCli ? (
                         <>
-                          <p className="meta-line">{info?.grokVersion || "未检测到 CLI"}</p>
+                          <p className="meta-line">{info?.grokVersion || t(locale, "settings.cliMissing")}</p>
                           {info?.grokPath && <p className="hub-meta">{info.grokPath}</p>}
                         </>
                       ) : null}
                       {aboutLogin ? (
-                        <p className="meta-line">{info?.authPresent ? "已登录" : "未登录，请在终端运行 grok login"}</p>
+                        <p className="meta-line">{info?.authPresent ? t(locale, "settings.signedIn") : t(locale, "settings.loginHint")}</p>
                       ) : null}
                     </div>
                   ) : null}
@@ -940,12 +961,12 @@ export function SettingsPanel({
         </div>
       </div>
 
-      {note && <p className="set-note">{busy ? "写入中…" : note}</p>}
+      {note && <p className="set-note">{busy ? t(locale, "settings.writing") : note}</p>}
       <AppModal
         open={!!confirm}
         title={confirm?.title ?? ""}
         body={confirm?.body ?? ""}
-        confirmLabel={confirm?.confirmLabel ?? "确定"}
+        confirmLabel={confirm?.confirmLabel ?? t(locale, "settings.ok")}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
           const run = confirm?.run;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listWorkspaceEntries, type WorkspaceEntry } from "../api";
 import { millerPath, millerPush, millerRoot, type MillerColumn } from "../lib/miller";
 import { IconClose } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type MillerPickerProps = {
   root: string;
@@ -10,6 +11,7 @@ export type MillerPickerProps = {
 };
 
 export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
+  const t = useT();
   const [stack, setStack] = useState<MillerColumn[]>(() => millerRoot(root));
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
 
@@ -22,10 +24,10 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
   return (
     <div className="settings-layer" role="presentation">
       <div className="settings-backdrop" onClick={onClose} />
-      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label="选择工作区">
+      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={t("miller.title")}>
         <header className="settings-head">
-          <strong>选择工作区</strong>
-          <button type="button" className="icon-btn" onClick={onClose} title="关闭" aria-label="关闭">
+          <strong>{t("miller.title")}</strong>
+          <button type="button" className="icon-btn" onClick={onClose} data-tip={t("common.close")} aria-label={t("common.close")}>
             <IconClose size={16} />
           </button>
         </header>
@@ -43,14 +45,14 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
                   }}
                 >
                   <strong>{e.name}</strong>
-                  <span className="hub-meta">{e.kind === "dir" ? "文件夹" : "文件"}</span>
+                  <span className="hub-meta">{e.kind === "dir" ? t("file.folders") : t("file.files")}</span>
                 </button>
               </li>
             ))}
           </ul>
           <div className="set-actions">
             <button type="button" className="btn primary" onClick={() => onPick(path)}>
-              使用此目录
+              {t("miller.use")}
             </button>
           </div>
         </div>

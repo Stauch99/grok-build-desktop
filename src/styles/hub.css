@@ -375,7 +375,7 @@
   border: 1px solid var(--line);
   background: var(--bg-card);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
 }
 .dock-capsule-pill {
   border-radius: 999px;
@@ -431,7 +431,7 @@
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
   padding: 2px 6px;
   border-radius: var(--radius);
 }

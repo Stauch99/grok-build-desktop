@@ -7,7 +7,11 @@ import {
   changePreviewTarget,
   discardConfirm,
   gitCommandError,
+  gitPullEnabled,
+  gitPushEnabled,
   gitRemoteEnabled,
+  gitRemoteUrlOk,
+  gitSyncKind,
   gitWorkDir,
   isCheckoutableBranch,
   isClean,
@@ -37,6 +41,8 @@ const status = (over: Partial<GitStatus> = {}): GitStatus => ({
   dirty: 2,
   ahead: 0,
   behind: 0,
+  remote: "origin",
+  hasUpstream: true,
   ...over,
 });
 
@@ -210,6 +216,60 @@ describe("gitRemoteEnabled", () => {
     expect(gitRemoteEnabled(status(), false)).toBe(true);
     expect(gitRemoteEnabled(status({ ahead: 0, behind: 0 }))).toBe(true);
   });
+
+  it("is off when the repo has no remote", () => {
+    expect(gitRemoteEnabled(status({ remote: "", hasUpstream: false }))).toBe(false);
+  });
+});
+
+describe("gitSyncKind", () => {
+  it("is null outside a repo", () => {
+    expect(gitSyncKind(null)).toBeNull();
+    expect(gitSyncKind(status({ isRepo: false }))).toBeNull();
+  });
+
+  it("asks to add a remote when none is configured", () => {
+    expect(gitSyncKind(status({ remote: "", hasUpstream: false }))).toBe("add-remote");
+  });
+
+  it("publishes when a remote exists but the branch has no upstream", () => {
+    expect(gitSyncKind(status({ remote: "origin", hasUpstream: false }))).toBe("publish");
+  });
+
+  it("syncs when the branch already tracks a remote", () => {
+    expect(gitSyncKind(status())).toBe("sync");
+  });
+});
+
+describe("gitPullEnabled / gitPushEnabled", () => {
+  it("lets pull run only when the branch is tracked", () => {
+    expect(gitPullEnabled(status(), false)).toBe(true);
+    expect(gitPullEnabled(status({ hasUpstream: false }), false)).toBe(false);
+    expect(gitPullEnabled(status({ remote: "" }), false)).toBe(false);
+    expect(gitPullEnabled(status(), true)).toBe(false);
+  });
+
+  it("lets push run when a remote exists", () => {
+    expect(gitPushEnabled(status(), false)).toBe(true);
+    expect(gitPushEnabled(status({ hasUpstream: false }), false)).toBe(true);
+    expect(gitPushEnabled(status({ remote: "", hasUpstream: false }), false)).toBe(false);
+    expect(gitPushEnabled(status(), true)).toBe(false);
+  });
+});
+
+describe("gitRemoteUrlOk", () => {
+  it("accepts https and ssh remotes", () => {
+    expect(gitRemoteUrlOk("https://github.com/org/repo.git")).toBe(true);
+    expect(gitRemoteUrlOk("git@github.com:org/repo.git")).toBe(true);
+    expect(gitRemoteUrlOk("ssh://git@github.com/org/repo.git")).toBe(true);
+  });
+
+  it("rejects empty, flagged, or spaced values", () => {
+    expect(gitRemoteUrlOk("")).toBe(false);
+    expect(gitRemoteUrlOk("origin")).toBe(false);
+    expect(gitRemoteUrlOk("-u https://github.com/org/repo.git")).toBe(false);
+    expect(gitRemoteUrlOk("https://github.com/org/repo.git extra")).toBe(false);
+  });
 });
 
 describe("gitCommandError", () => {
@@ -220,6 +280,55 @@ describe("gitCommandError", () => {
   it("prefers stderr and falls back to the Chinese copy", () => {
     expect(gitCommandError({ ok: false, code: 1, stderr: " conflict\n" }, "拉取失败")).toBe("conflict");
     expect(gitCommandError({ ok: false, code: 1, stderr: "  " }, "推送失败")).toBe("推送失败");
+  });
+
+  it("maps a branch with no tracking info to a short pull hint", () => {
+    const stderr = [
+      "There is no tracking information for the current branch.",
+      "Please specify which branch you want to merge with.",
+      "git pull <remote> <branch>",
+      "git branch --set-upstream-to=<remote>/<branch> feat/handbook-pipeline",
+    ].join("\n");
+    expect(gitCommandError({ ok: false, code: 1, stderr }, "拉取失败")).toBe(
+      "当前分支还没有远程跟踪，请先推送",
+    );
+  });
+
+  it("maps a missing push destination to a short remote hint", () => {
+    expect(
+      gitCommandError(
+        {
+          ok: false,
+          code: 128,
+          stderr:
+            "fatal: No configured push destination. Either specify the URL from the command-line or configure a remote repository using git remote add <name> <url>",
+        },
+        "推送失败",
+      ),
+    ).toBe("当前仓库没有远程地址");
+  });
+
+  it("maps a branch with no upstream to a short publish hint", () => {
+    expect(
+      gitCommandError(
+        {
+          ok: false,
+          code: 128,
+          stderr:
+            "fatal: The current branch feat/handbook-pipeline has no upstream branch.\nTo push the current branch and set the remote as upstream, use\n\n    git push --set-upstream origin feat/handbook-pipeline\n",
+        },
+        "推送失败",
+      ),
+    ).toBe("当前分支还没有远程跟踪，请先推送");
+  });
+
+  it("maps an unpublished remote ref to a short publish hint", () => {
+    expect(
+      gitCommandError(
+        { ok: false, code: 1, stderr: "fatal: couldn't find remote ref feat/handbook-pipeline\n" },
+        "拉取失败",
+      ),
+    ).toBe("当前分支尚未发布到远程，请先推送");
   });
 });
 
@@ -257,6 +366,27 @@ describe("runBusyGit", () => {
     expect(setBusy.mock.calls).toEqual([[true], [false]]);
     expect(toast).toHaveBeenCalledWith("no upstream");
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("toasts a short hint when git reports no tracking information", async () => {
+    const toast = vi.fn();
+    await runBusyGit(
+      {
+        dir: "/repo",
+        busy: false,
+        isRepo: true,
+        setBusy: () => {},
+        toast,
+        refresh: async () => {},
+      },
+      async () => ({
+        ok: false,
+        code: 1,
+        stderr: "There is no tracking information for the current branch.",
+      }),
+      "拉取失败",
+    );
+    expect(toast).toHaveBeenCalledWith("当前分支还没有远程跟踪，请先推送");
   });
 
   it("refreshes after a successful command", async () => {

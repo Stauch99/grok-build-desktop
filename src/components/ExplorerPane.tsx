@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listWorkspaceEntries, type WorkspaceEntry } from "../api";
 import { IconFinder, IconFolder, IconFolderOpen } from "../icons";
 import { FileListRow } from "./FileListRow";
+import { useT } from "../lib/locale-context";
 
 export type ExplorerPaneProps = {
   cwd: string;
@@ -20,6 +21,7 @@ function ExplorerNode({
   onPreview: (path: string) => void;
   onReveal: (path: string) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [kids, setKids] = useState<WorkspaceEntry[] | null>(null);
 
@@ -46,7 +48,7 @@ function ExplorerNode({
             type="button"
             className="file-entry-main"
             aria-expanded={open}
-            title={entry.path}
+            data-tip={entry.path}
             onClick={() => setOpen((v) => !v)}
           >
             <span className="explorer-twist" aria-hidden>
@@ -62,8 +64,8 @@ function ExplorerNode({
           <button
             type="button"
             className="file-open file-finder"
-            title="在访达中打开"
-            aria-label="在访达中打开"
+            data-tip={t("finder.open")}
+            aria-label={t("finder.open")}
             onClick={() => onReveal(entry.path)}
           >
             <IconFinder size={14} />
@@ -71,9 +73,9 @@ function ExplorerNode({
         </div>
         {open ? (
           kids === null ? (
-            <p className="float-empty explorer-loading">读取中…</p>
+            <p className="float-empty explorer-loading">{t("explorer.loading")}</p>
           ) : kids.length === 0 ? (
-            <p className="float-empty explorer-loading">空文件夹</p>
+            <p className="float-empty explorer-loading">{t("explorer.emptyFolder")}</p>
           ) : (
             kids.map((child) => (
               <ExplorerNode
@@ -104,6 +106,7 @@ function ExplorerNode({
 
 /** Simple project-tree viewer. Not a Finder or IDE explorer. */
 export function ExplorerPane({ cwd, onPreview, onReveal }: ExplorerPaneProps) {
+  const t = useT();
   const [roots, setRoots] = useState<WorkspaceEntry[] | null>(null);
 
   useEffect(() => {
@@ -125,13 +128,13 @@ export function ExplorerPane({ cwd, onPreview, onReveal }: ExplorerPaneProps) {
   }, [cwd]);
 
   if (!cwd) {
-    return <p className="float-empty">还没有工作区。</p>;
+    return <p className="float-empty">{t("explorer.noWorkspace")}</p>;
   }
   if (roots === null) {
-    return <p className="float-empty">读取中…</p>;
+    return <p className="float-empty">{t("explorer.loading")}</p>;
   }
   if (roots.length === 0) {
-    return <p className="float-empty">工作区还没有可列出的文件。</p>;
+    return <p className="float-empty">{t("explorer.noFiles")}</p>;
   }
 
   return (

@@ -70,6 +70,30 @@ describe("applyChatUpdate", () => {
     expect(s.items[0]).toMatchObject({ kind: "tool", id: "c1", status: "completed", title: "Read file" });
   });
 
+  it("keeps Grok spawn_subagent toolName after the display title becomes the task description", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(
+      s,
+      upd("tool_call", { toolCallId: "c1", title: "spawn_subagent", status: "pending" }),
+    );
+    s = applyChatUpdate(
+      s,
+      upd("tool_call_update", {
+        toolCallId: "c1",
+        kind: "other",
+        title: "解读 Attention Is All You Need",
+        status: "in_progress",
+      }),
+    );
+    expect(s.items[0]).toMatchObject({
+      kind: "tool",
+      id: "c1",
+      title: "解读 Attention Is All You Need",
+      toolName: "spawn_subagent",
+      status: "in_progress",
+    });
+  });
+
   it("loads tool verbose output from rawOutput and content text blocks", () => {
     let s = emptyChat();
     s = applyChatUpdate(
@@ -427,6 +451,34 @@ describe("shouldClearBusyOnSettledChat", () => {
         seenAssistantAt: 10_000 - 4000,
       }),
     ).toBe(true);
+  });
+
+  it("does not treat a previous turn's reply as this turn having settled", () => {
+    const items = [
+      { kind: "user" as const, id: "u1", text: "first", at: 1 },
+      { kind: "assistant" as const, id: "a1", text: "done", at: 2, until: 3 },
+      { kind: "user" as const, id: "u2", text: "again", at: 10_000 },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 11_000, items })).toBe(false);
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 14_000,
+        items,
+        seenAssistantAt: 10_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("still settles once the new turn's reply has been quiet", () => {
+    const items = [
+      { kind: "user" as const, id: "u1", text: "first", at: 1 },
+      { kind: "assistant" as const, id: "a1", text: "done", at: 2, until: 3 },
+      { kind: "user" as const, id: "u2", text: "again", at: 10_000 },
+      { kind: "assistant" as const, id: "a2", text: "ok", at: 10_100, until: 10_200 },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 10_200 + 3999, items })).toBe(false);
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 10_200 + 4000, items })).toBe(true);
   });
 });
 

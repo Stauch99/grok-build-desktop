@@ -9,11 +9,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
     "tauri": "tauri",
     "verify:runtime": "node scripts/verify-packaged-runtime.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
+    "@fontsource/noto-serif": "^5.3.0",
+    "@fontsource/noto-serif-sc": "^5.3.0",
     "@fontsource/source-serif-4": "^5.3.0",
     "@tabler/icons-react": "^3.46.0",
     "@tauri-apps/api": "^2.8.0",
@@ -26,6 +29,7 @@
     "react-window": "^2.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.8.0",
     "@types/node": "^22.15.32",
     "@types/react": "^19.1.12",

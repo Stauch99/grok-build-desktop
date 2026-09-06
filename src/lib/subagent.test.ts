@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mcpInheritanceLabel, subagentDisplayName, subagentStatusFromTool } from "./subagent";
+import { mcpInheritanceLabel, subagentDisplayName, subagentStatusFromItem, subagentStatusFromTool } from "./subagent";
 
 describe("subagentStatusFromTool", () => {
   it("maps spawn_subagent statuses", () => {
@@ -38,6 +38,18 @@ describe("subagentStatusFromTool", () => {
 
   it("maps Kimi swarm titles", () => {
     expect(subagentStatusFromTool("swarm", "in_progress", "kimi")).toBe("running");
+  });
+
+  it("still matches after Grok overwrites spawn_subagent with the task description", () => {
+    expect(
+      subagentStatusFromItem(
+        { title: "解读 Attention Is All You Need", status: "in_progress", toolName: "spawn_subagent" },
+        "grok",
+      ),
+    ).toBe("running");
+    expect(
+      subagentStatusFromTool("解读 Attention Is All You Need", "in_progress", "grok"),
+    ).toBeNull();
   });
 
   it("still ignores bash and a bare subagent token", () => {

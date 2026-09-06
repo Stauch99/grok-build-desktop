@@ -29,6 +29,7 @@ import { IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconSave, IconS
 import { Markdown } from "./Markdown";
 import { HtmlArtifactPreview } from "./HtmlArtifactPreview";
 import { PreviewTabs } from "./PreviewTabs";
+import { useT } from "../lib/locale-context";
 
 export type PreviewPaneProps = {
   path: string | null;
@@ -76,6 +77,7 @@ export function PreviewPane({
   onSaved,
   onGitRefresh,
 }: PreviewPaneProps) {
+  const t = useT();
   const rootRef = useRef<HTMLElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLDivElement>(null);
@@ -231,12 +233,12 @@ export function PreviewPane({
       ref={rootRef}
       className={`preview-pane${embedded ? " embedded" : ""}`}
       style={width ? { width, flexBasis: width } : undefined}
-      aria-label={`预览 ${basename(displayPath)}`}
+      aria-label={t("preview.aria", { name: basename(displayPath) })}
       tabIndex={-1}
     >
       <PreviewTabs tabs={tabs} active={displayPath} onSelect={selectTab} onClose={closeTab} />
       <header>
-        <span className="preview-name" title={displayPath}>
+        <span className="preview-name" data-tip={displayPath}>
           {label}
         </span>
         <span className="preview-actions">
@@ -245,8 +247,8 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={raw}
-              title={raw ? "渲染" : "源码"}
-              aria-label={raw ? "渲染" : "源码"}
+              data-tip={raw ? t("preview.render") : t("preview.source")}
+              aria-label={raw ? t("preview.render") : t("preview.source")}
               onClick={() => setRaw((v) => !v)}
             >
               {raw ? <IconMarkdown size={14} /> : <IconCode size={14} />}
@@ -257,8 +259,8 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={findOpen}
-              title="查找"
-              aria-label="查找"
+              data-tip={t("preview.find")}
+              aria-label={t("preview.find")}
               onClick={() => setFindOpen((v) => !v)}
             >
               <IconSearch size={14} />
@@ -269,8 +271,8 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={blameOn}
-              title="行历史"
-              aria-label="行历史"
+              data-tip={t("preview.history")}
+              aria-label={t("preview.history")}
               onClick={() => {
                 setBlameOn((v) => {
                   if (v) {
@@ -281,15 +283,15 @@ export function PreviewPane({
                 });
               }}
             >
-              行历史
+              {t("preview.history")}
             </button>
           ) : null}
           {displayText !== null && !media ? (
             <button
               type="button"
               className="file-open"
-              title="复制全文"
-              aria-label="复制全文"
+              data-tip={t("preview.copyAll")}
+              aria-label={t("preview.copyAll")}
               onClick={() => void navigator.clipboard.writeText(displayText)}
             >
               <IconCopy size={14} />
@@ -302,8 +304,8 @@ export function PreviewPane({
               aria-pressed={editing}
               disabled={saving}
               aria-busy={saving}
-              title={saving ? "保存中" : editing ? "保存" : "编辑"}
-              aria-label={saving ? "保存中" : editing ? "保存" : "编辑"}
+              data-tip={saving ? t("preview.saving") : editing ? t("preview.save") : t("preview.edit")}
+              aria-label={saving ? t("preview.saving") : editing ? t("preview.save") : t("preview.edit")}
               onClick={() => {
                 if (saving) return;
                 if (editing) void saveDraft();
@@ -317,15 +319,15 @@ export function PreviewPane({
             <button
               type="button"
               className="file-open"
-              title="在访达中打开"
-              aria-label="在访达中打开"
+              data-tip={t("finder.open")}
+              aria-label={t("finder.open")}
               onClick={() => onReveal(displayPath)}
             >
               <IconFinder size={14} />
             </button>
           ) : null}
           {onClose ? (
-            <button type="button" className="icon-btn" aria-label="关闭预览" title="关闭预览" onClick={onClose}>
+            <button type="button" className="icon-btn" aria-label={t("preview.close")} data-tip={t("preview.close")} onClick={onClose}>
               <IconGrokClose size={16} />
             </button>
           ) : null}
@@ -338,8 +340,8 @@ export function PreviewPane({
             ref={findRef}
             type="search"
             value={find.query}
-            placeholder="在文件中查找"
-            aria-label="查找"
+            placeholder={t("preview.findPlaceholder")}
+            aria-label={t("preview.find")}
             onChange={(e) => setFind(previewFind(displayText ?? "", e.target.value))}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -349,12 +351,12 @@ export function PreviewPane({
             }}
           />
           <span className="preview-find-count">
-            {find.matches.length === 0 ? "无匹配" : `${find.index + 1}/${find.matches.length}`}
+            {find.matches.length === 0 ? t("preview.noMatch") : `${find.index + 1}/${find.matches.length}`}
           </span>
         </div>
       ) : null}
 
-      {truncated && !media && displayPath === path ? <p className="preview-note">文件较大，仅显示前 256KB</p> : null}
+      {truncated && !media && displayPath === path ? <p className="preview-note">{t("preview.truncated")}</p> : null}
       {blameOn && blameText ? (
         <p className="preview-note" role="status">
           {blameLine != null ? `L${blameLine} ${blameText}` : blameText}
@@ -395,7 +397,7 @@ export function PreviewPane({
               />
             )
           ) : (
-            <p className="preview-empty">无法预览，请用访达打开</p>
+            <p className="preview-empty">{t("preview.unavailable")}</p>
           )}
         </div>
       ) : loading ? (
@@ -403,7 +405,7 @@ export function PreviewPane({
           <div className="spinner" />
         </div>
       ) : displayText === null ? (
-        <p className="preview-empty">{error ? previewErrorCopy(error) : "无法预览，请用访达打开"}</p>
+        <p className="preview-empty">{error ? previewErrorCopy(error) : t("preview.unavailable")}</p>
       ) : editing ? (
         <textarea
           className="preview-body preview-code"
@@ -414,11 +416,11 @@ export function PreviewPane({
             setDraft(next);
             putPreviewDraft(draftsRef.current, displayPath, next);
           }}
-          aria-label="编辑文件"
+          aria-label={t("preview.editFile")}
         />
       ) : kind === "html" && !raw ? (
         <div className="preview-body html-frame">
-          <HtmlArtifactPreview html={displayText} title={`沙盒预览 ${basename(displayPath)}`} />
+          <HtmlArtifactPreview html={displayText} title={t("preview.sandbox", { name: basename(displayPath) })} />
         </div>
       ) : kind === "markdown" && !raw ? (
         <div className="preview-body md-scroll">
@@ -437,7 +439,7 @@ export function PreviewPane({
                   setBlameLine(line);
                   void gitBlame(cwd, displayPath, line)
                     .then((res) => {
-                      setBlameText(res.ok ? res.text.trim() : res.stderr.trim() || "无法读取 blame");
+                      setBlameText(res.ok ? res.text.trim() : res.stderr.trim() || t("preview.blameFail"));
                     })
                     .catch((e) => setBlameText(String(e)));
                 }
@@ -466,6 +468,7 @@ function HighlightedSource({
   blameLine?: number | null;
   onBlameLine?: (line: number) => void;
 }) {
+  const t = useT();
   const lang = highlightLang(path);
   const lines = useMemo(() => {
     const tokens = lang ? highlight(text, lang) : [{ text, kind: "plain" as const }];
@@ -486,9 +489,9 @@ function HighlightedSource({
               <button
                 type="button"
                 className="preview-gutter"
-                aria-label={`第 ${n} 行 blame`}
+                aria-label={t("preview.blameLine", { n })}
                 aria-pressed={blameLine === n}
-                title="查看此行历史"
+                data-tip={t("preview.viewLineHistory")}
                 onClick={() => onBlameLine(n)}
               >
                 {n}

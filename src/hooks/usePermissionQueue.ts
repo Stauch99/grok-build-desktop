@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify, sendRaw } from "../api";
-import { findAlwaysOption, parseToolName, pickAllowOption, shouldSkipPermission } from "../lib/permission-allow";
+import { findAlwaysOption, parseToolName, pickAllowOption, shouldAutoApprovePermission, shouldSkipPermission } from "../lib/permission-allow";
 import { permissionReplyAgent } from "../lib/permission-agent";
 import {
   enqueuePermission,
@@ -14,7 +14,7 @@ import {
   type QueuedPermission,
 } from "../lib/permission-queue";
 import { onTaggedAcpRequest } from "../lib/workbench-api";
-import type { PermissionPane } from "../lib/permission-view";
+import { requestPermissionKind, type PermissionPane } from "../lib/permission-view";
 import { notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
 import { recordLocalEvent } from "../lib/telemetry";
@@ -27,6 +27,7 @@ export type PermissionQueue = {
 
 export function usePermissionQueue(opts: {
   allowedTools: Set<string>;
+  yolo?: boolean;
   sessionId: string | null;
   runningSessionId: string | null;
   splitId: string | null;
@@ -46,6 +47,9 @@ export function usePermissionQueue(opts: {
   const onTimeoutRef = useRef(opts.onTimeoutNotice);
   onTimeoutRef.current = opts.onTimeoutNotice;
 
+  const yoloRef = useRef(opts.yolo === true);
+  yoloRef.current = opts.yolo === true;
+
   const answerPermission = useCallback(async (request: QueuedPermission, optionId: string) => {
     try {
       await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "selected", optionId } } }, permissionReplyAgent(request.agentId));
@@ -54,6 +58,8 @@ export function usePermissionQueue(opts: {
       setPermissions((q) => removePermission(q, request));
     }
   }, [telemetry]);
+  const answerRef = useRef(answerPermission);
+  answerRef.current = answerPermission;
 
   const cancelPermission = useCallback(async (request: QueuedPermission) => {
     await sendRaw({ jsonrpc: "2.0", id: request.rpcId, result: { outcome: { outcome: "cancelled" } } }, permissionReplyAgent(request.agentId));
@@ -66,6 +72,13 @@ export function usePermissionQueue(opts: {
     void onTaggedAcpRequest((agentId, msg) => {
       const parsed = permissionFromAcpRequest(msg as AcpPermissionMessage, agentId);
       if (!parsed) return;
+      if (shouldAutoApprovePermission(yoloRef.current, requestPermissionKind(parsed))) {
+        const pick = findAlwaysOption(parsed.options) ?? pickAllowOption(parsed.options);
+        if (pick) {
+          void answerRef.current(parsed, pick);
+          return;
+        }
+      }
       setPermissions((q) => enqueuePermission(q, parsed));
       recordLocalEvent(telemetryRef.current, "permission.show");
     }).then((fn) => {
@@ -92,21 +105,25 @@ export function usePermissionQueue(opts: {
   }, [permissions]);
 
   useEffect(() => {
+    const yolo = opts.yolo === true;
     for (const request of permissions) {
+      const kind = requestPermissionKind(request);
       const sid = request.sessionId || opts.sessionId;
       const tool = parseToolName(request.title, request.toolKind);
-      if (!shouldSkipPermission(opts.allowedTools, sid, tool)) continue;
+      const skip = shouldAutoApprovePermission(yolo, kind) || shouldSkipPermission(opts.allowedTools, sid, tool);
+      if (!skip) continue;
       const pick = findAlwaysOption(request.options) ?? pickAllowOption(request.options);
       if (pick) void answerPermission(request, pick);
     }
-  }, [permissions, opts.allowedTools, opts.sessionId, answerPermission]);
+  }, [permissions, opts.allowedTools, opts.sessionId, opts.yolo, answerPermission]);
 
   useEffect(() => {
     const request = permissions[permissions.length - 1];
-    if (!request || !shouldNotify({ reason: "permission", focused: opts.focusedRef.current })) return;
+    if (!request || shouldAutoApprovePermission(opts.yolo === true, requestPermissionKind(request))) return;
+    if (!shouldNotify({ reason: "permission", focused: opts.focusedRef.current })) return;
     const { title, body } = notifyText("permission", opts.currentTitleRef.current, request.title);
     void notify(title, body);
-  }, [permissions.length, opts.focusedRef, opts.currentTitleRef]);
+  }, [permissions.length, opts.focusedRef, opts.currentTitleRef, opts.yolo]);
 
   const context: PermissionContext = {
     mainSessionId: opts.sessionId,

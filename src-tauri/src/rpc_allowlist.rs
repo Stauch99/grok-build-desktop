@@ -136,10 +136,16 @@ mod rpc_allowlist_tests {
     #[test]
     fn rpc_payload_allowed_rejects_unknown_methods() {
         assert!(!rpc_payload_allowed(&json!({})));
-        assert!(!rpc_payload_allowed(&json!({ "method": "fs/write", "params": {} })));
-        assert!(!rpc_payload_allowed(&json!({ "jsonrpc": "2.0", "id": 1, "method": "session/foo" })));
+        assert!(!rpc_payload_allowed(
+            &json!({ "method": "fs/write", "params": {} })
+        ));
+        assert!(!rpc_payload_allowed(
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "session/foo" })
+        ));
         assert!(!rpc_payload_allowed(&json!({ "id": 1 })));
-        assert!(!rpc_payload_allowed(&json!({ "method": "session/set_mode" })));
+        assert!(!rpc_payload_allowed(
+            &json!({ "method": "session/set_mode" })
+        ));
     }
 
     #[test]
@@ -150,7 +156,9 @@ mod rpc_allowlist_tests {
             "method": "_x.ai/billing",
             "params": {}
         })));
-        assert!(rpc_payload_allowed(&json!({ "method": "_x.ai/session/update" })));
+        assert!(rpc_payload_allowed(
+            &json!({ "method": "_x.ai/session/update" })
+        ));
         assert!(!rpc_payload_allowed(&json!({ "method": "_x.ai" })));
     }
 
@@ -192,7 +200,9 @@ mod rpc_allowlist_tests {
 
     #[test]
     fn grok_legacy_still_rejects_set_mode() {
-        assert!(!rpc_payload_allowed(&json!({ "method": "session/set_mode" })));
+        assert!(!rpc_payload_allowed(
+            &json!({ "method": "session/set_mode" })
+        ));
         assert!(!rpc_payload_allowed(&json!({ "method": "authenticate" })));
         assert!(!rpc_payload_allowed(&json!({ "method": "session/list" })));
     }

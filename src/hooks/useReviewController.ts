@@ -11,6 +11,7 @@ import {
   type ReviewTab,
   type ReviewTabMemory,
 } from "../lib/review-rail";
+import { t, type Locale } from "../lib/i18n";
 import {
   activeTabAfterClose,
   previewErrorCopy,
@@ -26,6 +27,7 @@ export type ReviewControllerDependencies = {
   cwd: string;
   ownerKey: string;
   disabled: boolean;
+  locale?: Locale;
   readTextFile: (path: string, allowRoot?: string | null) => Promise<TextFilePreview>;
   openReviewPath: (path: string, allowRoot: string) => Promise<void>;
   onError: (message: string) => void;
@@ -69,13 +71,13 @@ export function resolveReviewPath(path: string, cwd: string): string {
   return cwd.replace(/[\\/]+$/, "") + separator + path.replace(/^[.][\\/]/, "");
 }
 
-export function validateReviewFallbackTarget(path: string, cwd: string): string | null {
+export function validateReviewFallbackTarget(path: string, cwd: string, locale: Locale = "zh"): string | null {
   const normalized = path.replace(/\\/g, "/");
   const root = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!root) return "Review 无可用工作区";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(normalized)) return "Review 不允许打开 URL";
-  if (!(normalized === root || normalized.startsWith(root + "/"))) return "Review 目标不在当前工作区";
-  if (/(^|\/)[^/]+\.app(?:\/|$)/i.test(normalized) || /\.(?:exe|com|bat|cmd|appimage|desktop)$/i.test(normalized)) return "Review 不允许打开应用或可执行文件";
+  if (!root) return t(locale, "review.noWorkspace");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(normalized)) return t(locale, "review.noUrl");
+  if (!(normalized === root || normalized.startsWith(root + "/"))) return t(locale, "review.outside");
+  if (/(^|\/)[^/]+\.app(?:\/|$)/i.test(normalized) || /\.(?:exe|com|bat|cmd|appimage|desktop)$/i.test(normalized)) return t(locale, "review.noExec");
   return null;
 }
 
@@ -126,10 +128,9 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
 
   const revealPath = useCallback(async (path: string) => {
     const resolvedPath = resolveReviewPath(path, deps.cwd);
-    const error = validateReviewFallbackTarget(resolvedPath, deps.cwd);
+    const error = validateReviewFallbackTarget(resolvedPath, deps.cwd, deps.locale);
     if (error) { deps.onError(error); return; }
-    try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
-  }, [deps.cwd, deps.onError, deps.openReviewPath]);
+  }, [deps.cwd, deps.locale, deps.onError, deps.openReviewPath]);
 
   const openPreview = useCallback(async (path: string) => {
     if (deps.disabled) return;
@@ -143,7 +144,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     }
     if (!deps.isTextPreviewable(resolvedPath)) {
       dispatch({ type: "preview-invalidate", requestId: ++requestId.current });
-      const error = validateReviewFallbackTarget(resolvedPath, deps.cwd);
+      const error = validateReviewFallbackTarget(resolvedPath, deps.cwd, deps.locale);
       if (error) { deps.onError(error); return; }
       try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
       return;
@@ -168,7 +169,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
       if (cached) return;
       dispatch({ type: "preview-error", requestId: id, error: previewErrorCopy(error) });
     }
-  }, [deps.cwd, deps.disabled, deps.isTextPreviewable, deps.onError, deps.onOpened, deps.openReviewPath, deps.ownerKey, deps.readTextFile]);
+  }, [deps.cwd, deps.disabled, deps.isTextPreviewable, deps.locale, deps.onError, deps.onOpened, deps.openReviewPath, deps.ownerKey, deps.readTextFile]);
 
   const selectPreviewTab = useCallback((path: string) => {
     const cached = previewCache.current.get(path);

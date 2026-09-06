@@ -1,7 +1,7 @@
 import type { SessionSummary } from "../api";
 import type { AgentId } from "./agent-id";
 import type { ChatItem } from "./chat";
-import { subagentDisplayName, subagentStatusFromTool } from "./subagent";
+import { subagentDisplayName, subagentStatusFromItem } from "./subagent";
 
 export function liveRosterId(agentId: AgentId, toolCallId: string): string {
   return `live:${agentId}:${toolCallId}`;
@@ -18,7 +18,7 @@ export function liveRosterFromTools(
   const out: SessionSummary[] = [];
   for (const item of items) {
     if (item.kind !== "tool") continue;
-    if (subagentStatusFromTool(item.title, item.status, opts.agentId) !== "running") continue;
+    if (subagentStatusFromItem(item, opts.agentId) !== "running") continue;
     out.push({
       id: liveRosterId(opts.agentId, item.id),
       parentSessionId: opts.parentSessionId,

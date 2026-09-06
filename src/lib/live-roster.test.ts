@@ -13,7 +13,9 @@ import {
   sessionsWithLiveRoster,
 } from "./live-roster";
 
-function tool(partial: Pick<ChatItem & { kind: "tool" }, "id" | "title" | "status">): ChatItem {
+function tool(
+  partial: Pick<ChatItem & { kind: "tool" }, "id" | "title" | "status"> & { toolName?: string },
+): ChatItem {
   return { kind: "tool", ...partial };
 }
 
@@ -52,6 +54,29 @@ describe("liveRosterFromTools", () => {
       numMessages: 1,
     });
     expect(isLiveRosterId(live[0].id)).toBe(true);
+  });
+
+  it("emits live children for Grok spawn tools after the title is overwritten", () => {
+    const items: ChatItem[] = [
+      tool({
+        id: "c1",
+        title: "解读 Attention Is All You Need",
+        toolName: "spawn_subagent",
+        status: "in_progress",
+      }),
+    ];
+    const live = liveRosterFromTools(items, {
+      agentId: "grok",
+      parentSessionId: "parent",
+      cwd: "/work",
+      nowIso: "2026-08-31T11:00:00.000Z",
+    });
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({
+      id: liveRosterId("grok", "c1"),
+      title: "解读 Attention Is All You Need",
+      sessionKind: "subagent",
+    });
   });
 });
 

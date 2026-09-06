@@ -5,6 +5,7 @@ import {
   getDraft,
   getSessionRailTab,
   loadDrafts,
+  resumeComposerDraft,
   setDraft,
   setSessionRailTab,
 } from "./session-drafts";
@@ -103,5 +104,38 @@ describe("session rail tab", () => {
     expect(base).toEqual({});
     expect(getSessionRailTab(next, "s1")).toBe("changes");
     expect(getSessionRailTab(next, "missing")).toBeUndefined();
+  });
+});
+
+describe("resumeComposerDraft", () => {
+  const outgoing = "@/pastes/kyc.xlsx\n再跑一轮";
+
+  it("puts an unlogged send back into the composer", () => {
+    const items = [
+      { kind: "user", text: "先改 header" },
+      { kind: "assistant", text: "改好了" },
+    ];
+    expect(resumeComposerDraft(items, outgoing)).toBe(outgoing);
+  });
+
+  it("returns the stored text when the thread is empty", () => {
+    expect(resumeComposerDraft([], outgoing)).toBe(outgoing);
+  });
+
+  it("does not restore once the session log already has that user turn", () => {
+    const items = [
+      { kind: "assistant", text: "改好了" },
+      { kind: "user", text: outgoing },
+    ];
+    expect(resumeComposerDraft(items, outgoing)).toBe("");
+  });
+
+  it("treats a wrapped prompt that ends with the original send as logged", () => {
+    const items = [{ kind: "user", text: `USER.md\n\n${outgoing}` }];
+    expect(resumeComposerDraft(items, outgoing)).toBe("");
+  });
+
+  it("leaves an empty stored draft empty", () => {
+    expect(resumeComposerDraft([{ kind: "user", text: "hi" }], "")).toBe("");
   });
 });

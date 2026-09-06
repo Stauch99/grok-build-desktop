@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
+import { useT } from "../lib/locale-context";
 
 export type QuestionOption = { id: string; label: string };
 
@@ -12,6 +13,7 @@ export type QuestionCardProps = {
  * Structured AskUserQuestion options. Digits 1–9 pick a row.
  */
 export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
+  const t = useT();
   const [index, setIndex] = useState(0);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -53,8 +55,8 @@ export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
       data-keys="1-9"
       onKeyDown={onKeyDown}
     >
-      <h4>{title}</h4>
-      <p className="permission-hint">按 1–9 选择</p>
+      <h4 data-tip={title}>{title}</h4>
+      <p className="permission-hint">{t("perm.pickNine")}</p>
       <div className="opts">
         {options.map((opt, i) => {
           const hotkey = i < 9 ? String(i + 1) : undefined;

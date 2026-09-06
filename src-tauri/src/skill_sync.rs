@@ -88,12 +88,8 @@ pub(crate) fn sync_skill_to_agents(
     enabled
         .iter()
         .filter_map(|&(agent, on)| {
-            skill_dest(user_home, agent, name).map(|dest| {
-                (
-                    agent.to_string(),
-                    apply_skill_link(canonical, &dest, on),
-                )
-            })
+            skill_dest(user_home, agent, name)
+                .map(|dest| (agent.to_string(), apply_skill_link(canonical, &dest, on)))
         })
         .collect()
 }
@@ -123,10 +119,7 @@ mod tests {
         let dest = root.join("agent/skills/pdf");
         fs::create_dir_all(&canonical).unwrap();
 
-        assert_eq!(
-            apply_skill_link(&canonical, &dest, true).unwrap(),
-            "linked"
-        );
+        assert_eq!(apply_skill_link(&canonical, &dest, true).unwrap(), "linked");
         assert!(dest.is_symlink());
         assert_eq!(fs::read_link(&dest).unwrap(), canonical);
     }
@@ -155,10 +148,7 @@ mod tests {
         fs::create_dir_all(dest.parent().unwrap()).unwrap();
         symlink(&old, &dest).unwrap();
 
-        assert_eq!(
-            apply_skill_link(&canonical, &dest, true).unwrap(),
-            "linked"
-        );
+        assert_eq!(apply_skill_link(&canonical, &dest, true).unwrap(), "linked");
         assert_eq!(fs::read_link(&dest).unwrap(), canonical);
     }
 
@@ -197,18 +187,12 @@ mod tests {
         assert!(!dest_exists(&dest));
 
         symlink(&other, &dest).unwrap();
-        assert_eq!(
-            apply_skill_link(&canonical, &dest, false).unwrap(),
-            "kept"
-        );
+        assert_eq!(apply_skill_link(&canonical, &dest, false).unwrap(), "kept");
         assert!(dest_exists(&dest));
 
         fs::remove_file(&dest).unwrap();
         fs::create_dir_all(&dest).unwrap();
-        assert_eq!(
-            apply_skill_link(&canonical, &dest, false).unwrap(),
-            "kept"
-        );
+        assert_eq!(apply_skill_link(&canonical, &dest, false).unwrap(), "kept");
 
         let missing = root.join("agent/skills/missing");
         assert_eq!(

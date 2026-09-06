@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { basename } from "../lib/text";
+import { useT } from "../lib/locale-context";
 
 export type ImagineGalleryProps = {
   images: string[];
@@ -25,6 +26,7 @@ export function ImagineGallery({
   cwd = "",
   grokHome = "",
 }: ImagineGalleryProps) {
+  const t = useT();
   const showVideo = mode === "video";
   const paths = showVideo ? videos : images;
   const empty = paths.length === 0;
@@ -39,14 +41,14 @@ export function ImagineGallery({
       </div>
       {empty ? (
         <p className="float-empty">
-          {showVideo ? "还没有视频。点 /imagine-video 生成。" : "还没有图片。点 /imagine 生成。"}
+          {showVideo ? t("imagine.emptyVideo") : t("imagine.emptyImage")}
         </p>
       ) : null}
       <div className="gallery-grid">
         {paths.map((path) => {
           const src = safeFileSrc(path, roots, convertFileSrc);
           return (
-            <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
+            <button key={path} type="button" data-tip={path} onClick={() => onOpen(path)}>
               {src ? (
                 showVideo ? (
                   <video src={src} muted preload="metadata" playsInline />

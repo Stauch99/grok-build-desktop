@@ -21,6 +21,19 @@ describe("headerJobs", () => {
     ];
     expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
   });
+
+  it("excludes Grok spawn tools after the title becomes the description", () => {
+    const items: ChatItem[] = [
+      {
+        kind: "tool",
+        id: "t1",
+        title: "解读 Attention Is All You Need",
+        toolName: "spawn_subagent",
+        status: "in_progress",
+      },
+    ];
+    expect(headerJobs(items)).toEqual([]);
+  });
 });
 
 describe("goalFromPlan", () => {
@@ -43,6 +56,21 @@ describe("subagentCatalog", () => {
     expect(subagentCatalog(items)).toEqual([
       { id: "s1", name: "researcher", status: "running" },
       { id: "s2", name: "writer", status: "completed" },
+    ]);
+  });
+
+  it("catalogs Grok spawn tools after the display title is overwritten", () => {
+    const items: ChatItem[] = [
+      {
+        kind: "tool",
+        id: "s1",
+        title: "解读 Attention Is All You Need",
+        toolName: "spawn_subagent",
+        status: "in_progress",
+      },
+    ];
+    expect(subagentCatalog(items, "grok")).toEqual([
+      { id: "s1", name: "解读 Attention Is All You Need", status: "running" },
     ]);
   });
 });

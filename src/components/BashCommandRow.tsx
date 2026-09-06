@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconCopy } from "../icons";
 import { bashCommandPreview } from "../lib/tool-render";
+import { useT } from "../lib/locale-context";
 
 export type BashCommandRowProps = {
   title: string;
@@ -9,6 +10,7 @@ export type BashCommandRowProps = {
 };
 
 export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
+  const t = useT();
   const { full, preview } = bashCommandPreview(title);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<DOMRect | null>(null);
@@ -43,7 +45,7 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
         <div
           className="bash-cmd-card"
           role="dialog"
-          aria-label="完整命令"
+          aria-label={t("bash.fullCommand")}
           style={{
             top: Math.min(box.bottom + 6, window.innerHeight - 16),
             left: box.left,
@@ -54,12 +56,12 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
           onMouseLeave={hideCard}
         >
           <div className="bash-cmd-card-head">
-            <span>完整命令</span>
+            <span>{t("bash.fullCommand")}</span>
             <button
               type="button"
               className="file-open"
-              title={copied ? "已复制" : "复制命令"}
-              aria-label={copied ? "已复制" : "复制命令"}
+              data-tip={copied ? t("toast.copied") : t("git.copyCommand")}
+              aria-label={copied ? t("toast.copied") : t("git.copyCommand")}
               onClick={copy}
             >
               <IconCopy size={14} />
@@ -80,7 +82,7 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
       onFocus={showCard}
       onBlur={hideCard}
     >
-      <button type="button" className="bash-cmd-preview" onClick={onInspect} title="查看这次终端调用">
+      <button type="button" className="bash-cmd-preview" onClick={onInspect} data-tip={t("bash.inspect")}>
         {preview}
       </button>
       {card}

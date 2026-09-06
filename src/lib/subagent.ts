@@ -38,6 +38,24 @@ function isSubagentTitle(title: string, agentId?: AgentId): boolean {
   return aliasesFor(agentId).some((alias) => matchesAlias(t, alias));
 }
 
+/** Keep the first matching spawn alias when later ACP updates replace the display title. */
+export function stickyToolName(existing: string | undefined, incomingTitle: string, agentId?: AgentId): string | undefined {
+  if (existing) return existing;
+  const t = incomingTitle.trim();
+  if (t && isSubagentTitle(t, agentId)) return t;
+  return undefined;
+}
+
+export function subagentStatusFromItem(
+  item: { title: string; status: string; toolName?: string },
+  agentId?: AgentId,
+): SubagentStatus | null {
+  return (
+    subagentStatusFromTool(item.title, item.status, agentId) ??
+    (item.toolName ? subagentStatusFromTool(item.toolName, item.status, agentId) : null)
+  );
+}
+
 function longestMatchingAlias(title: string, agentId?: AgentId): string | null {
   const t = norm(title);
   const matches = aliasesFor(agentId).filter((alias) => matchesAlias(t, alias));

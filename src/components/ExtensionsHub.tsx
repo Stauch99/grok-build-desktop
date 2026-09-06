@@ -74,30 +74,36 @@ export type ExtensionsHubProps = {
 };
 
 const TABS = HUB_TABS;
-const SCOPE_LABEL: Record<SkillScope, string> = {
-  cwd: "当前目录",
-  repo: "仓库",
-  user: "用户",
-  bundled: "内置",
-  plugin: "插件",
-  compat: "兼容",
+const SCOPE_KEYS: Record<SkillScope, string> = {
+  cwd: "hub.scope.cwd",
+  repo: "hub.scope.repo",
+  user: "hub.scope.user",
+  bundled: "hub.scope.bundled",
+  plugin: "hub.scope.plugin",
+  compat: "hub.scope.compat",
 };
 
-const HEALTH_ZH: Record<string, string> = {
-  Connected: "已连接",
-  Failed: "失败",
-  Disabled: "已关闭",
-  Unknown: "未知",
+const HEALTH_KEYS: Record<string, string> = {
+  Connected: "hub.health.connected",
+  Failed: "hub.health.failed",
+  Disabled: "hub.health.disabled",
+  Unknown: "hub.health.unknown",
 };
 
-const SOURCE_ZH: Record<string, string> = {
-  toml: "用户配置",
-  project: "项目",
-  plugin: "插件",
-  claude: "Claude",
-  cursor: "Cursor",
-  "mcp.json": "mcp.json",
-  other: "其他",
+const SOURCE_KEYS: Record<string, string> = {
+  toml: "hub.source.toml",
+  project: "hub.source.project",
+  plugin: "hub.source.plugin",
+  other: "hub.source.other",
+};
+
+const EMPTY_KEYS: Record<string, string> = {
+  skills: "hub.empty.skillsAlt",
+  mcp: "hub.empty.mcp",
+  plugins: "hub.empty.plugins",
+  market: "hub.empty.marketAlt",
+  "market-fail": "hub.empty.marketFail",
+  search: "hub.empty.searchAlt",
 };
 
 type DoctorServer = {
@@ -277,7 +283,7 @@ export function ExtensionsHub({
       >
         <div className="settings-head">
           <h2 id="hub-title">{t(locale, "hub.title")}</h2>
-          <button type="button" className="icon-btn" aria-label="关闭" onClick={onClose}>
+          <button type="button" className="icon-btn" aria-label={t(locale, "common.close")} onClick={onClose}>
             <IconGrokClose size={16} />
           </button>
         </div>
@@ -305,10 +311,10 @@ export function ExtensionsHub({
             className="hub-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索"
-            aria-label="搜索扩展"
+            placeholder={t(locale, "hub.search")}
+            aria-label={t(locale, "hub.searchAria")}
           />
-          <button type="button" className="icon-btn" onClick={() => void load()} disabled={busy} title="刷新" aria-label="刷新">
+          <button type="button" className="icon-btn" onClick={() => void load()} disabled={busy} data-tip={t(locale, "common.refresh")} aria-label={t(locale, "common.refresh")}>
             <IconRefresh size={16} />
           </button>
         </div>
@@ -439,6 +445,7 @@ export function ExtensionsHub({
           )}
           {tab === "marketplace" && (
             <MarketTab
+              locale={locale}
               empty={empty}
               source={marketSource}
               setSource={setMarketSource}
@@ -479,7 +486,7 @@ export function ExtensionsHub({
           {logs.length > 0 && (
             <div className="hub-compose">
               <button type="button" className="hub-compose-toggle" onClick={() => setShowLog((v) => !v)}>
-                {showLog ? "收起日志" : `命令日志 · ${logs.length}`}
+                {showLog ? t(locale, "hub.collapseLog") : t(locale, "hub.commandLog", { n: logs.length })}
               </button>
               {showLog ? (
                 <pre className="hub-log" aria-live="polite">
@@ -488,24 +495,16 @@ export function ExtensionsHub({
               ) : null}
             </div>
           )}
-          {note && <p className="set-note">{busy ? "处理中…" : note}</p>}
+          {note && <p className="set-note">{busy ? t(locale, "hub.working") : note}</p>}
         </div>
       </div>
     </div>
   );
 }
 
-function EmptyLine({ kind }: { kind: ReturnType<typeof hubEmptyKind> }) {
+function EmptyLine({ kind, locale }: { kind: ReturnType<typeof hubEmptyKind>; locale: Locale }) {
   if (!kind) return null;
-  const copy: Record<string, string> = {
-    skills: "还没有技能。用下方新建，或把 /create-skill 发给 agent。",
-    mcp: "还没有 MCP。用添加向导或一键常用服务器。",
-    plugins: "还没有已装插件。到市场安装。",
-    market: "还没有市场源。在下方添加 git / GitHub / 本地路径。",
-    "market-fail": "市场列表刷新失败。检查源地址后点刷新。",
-    search: "没有匹配的结果。清空搜索，或换一个词。",
-  };
-  return <p className="float-empty">{copy[kind]}</p>;
+  return <p className="float-empty">{t(locale, EMPTY_KEYS[kind])}</p>;
 }
 
 function SkillsTab({
@@ -542,19 +541,19 @@ function SkillsTab({
   const groups = groupSkills(skills, cwd);
   return (
     <>
-      <h3>技能 · {skills.length}</h3>
-      <EmptyLine kind={empty} />
+      <h3>{t(locale, "hub.skillCount", { n: skills.length })}</h3>
+      <EmptyLine kind={empty} locale={locale} />
       {groups.map((g) => (
         <div key={g.scope} className="hub-group">
-          <div className="hub-group-label">{SCOPE_LABEL[g.scope]}</div>
+          <div className="hub-group-label">{t(locale, SCOPE_KEYS[g.scope])}</div>
           <ul className="hub-rows">
             {g.items.map((skill) => {
               const qname = qualifySkillName(skill, skills);
               const off = disabled.includes(skill.name) || skill.disabled;
               const bits = [
                 skill.description,
-                skill.userInvocable === false ? "不出现在斜杠" : null,
-                qname !== skill.name ? `斜杠 /${qname}` : null,
+                skill.userInvocable === false ? t(locale, "hub.notInSlash") : null,
+                qname !== skill.name ? t(locale, "hub.slashName", { name: qname }) : null,
               ].filter(Boolean);
               return (
                 <li key={`${skill.name}:${sourcePath(skill.source)}`} className="hub-row">
@@ -580,40 +579,40 @@ function SkillsTab({
         <div className="hub-compose">
           <p className="hub-meta">{preview.path}</p>
           <pre className="hub-preview">{preview.text.slice(0, 8000)}</pre>
-          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} title="在访达打开" aria-label="在访达打开">
+          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} data-tip={t(locale, "hub.openFinder")} aria-label={t(locale, "hub.openFinder")}>
             <IconFinder size={14} />
           </button>
         </div>
       )}
       <div className="hub-compose">
         <button type="button" className="hub-compose-toggle" onClick={() => setCompose(!compose)}>
-          {compose ? "收起新建" : "新建技能"}
+          {compose ? t(locale, "hub.collapseNew") : t(locale, "hub.newSkill")}
         </button>
         {compose ? (
           <>
         <div className="set-stack">
-          <label>名称</label>
+          <label>{t(locale, "hub.name")}</label>
           <input value={newSkill.name} onChange={(e) => setNewSkill({ ...newSkill, name: e.target.value })} />
         </div>
         <div className="set-stack">
-          <label>范围</label>
+          <label>{t(locale, "hub.scope")}</label>
           <MenuSelect
-            ariaLabel="技能范围"
+            ariaLabel={t(locale, "hub.skillScope")}
             value={newSkill.scope}
             options={[
-              { value: "user", label: "用户 ~/.grok/skills" },
-              { value: "project", label: "项目 .grok/skills", hint: cwd || "需要工作目录" },
+              { value: "user", label: t(locale, "hub.userSkillsPath") },
+              { value: "project", label: t(locale, "hub.projectSkillsPath"), hint: cwd || t(locale, "hub.needCwd") },
             ]}
             onChange={(v) => setNewSkill({ ...newSkill, scope: v as "user" | "project" })}
           />
         </div>
         <div className="set-stack">
-          <label>模板</label>
+          <label>{t(locale, "hub.template")}</label>
           <MenuSelect
-            ariaLabel="技能模板"
+            ariaLabel={t(locale, "hub.skillTemplate")}
             value={newSkill.template}
             options={[
-              { value: "blank", label: "空白" },
+              { value: "blank", label: t(locale, "hub.blank") },
               { value: "review", label: "Review" },
               { value: "commit", label: "Commit" },
             ]}
@@ -622,10 +621,10 @@ function SkillsTab({
         </div>
         <div className="set-actions">
           <button type="button" className="btn primary" onClick={onCreate} disabled={!newSkill.name.trim()}>
-            写入 SKILL.md
+            {t(locale, "hub.writeSkill")}
           </button>
           <button type="button" className="btn ghost" onClick={onCreateSlash}>
-            交给 /create-skill
+            {t(locale, "hub.handOffCreate")}
           </button>
         </div>
           </>
@@ -697,17 +696,18 @@ function McpTab({
   const listedMap = new Map(listed.map((s) => [s.name, s]));
   return (
     <>
-      <h3>MCP · {enabledMcpCount(servers)} 已启用</h3>
-      <EmptyLine kind={empty} />
+      <h3>{t(locale, "hub.mcpEnabledHeading", { n: enabledMcpCount(servers) })}</h3>
+      <EmptyLine kind={empty} locale={locale} />
       <ul className="hub-rows">
         {servers.map((s) => {
           const row = listedMap.get(s.name);
           const enabled = row?.enabled ?? s.enabled !== false;
-          const health = HEALTH_ZH[mcpHealthLabel({
+          const health = t(locale, HEALTH_KEYS[mcpHealthLabel({
             enabled,
             healthy: doctor[s.name]?.healthy ?? null,
-          })] ?? "未知";
-          const badge = SOURCE_ZH[mcpSourceBadge(s)] ?? mcpSourceBadge(s);
+          })] ?? "hub.health.unknown");
+          const badgeKey = SOURCE_KEYS[mcpSourceBadge(s)];
+          const badge = badgeKey ? t(locale, badgeKey) : mcpSourceBadge(s);
           const tools = doctor[s.name]?.tools ?? s.tools ?? [];
           const scope = row?.scope || s.scope || "user";
           return (
@@ -715,20 +715,20 @@ function McpTab({
               <div className="hub-row-main">
                 <strong>{s.name}</strong>
                 <span className="hub-meta">
-                  {health} · {s.transport || "stdio"} · {scope === "project" ? "项目" : "用户"} · {badge}
-                  {tools.length ? ` · ${tools.length} 个工具` : ""}
+                  {health} · {s.transport || "stdio"} · {scope === "project" ? t(locale, "hub.source.project") : t(locale, "hub.scope.user")} · {badge}
+                  {tools.length ? ` · ${t(locale, "hub.nTools", { n: tools.length })}` : ""}
                 </span>
               </div>
               <div className="hub-row-side">
                 <button type="button" className="btn ghost" onClick={() => onOauth(s.name)}>
-                  诊断
+                  {t(locale, "hub.diagnose")}
                 </button>
                 <button
                   type="button"
                   className={`btn ghost${isArmed(confirm, `mcp-rm:${s.name}`, Date.now()) ? " armed" : ""}`}
                   onClick={() => onRemove(s.name, (row?.scope as McpScope) || "user")}
                 >
-                  {dangerCaption(confirm, `mcp-rm:${s.name}`, `删除 ${s.name}`, `再点一次以删除 ${s.name}`)}
+                  {dangerCaption(confirm, `mcp-rm:${s.name}`, t(locale, "hub.deleteName", { name: s.name }), t(locale, "hub.deleteAgain", { name: s.name }))}
                 </button>
                 <button
                   type="button"
@@ -745,12 +745,12 @@ function McpTab({
       </ul>
       <div className="hub-compose">
         <button type="button" className="hub-compose-toggle" onClick={() => setCompose(!compose)}>
-          {compose ? "收起添加" : "添加服务器"}
+          {compose ? t(locale, "hub.collapseAdd") : t(locale, "hub.addServer")}
         </button>
         {compose ? (
           <>
         <div className="set-stack">
-          <label>名称</label>
+          <label>{t(locale, "hub.name")}</label>
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
         <div className="set-stack">
@@ -767,7 +767,7 @@ function McpTab({
           />
         </div>
         <div className="set-stack">
-          <label>{form.transport === "stdio" ? "命令" : "URL"}</label>
+          <label>{form.transport === "stdio" ? t(locale, "hub.command") : "URL"}</label>
           <input
             value={form.commandOrUrl ?? ""}
             onChange={(e) => setForm({ ...form, commandOrUrl: e.target.value })}
@@ -776,7 +776,7 @@ function McpTab({
         </div>
         {form.transport === "stdio" && (
           <div className="set-stack">
-            <label>参数（空格分隔，写在 -- 之后）</label>
+            <label>{t(locale, "hub.argsHint")}</label>
             <input
               value={(form.args ?? []).join(" ")}
               onChange={(e) => setForm({ ...form, args: e.target.value.split(/\s+/).filter(Boolean) })}
@@ -784,28 +784,28 @@ function McpTab({
           </div>
         )}
         <div className="set-stack">
-          <label>环境变量 KEY=value（每行一条，值用 ${"{VAR}"}）</label>
+          <label>{t(locale, "hub.envHint")}</label>
           <textarea value={envDraft} onChange={(e) => setEnvDraft(e.target.value)} rows={3} />
         </div>
         {form.transport !== "stdio" && (
           <div className="set-stack">
-            <label>Headers Name: Value（每行一条）</label>
+            <label>{t(locale, "hub.headersHint")}</label>
             <textarea value={headerDraft} onChange={(e) => setHeaderDraft(e.target.value)} rows={3} />
           </div>
         )}
         <div className="set-stack">
-          <label>范围</label>
+          <label>{t(locale, "hub.scope")}</label>
           <MenuSelect
             ariaLabel="MCP scope"
             value={form.scope ?? "user"}
             options={[
               { value: "user", label: "user · ~/.grok/config.toml" },
-              { value: "project", label: "project · .grok/config.toml", hint: cwd || "需要工作目录" },
+              { value: "project", label: "project · .grok/config.toml", hint: cwd || t(locale, "hub.needCwd") },
             ]}
             onChange={(v) => setForm({ ...form, scope: v as McpScope })}
           />
         </div>
-        <p className="hint">写入 ~/.agents/mcp.json 并同步各 CLI，然后：grok {mcpAddArgv(form).join(" ")}</p>
+        <p className="hint">{t(locale, "hub.mcpWriteHint", { cmd: mcpAddArgv(form).join(" ") })}</p>
         <div className="set-actions">
           <button type="button" className="btn primary" onClick={onAdd} disabled={!form.name.trim()}>
             {t(locale, "hub.add")}
@@ -820,30 +820,30 @@ function McpTab({
         </div>
         <div className="set-actions">
           <button type="button" className="btn ghost" onClick={() => onLoadToml("user")}>
-            编辑用户 config.toml
+            {t(locale, "hub.editUserToml")}
           </button>
           <button type="button" className="btn ghost" onClick={() => onLoadToml("project")} disabled={!cwd}>
-            编辑项目 config.toml
+            {t(locale, "hub.editProjectToml")}
           </button>
         </div>
         {tomlOpen && (
           <>
             <MenuSelect
-              ariaLabel="TOML 范围"
+              ariaLabel={t(locale, "hub.tomlScope")}
               value={tomlScope}
               options={[
-                { value: "user", label: "用户 ~/.grok/config.toml" },
-                { value: "project", label: "项目 .grok/config.toml" },
+                { value: "user", label: t(locale, "hub.userToml") },
+                { value: "project", label: t(locale, "hub.projectToml") },
               ]}
               onChange={(next) => setTomlScope(next as "user" | "project")}
             />
             <textarea className="hub-toml" value={tomlText} onChange={(e) => setTomlText(e.target.value)} rows={12} />
             <div className="set-actions">
               <button type="button" className="btn primary" onClick={onSaveToml}>
-                保存
+                {t(locale, "preview.save")}
               </button>
               <button type="button" className="btn ghost" onClick={() => setTomlOpen(false)}>
-                收起
+                {t(locale, "hub.collapse")}
               </button>
             </div>
           </>
@@ -856,6 +856,7 @@ function McpTab({
 }
 
 function MarketTab({
+  locale,
   empty,
   source,
   setSource,
@@ -868,6 +869,7 @@ function MarketTab({
   onInstall,
   confirm,
 }: {
+  locale: Locale;
   empty: ReturnType<typeof hubEmptyKind>;
   source: string;
   setSource: (s: string) => void;
@@ -882,19 +884,19 @@ function MarketTab({
 }) {
   return (
     <>
-      <h3>市场</h3>
+      <h3>{t(locale, "hub.marketplace")}</h3>
       <p className="hint">{marketplaceJsonHelp()}</p>
-      <EmptyLine kind={empty} />
+      <EmptyLine kind={empty} locale={locale} />
       <div className="set-stack">
-        <label>源</label>
-        <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="owner/repo、git URL 或本地路径" />
+        <label>{t(locale, "hub.sourceLabel")}</label>
+        <input value={source} onChange={(e) => setSource(e.target.value)} placeholder={t(locale, "hub.sourcePlaceholder")} />
       </div>
       <div className="set-actions">
         <button type="button" className="btn primary" onClick={onAdd} disabled={!source.trim()}>
-          添加
+          {t(locale, "hub.add")}
         </button>
         <button type="button" className="btn ghost" onClick={onUpdate}>
-          刷新
+          {t(locale, "common.refresh")}
         </button>
         <button
           type="button"
@@ -905,23 +907,23 @@ function MarketTab({
           {dangerCaption(
             confirm,
             "market-rm",
-            source.trim() ? `移除 ${source.trim()}` : "移除",
-            `再点一次以移除 ${source.trim()}`,
+            source.trim() ? t(locale, "hub.removeName", { name: source.trim() }) : t(locale, "hub.remove"),
+            t(locale, "hub.removeAgain", { name: source.trim() }),
           )}
         </button>
       </div>
       {listing.trim() ? <pre className="hub-preview">{listing.slice(0, 8000)}</pre> : null}
       <div className="hub-compose">
         <div className="set-stack">
-          <label>安装插件</label>
-          <input value={installSource} onChange={(e) => setInstallSource(e.target.value)} placeholder="owner/repo 或路径" />
+          <label>{t(locale, "hub.installPlugin")}</label>
+          <input value={installSource} onChange={(e) => setInstallSource(e.target.value)} placeholder={t(locale, "hub.installPlaceholder")} />
         </div>
         <div className="set-actions">
           <button type="button" className="btn ghost" onClick={() => onInstall(false)} disabled={!installSource.trim()}>
-            安装
+            {t(locale, "hub.install")}
           </button>
           <button type="button" className="btn primary" onClick={() => onInstall(true)} disabled={!installSource.trim()}>
-            安装并信任
+            {t(locale, "hub.installTrust")}
           </button>
         </div>
       </div>
@@ -968,10 +970,10 @@ function HooksTab({
         ))}
       </ul>
       <div className="hub-compose">
-        <p className="hub-group-label">模板</p>
+        <p className="hub-group-label">{t(locale, "hub.template")}</p>
         <div className="set-actions">
           {HOOK_TEMPLATES.map((tpl) => (
-            <button key={tpl.id} type="button" className="btn ghost" onClick={() => onTemplate(tpl)} title={tpl.hint}>
+            <button key={tpl.id} type="button" className="btn ghost" onClick={() => onTemplate(tpl)} data-tip={tpl.hint}>
               {tpl.label}
             </button>
           ))}

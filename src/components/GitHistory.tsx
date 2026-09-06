@@ -38,7 +38,7 @@ export function GitHistory({
                   type="button"
                   className={current ? "is-current" : undefined}
                   disabled={current}
-                  title={current ? t("git.currentWorktree") : t("git.checkoutBranch", { branch: b })}
+                  data-tip={current ? t("git.currentWorktree") : t("git.checkoutBranch", { branch: b })}
                   onClick={() => onCheckout(b)}
                 >
                   {b}

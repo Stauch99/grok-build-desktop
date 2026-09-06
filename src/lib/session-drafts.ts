@@ -46,6 +46,21 @@ export function getDraft(
   return map[draftKey(sessionId)] ?? "";
 }
 
+/** After resume, keep an unlogged send in the composer; drop it if the log already has it. */
+export function resumeComposerDraft(
+  items: ReadonlyArray<{ kind: string; text: string }>,
+  stored: string,
+): string {
+  if (!stored) return "";
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it?.kind !== "user") continue;
+    if (it.text === stored || it.text.endsWith(stored)) return "";
+    return stored;
+  }
+  return stored;
+}
+
 export function setSessionRailTab(
   map: SessionRailTabs,
   sessionId: string,

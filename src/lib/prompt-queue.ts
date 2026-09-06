@@ -8,15 +8,26 @@ export const emptyQueue = (): QueueState => ({ items: [], nextId: 1 });
 
 const MAX_QUEUED = 10;
 
+export type EnqueueResult =
+  | { ok: true; state: QueueState }
+  | { ok: false; reason: "empty" | "full"; state: QueueState };
+
 /** Blank text is dropped; the queue is capped so a stuck turn cannot grow it forever. */
-export function enqueue(state: QueueState, text: string): QueueState {
+export function tryEnqueue(state: QueueState, text: string): EnqueueResult {
   const trimmed = text.trim();
-  if (!trimmed) return state;
-  if (state.items.length >= MAX_QUEUED) return state;
+  if (!trimmed) return { ok: false, reason: "empty", state };
+  if (state.items.length >= MAX_QUEUED) return { ok: false, reason: "full", state };
   return {
-    items: [...state.items, { id: state.nextId, text: trimmed }],
-    nextId: state.nextId + 1,
+    ok: true,
+    state: {
+      items: [...state.items, { id: state.nextId, text: trimmed }],
+      nextId: state.nextId + 1,
+    },
   };
+}
+
+export function enqueue(state: QueueState, text: string): QueueState {
+  return tryEnqueue(state, text).state;
 }
 
 export function dequeue(state: QueueState): { next: QueuedPrompt | null; rest: QueueState } {

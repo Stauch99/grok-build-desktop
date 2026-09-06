@@ -16,6 +16,7 @@ export type SidebarListMenuProps = {
   onPrefs: (next: SidebarListPrefs) => void;
   onCollapseAll: () => void;
   onMarkAllRead: () => void;
+  onCreateGroup?: () => void;
 };
 
 type Sub = "group" | "sort" | "show" | "filter";
@@ -100,7 +101,7 @@ function FlyoutItem({
   );
 }
 
-export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }: SidebarListMenuProps) {
+export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead, onCreateGroup }: SidebarListMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [sub, setSub] = useState<Sub | null>(null);
@@ -169,7 +170,7 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
         type="button"
         className="icon-btn"
         aria-label={t("sidebar.filter")}
-        title={t("sidebar.filter")}
+        data-tip={t("sidebar.filter")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggleOpen}
@@ -248,7 +249,7 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
               onClick={() => onPrefs({ ...prefs, includeArchived: !prefs.includeArchived })}
             >
               <span className="mode-row">
-                <span>归档</span>
+                <span>{t("sidebar.archive")}</span>
                 <Check on={prefs.includeArchived} />
               </span>
             </button>
@@ -262,6 +263,11 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead }
             </button>
           </FlyoutItem>
           <div className="sep" />
+          {onCreateGroup && prefs.grouping === "project" ? (
+            <button type="button" role="menuitem" onClick={() => runAction(onCreateGroup)}>
+              {t("sidebar.newGroup")}
+            </button>
+          ) : null}
           <button type="button" role="menuitem" onClick={() => runAction(onCollapseAll)}>
             {t("sidebar.collapseAll")}
           </button>

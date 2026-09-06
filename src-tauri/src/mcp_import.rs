@@ -65,7 +65,10 @@ pub(crate) fn rows_from_mcp_text(text: &str) -> Vec<McpNameCmd> {
     Vec::new()
 }
 
-pub(crate) fn apply_first_open_file(canonical_text: &str, live_texts: &[&str]) -> (String, Vec<String>) {
+pub(crate) fn apply_first_open_file(
+    canonical_text: &str,
+    live_texts: &[&str],
+) -> (String, Vec<String>) {
     let mut canon = rows_from_mcp_text(canonical_text);
     let mut conflicts = vec![];
     for t in live_texts {

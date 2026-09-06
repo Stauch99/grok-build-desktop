@@ -76,7 +76,7 @@ export function MenuSelect<T extends string>({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         disabled={disabled}
-        title={title}
+        data-tip={title}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -128,7 +128,7 @@ export function MenuSelect<T extends string>({
               role="option"
               aria-selected={o.value === value}
               className={i === active ? "on" : undefined}
-              title={o.hint || o.label}
+              data-tip={o.hint || o.label}
               onMouseEnter={() => setActive(i)}
               onClick={() => commit(o.value)}
             >

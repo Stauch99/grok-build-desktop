@@ -7,6 +7,7 @@ import { visibleSessions, partitionPinned } from "./session-chrome";
 import { agentIdOfSession } from "./session-agent";
 import type { SessionStatus } from "./session-status";
 import { basename } from "./text";
+import { EMPTY_PROJECT_GROUPS, groupBandId, groupIdFor, type ProjectGroupState } from "./project-groups";
 
 export const INBOX_PIN = "inbox";
 
@@ -192,9 +193,11 @@ export type SidebarRow = {
 export type SidebarSection = {
   id: string;
   label: string;
-  kind: "pin" | "project" | "inbox" | "time" | "status";
-  band?: SidebarBandId;
+  kind: "pin" | "project" | "inbox" | "time" | "status" | "group";
+  band?: string;
   projectPath?: string;
+  groupId?: string;
+  groupLabel?: string;
   rows: SidebarRow[];
 };
 
@@ -240,7 +243,7 @@ export function groupSidebarBands(sections: readonly SidebarSection[]): SidebarB
       } else {
         out.push({
           id: section.band,
-          label: SIDEBAR_BAND_LABEL[section.band],
+          label: isSidebarBandId(section.band) ? SIDEBAR_BAND_LABEL[section.band] : (section.groupLabel ?? section.label),
           sections: [section],
         });
       }
@@ -264,6 +267,7 @@ export type BuildSidebarOpts = {
   titles: Record<string, string>;
   statusFor: (id: string) => SessionStatus;
   sessionTokens: Record<string, number>;
+  projectGroups?: ProjectGroupState;
 };
 
 const TIME_META: Record<TimeBucket, { id: string; label: string }> = {
@@ -368,29 +372,64 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
       const n = normalizeCwd(key);
       if (!unique.some((u) => normalizeCwd(u) === n)) unique.push(key);
     }
-    function pinRank(key: string): number {
-      return pinSet.has(normalizeCwd(key)) ? 0 : 1;
-    }
-    unique.sort((a, b) => {
-      const ap = pinRank(a);
-      const bp = pinRank(b);
-      if (ap !== bp) return ap - bp;
+    const groupState = opts.projectGroups ?? EMPTY_PROJECT_GROUPS;
+    function byName(a: string, b: string): number {
       return basename(a).localeCompare(basename(b), "zh");
-    });
-    for (const key of unique) {
+    }
+    function emitProject(
+      key: string,
+      band: string,
+      group?: { id: string; name: string },
+    ) {
       const rows = groups.get(key) ?? [];
       const pinnedProj = pinSet.has(normalizeCwd(key));
-      if (rows.length === 0 && !pinnedProj) continue;
-      if (rows.length === 0 && !opts.projects.some((p) => sameCwd(p, key))) continue;
+      if (rows.length === 0 && !pinnedProj && !group) return;
+      if (rows.length === 0 && !opts.projects.some((p) => sameCwd(p, key))) return;
       sections.push({
         id: key,
         label: basename(key),
         kind: "project",
-        band: pinnedProj ? "pin" : "projects",
+        band,
         projectPath: key,
+        groupId: group?.id,
+        groupLabel: group?.name,
         rows: sortSessions(rows, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
       });
     }
+
+    const pinnedKeys = unique.filter((key) => pinSet.has(normalizeCwd(key))).sort(byName);
+    const groupedKeys = new Set<string>();
+    for (const key of unique) {
+      if (pinSet.has(normalizeCwd(key))) continue;
+      const gid = groupIdFor(groupState, key);
+      if (gid) groupedKeys.add(key);
+    }
+
+    for (const key of pinnedKeys) emitProject(key, "pin");
+
+    for (const group of groupState.groups) {
+      const members = unique
+        .filter((key) => !pinSet.has(normalizeCwd(key)) && groupIdFor(groupState, key) === group.id)
+        .sort(byName);
+      if (members.length === 0) {
+        sections.push({
+          id: groupBandId(group.id),
+          label: group.name,
+          kind: "group",
+          band: groupBandId(group.id),
+          groupId: group.id,
+          groupLabel: group.name,
+          rows: [],
+        });
+        continue;
+      }
+      for (const key of members) emitProject(key, groupBandId(group.id), group);
+    }
+
+    const leftover = unique
+      .filter((key) => !pinSet.has(normalizeCwd(key)) && !groupedKeys.has(key))
+      .sort(byName);
+    for (const key of leftover) emitProject(key, "projects");
     if (inboxRows.length) {
       sections.push({
         id: "inbox",

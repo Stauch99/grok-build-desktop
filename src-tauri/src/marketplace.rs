@@ -47,7 +47,10 @@ fn copy_dir_skip_symlinks(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn install_marketplace_skill_inner(source: &Path, agents_home: &Path) -> Result<String, String> {
+pub(crate) fn install_marketplace_skill_inner(
+    source: &Path,
+    agents_home: &Path,
+) -> Result<String, String> {
     let name = skill_folder_name(source).ok_or_else(|| "invalid".to_string())?;
     let dest = agents_home.join("skills").join(&name);
     install_skill_folder(source, &dest)?;

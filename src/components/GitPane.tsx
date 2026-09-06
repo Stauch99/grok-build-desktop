@@ -25,8 +25,8 @@ export type GitPaneProps = {
   onPreview: (abs: string) => void;
   onReveal: (abs: string) => void;
   onRefresh: () => void;
-  onPull: () => void;
-  onPush: () => void;
+  onPull: () => void | Promise<string | null | void>;
+  onPush: () => void | Promise<string | null | void>;
   onDiscard: (path: string) => void;
 };
 
@@ -92,7 +92,7 @@ export function GitPane({
                       <button
                         type="button"
                         disabled={!!busy || current || !onSwitchWorktree}
-                        title={current ? t("git.currentWorktree") : t("git.switchWorktree")}
+                        data-tip={current ? t("git.currentWorktree") : t("git.switchWorktree")}
                         onClick={() => onSwitchWorktree?.(wt.path)}
                       >
                         <span className="git-worktree-name">{basename(wt.path) || wt.path}</span>

@@ -6,6 +6,7 @@ import { WEBUI_PERSIST_MS } from "../lib/persist-cache";
 import type { Mode } from "../lib/mode";
 import type { UnreadMap } from "../lib/session-status";
 import type { SidebarListPrefs } from "../lib/sidebar-list";
+import type { ProjectGroupState } from "../lib/project-groups";
 
 export { WEBUI_PERSIST_MS };
 
@@ -29,11 +30,13 @@ export type WebuiSnapshot = {
   previewWidth: number;
   locale: Locale;
   themeFamily: "default" | "paper" | "ink";
+  accentId: string;
   hideToTray: boolean;
   defaultRail: "tasks" | "changes" | "context";
   shortcuts: Record<string, string>;
   lastWorkspace: string;
   pinnedProjects: string[];
+  projectGroups: ProjectGroupState;
   sessionTokens: Record<string, number>;
   sidebarList: SidebarListPrefs;
   injectUserMemory?: boolean;

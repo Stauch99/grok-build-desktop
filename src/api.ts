@@ -58,11 +58,16 @@ export type WebuiState = {
   unread?: Record<string, "done" | "error">;
   locale?: "zh" | "en";
   themeFamily?: "default" | "paper" | "ink";
+  accentId?: string;
   hideToTray?: boolean;
   defaultRail?: "tasks" | "changes" | "context";
   shortcuts?: Record<string, string>;
   lastWorkspace?: string;
   pinnedProjects?: string[];
+  projectGroups?: {
+    groups?: Array<{ id?: string; name?: string }>;
+    membership?: Record<string, string>;
+  };
   sessionTokens?: Record<string, number>;
   sidebarList?: {
     grouping?: "project" | "updated" | "status";
@@ -101,6 +106,8 @@ export type GitStatus = {
   dirty: number;
   ahead: number;
   behind: number;
+  remote: string;
+  hasUpstream: boolean;
 };
 
 export type GitChangeStatus = "modified" | "added" | "deleted" | "renamed" | "untracked";
@@ -220,7 +227,8 @@ export const loadWebuiState = () => invoke<WebuiState>("load_webui_state");
 export const saveWebuiState = (state: WebuiState) => invoke<void>("save_webui_state", { state });
 export const listProjectRoots = () => invoke<string[]>("list_project_roots");
 export const pathIsDir = (path: string) => invoke<boolean>("path_is_dir", { path });
-export const deleteSession = (sessionId: string) => invoke<void>("delete_session", { sessionId });
+export const deleteSession = (sessionId: string, dir?: string | null) =>
+  invoke<void>("delete_session", { sessionId, dir: dir ?? null });
 export const ensureInbox = (path?: string | null) =>
   invoke<string>("ensure_inbox", { path: path ?? null });
 export const moveSessionToCwd = (sessionId: string, destCwd: string, inboxCwd: string) =>
@@ -291,6 +299,8 @@ export const gitCommit = (cwd: string, message: string) =>
   invoke<GitCommandResult>("git_commit", { cwd, message });
 export const gitPull = (cwd: string) => invoke<GitCommandResult>("git_pull", { cwd });
 export const gitPush = (cwd: string) => invoke<GitCommandResult>("git_push", { cwd });
+export const gitRemoteAdd = (cwd: string, url: string) =>
+  invoke<GitCommandResult>("git_remote_add", { cwd, url });
 export const gitDiscard = (cwd: string, path: string) =>
   invoke<GitCommandResult>("git_discard", { cwd, path });
 
@@ -403,7 +413,7 @@ export async function windowFocused(): Promise<boolean> {
   }
 }
 
-/** Start a native window move from a titlebar drag strip. */
+/** Start a native window move from a titlebar drag strip. Needs core:window:allow-start-dragging. */
 export function beginWindowDrag(): void {
   void getCurrentWindow().startDragging().catch(() => {});
 }

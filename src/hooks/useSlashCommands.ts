@@ -8,7 +8,7 @@ import type { CommandDef, HubTab } from "../lib/commands";
 import { parseRenameArgs } from "../lib/commands";
 import { t, type Locale } from "../lib/i18n";
 import type { Mode } from "../lib/mode";
-import { modeLabel, slashForMode } from "../lib/mode";
+import { modeLabel, shouldSendModeSlash, slashForMode } from "../lib/mode";
 import { formatSessionInfo, exportTranscript, lastAssistantText } from "../lib/session-local";
 import { setTitleOverride } from "../lib/projects";
 import type { ChatState } from "../lib/chat";
@@ -103,10 +103,11 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       ? !!(d.extraPanes[dest]?.sessionId && d.readyRef.current)
       : !!(d.sessionIdRef.current && d.readyRef.current && !d.loadingSession);
     if (live && paneBusy) {
-      d.showToast(t(d.locale, "mode.nextTurn"));
+      if (next !== "yolo") d.showToast(t(d.locale, "mode.nextTurn"));
       return;
     }
     if (live) {
+      if (!shouldSendModeSlash(next, d.cli)) return;
       try {
         await d.sendSlashToAgent(slashForMode(next), dest);
       } catch (e) {
@@ -136,7 +137,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
           d.setCli((prev) => (prev ? { ...prev, model: snapped.model, effort: snapped.effort || prev.effort } : prev));
         }
         if (d.sessionModel && d.sessionModel !== snapped.model) {
-          d.showToast(`已写入默认模型，当前会话仍是 ${d.sessionModel}。用 /model 可切换本会话。`);
+          d.showToast(t(d.locale, "toast.modelDefaultKept", { session: d.sessionModel }));
         }
       })
       .catch((e) => d.showToast(String(e)));
@@ -146,7 +147,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     const d = depsRef.current;
     if (d.sessionIdRef.current && d.readyRef.current) {
       void d.sendPrompt(`/model ${next}`);
-      d.showToast(`已发送 /model ${next}`);
+      d.showToast(t(d.locale, "toast.modelSent", { model: next }));
       return;
     }
     applyModel(next);
@@ -181,7 +182,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
         return applyMode(mode, dest);
       }
       if (action === "main-only") {
-        d.showToast("这条命令请在左侧会话执行");
+        d.showToast(t(d.locale, "toast.slashInSidebar"));
         return;
       }
       d.extraComposerRefs.current[dest]?.setText(cmd.name + " ");
@@ -203,27 +204,27 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
         turns: d.chat.items.filter((i) => i.kind === "user").length,
         usage: d.chat.usage,
       });
-      void navigator.clipboard.writeText(text).then(() => d.showToast("已复制会话信息"));
+      void navigator.clipboard.writeText(text).then(() => d.showToast(t(d.locale, "toast.copiedSessionInfo")));
       return;
     }
     if (cmd.local === "export") {
       d.setDraft("");
       const text = exportTranscript(d.chat.items);
       if (!text.trim()) {
-        d.showToast("还没有可复制的对话");
+        d.showToast(t(d.locale, "toast.noExport"));
         return;
       }
-      void navigator.clipboard.writeText(text).then(() => d.showToast("已复制全部对话"));
+      void navigator.clipboard.writeText(text).then(() => d.showToast(t(d.locale, "toast.copiedAll")));
       return;
     }
     if (cmd.local === "copy") {
       d.setDraft("");
       const text = lastAssistantText(d.chat.items);
       if (!text) {
-        d.showToast("还没有可复制的回复");
+        d.showToast(t(d.locale, "toast.noReply"));
         return;
       }
-      void navigator.clipboard.writeText(text).then(() => d.showToast("已复制上一条回复"));
+      void navigator.clipboard.writeText(text).then(() => d.showToast(t(d.locale, "toast.copiedLastReply")));
       return;
     }
     if (cmd.local === "fork") {
@@ -234,7 +235,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       d.setDraft("");
       if (d.rewindLastEdit >= 0) {
         d.setRewindTarget(d.rewindLastEdit);
-        d.showToast("文件还原用「回到这里」；对话回退请确认对话框。也可发 /rewind");
+        d.showToast(t(d.locale, "toast.rewindHint"));
         return;
       }
       return void d.sendPrompt("/rewind");
@@ -294,7 +295,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       }
       const id = d.sessionIdRef.current;
       if (!id) {
-        d.showToast("没有可重命名的会话");
+        d.showToast(t(d.locale, "toast.noRename"));
         return;
       }
       if (parsed.kind === "auto") {

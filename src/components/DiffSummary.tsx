@@ -1,4 +1,5 @@
 import { summarizeDiffs, type DiffSummaryItem } from "../lib/diff-summary";
+import { useT } from "../lib/locale-context";
 
 export type DiffSummaryProps = {
   items: DiffSummaryItem[];
@@ -9,20 +10,21 @@ export type DiffSummaryProps = {
  * This-turn created / modified counts. Opens the changes rail.
  */
 export function DiffSummary({ items, onOpen }: DiffSummaryProps) {
+  const t = useT();
   const { created, modified } = summarizeDiffs(items);
   if (created === 0 && modified === 0) return null;
 
   const inner = (
     <span className="diff-summary-inner">
-      <span>本轮</span>
-      {created > 0 ? <span className="stat-add">新建 {created}</span> : null}
-      {modified > 0 ? <span className="stat-del">改动 {modified}</span> : null}
+      <span>{t("diff.thisTurn")}</span>
+      {created > 0 ? <span className="stat-add">{t("diff.createdN", { n: created })}</span> : null}
+      {modified > 0 ? <span className="stat-del">{t("diff.changedN", { n: modified })}</span> : null}
     </span>
   );
 
   if (onOpen) {
     return (
-      <button type="button" className="diff-summary-strip" onClick={onOpen} aria-label="打开本次改动">
+      <button type="button" className="diff-summary-strip" onClick={onOpen} aria-label={t("diff.openChanges")}>
         {inner}
       </button>
     );

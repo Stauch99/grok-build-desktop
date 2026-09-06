@@ -94,6 +94,20 @@ export function omitListedSession(
   return next;
 }
 
+export function dropDiskSession(disk: SessionSummary[], sessionId: string): SessionSummary[] {
+  return disk.filter((row) => row.id !== sessionId && row.parentSessionId !== sessionId);
+}
+
+export function isMissingSessionError(e: unknown): boolean {
+  const text =
+    typeof e === "string"
+      ? e
+      : e && typeof e === "object" && "message" in e
+        ? String((e as { message: unknown }).message)
+        : String(e);
+  return /session not found/i.test(text);
+}
+
 export async function maybeFetchAcpSessionList(args: {
   initializeResult: unknown;
   agentId: AgentId;

@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub(crate) fn doctor_homes(
-    user_home: &Path,
-    grok_home: &Path,
-) -> [(&'static str, PathBuf); 4] {
+pub(crate) fn doctor_homes(user_home: &Path, grok_home: &Path) -> [(&'static str, PathBuf); 4] {
     [
         ("grok", grok_home.to_path_buf()),
         ("kimi", user_home.join(".kimi-code")),
@@ -109,25 +106,27 @@ mod tests {
         assert_eq!(cmd, PathBuf::from("kimi"));
         assert_eq!(args, vec!["acp".to_string()]);
         let empty = Path::new("/no/such/npx-cache");
-        let (cmd, args) = crate::agent_host::spawn_npx_adapter(
-            crate::agent_host::CLAUDE_ACP_PKG,
-            empty,
-            |_| None,
-        );
+        let (cmd, args) =
+            crate::agent_host::spawn_npx_adapter(crate::agent_host::CLAUDE_ACP_PKG, empty, |_| {
+                None
+            });
         assert_eq!(cmd, PathBuf::from("npx"));
         assert_eq!(
             args,
-            vec!["-y".to_string(), crate::agent_host::CLAUDE_ACP_PKG.to_string()]
+            vec![
+                "-y".to_string(),
+                crate::agent_host::CLAUDE_ACP_PKG.to_string()
+            ]
         );
-        let (cmd, args) = crate::agent_host::spawn_npx_adapter(
-            crate::agent_host::CODEX_ACP_PKG,
-            empty,
-            |_| None,
-        );
+        let (cmd, args) =
+            crate::agent_host::spawn_npx_adapter(crate::agent_host::CODEX_ACP_PKG, empty, |_| None);
         assert_eq!(cmd, PathBuf::from("npx"));
         assert_eq!(
             args,
-            vec!["-y".to_string(), crate::agent_host::CODEX_ACP_PKG.to_string()]
+            vec![
+                "-y".to_string(),
+                crate::agent_host::CODEX_ACP_PKG.to_string()
+            ]
         );
     }
 
@@ -143,8 +142,9 @@ mod tests {
         assert_eq!(args, vec!["acp".to_string()]);
         let (cmd, args) = spawn_argv(AgentId::Claude, None, Some(&text)).unwrap();
         assert!(
-            args.iter().any(|a| a.contains(crate::agent_host::CLAUDE_ACP_PKG)
-                || a.contains("claude-agent-acp")),
+            args.iter()
+                .any(|a| a.contains(crate::agent_host::CLAUDE_ACP_PKG)
+                    || a.contains("claude-agent-acp")),
             "claude spawn should pin the ACP package, got {cmd:?} {args:?}"
         );
     }

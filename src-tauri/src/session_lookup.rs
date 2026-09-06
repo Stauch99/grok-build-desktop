@@ -25,10 +25,14 @@ pub(crate) fn find_session_dir_in(
         if !root.is_dir() {
             continue;
         }
+        let mut dir_hit: Option<PathBuf> = None;
         for entry in WalkDir::new(root).max_depth(4).into_iter().flatten() {
             let name = entry.file_name();
             if entry.file_type().is_dir() && name == session_id {
-                return Some((agent.clone(), entry.path().to_path_buf()));
+                if dir_hit.is_none() {
+                    dir_hit = Some(entry.path().to_path_buf());
+                }
+                continue;
             }
             if entry.file_type().is_file() {
                 let name_str = name.to_string_lossy();
@@ -39,8 +43,62 @@ pub(crate) fn find_session_dir_in(
                 }
             }
         }
+        if let Some(dir) = dir_hit {
+            return Some((agent.clone(), dir));
+        }
     }
     None
+}
+
+fn path_under_roots(path: &Path, roots: &[(String, PathBuf)]) -> bool {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    roots.iter().any(|(_, root)| path.starts_with(root))
+}
+
+/// Prefer the scanned `dir` when it sits under a known session root; else find by id.
+pub(crate) fn resolve_delete_path(
+    session_id: &str,
+    dir: Option<&str>,
+    roots: &[(String, PathBuf)],
+) -> Option<PathBuf> {
+    if let Some(raw) = dir.map(str::trim).filter(|s| !s.is_empty()) {
+        let path = PathBuf::from(raw);
+        if path_under_roots(&path, roots) && (path.is_file() || path.is_dir()) {
+            return Some(path);
+        }
+    }
+    find_session_dir_in(session_id, roots).map(|(_, path)| path)
+}
+
+/// Delete a session path returned by `find_session_dir_in`.
+/// Claude/Codex often resolve to a `.jsonl` file; Grok/Kimi resolve to a directory.
+pub(crate) fn remove_session_at(path: &Path) -> std::io::Result<()> {
+    if path.is_file() {
+        let meta = path.with_extension("meta.json");
+        std::fs::remove_file(path)?;
+        if meta.is_file() {
+            let _ = std::fs::remove_file(&meta);
+        }
+        if let Some(stem) = path.file_stem() {
+            let sibling = path.with_file_name(stem);
+            if sibling.is_dir() {
+                std::fs::remove_dir_all(&sibling)?;
+            }
+        }
+        return Ok(());
+    }
+    if path.is_dir() {
+        return std::fs::remove_dir_all(path);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "session not found",
+    ))
 }
 
 #[cfg(test)]
@@ -115,10 +173,7 @@ mod tests {
         let grok_home = base.join(".grok");
         let session_id = "dup-id";
         let grok_dir = grok_home.join("sessions").join(session_id);
-        let kimi_dir = base
-            .join(".kimi-code")
-            .join("sessions")
-            .join(session_id);
+        let kimi_dir = base.join(".kimi-code").join("sessions").join(session_id);
         fs::create_dir_all(&grok_dir).unwrap();
         fs::create_dir_all(&kimi_dir).unwrap();
         let roots = session_roots(&base, &grok_home);
@@ -133,10 +188,7 @@ mod tests {
         let base = uniq("session_lookup_missing");
         let grok_home = base.join(".grok");
         let session_id = "kimi-only";
-        let kimi_dir = base
-            .join(".kimi-code")
-            .join("sessions")
-            .join(session_id);
+        let kimi_dir = base.join(".kimi-code").join("sessions").join(session_id);
         fs::create_dir_all(&kimi_dir).unwrap();
         let roots = session_roots(&base, &grok_home);
         let found = find_session_dir_in(session_id, &roots).unwrap();
@@ -152,6 +204,33 @@ mod tests {
         fs::create_dir_all(grok_home.join("sessions")).unwrap();
         let roots = session_roots(&base, &grok_home);
         assert!(find_session_dir_in("no-such-session", &roots).is_none());
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn find_session_dir_in_prefers_claude_jsonl_over_same_named_dir() {
+        let base = uniq("session_lookup_claude_dir_and_jsonl");
+        let grok_home = base.join(".grok");
+        fs::create_dir_all(grok_home.join("sessions")).unwrap();
+        let sid = "e79917b8-b11c-4133-b97d-ffcbfb01c669";
+        let proj = base
+            .join(".claude")
+            .join("projects")
+            .join("-Users-foxie-writing-projects");
+        fs::create_dir_all(proj.join(sid).join("subagents")).unwrap();
+        let file = proj.join(format!("{sid}.jsonl"));
+        fs::write(
+            &file,
+            "{\"type\":\"user\",\"message\":{\"content\":\"继续\"}}\n",
+        )
+        .unwrap();
+        let roots = session_roots(&base, &grok_home);
+        let found = find_session_dir_in(sid, &roots).unwrap();
+        assert_eq!(found.0, "claude");
+        assert_eq!(
+            found.1, file,
+            "sibling UUID.jsonl must win over the UUID/ subagents dir"
+        );
         fs::remove_dir_all(base).ok();
     }
 
@@ -214,7 +293,10 @@ mod tests {
         .unwrap();
         assert!(!replay_path_or_empty(&dir));
         let page = crate::session_updates_for_dir(&dir, None).unwrap();
-        assert!(page.rows.is_empty(), "vendor chat.jsonl must not produce replay rows");
+        assert!(
+            page.rows.is_empty(),
+            "vendor chat.jsonl must not produce replay rows"
+        );
         assert_eq!(page.next_byte, 0);
         assert!(!page.truncated);
         fs::remove_dir_all(dir).ok();
@@ -228,8 +310,99 @@ mod tests {
         fs::write(dir.join("updates.jsonl"), format!("{line}\n")).unwrap();
         assert!(replay_path_or_empty(&dir));
         let page = crate::session_updates_for_dir(&dir, None).unwrap();
-        assert_eq!(page.rows.len(), 1, "Grok updates.jsonl must yield replay rows");
+        assert_eq!(
+            page.rows.len(),
+            1,
+            "Grok updates.jsonl must yield replay rows"
+        );
         assert!(page.next_byte > 0);
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn remove_session_at_deletes_claude_jsonl_and_sibling_dir() {
+        let root = uniq("remove_claude_jsonl");
+        let sid = "e79917b8-b11c-4133-b97d-ffcbfb01c669";
+        let proj = root.join("projects").join("-work");
+        fs::create_dir_all(proj.join(sid).join("subagents")).unwrap();
+        let file = proj.join(format!("{sid}.jsonl"));
+        fs::write(&file, "{\"type\":\"user\"}\n").unwrap();
+        fs::write(
+            proj.join(sid)
+                .join("subagents")
+                .join("agent-ab4a5fb3123330325.jsonl"),
+            "{}\n",
+        )
+        .unwrap();
+        fs::write(
+            proj.join(sid)
+                .join("subagents")
+                .join("agent-ab4a5fb3123330325.meta.json"),
+            r#"{"description":"调研"}"#,
+        )
+        .unwrap();
+        remove_session_at(&file).unwrap();
+        assert!(!file.exists(), "parent jsonl must be unlinked");
+        assert!(
+            !proj.join(sid).exists(),
+            "sibling UUID/ subagents dir must go with the jsonl"
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn remove_session_at_deletes_jsonl_file_without_a_dir() {
+        let root = uniq("remove_jsonl_only");
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("sess.jsonl");
+        fs::write(&file, "{}\n").unwrap();
+        remove_session_at(&file).unwrap();
+        assert!(!file.exists());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn remove_session_at_deletes_a_session_directory() {
+        let dir = uniq("remove_grok_dir");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("summary.json"), "{}").unwrap();
+        remove_session_at(&dir).unwrap();
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn resolve_delete_path_prefers_a_dir_under_session_roots() {
+        let base = uniq("resolve_delete_prefers_dir");
+        let grok = base.join(".grok");
+        let sessions = grok.join("sessions").join("proj").join("abc");
+        fs::create_dir_all(&sessions).unwrap();
+        let roots = session_roots(&base, &grok);
+        let found = resolve_delete_path("abc", Some(&sessions.to_string_lossy()), &roots).unwrap();
+        assert_eq!(found, sessions);
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn resolve_delete_path_rejects_a_dir_outside_session_roots() {
+        let base = uniq("resolve_delete_rejects");
+        let grok = base.join(".grok");
+        fs::create_dir_all(grok.join("sessions")).unwrap();
+        let outside = base.join("not-a-session");
+        fs::create_dir_all(&outside).unwrap();
+        let roots = session_roots(&base, &grok);
+        assert!(resolve_delete_path("abc", Some(&outside.to_string_lossy()), &roots).is_none());
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn resolve_delete_path_falls_back_to_find_by_id() {
+        let base = uniq("resolve_delete_fallback");
+        let grok = base.join(".grok");
+        let session_dir = grok.join("sessions").join("proj").join("abc");
+        fs::create_dir_all(&session_dir).unwrap();
+        let roots = session_roots(&base, &grok);
+        let found = resolve_delete_path("abc", None, &roots).unwrap();
+        assert_eq!(found, session_dir);
+        fs::remove_dir_all(base).ok();
     }
 }

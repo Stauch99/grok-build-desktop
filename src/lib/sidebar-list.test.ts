@@ -272,6 +272,48 @@ describe("buildSidebarSections", () => {
     ]);
   });
 
+  it("nests unpinned projects under user groups and keeps empty groups visible", () => {
+    const grouped = {
+      groups: [
+        { id: "g-work", name: "工作" },
+        { id: "g-life", name: "个人" },
+      ],
+      membership: { "/work/other": "g-work" },
+    };
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
+      pinnedProjects: [],
+      projectGroups: grouped,
+      sessions: [
+        s({ id: "a", cwd: "/work/app", title: "Alpha", updatedAt: localIso(now, 0, 11) }),
+        s({ id: "other", cwd: "/work/other", title: "Other", updatedAt: localIso(now, 0, 8) }),
+      ],
+    });
+    const work = sections.find((x) => x.projectPath === "/work/other");
+    const leftover = sections.find((x) => x.projectPath === "/work/app");
+    const empty = sections.find((x) => x.id === "group:g-life");
+    expect(work).toMatchObject({ band: "group:g-work", groupId: "g-work", groupLabel: "工作" });
+    expect(leftover?.band).toBe("projects");
+    expect(empty).toMatchObject({ kind: "group", band: "group:g-life", groupLabel: "个人" });
+    expect(groupSidebarBands(sections).map((b) => ({ id: b.id, label: b.label }))).toEqual([
+      { id: "group:g-work", label: "工作" },
+      { id: "group:g-life", label: "个人" },
+      { id: "projects", label: "项目" },
+    ]);
+  });
+
+  it("keeps a grouped project in 置顶 instead of duplicating it in the group", () => {
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
+      pinnedProjects: ["/work/app"],
+      projectGroups: { groups: [{ id: "g-work", name: "工作" }], membership: { "/work/app": "g-work" } },
+    });
+    expect(sections.find((x) => x.projectPath === "/work/app")?.band).toBe("pin");
+    expect(sections.find((x) => x.id === "group:g-work")).toMatchObject({ kind: "group", band: "group:g-work" });
+  });
+
   it("never folds independent chats into a project folder, even if inbox is pinned", () => {
     const sections = buildSidebarSections({
       ...base,

@@ -73,7 +73,7 @@ export function ChangesPanel({
                 onOpen={() => onPreview(target)}
                 onReveal={() => onReveal(revealAt)}
                 leading={
-                  <span className={`change-mark ${c.status}`} title={c.status}>
+                  <span className={`change-mark ${c.status}`} data-tip={c.status}>
                     {statusMark(c.status)}
                   </span>
                 }

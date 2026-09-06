@@ -8,8 +8,8 @@ import {
   writeAllowedText,
   trustFolder,
   runGrokStream,
+  beginWindowDrag,
 } from "./api";
-import { formatElapsed, liveWorkStatus } from "./lib/chat";
 import { sameCwd } from "./lib/inbox";
 import { agentChipLabel, connectingBannerText, restartAgentBannerText } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
@@ -29,6 +29,7 @@ import { StatsLineView } from "./components/StatsLineView";
 import { MillerPicker } from "./components/MillerPicker";
 import { Resizer } from "./components/Resizer";
 import { persistReviewOpen } from "./lib/review-rail";
+import { usePresence } from "./lib/motion";
 import { displayTitle } from "./lib/projects";
 import { MAIN_PANE } from "./lib/pane-tree";
 import { selectPaneMentionSource } from "./lib/pane-mentions";
@@ -52,7 +53,7 @@ import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryDock } from "./components/MemoryDock";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
-import { handleMdClick, ThreadColumn, WaitPill } from "./components/Thread";
+import { handleMdClick, ThreadColumn } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
 import { GitPane } from "./components/GitPane";
@@ -88,6 +89,8 @@ export function App() {
     setLocale,
     themeFamily,
     setThemeFamily,
+    accentId,
+    setAccentId,
     hideToTray,
     setHideToTray,
     defaultRail,
@@ -149,6 +152,8 @@ export function App() {
     cli,
     setCli,
     toast,
+    pauseToast,
+    resumeToast,
     atBottom,
     setAtBottom,
     paneTree,
@@ -162,8 +167,6 @@ export function App() {
     extraChatEls,
     extraComposerRefs,
     extraMentionData,
-    extraBusyStartRef,
-    clock,
     picking,
     titles,
     editingTitleId,
@@ -189,6 +192,14 @@ export function App() {
     setSidebarList,
     pinnedProjects,
     setPinnedProjects,
+    projectGroups,
+    openGroups,
+    setOpenGroups,
+    createNamedGroup,
+    createGroupForProject,
+    moveProjectToGroup,
+    renameNamedGroup,
+    requestDeleteGroup,
     settingsFocus,
     setSettingsFocus,
     expandedIds,
@@ -351,6 +362,7 @@ export function App() {
     runStatus,
     turnStats,
   } = useAppModel();
+  const reviewPresence = usePresence(reviewOpen);
 
   function renderSplitLeaf(paneId: string) {
     const extra = paneId === MAIN_PANE ? null : extraPanes[paneId];
@@ -389,7 +401,6 @@ export function App() {
       now: Date.now(),
       live: paneBusy,
     });
-    const busyAt = extra ? extraBusyStartRef.current[paneId] ?? null : null;
     const paneChatRef = paneId === MAIN_PANE
       ? chatEl
       : {
@@ -413,12 +424,12 @@ export function App() {
           className="workspace-head"
           onPointerDown={(e) => {
             if (!paneSession) return;
-            if ((e.target as HTMLElement).closest("button, input, [data-menu-trigger]")) return;
+            if ((e.target as HTMLElement).closest("button, input, [data-menu-trigger], .workspace-head-drag")) return;
             beginPaneDrag(e, paneSession);
           }}
         >
           <div className="title-wrap">
-            <span className="crumb-cwd" title={paneCwd}>
+            <span className="crumb-cwd" data-tip={paneCwd}>
               {inboxCwd && paneCwd && sameCwd(paneCwd, inboxCwd) ? t(locale, "cwd.none") : basename(paneCwd || "")}
             </span>
             <span className="crumb-sep">/</span>
@@ -445,7 +456,7 @@ export function App() {
               />
             ) : sid ? (
               <>
-                <button type="button" className="session-title-btn" data-tip={paneTitle} title={paneTitle} onClick={() => beginEditTitle(sid)}>
+                <button type="button" className="session-title-btn" data-tip={paneTitle} onClick={() => beginEditTitle(sid)}>
                   {paneTitle}
                 </button>
                 <button type="button" className="icon-btn" data-tip={t(locale, "thread.copyAll")} aria-label={t(locale, "thread.copyAll")} onClick={() => copyAllConversation(paneChat.items)}>
@@ -458,12 +469,21 @@ export function App() {
             ) : (
               <span className="title-static">{t(locale, "chrome.newSession")}</span>
             )}
+            <div
+              className="workspace-head-drag"
+              data-tauri-drag-region
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                beginWindowDrag();
+              }}
+            />
           </div>
           <div className="head-actions">
             <button
               type="button"
               className="icon-btn shortcut-host"
-              title={t(locale, "rail.dashboard")}
+              data-tip={t(locale, "rail.dashboard")}
               aria-label={t(locale, "rail.dashboard")}
               aria-expanded={reviewOpen}
               onClick={() => {
@@ -509,7 +529,7 @@ export function App() {
             <button
               type="button"
               className="jump-bottom"
-              title={t(locale, "thread.scrollBottom")}
+              data-tip={t(locale, "thread.scrollBottom")}
               aria-label={t(locale, "thread.scrollBottom")}
               onClick={() => {
                 if (paneId === MAIN_PANE) {
@@ -575,15 +595,6 @@ export function App() {
           footer={<StatsLineView stats={paneStats} sessionTokens={paneChat.usage?.used} usageHistory={usageHistory} />}
           metaActions={<UsageRing usage={paneChat.usage ?? {}} compactPercent={cli?.compactPercent ?? 85} />}
         >
-          <ComposerDock>
-            {paneBusy && (
-              <WaitPill
-                status={liveWorkStatus(paneChat.items)}
-        elapsed={busyAt != null ? formatElapsed(Date.now() - busyAt + clock * 0) : formatElapsed(0)}
-                onStop={() => void cancelTurn(paneId)}
-              />
-            )}
-          </ComposerDock>
           {perm && permView.kind && (paneId === MAIN_PANE ? permView.mainVisible : permView.splitVisible) && (
             <PendingRequestCard
               kind={permView.kind}
@@ -639,6 +650,15 @@ return (
           setPinnedProjects(next);
           persist({ pinnedProjects: next });
         }}
+        groups={projectGroups.groups}
+        groupMembership={projectGroups.membership}
+        openGroups={openGroups}
+        onToggleGroup={(id) => setOpenGroups((m) => ({ ...m, [id]: m[id] === false }))}
+        onCreateGroup={createNamedGroup}
+        onCreateGroupForProject={createGroupForProject}
+        onMoveProjectToGroup={moveProjectToGroup}
+        onRenameGroup={renameNamedGroup}
+        onDeleteGroup={requestDeleteGroup}
         sessionId={sessionId}
         openIds={openIds}
         focusedId={focusedSessionId}
@@ -649,6 +669,13 @@ return (
         onOpenSession={(s) => void openSession(s)}
         onSessionMenu={(id, el, point) => openMenu("row", id, el, point)}
         onNewChat={() => void newChatInFocus()}
+        onNewProjectSession={(path) => {
+          const last = path === INBOX_PIN || (inboxCwd && sameCwd(path, inboxCwd)) ? INBOX_PIN : path;
+          setLastWorkspace(last);
+          persist({ lastWorkspace: last });
+          setOpenProjects((m) => ({ ...m, [path]: true }));
+          void startSession(path);
+        }}
         onDragSession={beginPaneDrag}
         onAddProject={() => void addProject()}
         picking={picking}
@@ -671,6 +698,12 @@ return (
             for (const section of sidebarSections) {
               next[section.projectPath ?? section.id] = false;
             }
+            return next;
+          });
+          setOpenGroups((m) => {
+            const next: Record<string, boolean> = {};
+            for (const key of Object.keys(m)) next[key] = false;
+            for (const group of projectGroups.groups) next[group.id] = false;
             return next;
           });
           setCollapsedIds((prev) => {
@@ -759,7 +792,7 @@ return (
         <div className="pane solo">
           <div className="pane-body">
           <div className="work-col" ref={workColRef}>
-          <header className="workspace-head" data-tauri-drag-region>
+          <header className="workspace-head">
             <div className="title-wrap">
               <MenuSelect
                 variant="inline"
@@ -801,7 +834,7 @@ return (
                   <button
                     type="button"
                     className="session-title-btn"
-                    title={currentTitle}
+                    data-tip={currentTitle}
                     onClick={() => beginEditTitle(sessionId)}
                   >
                     {currentTitle}
@@ -832,6 +865,14 @@ return (
               ) : (
                 <span className="title-static">{t(locale, "chrome.newSession")}</span>
               )}
+              <div
+                className="workspace-head-drag"
+                data-tauri-drag-region
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  beginWindowDrag();
+                }}
+              />
             </div>
             <div className="head-actions">
               {git?.isRepo ? (
@@ -939,7 +980,7 @@ return (
               <button
                 type="button"
                 className="jump-bottom"
-                title={t(locale, "thread.scrollBottom")}
+                data-tip={t(locale, "thread.scrollBottom")}
                 aria-label={t(locale, "thread.scrollBottom")}
                 onClick={() => {
                   setAtBottom(true);
@@ -1073,8 +1114,8 @@ return (
                 />
               ) : null}
               <RunStatusRegion status={runStatus} />
-              {goalView ? (
-                <GoalBar goal={goalView.text} startedAt={goalView.startedAt} live={mainPaneBusy} />
+              {goalView && !mainPaneBusy ? (
+                <GoalBar goal={goalView.text} startedAt={goalView.startedAt} />
               ) : null}
             </ComposerDock>
             {planComplete ? (
@@ -1122,7 +1163,7 @@ return (
         ) : null}
 
       </main>
-      {reviewOpen ? (
+      {reviewPresence.shown ? (
         <>
           <Resizer
             ariaLabel={t(locale, "rail.resize")} value={previewWidth} min={PREVIEW.min}
@@ -1131,6 +1172,7 @@ return (
           />
           <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
             width={previewWidth}
+            leaving={reviewPresence.leaving}
             onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
             {{
               progress: reviewPlan.length > 0 ? <ul className="todo">{reviewPlan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} /><span className="todo-text">{e.content}</span></li>)}</ul> : <p className="float-empty">{t(locale, "rail.emptyProgress")}</p>,
@@ -1285,6 +1327,8 @@ return (
               onLocale={(l) => { setLocale(l); persist({ locale: l }); }}
               themeFamily={themeFamily}
               onThemeFamily={(f) => { setThemeFamily(f); persist({ themeFamily: f }); }}
+              accentId={accentId}
+              onAccentId={(id) => { setAccentId(id); persist({ accentId: id }); }}
               hideToTray={hideToTray}
               onHideToTray={(v) => { setHideToTray(v); persist({ hideToTray: v }); }}
               defaultRail={defaultRail}
@@ -1489,7 +1533,14 @@ return (
         />
       )}
       {toast && (
-        <div className="toast" role="status">
+        <div
+          className="toast"
+          role="status"
+          onMouseEnter={pauseToast}
+          onMouseLeave={resumeToast}
+          onFocus={pauseToast}
+          onBlur={resumeToast}
+        >
           <span>{toast.message}</span>
           {toast.actionLabel && toast.onAction ? (
             <>

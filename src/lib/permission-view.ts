@@ -21,12 +21,20 @@ export type PermissionViewInput = {
   extraPanes?: PermissionPaneState[];
 };
 
+export function requestPermissionKind(request: PendingRequest): PermissionKind {
+  const kind = (request.toolKind ?? "").toLowerCase().trim();
+  if (kind === "question") return "question";
+  if (kind) return "permission";
+  const firstLine = request.title.trim().split(/\r?\n/, 1)[0] ?? "";
+  if (/^(?:bash|shell|exec(?:ute)?|command|read|edit|write|search)\b/i.test(firstLine)) return "permission";
+  if (firstLine.length > 120) return "permission";
+  return /\bask\b|\bquestion\b|选择|提问/i.test(firstLine) ? "question" : "permission";
+}
+
 export function derivePermissionView(input: PermissionViewInput): PermissionView {
   if (!input.request) return { kind: null, pane: null, mainVisible: false, splitVisible: false, statusPending: null };
   const request = input.request;
-  const kind: PermissionKind = request.toolKind === "question" || /ask|question|选择|提问/i.test(request.title)
-    ? "question"
-    : "permission";
+  const kind = requestPermissionKind(request);
   const extraHit = input.extraPanes?.find((p) => p.sessionId && p.sessionId === request.sessionId);
   const pane: PermissionPane = extraHit
     ? extraHit.id

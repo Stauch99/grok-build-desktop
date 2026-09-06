@@ -25,6 +25,7 @@ import {
   withPromptFail,
   isAbandonedPromptError,
   abandonPendingForDest,
+  destHasPendingPrompt,
   type ExtraPaneState,
 } from "./useAcpSession";
 
@@ -135,6 +136,26 @@ describe("abandonPendingForDest", () => {
     expect(pending.has(2)).toBe(true);
     expect(isAbandonedPromptError(new Error("prompt-abandoned"))).toBe(true);
     expect(isAbandonedPromptError(new Error("rpc error"))).toBe(false);
+  });
+});
+
+describe("destHasPendingPrompt", () => {
+  it("is true only for a live session/prompt waiter on that pane", () => {
+    const pending = new Map<number, { method?: string }>([
+      [1, { method: "session/prompt" }],
+      [2, { method: "session/prompt" }],
+      [3, { method: "session/new" }],
+    ]);
+    const dest = new Map<number, string>([
+      [1, "main"],
+      [2, "split"],
+      [3, "main"],
+    ]);
+    expect(destHasPendingPrompt(pending, dest, "main")).toBe(true);
+    expect(destHasPendingPrompt(pending, dest, "split")).toBe(true);
+    expect(destHasPendingPrompt(pending, dest, "other")).toBe(false);
+    pending.delete(1);
+    expect(destHasPendingPrompt(pending, dest, "main")).toBe(false);
   });
 });
 

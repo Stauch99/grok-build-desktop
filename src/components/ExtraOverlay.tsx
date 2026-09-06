@@ -98,7 +98,7 @@ export function ExtraOverlay({
       <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <header className="settings-head">
           <strong>{title}</strong>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")} title={t("common.close")}>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")} data-tip={t("common.close")}>
             <IconGrokClose size={16} />
           </button>
         </header>

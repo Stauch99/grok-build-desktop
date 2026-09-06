@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionSummary } from "../api";
 import {
+  dropDiskSession,
+  isMissingSessionError,
   mapAcpListedSessions,
   maybeFetchAcpSessionList,
   omitListedSession,
@@ -191,6 +193,25 @@ describe("omitListedSession", () => {
     const next = omitListedSession(listed, "gone");
     expect(next.claude?.map((s) => s.id)).toEqual(["keep"]);
     expect(next.grok).toEqual([]);
+  });
+});
+
+describe("dropDiskSession", () => {
+  it("drops the session and its children so a stale disk cache cannot resurrect them", () => {
+    const disk = [
+      row({ id: "gone" }),
+      row({ id: "kid", parentSessionId: "gone" }),
+      row({ id: "keep" }),
+    ];
+    expect(dropDiskSession(disk, "gone").map((s) => s.id)).toEqual(["keep"]);
+  });
+});
+
+describe("isMissingSessionError", () => {
+  it("treats not-found as a successful hide", () => {
+    expect(isMissingSessionError("session not found")).toBe(true);
+    expect(isMissingSessionError({ message: "session not found" })).toBe(true);
+    expect(isMissingSessionError("permission denied")).toBe(false);
   });
 });
 

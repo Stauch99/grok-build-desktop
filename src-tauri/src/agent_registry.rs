@@ -55,13 +55,22 @@ pub(crate) fn pinned_npx_pkg(id: AgentId) -> Option<&'static str> {
 
 pub(crate) fn spawn_args_from_toml(doc: &str, id: AgentId) -> Option<(String, Vec<String>)> {
     let parsed = doc.parse::<toml_edit::DocumentMut>().ok()?;
-    let table = parsed.get("agents")?.as_table()?.get(id.as_str())?.as_table()?;
+    let table = parsed
+        .get("agents")?
+        .as_table()?
+        .get(id.as_str())?
+        .as_table()?;
     let command = table
         .get("command")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let args = table.get("args")?.as_array()?.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    let args = table
+        .get("args")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
     Some((command, args))
 }
 

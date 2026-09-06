@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { gitCommit, type GitStatus } from "../api";
+import { gitCommit, gitRemoteAdd, type GitStatus } from "../api";
 import { branchMismatchToast, commitMessageOk } from "../lib/git-commit";
 import {
   branchLabel,
-  gitRemoteEnabled,
+  gitCommandError,
+  gitPullEnabled,
+  gitPushEnabled,
+  gitRemoteUrlOk,
+  gitSyncKind,
   isCheckoutableBranch,
   localGitBranches,
   type GitWorktree,
@@ -12,7 +16,8 @@ import { IconGrokPlus } from "../grok-icons";
 import { IconBranch, IconCheck, IconChevron, IconGitFork } from "../icons";
 import { basename } from "../lib/text";
 import { sameCwd } from "../lib/inbox";
-import { useT } from "../lib/locale-context";
+import { useT, useLocale } from "../lib/locale-context";
+import { t as tx } from "../lib/i18n";
 
 export type GitChipProps = {
   status: GitStatus;
@@ -33,10 +38,10 @@ export function GitChip({ status, onClick }: GitChipProps) {
     </span>
   );
   if (!onClick) {
-    return <span className="git-chip" title={title}>{inner}</span>;
+    return <span className="git-chip" data-tip={title}>{inner}</span>;
   }
   return (
-    <button type="button" className="git-chip" onClick={onClick} title={title} aria-label={t("git.open")}>
+    <button type="button" className="git-chip" onClick={onClick} data-tip={title} aria-label={t("git.open")}>
       {inner}
     </button>
   );
@@ -78,7 +83,7 @@ function GitActionMenu({
         type="button"
         className="git-chip"
         disabled={disabled}
-        title={title}
+        data-tip={title}
         aria-label={title}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -138,8 +143,8 @@ export type GitBarProps = {
   sessionBranch?: string | null;
   onCommitted?: () => void;
   onToast?: (msg: string) => void;
-  onPull?: () => void;
-  onPush?: () => void;
+  onPull?: () => void | Promise<string | null | void>;
+  onPush?: () => void | Promise<string | null | void>;
   branches?: string[];
   worktrees?: GitWorktree[];
   cwd?: string;
@@ -167,8 +172,11 @@ export function GitBar({
   onSwitchWorktree,
 }: GitBarProps) {
   const t = useT();
+  const locale = useLocale();
   const [message, setMessage] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState("");
   const [committing, setCommitting] = useState(false);
+  const [addingRemote, setAddingRemote] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const toasted = useRef("");
 
@@ -176,20 +184,24 @@ export function GitBar({
     const next = status?.branch ?? "";
     const msg = branchMismatchToast(sessionBranch, next);
     const key = `${sessionBranch ?? ""}|${next}`;
+    const copy = tx(locale, "git.branchMismatch");
     if (msg && toasted.current !== key) {
       toasted.current = key;
-      setHint(msg);
-      onToast?.(msg);
+      setHint(copy);
+      onToast?.(copy);
     } else if (!msg) {
       toasted.current = key;
-      setHint((prev) => (prev === "当前会话绑定另一条分支" ? null : prev));
+      setHint((prev) => (prev === copy ? null : prev));
     }
-  }, [sessionBranch, status?.branch, onToast]);
+  }, [sessionBranch, status?.branch, onToast, locale]);
 
   if (!status?.isRepo) return null;
-  const blocked = !!busy || committing;
+  const blocked = !!busy || committing || addingRemote;
   const canCommit = commitMessageOk(message) && !blocked;
-  const remoteOk = gitRemoteEnabled(status, blocked);
+  const kind = gitSyncKind(status);
+  const pullOk = gitPullEnabled(status, blocked);
+  const pushOk = gitPushEnabled(status, blocked);
+  const canAddRemote = kind === "add-remote" && gitRemoteUrlOk(remoteUrl) && !blocked;
   const local = localGitBranches(branches).filter(isCheckoutableBranch);
   const branchOptions =
     status.branch && !local.includes(status.branch) && isCheckoutableBranch(status.branch)
@@ -218,6 +230,36 @@ export function GitBar({
     } finally {
       setCommitting(false);
     }
+  };
+
+  const submitRemote = async () => {
+    if (!canAddRemote) return;
+    setAddingRemote(true);
+    setHint(null);
+    try {
+      const res = await gitRemoteAdd(status.root, remoteUrl);
+      if (res.ok) {
+        setRemoteUrl("");
+        onCommitted?.();
+      } else {
+        const err = gitCommandError(res, t("git.remoteFail")) ?? t("git.remoteFail");
+        setHint(err);
+        onToast?.(err);
+      }
+    } catch (e) {
+      const err = String(e);
+      setHint(err);
+      onToast?.(err);
+    } finally {
+      setAddingRemote(false);
+    }
+  };
+
+  const runRemote = (fn?: () => void | Promise<string | null | void>) => {
+    setHint(null);
+    void Promise.resolve(fn?.()).then((err) => {
+      if (typeof err === "string" && err) setHint(err);
+    });
   };
 
   const branchTrigger = (
@@ -260,37 +302,80 @@ export function GitBar({
         type="button"
         className="git-chip"
         disabled={!canCommit}
-        title={t("git.commitHint")}
+        data-tip={t("git.commitHint")}
         onClick={() => void submit()}
       >
         <span className="git-chip-inner">{t("git.commit")}</span>
       </button>
-      {onPull ? (
-        <button
-          type="button"
-          className="git-chip"
-          disabled={!remoteOk}
-          title={status.behind > 0 ? t("git.behind", { n: status.behind }) : t("git.pullHint")}
-          onClick={onPull}
-        >
-          <span className="git-chip-inner">
-            {t("git.pull")}{status.behind > 0 ? ` ↓${status.behind}` : ""}
-          </span>
-        </button>
-      ) : null}
-      {onPush ? (
-        <button
-          type="button"
-          className="git-chip"
-          disabled={!remoteOk}
-          title={status.ahead > 0 ? t("git.ahead", { n: status.ahead }) : t("git.pushHint")}
-          onClick={onPush}
-        >
-          <span className="git-chip-inner">
-            {t("git.push")}{status.ahead > 0 ? ` ↑${status.ahead}` : ""}
-          </span>
-        </button>
-      ) : null}
+      {kind === "add-remote" ? (
+        <>
+          <input
+            className="git-msg"
+            value={remoteUrl}
+            placeholder={t("git.remoteUrl")}
+            aria-label={t("git.remoteUrl")}
+            disabled={blocked}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submitRemote();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="git-chip"
+            disabled={!canAddRemote}
+            data-tip={t("git.noRemote")}
+            onClick={() => void submitRemote()}
+          >
+            <span className="git-chip-inner">{t("git.addRemote")}</span>
+          </button>
+        </>
+      ) : (
+        <>
+          {onPull ? (
+            <button
+              type="button"
+              className="git-chip"
+              disabled={!pullOk}
+              data-tip={
+                kind === "publish"
+                  ? t("git.pullNeedPublish")
+                  : status.behind > 0
+                    ? t("git.behind", { n: status.behind })
+                    : t("git.pullHint")
+              }
+              onClick={() => runRemote(onPull)}
+            >
+              <span className="git-chip-inner">
+                {t("git.pull")}{status.behind > 0 ? ` ↓${status.behind}` : ""}
+              </span>
+            </button>
+          ) : null}
+          {onPush ? (
+            <button
+              type="button"
+              className="git-chip"
+              disabled={!pushOk}
+              data-tip={
+                kind === "publish"
+                  ? t("git.publishHint")
+                  : status.ahead > 0
+                    ? t("git.ahead", { n: status.ahead })
+                    : t("git.pushHint")
+              }
+              onClick={() => runRemote(onPush)}
+            >
+              <span className="git-chip-inner">
+                {kind === "publish" ? t("git.publish") : t("git.push")}
+                {kind === "sync" && status.ahead > 0 ? ` ↑${status.ahead}` : ""}
+              </span>
+            </button>
+          ) : null}
+        </>
+      )}
       {onSwitchWorktree ? (
         <GitActionMenu
           title={t("git.worktrees")}
@@ -315,7 +400,7 @@ export function GitBar({
           className="git-chip ghost"
           onClick={onNewWorktree}
           disabled={blocked}
-          title={t("git.worktree")}
+          data-tip={t("git.worktree")}
         >
           <span className="git-chip-inner">
             <IconGrokPlus size={14} />
@@ -323,9 +408,9 @@ export function GitBar({
           </span>
         </button>
       )}
-      {hint ? (
+      {hint || kind === "add-remote" ? (
         <span className="preview-note" role="status">
-          {hint}
+          {hint || t("git.noRemote")}
         </span>
       ) : null}
     </div>

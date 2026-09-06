@@ -28,6 +28,14 @@ export function shouldSkipPermission(
   return allowed.has(allowKey(sessionId, toolName));
 }
 
+/** Composer 始终批准 skips tool permission cards. AskUserQuestion stays interactive. */
+export function shouldAutoApprovePermission(
+  yolo: boolean,
+  kind: "permission" | "question",
+): boolean {
+  return yolo && kind === "permission";
+}
+
 export function allowForSession(
   allowed: Set<string>,
   sessionId: string,

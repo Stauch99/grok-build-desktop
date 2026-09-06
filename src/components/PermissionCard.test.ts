@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { applyPermissionPick, PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./QuestionCard";
 
 const options = [
   { optionId: "allow", name: "Allow", kind: "allow_once" },
@@ -36,5 +37,31 @@ describe("PermissionCard timeout", () => {
     const buttons = html.match(/<button\b[^>]*>/g) ?? [];
     expect(buttons.length).toBeGreaterThan(0);
     expect(buttons.every((tag) => !/\bdisabled\b/.test(tag))).toBe(true);
+  });
+
+  it("keeps the command text in a tooltip so a two-line clamp can hide the rest", () => {
+    const html = renderToStaticMarkup(
+      createElement(PermissionCard, {
+        title: "Execute a very long shell script that should not expand the card",
+        options,
+        onPick: () => {},
+        onAlwaysAllow: () => {},
+      }),
+    );
+    expect(html).toMatch(/class="permission-cmd"[^>]*data-tip="Execute a very long shell script/);
+  });
+});
+
+describe("QuestionCard title", () => {
+  it("exposes the full prompt on hover while the heading can clamp", () => {
+    const title = "Execute a huge script that also asks 选择课程套餐";
+    const html = renderToStaticMarkup(
+      createElement(QuestionCard, {
+        title,
+        options: [{ id: "a", label: "A" }],
+        onPick: () => {},
+      }),
+    );
+    expect(html).toMatch(/<h4[^>]*data-tip="Execute a huge script/);
   });
 });

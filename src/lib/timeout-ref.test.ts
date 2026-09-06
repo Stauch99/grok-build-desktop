@@ -4,6 +4,7 @@ import {
   TOAST_ACTION_MS,
   TOAST_CLEAR_MS,
   clearTimeoutRef,
+  remainingTimeoutMs,
   scheduleTimeout,
   toastDurationMs,
   type TimeoutRef,
@@ -62,5 +63,10 @@ describe("toast and focus delays", () => {
     expect(TOAST_ACTION_MS).toBe(6000);
     expect(toastDurationMs(false)).toBe(TOAST_CLEAR_MS);
     expect(toastDurationMs(true)).toBe(TOAST_ACTION_MS);
+  });
+
+  it("pauses a toast by keeping the leftover duration", () => {
+    expect(remainingTimeoutMs(1000, TOAST_ACTION_MS, 2500)).toBe(TOAST_ACTION_MS - 1500);
+    expect(remainingTimeoutMs(1000, TOAST_CLEAR_MS, 5000)).toBe(0);
   });
 });

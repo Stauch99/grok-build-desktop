@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { IconFileTxt, IconFinder, IconFolder } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type FileListRowProps = {
   name: string;
@@ -23,10 +24,11 @@ export function FileListRow({
   leading,
   trailing,
 }: FileListRowProps) {
+  const t = useT();
   return (
     <div className="file-entry">
       {leading}
-      <button type="button" className="file-entry-main" title={path} onClick={onOpen}>
+      <button type="button" className="file-entry-main" data-tip={path} onClick={onOpen}>
         {leading ? null : (
           <span className="file-entry-icon" aria-hidden>
             {kind === "dir" ? <IconFolder size={14} /> : <IconFileTxt size={14} />}
@@ -41,8 +43,8 @@ export function FileListRow({
       <button
         type="button"
         className="file-open file-finder"
-        title="在访达中打开"
-        aria-label="在访达中打开"
+        data-tip={t("finder.open")}
+        aria-label={t("finder.open")}
         onClick={onReveal}
       >
         <IconFinder size={14} />

@@ -12,6 +12,7 @@ pub struct ScannedSession {
     pub cwd: String,
     pub parent_session_id: Option<String>,
     pub session_kind: Option<String>,
+    pub tool_use_id: Option<String>,
 }
 
 pub enum ScanMode {
@@ -97,6 +98,7 @@ pub fn scan_named_subdirs(root: &Path, agent_id: &str) -> Vec<ScannedSession> {
             cwd: String::new(),
             parent_session_id: None,
             session_kind: None,
+            tool_use_id: None,
         });
     }
     rows
@@ -137,6 +139,7 @@ fn scan_session_children(wrapper: &ScannedSession) -> Vec<ScannedSession> {
             cwd: meta.cwd.unwrap_or_default(),
             parent_session_id: None,
             session_kind: None,
+            tool_use_id: None,
         };
         rows.extend(scan_kimi_agents(&row));
         rows.push(row);
@@ -171,6 +174,7 @@ fn scan_kimi_agents(parent: &ScannedSession) -> Vec<ScannedSession> {
             cwd: parent.cwd.clone(),
             parent_session_id: Some(parent.id.clone()),
             session_kind: Some("subagent".into()),
+            tool_use_id: None,
         });
     }
     rows
@@ -296,17 +300,63 @@ fn scan_claude_subagents(project_path: &Path, parent: &ScannedSession) -> Vec<Sc
         let Some(mut row) = parse_claude_jsonl(&file_path, &parent.agent_id) else {
             continue;
         };
+        let stem = file_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let id = stem
+            .strip_prefix("agent-")
+            .unwrap_or(stem.as_str())
+            .to_string();
+        if id.is_empty() {
+            continue;
+        }
+        row.id = id;
         row.parent_session_id = Some(parent.id.clone());
         row.session_kind = Some("subagent".into());
+        let meta = claude_subagent_meta(&file_path);
+        row.tool_use_id = meta.tool_use_id;
         if row.cwd.is_empty() {
             row.cwd = parent.cwd.clone();
         }
-        if let Some(stripped) = row.id.strip_prefix("agent-") {
-            row.id = stripped.to_string();
+        if row.title.is_empty() || row.title == parent.id {
+            row.title = meta.title.unwrap_or_else(|| row.id.clone());
         }
         rows.push(row);
     }
     rows
+}
+
+struct ClaudeSubagentMeta {
+    title: Option<String>,
+    tool_use_id: Option<String>,
+}
+
+fn claude_subagent_meta(jsonl: &Path) -> ClaudeSubagentMeta {
+    let empty = ClaudeSubagentMeta {
+        title: None,
+        tool_use_id: None,
+    };
+    let Ok(text) = fs::read_to_string(jsonl.with_extension("meta.json")) else {
+        return empty;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return empty;
+    };
+    ClaudeSubagentMeta {
+        title: value
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        tool_use_id: value
+            .get("toolUseId")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+    }
 }
 
 fn parse_claude_jsonl(path: &Path, agent_id: &str) -> Option<ScannedSession> {
@@ -352,6 +402,7 @@ fn parse_claude_jsonl(path: &Path, agent_id: &str) -> Option<ScannedSession> {
         cwd,
         parent_session_id: None,
         session_kind: None,
+        tool_use_id: None,
     })
 }
 
@@ -417,6 +468,7 @@ fn parse_codex_rollout(path: &Path, agent_id: &str) -> Option<ScannedSession> {
         cwd,
         parent_session_id: None,
         session_kind: None,
+        tool_use_id: None,
     })
 }
 
@@ -578,6 +630,57 @@ mod tests {
     }
 
     #[test]
+    fn claude_subagent_keeps_file_stem_when_jsonl_session_id_is_parent() {
+        let root = uniq();
+        let proj = root.join("-Users-foxie-work");
+        let parent = "e79917b8-b11c-4133-b97d-ffcbfb01c669";
+        let child = "ab4a5fb3123330325";
+        fs::create_dir_all(proj.join(parent).join("subagents")).unwrap();
+        fs::write(
+            proj.join(format!("{parent}.jsonl")),
+            format!(
+                r#"{{"type":"user","cwd":"/Users/foxie/project_development/writing-projects","sessionId":"{parent}"}}"#
+            ) + "\n",
+        )
+        .unwrap();
+        fs::write(
+            proj.join(parent)
+                .join("subagents")
+                .join(format!("agent-{child}.jsonl")),
+            format!(
+                r#"{{"type":"user","cwd":"/Users/foxie/project_development/writing-projects","sessionId":"{parent}","isSidechain":true}}"#
+            ) + "\n",
+        )
+        .unwrap();
+        fs::write(
+            proj.join(parent)
+                .join("subagents")
+                .join(format!("agent-{child}.meta.json")),
+            r#"{"agentType":"general-purpose","description":"Grok 近期动态爆点调研","toolUseId":"toolu_4b5cb057c47b48d2a5c0a742"}"#,
+        )
+        .unwrap();
+        let rows = scan_agent_sessions(&root, "claude", ScanMode::ClaudeJsonl);
+        let kids: Vec<_> = rows
+            .iter()
+            .filter(|r| r.session_kind.as_deref() == Some("subagent"))
+            .collect();
+        assert_eq!(
+            kids.len(),
+            1,
+            "parent sessionId in the child jsonl must not collapse the subagent"
+        );
+        assert_eq!(kids[0].id, child);
+        assert_ne!(kids[0].id, parent);
+        assert_eq!(kids[0].parent_session_id.as_deref(), Some(parent));
+        assert_eq!(kids[0].title, "Grok 近期动态爆点调研");
+        assert_eq!(
+            kids[0].tool_use_id.as_deref(),
+            Some("toolu_4b5cb057c47b48d2a5c0a742")
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn codex_rollout_reads_session_meta_cwd() {
         let root = uniq();
         let day = root.join("2026").join("08").join("01");
@@ -611,6 +714,7 @@ mod tests {
                 cwd: "/Users/foxie/Documents/GlobalEdu".into(),
                 parent_session_id: None,
                 session_kind: None,
+                tool_use_id: None,
             },
             ScannedSession {
                 agent_id: "codex".into(),
@@ -621,6 +725,7 @@ mod tests {
                 cwd: "/Users/foxie/Documents/ZAOYI".into(),
                 parent_session_id: None,
                 session_kind: None,
+                tool_use_id: None,
             },
             ScannedSession {
                 agent_id: "claude".into(),
@@ -631,6 +736,7 @@ mod tests {
                 cwd: String::new(),
                 parent_session_id: None,
                 session_kind: None,
+                tool_use_id: None,
             },
             ScannedSession {
                 agent_id: "kimi".into(),
@@ -641,6 +747,7 @@ mod tests {
                 cwd: "/Users/foxie/Documents/GlobalEdu".into(),
                 parent_session_id: None,
                 session_kind: None,
+                tool_use_id: None,
             },
         ];
         let cwds = collect_cwds(&rows);
@@ -684,6 +791,7 @@ mod tests {
             cwd: "/work".into(),
             parent_session_id: Some("parent-uuid".into()),
             session_kind: Some("subagent".into()),
+            tool_use_id: None,
         };
         assert_eq!(row.parent_session_id.as_deref(), Some("parent-uuid"));
         assert_eq!(row.session_kind.as_deref(), Some("subagent"));
