@@ -425,7 +425,18 @@ describe("thread body size", () => {
     expect(detail).toMatch(/font-size:\s*var\(--md-size/);
     expect(thought).toMatch(/font-size:\s*var\(--md-size/);
     expect(run).toMatch(/font-size:\s*var\(--md-size/);
-    expect(sheet).toMatch(/\.work-run\.live \.work-run-text\s*\{[^}]*color:\s*var\(--text\)/);
+  });
+
+  it("sweeps a metallic sheen across live work-run text", () => {
+    const sheet = css("src/styles/thread.css");
+    const live = sheet.match(/\.work-run\.live \.work-run-text\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(live).toMatch(/-webkit-background-clip:\s*text/);
+    expect(live).toMatch(/background-clip:\s*text/);
+    expect(live).toMatch(/-webkit-text-fill-color:\s*transparent/);
+    expect(live).toMatch(/animation:[^;]*work-run-sheen/);
+    expect(live).toMatch(/var\(--sheen\)/);
+    expect(live).toMatch(/var\(--text\)/);
+    expect(sheet).toMatch(/@keyframes work-run-sheen/);
   });
 
   it("keeps inline code the same size as the surrounding paragraph", () => {

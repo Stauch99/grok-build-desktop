@@ -49,6 +49,7 @@ describe("composer drop overlay wiring", () => {
     expect(composer).toContain('closest(".work-col")');
     expect(composer).toContain('closest(".pane")');
     expect(composer).toContain("createPortal");
-    expect(composer).toContain('t("composer.drop")');
+    expect(composer).toContain("claimComposerDrop");
+    expect(composer).toContain("ingestPathsRef.current");
   });
 });

@@ -49,6 +49,7 @@ describe("reduced motion", () => {
     expect(chunk).toMatch(/\.memory-dock[\s\S]*animation:\s*none/);
     expect(chunk).toMatch(/\.spinner[\s\S]*infinite/);
     expect(chunk).toMatch(/spinner-pulse/);
+    expect(chunk).toMatch(/\.work-run\.live \.work-run-text[\s\S]*animation:\s*none/);
   });
 });
 

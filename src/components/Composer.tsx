@@ -24,6 +24,7 @@ import {
   addAttachments,
   ATTACHMENT_CAP,
   clipboardAttachHits,
+  claimComposerDrop,
   formatAttachmentsPrompt,
   isFileDrag,
   pasteFileExt,
@@ -279,7 +280,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const ingestPaths = useCallback(
     async (paths: { path: string; kind: "file" | "dir"; bytes?: number; name?: string }[]) => {
       const incoming: Attachment[] = [];
+      const seen = new Set<string>();
       for (const p of paths) {
+        const key = p.path.replace(/\/+$/, "") || p.path;
+        if (seen.has(key)) continue;
+        seen.add(key);
         const result = await resolveAttachPath(
           p,
           (path) => statAttachment(path, cwd || null),
@@ -339,6 +344,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     [dropZoneEl],
   );
 
+  const ingestPathsRef = useRef(ingestPaths);
+  ingestPathsRef.current = ingestPaths;
+  const ingestClipboardHitsRef = useRef(ingestClipboardHits);
+  ingestClipboardHitsRef.current = ingestClipboardHits;
+  const pointInWrapRef = useRef(pointInWrap);
+  pointInWrapRef.current = pointInWrap;
+
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
@@ -348,7 +360,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         const { payload } = event;
 
         if (payload.type === "enter" || payload.type === "over") {
-          setFileDragOver(pointInWrap(payload.position.x, payload.position.y));
+          if (payload.type === "enter") html5DropRef.current = false;
+          setFileDragOver(pointInWrapRef.current(payload.position.x, payload.position.y));
           return;
         }
 
@@ -359,15 +372,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
         if (payload.type !== "drop") return;
         setFileDragOver(false);
-        if (html5DropRef.current) {
-          html5DropRef.current = false;
-          return;
-        }
+        if (html5DropRef.current) return;
 
-        if (!pointInWrap(payload.position.x, payload.position.y)) return;
+        if (!pointInWrapRef.current(payload.position.x, payload.position.y)) return;
 
         const incoming = pathsFromTauriDrop(payload.paths);
-        void ingestPaths(incoming.map((a) => ({ path: a.path, kind: a.kind, bytes: a.bytes })));
+        if (incoming.length === 0) return;
+        if (!claimComposerDrop(incoming.map((item) => item.path))) return;
+        html5DropRef.current = true;
+        void ingestPathsRef.current(incoming.map((a) => ({ path: a.path, kind: a.kind, bytes: a.bytes })));
       })
       .then((fn) => {
         if (alive) unlisten = fn;
@@ -381,7 +394,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       alive = false;
       unlisten?.();
     };
-  }, [ingestPaths, pointInWrap]);
+  }, []);
 
   useEffect(() => {
     const zone = dropZoneEl();
@@ -413,11 +426,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       ev.stopPropagation();
       fileDragDepthRef.current = 0;
       setFileDragOver(false);
-      html5DropRef.current = false;
+      if (html5DropRef.current) return;
       const hits = clipboardAttachHits(ev.dataTransfer);
       if (hits.length === 0) return;
+      const keys = hits.map((hit) =>
+        hit.kind === "path" ? hit.path : `blob:${hit.file.name}:${hit.file.size}:${hit.file.type}`,
+      );
+      if (!claimComposerDrop(keys)) return;
       html5DropRef.current = true;
-      void ingestClipboardHits(hits);
+      void ingestClipboardHitsRef.current(hits);
     };
 
     zone.addEventListener("dragenter", onEnter);
@@ -430,7 +447,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       zone.removeEventListener("dragover", onOver);
       zone.removeEventListener("drop", onDrop);
     };
-  }, [dropZoneEl, ingestClipboardHits]);
+  }, [dropZoneEl]);
 
   useEffect(() => {
     if (!modeOpen && !effortOpen && !modelOpen && !wsOpen && !agentOpen) return;

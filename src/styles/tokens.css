@@ -12,6 +12,7 @@
   --line: #e6e5e3;
   --line-strong: hsl(36 20% 5% / 8%);
   --text: hsl(0 0% 2%);
+  --sheen: color-mix(in srgb, var(--text) 34%, white);
   --muted: hsl(0 0% 39%);
   --faint: hsl(0 0% 52%);
   --accent: hsl(207 100% 51.6%);
@@ -73,6 +74,7 @@
   --line: hsl(0 0% 100% / 6%);
   --line-strong: hsl(0 0% 100% / 10%);
   --text: hsl(0 0% 99%);
+  --sheen: color-mix(in srgb, var(--text) 40%, white);
   --muted: hsl(0 0% 62%);
   --faint: hsl(0 0% 52%);
   --accent: hsl(207 100% 58%);

@@ -494,7 +494,30 @@
   line-height: 1.4;
 }
 .work-run.live .work-run-text {
-  color: var(--text);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    105deg,
+    var(--text) 0%,
+    var(--text) 42%,
+    var(--sheen) 48%,
+    var(--sheen) 52%,
+    var(--text) 58%,
+    var(--text) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: work-run-sheen 2.2s linear infinite;
+}
+@keyframes work-run-sheen {
+  from { background-position: 120% 0; }
+  to { background-position: -20% 0; }
+}
+.work-run.live .work-run-head:hover .work-run-text {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 .work-run.live .work-run-ico {
   color: var(--accent);

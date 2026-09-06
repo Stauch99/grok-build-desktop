@@ -356,14 +356,48 @@ export async function pathsFromDataTransfer(dataTransfer: DataTransfer): Promise
 }
 
 export function pathsFromTauriDrop(paths: string[]): Attachment[] {
-  return paths
-    .map((raw) => {
-      const trimmed = raw.trim();
-      if (!trimmed.startsWith("/")) return null;
-      const kind: "file" | "dir" = trimmed.endsWith("/") ? "dir" : "file";
-      return attachmentFromPath(trimmed, kind);
-    })
-    .filter((a): a is Attachment => a !== null);
+  const seen = new Set<string>();
+  const out: Attachment[] = [];
+  for (const raw of paths) {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("/")) continue;
+    const kind: "file" | "dir" = trimmed.endsWith("/") ? "dir" : "file";
+    const item = attachmentFromPath(trimmed, kind);
+    const key = item.path.replace(/\/+$/, "") || item.path;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+export const DROP_CLAIM_MS = 500;
+type DropClaimState = { key: string; at: number };
+let dropClaim: DropClaimState = { key: "", at: 0 };
+
+export function dropClaimKey(parts: string[]): string {
+  return [...new Set(parts.map((part) => part.trim()).filter(Boolean))].sort().join("\0");
+}
+
+export function takeDropClaim(
+  state: DropClaimState,
+  key: string,
+  now: number,
+  windowMs = DROP_CLAIM_MS,
+): { ok: boolean; next: DropClaimState } {
+  if (!key) return { ok: false, next: state };
+  if (state.at > 0 && now - state.at < windowMs) return { ok: false, next: state };
+  return { ok: true, next: { key, at: now } };
+}
+
+export function resetComposerDropClaim(): void {
+  dropClaim = { key: "", at: 0 };
+}
+
+export function claimComposerDrop(parts: string[], now = Date.now()): boolean {
+  const result = takeDropClaim(dropClaim, dropClaimKey(parts), now);
+  dropClaim = result.next;
+  return result.ok;
 }
 
 /** Human reason to toast, or null when the file is fine. */

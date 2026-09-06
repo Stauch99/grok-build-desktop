@@ -308,6 +308,12 @@ button:disabled { opacity: 0.35; cursor: default; }
   }
   .dot-matrix-cell,
   .dot-matrix-cell { opacity: 0.35; }
+  .work-run.live .work-run-text {
+    animation: none !important;
+    color: var(--text) !important;
+    -webkit-text-fill-color: var(--text);
+    background-image: none;
+  }
 }
 @keyframes spinner-pulse {
   50% { opacity: 0.35; }

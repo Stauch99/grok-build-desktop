@@ -18,6 +18,9 @@ import {
   pathsFromFileUriList,
   pathsFromTauriDrop,
   rejectAttachment,
+  resetComposerDropClaim,
+  claimComposerDrop,
+  DROP_CLAIM_MS,
   resolveAttachPath,
 } from "./attachments";
 
@@ -101,6 +104,23 @@ describe("pathsFromTauriDrop", () => {
     expect(pathsFromTauriDrop(["/tmp/a.ts", "relative"])).toEqual([
       attachmentFromPath("/tmp/a.ts"),
     ]);
+  });
+
+  it("keeps one copy when the same path is listed several times", () => {
+    expect(pathsFromTauriDrop(["/tmp/a.ts", "/tmp/a.ts", "/tmp/a.ts/"])).toEqual([
+      attachmentFromPath("/tmp/a.ts"),
+    ]);
+  });
+});
+
+describe("claimComposerDrop", () => {
+  it("accepts a drop once and ignores repeats in the same burst", () => {
+    resetComposerDropClaim();
+    expect(claimComposerDrop(["/tmp/a.pdf"], 1000)).toBe(true);
+    expect(claimComposerDrop(["/tmp/a.pdf"], 1000)).toBe(false);
+    expect(claimComposerDrop(["blob:a.pdf:12:application/pdf"], 1010)).toBe(false);
+    expect(claimComposerDrop(["/tmp/a.pdf"], 1000 + DROP_CLAIM_MS - 1)).toBe(false);
+    expect(claimComposerDrop(["/tmp/a.pdf"], 1000 + DROP_CLAIM_MS)).toBe(true);
   });
 });
 
