@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../api";
@@ -45,11 +46,88 @@ describe("SessionBranch subagent chrome", () => {
       ],
     });
     expect(html).toContain("sess-kid-count");
-    expect(html).toMatch(/sess-kid-count[^>]*>2</);
+    expect(html).toMatch(/sess-kid-count-text[^>]*>2</);
     expect(html.indexOf("sess-kid-count")).toBeLessThan(html.indexOf("sess-title"));
+    expect(html.indexOf("sess-kid-count-text")).toBeGreaterThan(html.indexOf("sess-kid-count"));
+    expect(html.indexOf("sess-kid-count-text")).toBeLessThan(html.indexOf("sess-title"));
     expect(html).not.toContain("sess-gutter");
     expect(html).not.toMatch(/class="count"/);
     expect(html).not.toContain("branch-chev");
+  });
+
+  it("hides nested children until the count circle expands the parent", () => {
+    const html = render({
+      session: session({ id: "p", title: "十年幸福计划", agentId: "grok" }),
+      children: [
+        { session: session({ id: "c1", title: "T2-C", agentId: "grok" }), children: [] },
+        { session: session({ id: "c2", title: "T2-D", agentId: "grok" }), children: [] },
+      ],
+    });
+    expect(html).toContain("sess-kid-count");
+    expect(html).not.toContain('data-expanded="1"');
+    expect(html).toMatch(/session-kids[^>]*hidden/);
+    expect(html).not.toMatch(/session-kids open/);
+  });
+
+  it("reveals nested children after an explicit expand", () => {
+    const html = render(
+      {
+        session: session({ id: "p", title: "十年幸福计划", agentId: "grok" }),
+        children: [{ session: session({ id: "c1", title: "T2-C", agentId: "grok" }), children: [] }],
+      },
+      { expandedIds: new Set(["p"]) },
+    );
+    expect(html).toContain('data-expanded="1"');
+    expect(html).toMatch(/session-kids open/);
+    expect(html).not.toMatch(/session-kids[^>]*hidden/);
+  });
+
+  it("does not auto-expand when a child is the active session", () => {
+    const html = render(
+      {
+        session: session({ id: "p", title: "十年幸福计划", agentId: "grok" }),
+        children: [{ session: session({ id: "c1", title: "T2-C", agentId: "grok" }), children: [] }],
+      },
+      { sessionId: "c1", focusedId: "c1" },
+    );
+    expect(html).not.toContain('data-expanded="1"');
+    expect(html).toMatch(/session-kids[^>]*hidden/);
+  });
+
+  it("keeps children hidden after collapse even if a child is the active session", () => {
+    const html = render(
+      {
+        session: session({ id: "p", title: "十年幸福计划", agentId: "grok" }),
+        children: [{ session: session({ id: "c1", title: "T2-C", agentId: "grok" }), children: [] }],
+      },
+      {
+        sessionId: "c1",
+        expandedIds: new Set(["p"]),
+        collapsedIds: new Set(["p"]),
+      },
+    );
+    expect(html).not.toContain('data-expanded="1"');
+    expect(html).toMatch(/session-kids[^>]*hidden/);
+  });
+
+  it("keeps the count circle outside the title so title clicks only open the session", () => {
+    const html = render({
+      session: session({ id: "p", title: "十年幸福计划", agentId: "grok" }),
+      children: [{ session: session({ id: "c1", title: "T2-C", agentId: "grok" }), children: [] }],
+    });
+    const titleStart = html.indexOf('class="title"');
+    const titleOpen = html.lastIndexOf("<button", titleStart);
+    const titleClose = html.indexOf("</button>", titleStart);
+    const titleBtn = html.slice(titleOpen, titleClose);
+    expect(titleBtn).toContain("sess-title");
+    expect(titleBtn).not.toContain("sess-kid-count");
+    expect(html.indexOf("sess-kid-count")).toBeLessThan(titleOpen);
+  });
+
+  it("stops pointerdown on the count circle so a pane-drag gesture cannot swallow the click", () => {
+    const src = readFileSync(new URL("./SessionBranch.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/className="sess-kid-count"[\s\S]*?onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/);
+    expect(src).toMatch(/e\.target instanceof Element/);
   });
 
   it("does not insert a left gutter on leaf sessions", () => {

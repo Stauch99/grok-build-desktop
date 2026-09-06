@@ -944,15 +944,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     d.setOpenProjects((m) => ({ ...m, [projectForSession(s.cwd, d.projects, d.inboxCwd).path]: true }));
     adoptSession(s.id);
     d.setDraft(getDraft(d.sessionDrafts, s.id));
-    if (s.parentSessionId) {
-      const pid = s.parentSessionId;
-      d.setCollapsedIds((prev) => {
-        const n = new Set(prev);
-        n.delete(pid);
-        return n;
-      });
-      d.setExpandedIds((prev) => new Set(prev).add(pid));
-    }
     echoedUser.current = false;
     d.setAtBottom(true);
     setLoadingSession(true);
@@ -982,6 +973,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       ignoreReplay.current = ignoreAcpHistoryDuringResume(page.rows.length);
       try {
         await resumeBoundSession(s);
+      } catch (e) {
+        if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
+        d.showToast(String(e));
       } finally {
         ignoreReplay.current = false;
       }
@@ -1028,6 +1022,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       void refreshUsage(s.id, paneId);
       try {
         await resumeBoundSession(s);
+      } catch (e) {
+        if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
+        d.showToast(String(e));
       } finally {
         ignoreExtraReplay.current[paneId] = false;
       }

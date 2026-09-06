@@ -6,8 +6,8 @@ import {
   listMemoryChanges,
   listWorkspaceEntries,
   notify,
+  ensureNotifyPermission,
   onNotifyOpen,
-  onTrayOpenLast,
   onWindowFocus,
   readManagedConfig,
   readPlan,
@@ -15,7 +15,6 @@ import {
   readUsageHistory,
   setBadge,
   setHideOnClose,
-  setTrayStatus,
   setWorkspace,
   windowFocused,
   type SessionSummary,
@@ -27,9 +26,8 @@ import { t, type Locale } from "../lib/i18n";
 import { MAIN_PANE, leafIds } from "../lib/pane-tree";
 import { paneNeedsCloseConfirm } from "../lib/app-hotkeys";
 import { tapDanger } from "../lib/confirm";
-import { parentsToExpandForLive } from "../lib/live-roster";
 import { dequeue } from "../lib/prompt-queue";
-import { notifyText, shouldNotify, trayStatus } from "../lib/notify";
+import { isSessionFocused, notifyText, shouldMarkUnread, shouldNotify } from "../lib/notify";
 import { countNeedsYou } from "../lib/session-badge";
 import { persistReviewOpen } from "../lib/review-rail";
 import { fitLayout } from "../lib/layout";
@@ -66,7 +64,6 @@ type EffectsDeps = {
   palette: { open: boolean; setOpen: (open: boolean | ((v: boolean) => boolean)) => void };
   extraBusy: boolean;
   mainPaneBusy: boolean;
-  permissions: QueuedPermission[];
   cancelPermission: (req: QueuedPermission) => Promise<void>;
   refreshInspect: (dir?: string) => Promise<void>;
   refreshGit: () => Promise<void>;
@@ -91,6 +88,7 @@ export function useAppModelEffects(d: EffectsDeps) {
     const selected = view.panePermissions[target];
     if (selected) await d.cancelPermission(selected);
   };
+  s.focusedSessionIdRef.current = view.focusedSessionId ?? null;
 
   useEffect(() => {
     if (
@@ -163,17 +161,8 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [s.hideToTray]);
 
   useEffect(() => {
-    let off: (() => void) | undefined;
-    void onTrayOpenLast(() => {
-      const last = acp.sessionIdRef.current
-        ? [...s.inboxSessions, ...s.sessions].find((row) => row.id === acp.sessionIdRef.current)
-        : [...s.inboxSessions, ...s.sessions][0];
-      if (last) void ws.openSession(last);
-    }).then((fn) => {
-      off = fn;
-    });
-    return () => off?.();
-  }, [s.inboxSessions, s.sessions]);
+    void ensureNotifyPermission();
+  }, []);
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -293,7 +282,9 @@ export function useAppModelEffects(d: EffectsDeps) {
     if (started === null) return;
     const elapsedMs = Date.now() - started;
     void d.refreshGit();
-    if (!s.focusedRef.current && finishedId) {
+    const sessionFocused = isSessionFocused(s.focusedSessionIdRef.current, finishedId);
+    const windowFocused = s.focusedRef.current;
+    if (finishedId && shouldMarkUnread(windowFocused, sessionFocused)) {
       const id = finishedId;
       s.setUnread((prev) => {
         const next = markUnread(prev, id, "done");
@@ -301,8 +292,12 @@ export function useAppModelEffects(d: EffectsDeps) {
         return next;
       });
     }
-    if (shouldNotify({ reason: "turn-done", focused: s.focusedRef.current, elapsedMs })) {
-      const { title, body } = notifyText("turn-done", s.currentTitleRef.current, formatElapsed(elapsedMs));
+    if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+      const { title, body } = notifyText(
+        "turn-done",
+        s.titleForSessionRef.current(finishedId),
+        formatElapsed(elapsedMs),
+      );
       void notify(title, body);
     }
     const { next, rest } = dequeue(s.queueRef.current);
@@ -319,6 +314,25 @@ export function useAppModelEffects(d: EffectsDeps) {
       const started = s.extraBusyStartRef.current[id];
       delete s.extraBusyStartRef.current[id];
       if (started == null) continue;
+      const elapsedMs = Date.now() - started;
+      const sessionFocused = isSessionFocused(s.focusedSessionIdRef.current, pane.sessionId);
+      const windowFocused = s.focusedRef.current;
+      if (pane.sessionId && shouldMarkUnread(windowFocused, sessionFocused)) {
+        const sid = pane.sessionId;
+        s.setUnread((prev) => {
+          const next = markUnread(prev, sid, "done");
+          if (next !== prev) d.persist({ unread: next });
+          return next;
+        });
+      }
+      if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+        const { title, body } = notifyText(
+          "turn-done",
+          s.titleForSessionRef.current(pane.sessionId),
+          formatElapsed(elapsedMs),
+        );
+        void notify(title, body);
+      }
       const { next, rest } = dequeue(pane.queue);
       if (!next) continue;
       s.setExtraPanes((prev) => {
@@ -387,13 +401,6 @@ export function useAppModelEffects(d: EffectsDeps) {
     void windowFocused().then(s.setFocused);
     void onWindowFocus((next) => {
       s.setFocused(next);
-      const id = acp.sessionIdRef.current;
-      if (!next || !id) return;
-      s.setUnread((prev) => {
-        const cleared = clearUnread(prev, id);
-        if (cleared !== prev) d.persist({ unread: cleared });
-        return cleared;
-      });
     }).then((fn) => {
       off = fn;
     });
@@ -401,8 +408,15 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, []);
 
   useEffect(() => {
-    void setTrayStatus(trayStatus(acp.busy || d.extraBusy, d.permissions.length)).catch(() => {});
-  }, [acp.busy, d.extraBusy, d.permissions.length]);
+    if (!s.focused) return;
+    const id = view.focusedSessionId;
+    if (!id) return;
+    s.setUnread((prev) => {
+      const cleared = clearUnread(prev, id);
+      if (cleared !== prev) d.persist({ unread: cleared });
+      return cleared;
+    });
+  }, [s.focused, view.focusedSessionId]);
 
   useEffect(() => {
     if (!s.editingTitleId) return;
@@ -561,18 +575,6 @@ export function useAppModelEffects(d: EffectsDeps) {
   useEffect(() => {
     s.currentTitleRef.current = view.currentTitle;
   }, [view.currentTitle]);
-
-  useEffect(() => {
-    for (const id of parentsToExpandForLive(d.allSessions)) {
-      s.setCollapsedIds((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      s.setExpandedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-    }
-  }, [d.allSessions]);
 
   useEffect(() => {
     void setBadge(countNeedsYou(d.allSessions.map((row) => view.statusFor(row.id))));

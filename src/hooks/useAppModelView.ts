@@ -3,7 +3,7 @@ import type { ChatItem, ChatState } from "../lib/chat";
 import { effortsForModel, modelLabelMap, type AgentModelRow } from "../lib/agent-models";
 import { skillSlashCommands, type InspectReport } from "../lib/inspect";
 import { recapIdentity, shouldShowSessionRecap } from "../lib/session-recap";
-import { liveBusyIds } from "../lib/live-roster";
+import { liveBusyIds, runningChildSessionIds } from "../lib/live-roster";
 import { lastTurnFiles } from "../lib/turn-files";
 import { headerJobs } from "../lib/jobs-header";
 import { agentHealth } from "../lib/agent-health";
@@ -91,8 +91,9 @@ export function useAppModelView(input: AppModelViewInput) {
       if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
     }
     ids.push(...liveBusyIds(input.allSessions));
+    ids.push(...runningChildSessionIds(input.chat.items));
     return ids;
-  }, [input.busy, input.runningSessionId, input.extraPanes, input.allSessions]);
+  }, [input.busy, input.runningSessionId, input.extraPanes, input.allSessions, input.chat.items]);
 
   const statusFor = useCallback(
     (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId: input.awaitingId, unread: input.unread }),

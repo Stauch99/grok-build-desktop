@@ -1,28 +1,109 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { badgeCount, notifyText, shouldNotify, SHORT_TURN_MS, trayStatus } from "./notify";
+import {
+  badgeCount,
+  isSessionFocused,
+  notifyText,
+  shouldMarkUnread,
+  shouldNotify,
+  SHORT_TURN_MS,
+  freshPermissionEvents,
+} from "./notify";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+describe("isSessionFocused", () => {
+  it("treats a missing event session as the one you are watching", () => {
+    expect(isSessionFocused("a", null)).toBe(true);
+    expect(isSessionFocused("a", undefined)).toBe(true);
+  });
+
+  it("matches the focused session id", () => {
+    expect(isSessionFocused("a", "a")).toBe(true);
+    expect(isSessionFocused("a", "b")).toBe(false);
+  });
+});
 
 describe("shouldNotify", () => {
-  it("never interrupts a focused window", () => {
-    expect(shouldNotify({ reason: "permission", focused: true })).toBe(false);
+  it("never interrupts the session you are looking at", () => {
     expect(
-      shouldNotify({ reason: "turn-done", focused: true, elapsedMs: 10 * 60_000 }),
+      shouldNotify({ reason: "permission", windowFocused: true, sessionFocused: true }),
+    ).toBe(false);
+    expect(
+      shouldNotify({
+        reason: "turn-done",
+        windowFocused: true,
+        sessionFocused: true,
+        elapsedMs: 10 * 60_000,
+      }),
     ).toBe(false);
   });
 
-  it("always notifies for a blocked permission prompt", () => {
-    expect(shouldNotify({ reason: "permission", focused: false })).toBe(true);
-  });
-
-  it("stays quiet for short turns", () => {
+  it("notifies when another session needs permission, even if the window is focused", () => {
     expect(
-      shouldNotify({ reason: "turn-done", focused: false, elapsedMs: SHORT_TURN_MS - 1 }),
-    ).toBe(false);
-  });
-
-  it("notifies for long turns", () => {
-    expect(
-      shouldNotify({ reason: "turn-done", focused: false, elapsedMs: SHORT_TURN_MS }),
+      shouldNotify({ reason: "permission", windowFocused: true, sessionFocused: false }),
     ).toBe(true);
+  });
+
+  it("notifies when a background session finishes, even for a short turn", () => {
+    expect(
+      shouldNotify({
+        reason: "turn-done",
+        windowFocused: true,
+        sessionFocused: false,
+        elapsedMs: 800,
+      }),
+    ).toBe(true);
+  });
+
+  it("always notifies for a blocked permission prompt when the window is in the background", () => {
+    expect(
+      shouldNotify({ reason: "permission", windowFocused: false, sessionFocused: true }),
+    ).toBe(true);
+  });
+
+  it("stays quiet for short turns on the focused session while the window is in the background", () => {
+    expect(
+      shouldNotify({
+        reason: "turn-done",
+        windowFocused: false,
+        sessionFocused: true,
+        elapsedMs: SHORT_TURN_MS - 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("notifies for long turns on the focused session while the window is in the background", () => {
+    expect(
+      shouldNotify({
+        reason: "turn-done",
+        windowFocused: false,
+        sessionFocused: true,
+        elapsedMs: SHORT_TURN_MS,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("freshPermissionEvents", () => {
+  it("only yields each permission once, including after another is dismissed", () => {
+    const seen = new Set<string>();
+    const a = { rpcId: 1, sessionId: "s1" };
+    const b = { rpcId: 2, sessionId: "s2" };
+    expect(freshPermissionEvents(seen, [a])).toEqual([a]);
+    expect(freshPermissionEvents(seen, [a])).toEqual([]);
+    expect(freshPermissionEvents(seen, [a, b])).toEqual([b]);
+    expect(freshPermissionEvents(seen, [b])).toEqual([]);
+  });
+});
+
+describe("shouldMarkUnread", () => {
+  it("marks a session unread when you were looking at another one", () => {
+    expect(shouldMarkUnread(true, false)).toBe(true);
+    expect(shouldMarkUnread(false, true)).toBe(true);
+    expect(shouldMarkUnread(true, true)).toBe(false);
   });
 });
 
@@ -53,16 +134,13 @@ describe("badgeCount", () => {
   });
 });
 
-describe("trayStatus", () => {
-  it("prefers the permission count", () => {
-    expect(trayStatus(true, 2)).toBe("● 待许可 2");
-  });
-
-  it("shows running while busy", () => {
-    expect(trayStatus(true, 0)).toBe("● 运行中");
-  });
-
-  it("is empty when idle", () => {
-    expect(trayStatus(false, 0)).toBe("");
+describe("desktop chrome", () => {
+  it("does not ship a menu bar tray icon", () => {
+    const cargo = readFileSync(join(root, "src-tauri/Cargo.toml"), "utf8");
+    const lib = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
+    const caps = readFileSync(join(root, "src-tauri/capabilities/default.json"), "utf8");
+    expect(cargo).not.toMatch(/tray-icon/);
+    expect(lib).not.toMatch(/build_tray|TrayIconBuilder|set_tray_status/);
+    expect(caps).not.toMatch(/core:tray/);
   });
 });

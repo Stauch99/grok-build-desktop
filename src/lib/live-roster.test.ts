@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat";
 import type { SessionSummary } from "../api";
@@ -9,12 +10,17 @@ import {
   lookupSession,
   mergeLiveRoster,
   parentsToExpandForLive,
+  applyLiveParentExpand,
+  runningChildSessionIds,
   sessionToOpen,
   sessionsWithLiveRoster,
 } from "./live-roster";
 
 function tool(
-  partial: Pick<ChatItem & { kind: "tool" }, "id" | "title" | "status"> & { toolName?: string },
+  partial: Pick<ChatItem & { kind: "tool" }, "id" | "title" | "status"> & {
+    toolName?: string;
+    detail?: string;
+  },
 ): ChatItem {
   return { kind: "tool", ...partial };
 }
@@ -78,6 +84,27 @@ describe("liveRosterFromTools", () => {
       sessionKind: "subagent",
     });
   });
+
+  it("uses the spawned child session id once Grok returns subagent_id", () => {
+    const items: ChatItem[] = [
+      tool({
+        id: "c1",
+        title: "T2C 健康与幸福感",
+        toolName: "spawn_subagent",
+        status: "in_progress",
+        detail:
+          "Subagent started in background.\nsubagent_id: 01a0787b-8ce7-7253-9afb-f0f8c55334c5\ntype: general-purpose",
+      }),
+    ];
+    const live = liveRosterFromTools(items, {
+      agentId: "grok",
+      parentSessionId: "parent",
+      cwd: "/work",
+      nowIso: "2026-08-31T11:00:00.000Z",
+    });
+    expect(live[0]?.id).toBe("01a0787b-8ce7-7253-9afb-f0f8c55334c5");
+    expect(isLiveRosterId(live[0]?.id ?? "")).toBe(false);
+  });
 });
 
 describe("mergeLiveRoster", () => {
@@ -101,6 +128,33 @@ describe("sessionToOpen", () => {
     });
     expect(sessionToOpen(live, [parent, live]).id).toBe("parent");
     expect(sessionToOpen(parent, [parent, live]).id).toBe("parent");
+  });
+
+  it("opens a disk child whose toolUseId matches the live tool", () => {
+    const parent = row({ id: "parent", title: "main" });
+    const live = row({
+      id: liveRosterId("claude", "toolu_1"),
+      parentSessionId: "parent",
+      sessionKind: "subagent",
+    });
+    const disk = row({
+      id: "child-disk",
+      parentSessionId: "parent",
+      sessionKind: "subagent",
+      toolUseId: "toolu_1",
+    });
+    expect(sessionToOpen(live, [parent, live, disk]).id).toBe("child-disk");
+  });
+
+  it("opens the disk child when a live row already uses that session id", () => {
+    const parent = row({ id: "parent", title: "main" });
+    const child = row({
+      id: "01a0787b-8ce7-7253-9afb-f0f8c55334c5",
+      parentSessionId: "parent",
+      sessionKind: "subagent",
+      title: "T2C 健康与幸福感",
+    });
+    expect(sessionToOpen(child, [parent, child]).id).toBe(child.id);
   });
 });
 
@@ -142,6 +196,32 @@ describe("liveBusyIds", () => {
   });
 });
 
+describe("runningChildSessionIds", () => {
+  it("returns spawned child ids only while the spawn tool is running", () => {
+    const running: ChatItem[] = [
+      tool({
+        id: "c1",
+        title: "T2C",
+        toolName: "spawn_subagent",
+        status: "in_progress",
+        detail: "subagent_id: 01a0787b-8ce7-7253-9afb-f0f8c55334c5",
+      }),
+    ];
+    expect(runningChildSessionIds(running)).toEqual(["01a0787b-8ce7-7253-9afb-f0f8c55334c5"]);
+    expect(
+      runningChildSessionIds([
+        tool({
+          id: "c1",
+          title: "T2C",
+          toolName: "spawn_subagent",
+          status: "completed",
+          detail: "subagent_id: 01a0787b-8ce7-7253-9afb-f0f8c55334c5",
+        }),
+      ]),
+    ).toEqual([]);
+  });
+});
+
 describe("parentsToExpandForLive", () => {
   it("returns parents of live children", () => {
     expect(
@@ -150,6 +230,20 @@ describe("parentsToExpandForLive", () => {
         row({ id: liveRosterId("claude", "c1"), parentSessionId: "parent", sessionKind: "subagent" }),
       ]),
     ).toEqual(["parent"]);
+  });
+});
+
+describe("applyLiveParentExpand", () => {
+  it("does not force-open a parent the user collapsed", () => {
+    const next = applyLiveParentExpand(new Set(["parent"]), new Set(), ["parent"]);
+    expect(next.collapsed.has("parent")).toBe(true);
+    expect(next.expanded.has("parent")).toBe(false);
+  });
+
+  it("is not reapplied from the model effects hook", () => {
+    const src = readFileSync(new URL("../hooks/useAppModelEffects.ts", import.meta.url), "utf8");
+    expect(src).not.toContain("parentsToExpandForLive");
+    expect(src).not.toContain("applyLiveParentExpand");
   });
 });
 

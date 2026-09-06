@@ -9,7 +9,6 @@
     "core:window:allow-start-dragging",
     "dialog:default",
     "notification:default",
-    "core:tray:default",
     "core:window:allow-set-badge-count",
     "core:window:allow-set-badge-label",
     "core:window:allow-is-focused",

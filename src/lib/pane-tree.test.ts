@@ -223,6 +223,7 @@ describe("nextPaneId", () => {
 
 describe("dragStarted", () => {
   it("waits for the click-drag threshold", () => {
+    expect(DRAG_THRESHOLD).toBeGreaterThanOrEqual(12);
     expect(dragStarted(3, 3)).toBe(false);
     expect(dragStarted(DRAG_THRESHOLD, 0)).toBe(true);
   });

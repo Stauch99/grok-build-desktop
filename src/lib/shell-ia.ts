@@ -54,10 +54,6 @@ export function busyComposerHint(steerByDefault: boolean, locale: Locale = "zh")
   return t(locale, steerByDefault ? "composer.hintSteer" : "composer.hintQueue");
 }
 
-export function trayMenuLabels(locale: Locale = "zh"): string[] {
-  return [t(locale, "tray.show"), t(locale, "tray.last"), t(locale, "tray.quit")];
-}
-
 export function messageFeedbackSupported(): boolean {
   return false;
 }

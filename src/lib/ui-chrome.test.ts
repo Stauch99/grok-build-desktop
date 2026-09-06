@@ -314,16 +314,30 @@ describe("session list presence tones", () => {
 });
 
 describe("session list subagent chrome", () => {
-  it("hangs the descendant count in the tree indent with a gray fill", () => {
+  it("puts a clickable descendant-count circle on the parent row", () => {
     const sheet = css("src/styles/sidebar.css");
     const count = sheet.match(/\.sess-kid-count\s*\{[^}]+\}/)?.[0];
-    expect(count).toMatch(/position:\s*absolute/);
-    expect(count).toMatch(/left:\s*-/);
     expect(count).toMatch(/border-radius:\s*50%/);
     expect(count).toMatch(/background:\s*color-mix/);
+    expect(count).toMatch(/flex:\s*none/);
+    expect(count).toMatch(/min-width:\s*2[2-8]px/);
+    expect(count).toMatch(/height:\s*2[2-8]px/);
+    expect(count).toMatch(/padding:\s*0 [4-8]px/);
+    expect(count).toMatch(/user-select:\s*none/);
+    expect(count).not.toMatch(/(?<!min-)width:\s*2[2-8]px/);
+    expect(count).not.toMatch(/position:\s*absolute/);
+    expect(count).not.toMatch(/left:\s*-/);
     expect(count).not.toMatch(/background:\s*transparent/);
     expect(sheet).not.toMatch(/\.sess-gutter\s*\{/);
     expect(sheet).not.toMatch(/\.session \.count\s*\{/);
+  });
+
+  it("keeps the count hit box inside the session row so it cannot steal neighbor clicks", () => {
+    const sheet = css("src/styles/sidebar.css");
+    const count = sheet.match(/\.sess-kid-count\s*\{[^}]+\}/)?.[0];
+    expect(count).toMatch(/min-width:\s*2[2-8]px/);
+    expect(count).toMatch(/padding:\s*0 [4-8]px/);
+    expect(sheet).not.toMatch(/\.sess-kid-count::before/);
   });
 
   it("renders CLI identity as a square icon, not a colored text pill", () => {
@@ -439,6 +453,22 @@ describe("thread body size", () => {
     expect(sheet).toMatch(/@keyframes work-run-sheen/);
   });
 
+  it("keeps tool-call paths inside the thread width", () => {
+    const sheet = css("src/styles/thread.css");
+    const detail = sheet.match(/\.spine-detail\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(detail).toMatch(/display:\s*block/);
+    expect(detail).toMatch(/text-overflow:\s*ellipsis/);
+    expect(detail).toMatch(/overflow:\s*hidden/);
+    const sub = sheet.match(/\.spine-sub\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(sub).toMatch(/overflow:\s*hidden/);
+    const list = sheet.match(/\.thread-list\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(list).toMatch(/min-width:\s*0/);
+    expect(list).toMatch(/overflow-x:\s*hidden/);
+    const pre = sheet.match(/\.tool-result pre\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(pre).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(pre).toMatch(/overflow-x:\s*hidden/);
+  });
+
   it("keeps inline code the same size as the surrounding paragraph", () => {
     const sheet = css("src/styles/thread.css");
     const inline = sheet.match(/(?:^|\n)\.md code\s*\{[^}]+\}/)?.[0];
@@ -450,10 +480,13 @@ describe("thread body size", () => {
 
   it("renders thread markdown in system UI with 10% taller leading and Noto Serif headings", () => {
     const sheet = css("src/styles/thread.css");
-    const body = [...sheet.matchAll(/(?:^|\n)\.thread \.md\s*\{[^}]+\}/g)].at(-1)?.[0];
+    const body = [...sheet.matchAll(/(?:^|\n):is\(\.thread,\s*\.preview-body\.md-scroll\) \.md\s*\{[^}]+\}/g)].at(-1)?.[0]
+      ?? [...sheet.matchAll(/(?:^|\n)\.thread \.md\s*\{[^}]+\}/g)].at(-1)?.[0];
     expect(body).toMatch(/font-family:\s*system-ui/);
     expect(body).toMatch(/line-height:\s*1\.65/);
-    const heads = sheet.match(/\.thread \.md h1,\s*\.thread \.md h2[\s\S]*?\}/)?.[0] ?? "";
+    const heads = sheet.match(/:is\(\.thread,\s*\.preview-body\.md-scroll\) \.md h1[\s\S]*?\}/)?.[0]
+      ?? sheet.match(/\.thread \.md h1,\s*\.thread \.md h2[\s\S]*?\}/)?.[0]
+      ?? "";
     expect(heads).toMatch(/Noto Serif SC/);
     expect(heads).toMatch(/Noto Serif/);
     expect(heads).toMatch(/line-height:\s*1\.485/);
@@ -461,6 +494,15 @@ describe("thread body size", () => {
     expect(main).toMatch(/@fontsource\/noto-serif\//);
     expect(main).toMatch(/@fontsource\/noto-serif-sc\//);
     expect(css("src/styles/tokens.css")).toMatch(/--serif:\s*"Noto Serif SC"/);
+  });
+
+  it("uses the same markdown type in the preview pane as in the thread", () => {
+    const sheet = css("src/styles/thread.css");
+    expect(sheet).not.toMatch(/\.preview-body\.md-scroll \.md\s*\{[^}]*font-size:\s*calc\(/);
+    expect(sheet).not.toMatch(/\.preview-body\.md-scroll \.md h1\s*\{[^}]*font-size:\s*1\.35em/);
+    expect(sheet).not.toMatch(/\.preview-body\.md-scroll \.md h2\s*\{[^}]*font-size:\s*1\.15em/);
+    expect(sheet).toMatch(/:is\(\.thread,\s*\.preview-body\.md-scroll\) \.md\s*\{[^}]*line-height:\s*1\.65/);
+    expect(sheet).toMatch(/:is\(\.thread,\s*\.preview-body\.md-scroll\) \.md h1[\s\S]*?line-height:\s*1\.485/);
   });
 });
 

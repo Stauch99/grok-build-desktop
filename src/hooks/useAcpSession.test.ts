@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import type { AgentId } from "../lib/agent-id";
 import { emptyChat } from "../lib/chat";
 import { forgetDreamSession, rememberDreamSession } from "../lib/memory-dream-acp";
@@ -312,5 +313,12 @@ describe("cross-agent process exit", () => {
     const next = extraPanesAfterAgentExit(prev, "grok");
     expect(next.split?.busy).toBe(true);
     expect(next.p2?.busy).toBe(false);
+  });
+});
+
+describe("resumeSession tree chrome", () => {
+  it("does not expand parent rows when opening a session", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/setExpandedIds\(\(prev\) => new Set\(prev\)\.add\(pid\)\)/);
   });
 });

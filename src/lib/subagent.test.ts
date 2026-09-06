@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mcpInheritanceLabel, subagentDisplayName, subagentStatusFromItem, subagentStatusFromTool } from "./subagent";
+import { childSessionIdFromToolDetail, mcpInheritanceLabel, subagentDisplayName, subagentStatusFromItem, subagentStatusFromTool } from "./subagent";
 
 describe("subagentStatusFromTool", () => {
   it("maps spawn_subagent statuses", () => {
@@ -63,6 +63,21 @@ describe("subagentDisplayName", () => {
     expect(subagentDisplayName("Task: 中文技巧")).toBe("中文技巧");
     expect(subagentDisplayName("spawn_subagent researcher")).toBe("researcher");
     expect(subagentDisplayName("Agent")).toBe("Agent");
+  });
+});
+
+describe("childSessionIdFromToolDetail", () => {
+  it("reads Grok spawn output", () => {
+    expect(
+      childSessionIdFromToolDetail(
+        "Subagent started in background.\nsubagent_id: 01a0787b-8ce7-7253-9afb-f0f8c55334c5\ntype: general-purpose",
+      ),
+    ).toBe("01a0787b-8ce7-7253-9afb-f0f8c55334c5");
+  });
+
+  it("returns null when the spawn id is missing", () => {
+    expect(childSessionIdFromToolDetail("still starting")).toBeNull();
+    expect(childSessionIdFromToolDetail("")).toBeNull();
   });
 });
 

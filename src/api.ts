@@ -254,7 +254,6 @@ export const gitListWorktrees = (cwd: string) => invoke<string>("git_list_worktr
 /** Rewind primitive: `text === null` deletes the file. */
 export const restoreTextFile = (path: string, text: string | null, allowRoot: string) =>
   invoke<void>("restore_text_file", { path, text, allowRoot });
-export const setTrayStatus = (text: string) => invoke<void>("set_tray_status", { text });
 
 export const inspectBrief = (cwd?: string | null) =>
   invoke<InspectBrief>("inspect_brief", { cwd: cwd ?? null });
@@ -440,7 +439,5 @@ export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<Unlist
   listen<unknown>("agent-exit", (e) => {
     handler(acpMessageFromEvent(e.payload).agentId);
   });
-export const onTrayOpenLast = (handler: () => void): Promise<UnlistenFn> =>
-  listen("tray-open-last", () => handler());
 
 export { doctorAll, installMarketplaceSkill } from "./lib/workbench-api";

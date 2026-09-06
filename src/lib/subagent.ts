@@ -99,3 +99,11 @@ export function mcpInheritanceLabel(v?: string): McpInheritance {
   if (s === "none" || s === "false" || s === "0") return "none";
   return "inherit";
 }
+
+/** Grok spawn tool output: `subagent_id: <uuid>`. */
+export function childSessionIdFromToolDetail(detail?: string | null): string | null {
+  if (!detail) return null;
+  const match = detail.match(/subagent_id:\s*([0-9a-zA-Z-]+)/i);
+  const id = match?.[1]?.trim();
+  return id || null;
+}

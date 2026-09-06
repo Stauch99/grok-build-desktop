@@ -3024,19 +3024,6 @@ async fn restore_text_file(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
-#[tauri::command]
-async fn set_tray_status(app: AppHandle, text: String) -> AppResult<()> {
-    let Some(tray) = app.tray_by_id("main") else {
-        return Ok(());
-    };
-    let result = if text.is_empty() {
-        tray.set_title(None::<&str>)
-    } else {
-        tray.set_title(Some(&text))
-    };
-    result.map_err(|e| AppError::Message(e.to_string()))
-}
-
 fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -3052,45 +3039,6 @@ fn focus_main_window(app: &AppHandle) {
     }
 }
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-
-    let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-    let last = MenuItem::with_id(app, "last", "打开上次会话", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &last, &quit])?;
-
-    let click_handle = app.clone();
-    let mut builder = TrayIconBuilder::with_id("main")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => focus_main_window(app),
-            "last" => {
-                focus_main_window(app);
-                let _ = app.emit("tray-open-last", ());
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(move |_tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                focus_main_window(&click_handle);
-            }
-        });
-    if let Some(icon) = app.default_window_icon().cloned() {
-        builder = builder.icon(icon);
-    }
-    builder.build(app)?;
-    Ok(())
-}
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -3099,9 +3047,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            if let Err(e) = build_tray(&app.handle().clone()) {
-                eprintln!("tray init failed: {e}");
-            }
             let scope = app.asset_protocol_scope();
             let _ = scope.allow_directory(&grok_asset_root(), true);
             let _ = scope.allow_directory(&std::env::temp_dir(), true);
@@ -3170,7 +3115,6 @@ pub fn run() {
             git_list_worktrees,
             git_checkout,
             restore_text_file,
-            set_tray_status,
             run_grok,
             run_grok_stream,
             read_config_text,

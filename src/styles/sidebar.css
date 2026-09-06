@@ -318,17 +318,17 @@
 
 .sess-kid-count {
   appearance: none;
-  position: absolute;
-  left: -16px;
-  top: 50%;
-  z-index: 1;
+  position: relative;
+  z-index: 2;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
   margin: 0;
-  padding: 0;
+  padding: 0 5px;
   border: 0;
   border-radius: 50%;
   background: color-mix(in srgb, var(--faint) 22%, var(--bg-side));
@@ -337,7 +337,12 @@
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  transform: translateY(-50%);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+.sess-kid-count-text {
+  position: relative;
 }
 .sess-kid-count:hover {
   color: var(--text);

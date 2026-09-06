@@ -23,6 +23,7 @@ import type { GoalView } from "../lib/goal-bar";
 import type { PermissionPane } from "../lib/permission-view";
 import type { PaneMentionData } from "../lib/pane-mentions";
 import type { UnreadMap } from "../lib/session-status";
+import { displayTitle } from "../lib/projects";
 import { DEFAULT_SIDEBAR_LIST } from "../lib/sidebar-list";
 import { EMPTY_PROJECT_GROUPS, type ProjectGroupState } from "../lib/project-groups";
 import type { SessionMenuState } from "../SessionMenu";
@@ -167,6 +168,10 @@ export function useAppModelState() {
   const busyStartRef = useRef<number | null>(null);
   const extraBusyStartRef = useRef<Record<string, number>>({});
   const currentTitleRef = useRef(t(locale, "notify.session"));
+  const focusedSessionIdRef = useRef<string | null>(null);
+  const titlesRef = useRef(titles);
+  titlesRef.current = titles;
+  const titleForSessionRef = useRef<(sessionId: string | null) => string>(() => t(locale, "notify.session"));
   const lastActivityRef = useRef(Date.now());
   const queueRef = useRef<QueueState>(emptyQueue());
   const persistRef = useRef<(partial: WebuiState) => void>(() => {});
@@ -176,6 +181,12 @@ export function useAppModelState() {
   const acpListedRef = useRef<Partial<Record<AgentId, SessionSummary[]>>>({});
   const diskSessionsRef = useRef<SessionSummary[]>([]);
   const allSessionsRef = useRef<SessionSummary[]>([]);
+  titleForSessionRef.current = (sessionId) => {
+    const sid = sessionId ?? "";
+    const row = allSessionsRef.current.find((x) => x.id === sid);
+    const name = displayTitle(row ?? { id: sid, title: "" }, titlesRef.current);
+    return name.trim() || t(locale, "notify.session");
+  };
   const onAcpSessionListRef = useRef<(agentId: AgentId, rows: SessionSummary[]) => void>(() => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
@@ -220,7 +231,7 @@ export function useAppModelState() {
     dreamAgentId, setDreamAgentId, settingsHydrated, setSettingsHydrated, unread, setUnread,
     sidebarWidth, setSidebarWidth, previewWidth, setPreviewWidth, winWidth, setWinWidth,
     chatEl, extraChatEls, composerRef, extraComposerRefs, focusedPermissionPaneRef, titleInputRef,
-    focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, lastActivityRef, queueRef, persistRef,
+    focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, focusedSessionIdRef, titlesRef, titleForSessionRef, lastActivityRef, queueRef, persistRef,
     doctorsRef, refreshSessionsRef, acpListedRef, diskSessionsRef, allSessionsRef, onAcpSessionListRef,
     reviewCloseRef, persistReviewOpened, runSlashRef, permissionCancelRef, workColRef,
     extraPanesRef, focusedPaneIdRef, paneTreeRef, paneDragRef,

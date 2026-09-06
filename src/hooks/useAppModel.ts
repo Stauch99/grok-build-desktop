@@ -205,7 +205,9 @@ export function useAppModel() {
     extraPanes: extraPaneList,
     focusedPaneRef: s.focusedPermissionPaneRef,
     focusedRef: s.focusedRef,
+    focusedSessionIdRef: s.focusedSessionIdRef,
     currentTitleRef: s.currentTitleRef,
+    titleForSessionRef: s.titleForSessionRef,
     telemetry: !!s.cli?.telemetry,
     onTimeoutNotice: () => showToast(permissionTimeoutNotice()),
   });
@@ -500,7 +502,6 @@ export function useAppModel() {
     palette,
     extraBusy,
     mainPaneBusy: view.mainPaneBusy,
-    permissions,
     cancelPermission,
     refreshInspect,
     refreshGit: git.refresh,

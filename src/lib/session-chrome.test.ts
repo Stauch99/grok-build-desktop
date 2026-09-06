@@ -5,7 +5,7 @@ import {
   isEmptyDraft,
   isPinned,
   partitionPinned,
-  shouldAutoExpand,
+  sessionKidsOpen,
   toggleId,
   visibleSessions,
 } from "./session-chrome";
@@ -168,15 +168,25 @@ describe("isEmptyDraft", () => {
   });
 });
 
-describe("shouldAutoExpand", () => {
-  it("does not expand when only the parent is active", () => {
-    expect(shouldAutoExpand("p", "p", ["c"])).toBe(false);
+describe("sessionKidsOpen", () => {
+  it("stays collapsed until the count circle expands the parent", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: false, collapsed: false }),
+    ).toBe(false);
   });
-  it("expands when active is a descendant", () => {
-    expect(shouldAutoExpand("p", "gc", ["c", "gc"])).toBe(true);
+  it("opens after an explicit expand", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: true, collapsed: false }),
+    ).toBe(true);
   });
-  it("stays collapsed otherwise", () => {
-    expect(shouldAutoExpand("p", "other", ["c"])).toBe(false);
-    expect(shouldAutoExpand("p", null, ["c"])).toBe(false);
+  it("keeps an explicit collapse", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: true, collapsed: true }),
+    ).toBe(false);
+  });
+  it("does not invent kids on a leaf", () => {
+    expect(
+      sessionKidsOpen({ hasKids: false, expanded: true, collapsed: false }),
+    ).toBe(false);
   });
 });

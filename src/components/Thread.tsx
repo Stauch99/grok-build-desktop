@@ -41,7 +41,7 @@ import { visibleWorkItems } from "../lib/work-run";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 import { chatWidthCss } from "../lib/chat-width";
 import { tocActiveId } from "../lib/toc-active";
-import { restoreVirtualScrollIndex } from "../lib/virtual-scroll-anchor";
+import { latestThreadRowIndex, readyTranscriptPinKey, restoreVirtualScrollIndex, shouldPinReadyTranscript } from "../lib/virtual-scroll-anchor";
 import { useT } from "../lib/locale-context";
 
 /**
@@ -461,6 +461,10 @@ export type ThreadColumnProps = {
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
   jumpId?: string | null;
+  /** When true, keep the viewport on the newest reply (open session / follow stream). */
+  pinToLatest?: boolean;
+  sessionId?: string | null;
+  loading?: boolean;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -488,6 +492,9 @@ export function ThreadColumn({
   onPreviewPath,
   highlightQuery,
   jumpId,
+  pinToLatest = false,
+  sessionId = null,
+  loading = false,
 }: ThreadColumnProps) {
   const t = useT();
   const [tocHover, setTocHover] = useState<{
@@ -559,6 +566,25 @@ export function ThreadColumn({
   );
   const listActive = virtualize && !empty;
   const skipVirtualFlip = useRef(true);
+  const pinLockUntilRef = useRef(0);
+  const lastReadyPinRef = useRef<string | null>(null);
+  const lastItemId = chat.items.length > 0 ? chat.items[chat.items.length - 1]?.id : undefined;
+  const readyPinKey = readyTranscriptPinKey({ sessionId, loading, lastItemId });
+
+  const reportScroll = (el: HTMLDivElement) => {
+    if (performance.now() < pinLockUntilRef.current) return;
+    onScroll(el);
+  };
+
+  const pinToEnd = (lock: boolean) => {
+    if (lock) pinLockUntilRef.current = performance.now() + 400;
+    if (listActive) {
+      const index = latestThreadRowIndex(blocks.length);
+      if (index != null) listRef.current?.scrollToRow({ index, align: "end", behavior: "instant" });
+    }
+    const el = (listActive ? listRef.current?.element : null) ?? chatRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
 
   useLayoutEffect(() => {
     if (skipVirtualFlip.current) {
@@ -566,7 +592,12 @@ export function ThreadColumn({
       wasVirtualRef.current = listActive;
       return;
     }
-    const next = restoreVirtualScrollIndex(wasVirtualRef.current, listActive, anchorIndexRef.current);
+    const next = restoreVirtualScrollIndex(
+      wasVirtualRef.current,
+      listActive,
+      anchorIndexRef.current,
+      pinToLatest,
+    );
     wasVirtualRef.current = listActive;
     if (next == null) return;
     if (listActive) {
@@ -578,7 +609,24 @@ export function ThreadColumn({
     if (id) {
       chatRef.current?.querySelector(`#turn-${paneId}-${id}`)?.scrollIntoView({ block: "start" });
     }
-  }, [listActive, blocks, paneId, chatRef, listRef]);
+  }, [listActive, blocks, paneId, chatRef, listRef, pinToLatest]);
+
+  useLayoutEffect(() => {
+    const next = shouldPinReadyTranscript(lastReadyPinRef.current, readyPinKey);
+    lastReadyPinRef.current = next.remember;
+    if (!next.pin) return;
+    pinToEnd(true);
+    const raf = requestAnimationFrame(() => {
+      pinToEnd(true);
+      requestAnimationFrame(() => pinToEnd(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [readyPinKey]);
+
+  useLayoutEffect(() => {
+    if (!pinToLatest || loading) return;
+    pinToEnd(false);
+  }, [pinToLatest, loading, listActive, blocks.length, chat.items]);
 
   useEffect(() => {
     const root = (listActive ? listRef.current?.element : chatRef.current) ?? null;
@@ -666,7 +714,7 @@ export function ThreadColumn({
     <div
       className={`chat${listActive ? " virtualized" : ""}`}
       ref={listActive ? undefined : chatRef}
-      onScroll={listActive ? undefined : (e) => onScroll(e.currentTarget)}
+      onScroll={listActive ? undefined : (e) => reportScroll(e.currentTarget)}
     >
       <div
         className="thread"
@@ -706,7 +754,7 @@ export function ThreadColumn({
                 rowProps={rowCtx}
                 rowKey={threadRowKey}
                 overscanCount={LIST_OVERSCAN}
-                onScroll={(e) => onScroll(e.currentTarget)}
+                onScroll={(e) => reportScroll(e.currentTarget)}
               />
             ) : (
               blocks.map((block, index) => (

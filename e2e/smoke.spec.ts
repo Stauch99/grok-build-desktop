@@ -134,6 +134,43 @@ test.describe("desktop chrome smoke", () => {
     expect(fonts.notoReady).toBe(true);
   });
 
+  test("preview markdown matches thread markdown type", async ({ page }) => {
+    await installTauriStub(page);
+    await page.goto("/");
+    await expect(page.locator(".app")).toBeVisible();
+    const sizes = await page.evaluate(async () => {
+      await document.fonts.ready;
+      const app = document.querySelector(".app");
+      if (!app) throw new Error("missing .app");
+      const sample = `<div class="md"><h2>标题 Heading</h2><p>正文 paragraph with enough words to wrap.</p></div>`;
+      const thread = document.createElement("div");
+      thread.className = "thread";
+      thread.innerHTML = sample;
+      const preview = document.createElement("div");
+      preview.className = "preview-body md-scroll";
+      preview.innerHTML = sample;
+      app.appendChild(thread);
+      app.appendChild(preview);
+      const pick = (root) => {
+        const h2 = getComputedStyle(root.querySelector("h2")!);
+        const p = getComputedStyle(root.querySelector("p")!);
+        return {
+          pSize: p.fontSize,
+          pLead: p.lineHeight,
+          pFamily: p.fontFamily,
+          hSize: h2.fontSize,
+          hLead: h2.lineHeight,
+          hFamily: h2.fontFamily,
+        };
+      };
+      const out = { thread: pick(thread), preview: pick(preview) };
+      thread.remove();
+      preview.remove();
+      return out;
+    });
+    expect(sizes.preview).toEqual(sizes.thread);
+  });
+
   test("composer, recap, and wait chrome follow the chat body size", async ({ page }) => {
     await installTauriStub(page);
     await page.goto("/");

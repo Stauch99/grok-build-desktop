@@ -1,7 +1,7 @@
 import type { SessionSummary } from "../api";
 import type { AgentId } from "./agent-id";
 import type { ChatItem } from "./chat";
-import { subagentDisplayName, subagentStatusFromItem } from "./subagent";
+import { childSessionIdFromToolDetail, subagentDisplayName, subagentStatusFromItem } from "./subagent";
 
 export function liveRosterId(agentId: AgentId, toolCallId: string): string {
   return `live:${agentId}:${toolCallId}`;
@@ -19,8 +19,9 @@ export function liveRosterFromTools(
   for (const item of items) {
     if (item.kind !== "tool") continue;
     if (subagentStatusFromItem(item, opts.agentId) !== "running") continue;
+    const childId = childSessionIdFromToolDetail(item.detail);
     out.push({
-      id: liveRosterId(opts.agentId, item.id),
+      id: childId ?? liveRosterId(opts.agentId, item.id),
       parentSessionId: opts.parentSessionId,
       agentId: opts.agentId,
       sessionKind: "subagent",
@@ -29,6 +30,7 @@ export function liveRosterFromTools(
       numMessages: 1,
       updatedAt: opts.nowIso,
       createdAt: opts.nowIso,
+      toolUseId: item.id,
     });
   }
   return out;
@@ -46,6 +48,14 @@ export function mergeLiveRoster(base: SessionSummary[], live: SessionSummary[]):
 
 export function sessionToOpen(clicked: SessionSummary, all: SessionSummary[]): SessionSummary {
   if (isLiveRosterId(clicked.id) && clicked.parentSessionId) {
+    const toolId = clicked.id.split(":").slice(2).join(":");
+    const disk = all.find(
+      (s) =>
+        !isLiveRosterId(s.id) &&
+        s.parentSessionId === clicked.parentSessionId &&
+        (s.toolUseId === toolId || s.id === toolId),
+    );
+    if (disk) return disk;
     const parent = all.find((s) => s.id === clicked.parentSessionId);
     if (parent) return parent;
   }
@@ -62,6 +72,17 @@ export function liveBusyIds(sessions: SessionSummary[]): string[] {
   return sessions.filter((s) => isLiveRosterId(s.id)).map((s) => s.id);
 }
 
+export function runningChildSessionIds(items: ChatItem[]): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    if (item.kind !== "tool") continue;
+    if (subagentStatusFromItem(item) !== "running") continue;
+    const id = childSessionIdFromToolDetail(item.detail);
+    if (id) out.push(id);
+  }
+  return out;
+}
+
 export function parentsToExpandForLive(sessions: SessionSummary[]): string[] {
   const parents = new Set<string>();
   for (const s of sessions) {
@@ -70,6 +91,15 @@ export function parentsToExpandForLive(sessions: SessionSummary[]): string[] {
     }
   }
   return [...parents];
+}
+
+/** Live children must not override the count-circle collapse. */
+export function applyLiveParentExpand(
+  collapsed: Set<string>,
+  expanded: Set<string>,
+  _liveParentIds: string[],
+): { collapsed: Set<string>; expanded: Set<string> } {
+  return { collapsed, expanded };
 }
 
 export function sessionsWithLiveRoster(

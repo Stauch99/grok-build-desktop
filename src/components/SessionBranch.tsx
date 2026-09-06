@@ -4,20 +4,12 @@ import { IconGrokMore } from "../grok-icons";
 import { IconChat } from "../icons";
 import { AgentIcon } from "../lib/agent-icons";
 import { countDescendants, displayTitle, type SessionNode } from "../lib/projects";
-import { shouldAutoExpand } from "../lib/session-chrome";
+import { sessionKidsOpen } from "../lib/session-chrome";
 import { presenceClass, sessionPresence } from "../lib/session-presence";
 import { statusLabel, type SessionStatus } from "../lib/session-status";
 import { formatTokenCount, sessionAgentPill, type SidebarRow } from "../lib/sidebar-list";
 import { useT } from "../lib/locale-context";
 import { DotMatrix } from "./DotMatrix";
-
-function collectDescendantIds(node: SessionNode): string[] {
-  const ids: string[] = [];
-  for (const child of node.children) {
-    ids.push(child.session.id, ...collectDescendantIds(child));
-  }
-  return ids;
-}
 
 export type SessionRowKind = "inbox" | "project";
 
@@ -116,11 +108,11 @@ export function SessionBranch({
   const status = statusFor?.(s.id) ?? "idle";
   const label = statusLabel(status);
   const hasKids = node.children.length > 0;
-  const descendantIds = hasKids ? collectDescendantIds(node) : [];
-  const expanded =
-    hasKids &&
-    !collapsedIds.has(s.id) &&
-    (expandedIds.has(s.id) || shouldAutoExpand(s.id, focusedId ?? sessionId, descendantIds));
+  const expanded = sessionKidsOpen({
+    hasKids,
+    expanded: expandedIds.has(s.id),
+    collapsed: collapsedIds.has(s.id),
+  });
   const descCount = hasKids ? countDescendants(node) : 0;
   const presence = sessionPresence(s.id, openIds ?? (sessionId ? [sessionId] : []), focusedId ?? sessionId);
   const tone = presenceClass(presence);
@@ -146,7 +138,8 @@ export function SessionBranch({
         data-has-kids={hasKids ? "1" : undefined}
         data-expanded={expanded ? "1" : undefined}
         onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest(".more, .sess-kid-count, [data-menu-trigger]")) return;
+          const el = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
+          if (el?.closest(".more, .sess-kid-count, [data-menu-trigger]")) return;
           onDragSession?.(e, s);
         }}
         onContextMenu={(e) => {
@@ -161,12 +154,13 @@ export function SessionBranch({
             className="sess-kid-count"
             aria-label={expanded ? t("session.collapseKids") : t("session.expandKids")}
             aria-expanded={expanded}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(s.id, expanded);
             }}
           >
-            {descCount}
+            <span className="sess-kid-count-text">{descCount}</span>
           </button>
         ) : null}
         <button type="button" className="title" onClick={() => onOpen(s)}>
@@ -196,7 +190,7 @@ export function SessionBranch({
         </button>
       </div>
       {hasKids ? (
-        <div className={`session-kids${expanded ? " open" : ""}`}>
+        <div className={`session-kids${expanded ? " open" : ""}`} hidden={!expanded}>
           <div className="session-kids-inner" inert={!expanded}>
           {node.children.map((child) => (
             <SessionBranch

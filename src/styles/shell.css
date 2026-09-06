@@ -441,13 +441,14 @@ span.crumb-cwd {
 }
 .jump-bottom {
   position: absolute;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 12px;
-  transform: translateX(-50%);
   z-index: 8;
   width: 32px;
   height: 32px;
   margin: 0;
+  margin-inline: auto;
   padding: 0;
   display: grid;
   place-items: center;

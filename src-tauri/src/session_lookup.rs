@@ -17,6 +17,16 @@ pub(crate) fn replay_path_or_empty(dir: &Path) -> bool {
     crate::session_replay::resolve_transcript(dir).is_some()
 }
 
+fn is_nested_subagents_dir(path: &Path) -> bool {
+    path.parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|name| name == "subagents")
+}
+
+fn dir_has_session_files(path: &Path) -> bool {
+    path.join("summary.json").is_file() || path.join("updates.jsonl").is_file()
+}
+
 pub(crate) fn find_session_dir_in(
     session_id: &str,
     roots: &[(String, PathBuf)],
@@ -29,8 +39,15 @@ pub(crate) fn find_session_dir_in(
         for entry in WalkDir::new(root).max_depth(4).into_iter().flatten() {
             let name = entry.file_name();
             if entry.file_type().is_dir() && name == session_id {
+                let path = entry.path().to_path_buf();
+                if is_nested_subagents_dir(&path) && !dir_has_session_files(&path) {
+                    continue;
+                }
+                if dir_has_session_files(&path) {
+                    return Some((agent.clone(), path));
+                }
                 if dir_hit.is_none() {
-                    dir_hit = Some(entry.path().to_path_buf());
+                    dir_hit = Some(path);
                 }
                 continue;
             }
@@ -204,6 +221,30 @@ mod tests {
         fs::create_dir_all(grok_home.join("sessions")).unwrap();
         let roots = session_roots(&base, &grok_home);
         assert!(find_session_dir_in("no-such-session", &roots).is_none());
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn find_session_dir_in_skips_grok_subagents_meta_dir() {
+        let base = uniq("session_lookup_grok_subagent_meta");
+        let grok_home = base.join(".grok");
+        let cwd = grok_home.join("sessions").join("%2Fwork");
+        let parent = "01a0786c-bf35-7fe3-bfcb-cd9f97e35350";
+        let child = "01a0787b-8ce7-7253-9afb-f0f8c55334c5";
+        let meta_dir = cwd.join(parent).join("subagents").join(child);
+        let session_dir = cwd.join(child);
+        fs::create_dir_all(&meta_dir).unwrap();
+        fs::write(meta_dir.join("meta.json"), r#"{"child_session_id":"x"}"#).unwrap();
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(session_dir.join("summary.json"), "{}").unwrap();
+        fs::write(session_dir.join("updates.jsonl"), "{}\n").unwrap();
+        let roots = session_roots(&base, &grok_home);
+        let found = find_session_dir_in(child, &roots).unwrap();
+        assert_eq!(found.0, "grok");
+        assert_eq!(
+            found.1, session_dir,
+            "parent/subagents/<id> is metadata, not the child transcript"
+        );
         fs::remove_dir_all(base).ok();
     }
 

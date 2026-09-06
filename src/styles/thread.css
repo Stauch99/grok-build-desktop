@@ -58,7 +58,10 @@
 .thread-list {
   flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   width: 100%;
+  max-width: 100%;
+  overflow-x: hidden !important;
   contain: layout paint;
   padding-bottom: var(--thread-end-pad);
 }
@@ -222,7 +225,8 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px 12px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-width: 100%;
   min-width: 0;
   font-family: var(--mono);
@@ -269,9 +273,6 @@
 /* Split only tightens padding. Thread/composer still use min(100%, var(--thread)). */
 .workspace.split .chat { padding: 8px 16px 12px; }
 .chat { position: relative; }
-.preview-body.md-scroll .md { font-size: calc(var(--md-size, 16px) - 1px); }
-.preview-body.md-scroll .md h1 { font-size: 1.35em; }
-.preview-body.md-scroll .md h2 { font-size: 1.15em; }
 .md a.file-link {
   border-bottom: 1px dotted color-mix(in srgb, var(--accent) 55%, transparent);
 }
@@ -287,16 +288,16 @@
   flex-direction: column;
   justify-content: center;
 }
-.thread .md {
+:is(.thread, .preview-body.md-scroll) .md {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
   line-height: 1.65;
 }
-.thread .md h1,
-.thread .md h2,
-.thread .md h3,
-.thread .md h4,
-.thread .md h5,
-.thread .md h6 {
+:is(.thread, .preview-body.md-scroll) .md h1,
+:is(.thread, .preview-body.md-scroll) .md h2,
+:is(.thread, .preview-body.md-scroll) .md h3,
+:is(.thread, .preview-body.md-scroll) .md h4,
+:is(.thread, .preview-body.md-scroll) .md h5,
+:is(.thread, .preview-body.md-scroll) .md h6 {
   font-family: "Noto Serif SC", "Noto Serif", var(--serif);
   line-height: 1.485;
 }
@@ -392,7 +393,8 @@
 .fold-body pre {
   margin: 0;
   max-height: 180px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-width: 100%;
   font-family: var(--mono);
   font-size: var(--ui-smaller);
@@ -427,7 +429,8 @@
   max-width: 100%;
   min-width: 0;
   max-height: 220px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--mono);
@@ -549,6 +552,7 @@
   --spine-x: 11px;
   min-width: 0;
   max-width: 100%;
+  overflow-x: hidden;
 }
 .work-timeline:has(.spine-row ~ .spine-row)::before,
 .work-timeline:has(.spine-row ~ .work-live)::before {
@@ -619,6 +623,8 @@
   color: var(--muted);
 }
 .spine-detail {
+  display: block;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -636,6 +642,8 @@
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   padding: 6px 0 10px;
 }
 .spine-body .tool-result {
@@ -652,6 +660,7 @@
 .spine-sub {
   display: block;
   width: 100%;
+  max-width: 100%;
   margin: 0;
   padding: 2px 0;
   border: 0;
@@ -661,6 +670,7 @@
   text-align: left;
   cursor: pointer;
   min-width: 0;
+  overflow: hidden;
 }
 .spine-sub:hover .spine-detail { color: var(--muted); }
 .spine-body .tool-result-title { display: none; }
@@ -674,7 +684,8 @@
   color: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-width: 100%;
 }
 .spine-body .tool-empty { margin: 0; color: var(--faint); }

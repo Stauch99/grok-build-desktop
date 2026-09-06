@@ -517,6 +517,9 @@ export function App() {
             busy={paneBusy}
             onCancel={() => void cancelTurn(paneId)}
             chatRef={paneChatRef}
+            pinToLatest={paneAtBottom}
+            sessionId={sid}
+            loading={paneId === MAIN_PANE ? loadingSession : false}
             onScroll={(el) => {
               const at = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
               if (paneId === MAIN_PANE) setAtBottom(at);
@@ -534,10 +537,11 @@ export function App() {
               onClick={() => {
                 if (paneId === MAIN_PANE) {
                   setAtBottom(true);
-                  chatEl.current?.scrollTo({ top: chatEl.current.scrollHeight, behavior: "smooth" });
+                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
                 } else {
                   onExtraAtBottom(paneId, true);
-                  extraChatEls.current[paneId]?.scrollTo({ top: extraChatEls.current[paneId]!.scrollHeight, behavior: "smooth" });
+                  const el = extraChatEls.current[paneId];
+                  if (el) el.scrollTop = el.scrollHeight;
                 }
               }}
             >
@@ -966,6 +970,9 @@ return (
               onCancel={() => void cancelTurn("main")}
               sessionModel={sessionModel}
               chatRef={chatEl}
+              pinToLatest={atBottom}
+              sessionId={sessionId}
+              loading={loadingSession}
               onScroll={(el) => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)}
               turns={userTurns}
               onResendUser={(text) => submitPrompt(text)}
@@ -984,7 +991,7 @@ return (
                 aria-label={t(locale, "thread.scrollBottom")}
                 onClick={() => {
                   setAtBottom(true);
-                  chatEl.current?.scrollTo({ top: chatEl.current.scrollHeight, behavior: "smooth" });
+                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
                 }}
               >
                 <IconChevron size={16} />

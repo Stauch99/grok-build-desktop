@@ -23,10 +23,10 @@ export type MenuSelectProps<T extends string> = {
 /**
  * Replacement for a native `<select>`.
  *
- * A tray icon makes WKWebView's native select unreadable to VoiceOver on macOS
- * (tauri#15221), and this app ships a tray. This uses the same listbox pattern
- * as the composer chips so every picker in the app behaves identically and
- * stays keyboard- and screen-reader-navigable.
+ * A native `<select>` is unreadable to VoiceOver on macOS WKWebView
+ * (tauri#15221). This uses the same listbox pattern as the composer chips
+ * so every picker in the app behaves identically and stays keyboard- and
+ * screen-reader-navigable.
  */
 export function MenuSelect<T extends string>({
   value,

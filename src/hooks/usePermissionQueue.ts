@@ -15,7 +15,7 @@ import {
 } from "../lib/permission-queue";
 import { onTaggedAcpRequest } from "../lib/workbench-api";
 import { requestPermissionKind, type PermissionPane } from "../lib/permission-view";
-import { notifyText, shouldNotify } from "../lib/notify";
+import { freshPermissionEvents, isSessionFocused, notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
 import { recordLocalEvent } from "../lib/telemetry";
 
@@ -36,7 +36,9 @@ export function usePermissionQueue(opts: {
   extraPanes?: { id: string; sessionId: string | null; busy: boolean }[];
   focusedPaneRef: React.MutableRefObject<PermissionPane | null>;
   focusedRef: React.MutableRefObject<boolean>;
+  focusedSessionIdRef: React.MutableRefObject<string | null>;
   currentTitleRef: React.MutableRefObject<string>;
+  titleForSessionRef: React.MutableRefObject<(sessionId: string | null) => string>;
   telemetry?: boolean;
   onTimeoutNotice?: () => void;
 }): PermissionQueue {
@@ -44,6 +46,7 @@ export function usePermissionQueue(opts: {
   const telemetryRef = useRef(telemetry);
   telemetryRef.current = telemetry;
   const [permissions, setPermissions] = useState<QueuedPermission[]>([]);
+  const seenPermissionNotifyRef = useRef(new Set<string>());
   const onTimeoutRef = useRef(opts.onTimeoutNotice);
   onTimeoutRef.current = opts.onTimeoutNotice;
 
@@ -118,12 +121,16 @@ export function usePermissionQueue(opts: {
   }, [permissions, opts.allowedTools, opts.sessionId, opts.yolo, answerPermission]);
 
   useEffect(() => {
-    const request = permissions[permissions.length - 1];
-    if (!request || shouldAutoApprovePermission(opts.yolo === true, requestPermissionKind(request))) return;
-    if (!shouldNotify({ reason: "permission", focused: opts.focusedRef.current })) return;
-    const { title, body } = notifyText("permission", opts.currentTitleRef.current, request.title);
-    void notify(title, body);
-  }, [permissions.length, opts.focusedRef, opts.currentTitleRef, opts.yolo]);
+    const fresh = freshPermissionEvents(seenPermissionNotifyRef.current, permissions);
+    for (const request of fresh) {
+      if (shouldAutoApprovePermission(opts.yolo === true, requestPermissionKind(request))) continue;
+      const sessionFocused = isSessionFocused(opts.focusedSessionIdRef.current, request.sessionId);
+      if (!shouldNotify({ reason: "permission", windowFocused: opts.focusedRef.current, sessionFocused })) continue;
+      const sessionTitle = opts.titleForSessionRef.current(request.sessionId ?? null) || opts.currentTitleRef.current;
+      const { title, body } = notifyText("permission", sessionTitle, request.title);
+      void notify(title, body);
+    }
+  }, [permissions, opts.focusedRef, opts.focusedSessionIdRef, opts.currentTitleRef, opts.titleForSessionRef, opts.yolo]);
 
   const context: PermissionContext = {
     mainSessionId: opts.sessionId,

@@ -65,6 +65,14 @@ describe("motion tokens and press feedback", () => {
     expect(css("src/styles.css")).toMatch(/button:active[\s\S]*scale\(0\.97\)/);
   });
 
+  it("centers jump-bottom without transform so a press scale cannot shove it sideways", () => {
+    const block = css("src/styles/shell.css").match(/\.jump-bottom\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(block).toMatch(/left:\s*0/);
+    expect(block).toMatch(/right:\s*0/);
+    expect(block).toMatch(/margin-inline:\s*auto/);
+    expect(block).not.toMatch(/translateX\(-50%\)/);
+  });
+
   it("animates permission cards in", () => {
     expect(css("src/styles/overlays.css")).toMatch(/\.permission\s*\{[\s\S]*rise-in/);
   });

@@ -1,6 +1,6 @@
 export const MAIN_PANE = "main";
 export const PANE_MIN = { width: 280, height: 220 } as const;
-export const DRAG_THRESHOLD = 6;
+export const DRAG_THRESHOLD = 12;
 export const DROP_EDGE_RATIO = 0.25;
 export const DROP_EDGE_CAP = 80;
 

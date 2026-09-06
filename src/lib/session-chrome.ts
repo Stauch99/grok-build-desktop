@@ -75,11 +75,13 @@ export function partitionPinned(
   return { pinned, rest };
 }
 
-export function shouldAutoExpand(
-  _parentId: string,
-  activeId: string | null | undefined,
-  childrenIds: string[],
-): boolean {
-  if (!activeId) return false;
-  return childrenIds.includes(activeId);
+/** Count-circle expand/collapse. Opening a session never changes this. */
+export function sessionKidsOpen(opts: {
+  hasKids: boolean;
+  expanded: boolean;
+  collapsed: boolean;
+}): boolean {
+  if (!opts.hasKids) return false;
+  if (opts.collapsed) return false;
+  return opts.expanded;
 }
