@@ -94,9 +94,15 @@ describe("i18n", () => {
     expect(t("zh", "git.newWorktree")).toBe("新建 worktree");
     expect(t("en", "toast.undo")).toBe("Undo");
     expect(t("zh", "stats.footer", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
-      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
+      "300ms · 50 tok/s · 12.4k",
     );
     expect(t("en", "stats.footer", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
+      "300ms · 50 tok/s · 12.4k",
+    );
+    expect(t("zh", "stats.footerTip", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
+      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
+    );
+    expect(t("en", "stats.footerTip", { ttft: "300ms", rate: "50 tok/s", tok: "12.4k" })).toBe(
       "TTFT 300ms · Rate 50 tok/s · Used 12.4k",
     );
   });

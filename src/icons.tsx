@@ -43,8 +43,10 @@ import {
   IconPlug as TablerPlug,
   IconPlus as TablerPlus,
   IconRefresh as TablerRefresh,
+  IconRobot as TablerRobot,
   IconSearch as TablerSearch,
   IconSettings,
+  IconShieldCheck as TablerShieldCheck,
   IconStar as TablerStar,
   IconStarFilled as TablerStarFilled,
   IconSun as TablerSun,
@@ -103,6 +105,8 @@ export const IconEdit = wrap(IconPencil, 14);
 export const IconFilter = wrap(TablerFilter);
 export const IconTerminal = wrap(IconTerminal2);
 export const IconLight = wrap(IconBulb);
+export const IconRobot = wrap(TablerRobot, 14);
+export const IconShieldCheck = wrap(TablerShieldCheck, 14);
 export const IconFileSearch = wrap(TablerFileSearch);
 export const IconFileTxt = wrap(IconFileText);
 export const IconFilePdf = wrap(TablerFilePdf, 22);

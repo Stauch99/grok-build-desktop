@@ -131,10 +131,19 @@ export type StatsFooter = {
 };
 
 export function formatStatsFooter(s: StatsFooter, locale: Locale = "zh"): string {
+  const parts = statsFooterParts(s);
+  return t(locale, "stats.footer", parts);
+}
+
+export function formatStatsFooterTip(s: StatsFooter, locale: Locale = "zh"): string {
+  return t(locale, "stats.footerTip", statsFooterParts(s));
+}
+
+function statsFooterParts(s: StatsFooter): { ttft: string; rate: string; tok: string } {
   const ttft = s.ttftMs == null ? "—" : compactLatency(s.ttftMs);
   const rate = s.toksPerSec == null || s.toksPerSec <= 0 ? "—" : `${Math.round(s.toksPerSec)} tok/s`;
   const tok = s.sessionTokens == null ? "—" : compactCount(s.sessionTokens);
-  return t(locale, "stats.footer", { ttft, rate, tok });
+  return { ttft, rate, tok };
 }
 
 function compactLatency(ms: number): string {

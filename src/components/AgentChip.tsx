@@ -1,6 +1,8 @@
 import { AGENT_IDS, type AgentId } from "../lib/agent-id";
 import { agentChipClassName, agentChipDisabled, agentChipLabel } from "../lib/agent-chip";
+import { AgentIcon } from "../lib/agent-icons";
 import { nextSelectedAgent } from "../lib/session-agent";
+import { useT } from "../lib/locale-context";
 import { IconCheck, IconChevron } from "../icons";
 
 export type AgentChipProps = {
@@ -12,6 +14,7 @@ export type AgentChipProps = {
 };
 
 export function AgentChip({ hasOpenSession, value, onChange, open, onToggle }: AgentChipProps) {
+  const t = useT();
   const disabled = agentChipDisabled(hasOpenSession);
 
   return (
@@ -19,17 +22,18 @@ export function AgentChip({ hasOpenSession, value, onChange, open, onToggle }: A
       <button
         type="button"
         className={agentChipClassName(value, value)}
-        aria-label="切换 CLI"
+        aria-label={`${t("agent.switchCli")}: ${agentChipLabel(value)}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={agentChipLabel(value)}
+        data-tip={agentChipLabel(value)}
         disabled={disabled}
         onClick={() => {
           if (disabled) return;
           onToggle();
         }}
       >
-        {agentChipLabel(value)} <IconChevron size={11} />
+        <AgentIcon id={value} size={14} />
+        <IconChevron size={11} />
       </button>
       {open && !disabled && (
         <div className="chip-menu agent-menu" role="menu">
@@ -42,7 +46,10 @@ export function AgentChip({ hasOpenSession, value, onChange, open, onToggle }: A
               onClick={() => onChange(nextSelectedAgent(hasOpenSession, value, id))}
             >
               <span className="mode-row">
-                <span>{agentChipLabel(id)}</span>
+                <span className="agent-menu-item">
+                  <AgentIcon id={id} size={14} />
+                  {agentChipLabel(id)}
+                </span>
                 <span>{id === value ? <IconCheck size={12} /> : null}</span>
               </span>
             </button>

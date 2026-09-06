@@ -27,6 +27,9 @@
   box-shadow: none;
   border: 1px solid var(--line);
 }
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--brand) 50%, var(--line));
+}
 .composer-wrap[data-mode="yolo"] .composer {
   border-color: var(--danger);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 28%, transparent);
@@ -45,15 +48,16 @@
   outline: none;
   resize: none;
   box-sizing: border-box;
-  min-height: 24px;
+  min-height: calc(var(--md-size, 15px) * 1.5);
   max-height: 200px;
   padding: 3px 0;
   overflow-y: auto;
   background: transparent;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--muted);
+  font-size: var(--md-size, 15px);
+  line-height: 1.5;
+  color: var(--text);
 }
+.composer textarea::placeholder { color: var(--muted); }
 .composer-actions {
   display: flex;
   align-items: center;
@@ -79,6 +83,30 @@
   min-width: 0;
   flex-wrap: nowrap;
   position: relative;
+  font-size: calc(var(--md-size, 15px) - 2px);
+}
+.composer-meta-row .cwd-chip,
+.composer-meta-row .model-chip,
+.composer-meta-row .mode-chip,
+.composer-meta-row .effort-chip,
+.composer-meta-row .agent-chip {
+  font-size: inherit;
+}
+.composer-meta-row .mode-chip {
+  border-radius: 999px;
+  padding: 2px 8px;
+  min-height: 22px;
+}
+.composer-meta-row .mode-chip:not(.yolo) {
+  background: color-mix(in srgb, var(--text) 7%, var(--bg));
+}
+.composer-meta-row .mode-chip:not(.yolo):hover {
+  background: color-mix(in srgb, var(--text) 11%, var(--bg));
+}
+.composer-meta-row .mode-chip svg,
+.composer-meta-row .agent-chip svg {
+  flex: none;
+  display: block;
 }
 .composer-meta-left,
 .composer-meta-right {
@@ -138,7 +166,7 @@
   min-width: 0;
   margin: 0;
   text-align: left;
-  font-size: 11px;
+  font-size: inherit;
   color: var(--faint);
   line-height: 1.2;
 }
@@ -195,7 +223,7 @@
 .composer-busy-hint {
   margin: 4px auto 0;
   max-width: var(--thread);
-  font-size: var(--ui-smaller);
+  font-size: var(--md-size, 15px);
   color: var(--muted);
 }
 .slash-badge {
@@ -239,7 +267,7 @@
   border: 0;
   background: transparent;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--md-size, 15px);
   border-radius: calc(var(--radius-l) - 4px);
 }
 .chip-menu button:hover { background: var(--bg-hover); }
@@ -253,7 +281,7 @@
 }
 .chip-menu .hint {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--md-size, 15px);
   text-align: left;
 }
 .mode-menu { min-width: 228px; }
@@ -273,8 +301,8 @@
   color: var(--danger);
 }
 .mode-menu button.yolo .mode-row { color: var(--danger); }
-.chip-menu .menu-hint-label { font-size: 12px; }
-.chip-menu .menu-hint-text { font-size: 11px; }
+.chip-menu .menu-hint-label { font-size: var(--md-size, 15px); }
+.chip-menu .menu-hint-text { font-size: var(--md-size, 15px); }
 
 /* Label + hint + check — single row (effort chip, MenuSelect with hints) */
 .chip-menu.effort-menu,
@@ -524,7 +552,6 @@
   border: 0;
   background: transparent;
   color: var(--faint);
-  font-size: 12px;
   padding: 4px 6px;
   min-height: 24px;
   border-radius: var(--radius-xl);
@@ -551,4 +578,9 @@
 .agent-chip-grok.active {
   color: var(--accent-deep);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.agent-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }

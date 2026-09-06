@@ -1,4 +1,4 @@
-import { formatStatsFooter, type StatsLine } from "../lib/usage-split";
+import { formatStatsFooter, formatStatsFooterTip, type StatsLine } from "../lib/usage-split";
 import { useLocale } from "../lib/locale-context";
 
 export type StatsLineViewProps = {
@@ -10,14 +10,16 @@ export type StatsLineViewProps = {
 
 export function StatsLineView({ stats, sessionTokens }: StatsLineViewProps) {
   const locale = useLocale();
+  const payload = {
+    ttftMs: stats?.ttftMs,
+    toksPerSec: stats?.toksPerSec,
+    sessionTokens,
+  };
+  const tip = formatStatsFooterTip(payload, locale);
   return (
-    <span className="composer-meta">
+    <span className="composer-meta" data-tip={tip} aria-label={tip}>
       <span className="composer-meta-text">
-        {formatStatsFooter({
-          ttftMs: stats?.ttftMs,
-          toksPerSec: stats?.toksPerSec,
-          sessionTokens,
-        }, locale)}
+        {formatStatsFooter(payload, locale)}
       </span>
     </span>
   );

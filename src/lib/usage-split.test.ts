@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatStatsFooter,
+  formatStatsFooterTip,
   parseUsageSplit,
   sparklinePoints,
   splitCostByModel,
@@ -128,24 +129,27 @@ describe("turnStatsFromItems", () => {
 });
 
 describe("formatStatsFooter", () => {
-  it("joins compact latency, rate, and session tokens", () => {
+  it("joins compact latency, rate, and session tokens with dots and no labels", () => {
     expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 })).toBe(
-      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
+      "300ms · 50 tok/s · 12.4k",
     );
   });
 
   it("collapses long TTFT into minutes and hides a zero rate", () => {
     expect(formatStatsFooter({ ttftMs: 342000, toksPerSec: 0, sessionTokens: 847 })).toBe(
-      "首字 5.7m · 速率 — · 已用 847",
+      "5.7m · — · 847",
     );
   });
 
   it("uses dashes when a value is missing", () => {
-    expect(formatStatsFooter({})).toBe("首字 — · 速率 — · 已用 —");
+    expect(formatStatsFooter({})).toBe("— · — · —");
   });
 
-  it("switches labels with locale", () => {
-    expect(formatStatsFooter({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 }, "en")).toBe(
+  it("keeps labels on the hover tip", () => {
+    expect(formatStatsFooterTip({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 })).toBe(
+      "首字 300ms · 速率 50 tok/s · 已用 12.4k",
+    );
+    expect(formatStatsFooterTip({ ttftMs: 300, toksPerSec: 50, sessionTokens: 12400 }, "en")).toBe(
       "TTFT 300ms · Rate 50 tok/s · Used 12.4k",
     );
   });

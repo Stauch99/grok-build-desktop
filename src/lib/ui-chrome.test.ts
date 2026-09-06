@@ -190,11 +190,10 @@ describe("composer prompt", () => {
   it("keeps the textarea to one quiet line and parks mode chips outside the box", () => {
     const sheet = css("src/styles/composer.css");
     const ta = sheet.match(/\.composer textarea\s*\{[^}]+\}/)?.[0];
-    expect(ta).toMatch(/font-size:\s*13px/);
-    expect(ta).toMatch(/line-height:\s*18px/);
-    expect(ta).toMatch(/min-height:\s*24px/);
-    expect(ta).toMatch(/padding:\s*3px 0/);
-    expect(ta).toMatch(/color:\s*var\(--muted\)/);
+    expect(ta).toMatch(/font-size:\s*var\(--md-size/);
+    expect(ta).toMatch(/line-height:\s*1\.5/);
+    expect(ta).toMatch(/color:\s*var\(--text\)/);
+    expect(sheet).toMatch(/\.composer textarea::placeholder\s*\{[^}]*color:\s*var\(--muted\)/);
     expect(ta).not.toMatch(/min-height:\s*42px/);
     expect(sheet).toMatch(/\.send-btn\s*\{[^}]*width:\s*24px/);
     expect(sheet).toMatch(/\.send-btn\s*\{[^}]*height:\s*24px/);
@@ -207,8 +206,11 @@ describe("composer prompt", () => {
 
     const main = css("src/styles.css");
     const chip = main.match(/\.model-chip, \.mode-chip, \.effort-chip, \.agent-chip\s*\{[^}]+\}/)?.[0];
-    expect(chip).toMatch(/font-size:\s*12px/);
+    expect(chip).toMatch(/font-size:\s*(?:12px|var\(--md-size)/);
     expect(chip).toMatch(/color:\s*var\(--faint\)/);
+    expect(sheet).toMatch(/\.composer-meta-row\s*\{[^}]*font-size:\s*calc\(var\(--md-size(?:,\s*15px)?\)\s*-\s*2px\)/);
+    expect(sheet).toMatch(/\.composer-meta-row \.cwd-chip[\s\S]{0,280}font-size:\s*inherit/);
+    expect(sheet).toMatch(/\.composer-meta\s*\{[^}]*font-size:\s*inherit/);
 
     const src = readFileSync(join(root, "src/components/Composer.tsx"), "utf8");
     expect(src).not.toMatch(/composer\.placeholder/);
@@ -244,14 +246,14 @@ describe("composer prompt", () => {
     expect(shared).not.toMatch(/border-radius:\s*999px/);
   });
 
-  it("sizes chip menus to the same 12px as the trigger chips", () => {
+  it("sizes chip menus to the same body size as the trigger chips", () => {
     const sheet = css("src/styles/composer.css");
     const item = sheet.match(/\.chip-menu button\s*\{[^}]+\}/)?.[0];
-    expect(item).toMatch(/font-size:\s*12px/);
+    expect(item).toMatch(/font-size:\s*var\(--md-size/);
     const hint = sheet.match(/\.chip-menu \.hint\s*\{[^}]+\}/)?.[0];
-    expect(hint).toMatch(/font-size:\s*11px/);
-    expect(sheet).toMatch(/\.chip-menu \.menu-hint-label\s*\{[^}]*font-size:\s*12px/);
-    expect(sheet).toMatch(/\.chip-menu \.menu-hint-text\s*\{[^}]*font-size:\s*11px/);
+    expect(hint).toMatch(/font-size:\s*var\(--md-size/);
+    expect(sheet).toMatch(/\.chip-menu \.menu-hint-label\s*\{[^}]*font-size:\s*var\(--md-size/);
+    expect(sheet).toMatch(/\.chip-menu \.menu-hint-text\s*\{[^}]*font-size:\s*var\(--md-size/);
   });
 
   it("omits project, stats, then the context ring when the row overflows", () => {

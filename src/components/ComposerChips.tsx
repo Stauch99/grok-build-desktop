@@ -1,4 +1,4 @@
-import { IconCheck, IconChevron } from "../icons";
+import { IconCheck, IconChevron, IconListDetails, IconRobot, IconShieldCheck } from "../icons";
 import { effortLabel, effortMenuOptions } from "../lib/effort";
 import { modeLabel, modeNeedsConfirm, modeOptions, type Mode } from "../lib/mode";
 import { useLocale, useT } from "../lib/locale-context";
@@ -26,6 +26,12 @@ export type ComposerChipsProps = {
   onPickModel: (next: string) => void;
   onOpenSettings: () => void;
 };
+
+function ModeIcon({ mode }: { mode: Mode }) {
+  if (mode === "plan") return <IconListDetails size={14} />;
+  if (mode === "yolo") return <IconShieldCheck size={14} />;
+  return <IconRobot size={14} />;
+}
 
 export function ComposerChips({
   mode,
@@ -61,12 +67,13 @@ export function ComposerChips({
         <button
           type="button"
           className={`mode-chip${mode === "yolo" ? " yolo" : ""}`}
-          aria-label={t("composer.mode")}
-          title={t("composer.mode")}
+          aria-label={`${modeLabel(mode, locale)} · ${t("composer.mode")}`}
+          data-tip={modeLabel(mode, locale)}
           aria-expanded={modeOpen}
           onClick={onToggleMode}
         >
-          {modeLabel(mode, locale)} <kbd className="chip-kbd">⇧Tab</kbd> <IconChevron size={11} />
+          <ModeIcon mode={mode} />
+          <IconChevron size={11} />
         </button>
         {modeOpen && (
           <div className="chip-menu mode-menu" role="menu">
