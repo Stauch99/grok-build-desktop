@@ -100,6 +100,12 @@ function render(
 }
 
 describe("Sidebar project session window", () => {
+  it("renders the glide hover indicator inside the session list", () => {
+    const html = render(3);
+    expect(html).toContain('class="session-glide"');
+    expect(html.indexOf("session-glide")).toBeLessThan(html.indexOf('class="session"'));
+  });
+
   it("puts a plus on the project row to start a session in that folder", () => {
     const html = render(3);
     expect(html).toContain("project-new");
