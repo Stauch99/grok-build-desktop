@@ -20,7 +20,7 @@ import { displayTitle } from "../lib/projects";
 import { liveSessionPreviews } from "../lib/session-summary";
 import { buildSidebarSections, type SidebarListPrefs } from "../lib/sidebar-list";
 import type { ProjectGroupState } from "../lib/project-groups";
-import { deriveStatus, type SessionStatus, type UnreadMap } from "../lib/session-status";
+import { deriveStatus, busySessionIds, type SessionStatus, type UnreadMap } from "../lib/session-status";
 import { planRevert, previewRevert } from "../lib/checkpoint";
 import { openIdsFromBindings } from "../lib/session-presence";
 import { sameCwd } from "../lib/inbox";
@@ -86,15 +86,17 @@ export type AppModelViewInput = {
 
 export function useAppModelView(input: AppModelViewInput) {
   const busyIds = useMemo(() => {
-    const ids: string[] = [];
-    if (input.busy && input.runningSessionId) ids.push(input.runningSessionId);
-    for (const pane of Object.values(input.extraPanes)) {
-      if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
-    }
-    ids.push(...liveBusyIds(input.allSessions));
-    ids.push(...runningChildSessionIds(input.chat.items));
-    return ids;
-  }, [input.busy, input.runningSessionId, input.extraPanes, input.allSessions, input.chat.items]);
+    return [
+      ...busySessionIds({
+        busy: input.busy,
+        sessionId: input.sessionId,
+        runningSessionId: input.runningSessionId,
+        extraPanes: Object.values(input.extraPanes),
+      }),
+      ...liveBusyIds(input.allSessions),
+      ...runningChildSessionIds(input.chat.items),
+    ];
+  }, [input.busy, input.sessionId, input.runningSessionId, input.extraPanes, input.allSessions, input.chat.items]);
 
   const statusFor = useCallback(
     (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId: input.awaitingId, unread: input.unread }),

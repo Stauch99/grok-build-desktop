@@ -346,6 +346,20 @@ describe("catalogSessions", () => {
     expect(rows.find((s) => s.id === "c1")?.cwd).toBe("/work");
     expect(leftover).toEqual([created]);
   });
+
+  it("does not list an ACP untitled shell next to a different titled disk session", () => {
+    const disk = [
+      row({
+        id: "titled",
+        agentId: "grok",
+        title: "Laggy paragraph-by-paragraph chat text copy from citations",
+        dir: "/Users/me/.grok/sessions/titled",
+      }),
+    ];
+    const acp = [row({ id: "shell", agentId: "grok", title: "未命名会话" })];
+    const { rows } = catalogSessions({ disk, acp, created: [] });
+    expect(rows.map((s) => s.id)).toEqual(["titled"]);
+  });
 });
 
 describe("rememberCreatedSession", () => {

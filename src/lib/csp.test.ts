@@ -14,7 +14,7 @@ const conf = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "u
 };
 
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://ipc.localhost http://localhost:1420 ws://localhost:1420 https:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://ipc.localhost http://localhost:1420 ws://localhost:1420 https:; frame-src 'self' asset: http://asset.localhost https://asset.localhost; object-src 'none'; base-uri 'self'; form-action 'none'";
 
 describe("tauri CSP and asset protocol", () => {
   const { csp, assetProtocol } = conf.app.security;

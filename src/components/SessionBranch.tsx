@@ -133,8 +133,9 @@ export function SessionBranch({
   return (
     <>
       <div
-        className={`session${depth ? " child" : ""}${tone ? ` ${tone}` : ""}`}
+        className={`session${depth ? " child" : ""}${tone ? ` ${tone}` : ""}${status === "working" ? " working" : ""}`}
         data-session-row={s.id}
+        aria-busy={status === "working" || undefined}
         data-has-kids={hasKids ? "1" : undefined}
         data-expanded={expanded ? "1" : undefined}
         onPointerDown={(e) => {
@@ -166,7 +167,7 @@ export function SessionBranch({
         <button type="button" className="title" onClick={() => onOpen(s)}>
           {leading}
           <span className="sess-copy">
-            <span className="sess-title">{displayTitle(s, titles)}</span>
+            <span className={`sess-title${status === "working" ? " shimmer-text" : ""}`}>{displayTitle(s, titles)}</span>
             {subLine ? <span className="sess-sub">{subLine}</span> : null}
           </span>
           <span className={pill.className} data-tip={pill.label} aria-label={pill.label} role="img">

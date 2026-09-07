@@ -76,10 +76,8 @@ import { IconChevron, IconGitFork } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
-import { useTextSelection } from "./hooks/useTextSelection";
 
 export function App() {
-  const selectionState = useTextSelection();
   const {
     theme,
     setTheme,
@@ -1576,7 +1574,6 @@ return (
         />
       )}
       <SelectionActions
-        state={selectionState}
         viewport={{ width: window.innerWidth, height: window.innerHeight }}
         locale={locale}
         onRewrite={(next) => {

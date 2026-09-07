@@ -140,6 +140,20 @@ describe("SessionBranch subagent chrome", () => {
     expect(html).not.toContain("branch-chev");
   });
 
+  it("shimmers the title while the session is working", () => {
+    const html = render(
+      {
+        session: session({ id: "run", title: "Remove blue flicker", agentId: "grok" }),
+        children: [],
+      },
+      { statusFor: () => "working" },
+    );
+    expect(html).toMatch(/class="session[^"]*\bworking\b/);
+    expect(html).toMatch(/class="sess-title shimmer-text"/);
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("dot-matrix");
+  });
+
   it("marks the CLI with an svg icon instead of a text pill", () => {
     const html = render({
       session: session({ id: "p", title: "Finance", agentId: "claude" }),

@@ -479,27 +479,46 @@ span.crumb-cwd {
 }
 .dot-matrix {
   display: inline-grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 2px;
-  width: 14px;
-  height: 14px;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+  width: auto;
+  height: auto;
   flex: none;
-  color: color-mix(in srgb, var(--text) 45%, transparent);
+  color: var(--text);
 }
 .dot-matrix-cell {
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
   background: currentColor;
-  opacity: 0.2;
-  animation: dot-twinkle ease-in-out infinite;
-  animation-duration: calc(1.05s + (var(--i, 0) * 0.037s));
-  animation-delay: calc(var(--i, 0) * 0.048s);
+  opacity: 0.15;
+  animation: pixel-on 650ms ease-in-out var(--d, 0ms) infinite;
 }
-@keyframes dot-twinkle {
-  0%, 100% { opacity: 0.12; }
-  45% { opacity: 0.9; }
-  55% { opacity: 0.25; }
+@keyframes pixel-on {
+  0%, 100% { opacity: 0.15; }
+  45% { opacity: 1; }
+}
+.shimmer-text {
+  color: var(--muted);
+  background-color: var(--muted);
+  background-image: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    var(--muted) 40%,
+    var(--text) 50%,
+    var(--muted) 60%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 1.6s linear infinite;
+}
+@keyframes shimmer-text {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }

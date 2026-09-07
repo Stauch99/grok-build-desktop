@@ -47,3 +47,28 @@ export function composeRewriteDraft(quote: string, locale: Locale): string {
   const instruction = locale === "en" ? "Rewrite the passage above:" : "改写上面这段：";
   return `${quote}\n\n${instruction}`;
 }
+
+/** Toolbar state is published only after the pointer is up, so drag-select is not janked by React. */
+export function shouldPublishSelectionToolbar(opts: { pointerDown: boolean }): boolean {
+  return !opts.pointerDown;
+}
+
+export interface SelectionSnapshot {
+  text: string;
+  rect: Rect;
+}
+
+export function sameSelectionState(
+  a: SelectionSnapshot | null,
+  b: SelectionSnapshot | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.text === b.text &&
+    a.rect.top === b.rect.top &&
+    a.rect.left === b.rect.left &&
+    a.rect.width === b.rect.width &&
+    a.rect.height === b.rect.height
+  );
+}

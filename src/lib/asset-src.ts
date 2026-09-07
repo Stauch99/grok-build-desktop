@@ -61,3 +61,35 @@ export function safeFileSrc(
   if (!isAssetAllowed(path, roots)) return null;
   return convert(path);
 }
+
+/**
+ * Origin of a Tauri asset URL. `convertFileSrc` percent-encodes the whole
+ * path into one segment, so we only take scheme/host from it.
+ */
+export function assetOrigin(convertSample: string): string {
+  if (/^https?:\/\/asset\.localhost/i.test(convertSample)) {
+    return new URL(convertSample).origin;
+  }
+  return "asset://localhost";
+}
+
+/**
+ * Asset URL that keeps directory slashes. Relative css/js on a previewed
+ * HTML page then resolve next to the file instead of `asset://localhost/_assets/...`.
+ */
+export function assetPageSrc(path: string, convert: (p: string) => string): string | null {
+  const resolved = resolvePath(path);
+  if (resolved == null) return null;
+  const origin = assetOrigin(convert(resolved));
+  const segs = resolved.split("/").filter((part) => part !== "").map(encodeURIComponent);
+  return `${origin}/%2F${segs.join("/")}`;
+}
+
+export function safeHtmlSrc(
+  path: string,
+  roots: string[],
+  convert: (p: string) => string,
+): string | null {
+  if (!isAssetAllowed(path, roots)) return null;
+  return assetPageSrc(path, convert);
+}

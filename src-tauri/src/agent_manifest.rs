@@ -1,3 +1,6 @@
+//! Builtin CLI catalog metadata. Spawn argv still comes from `agents.toml`.
+#![allow(dead_code)]
+
 use crate::agent_host::AgentId;
 
 pub enum CatalogKind {

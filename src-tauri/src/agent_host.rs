@@ -171,6 +171,7 @@ pub(crate) fn spawn_npx_adapter(
     (PathBuf::from("npx"), vec!["-y".into(), pkg.into()])
 }
 
+#[cfg(test)]
 pub(crate) fn npx_adapter_resolves(
     pkg: &str,
     npx_root: &Path,

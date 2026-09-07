@@ -27,6 +27,12 @@ describe("ChatRow assistant copy", () => {
 });
 
 describe("thread open scroll", () => {
+  it("keeps the current turn's work cluster live while the pane is busy", () => {
+    const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/liveWorkBlockId/);
+    expect(src).toMatch(/startedAt=\{runBusy \? liveStartedAt/);
+  });
+
   it("pins a virtual thread to the latest row instead of restoring index 0", () => {
     const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/pinToLatest/);

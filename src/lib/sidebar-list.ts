@@ -91,6 +91,20 @@ export function pruneSessionTokens(tokens: Record<string, number>, liveIds: stri
   return next;
 }
 
+/** Ignore leftover usage still sitting on chat when the bound session id just changed. */
+export function sessionTokensAfterLiveUsage(
+  prev: Record<string, number>,
+  sessionId: string | null,
+  used: number | undefined,
+): Record<string, number> | null {
+  if (!sessionId || typeof used !== "number" || !Number.isFinite(used)) return null;
+  if (prev[sessionId] === used) return null;
+  for (const [id, n] of Object.entries(prev)) {
+    if (id !== sessionId && n === used) return null;
+  }
+  return { ...prev, [sessionId]: used };
+}
+
 export function resolveLastWorkspace(raw: string | undefined, projects: string[], inboxCwd: string): string {
   if (raw === INBOX_PIN) return inboxCwd || "";
   if (raw && inboxCwd && sameCwd(raw, inboxCwd)) return inboxCwd;

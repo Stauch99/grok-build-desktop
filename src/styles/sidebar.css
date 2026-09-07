@@ -426,14 +426,13 @@
   opacity: 0.78;
 }
 .sess-matrix.dot-matrix {
-  width: 12px;
-  height: 12px;
+  grid-template-columns: repeat(3, 3px);
   gap: 1.5px;
   pointer-events: none;
 }
 .sess-matrix .dot-matrix-cell {
-  width: 2px;
-  height: 2px;
+  width: 3px;
+  height: 3px;
 }
 .sess-dot.needs-you { background: var(--warn); }
 .sess-dot.done { background: var(--ok); }
@@ -554,6 +553,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 18px;
+}
+.session.working .sess-title.shimmer-text {
+  display: block;
 }
 .sess-agent {
   flex: none;

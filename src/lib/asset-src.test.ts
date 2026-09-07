@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetRoots, isAssetAllowed, safeFileSrc } from "./asset-src";
+import { assetPageSrc, assetRoots, isAssetAllowed, safeFileSrc, safeHtmlSrc } from "./asset-src";
 
 describe("asset-src", () => {
   const roots = assetRoots("/Users/me/proj", "/Users/me/.grok");
@@ -31,5 +31,44 @@ describe("asset-src", () => {
   });
   it("does not treat a prefix sibling as inside the root", () => {
     expect(isAssetAllowed("/Users/me/proj-evil/shot.png", roots)).toBe(false);
+  });
+});
+
+describe("assetPageSrc", () => {
+  const convert = (p: string) => `asset://localhost/${encodeURIComponent(p)}`;
+
+  it("keeps path segments so relative css resolves next to the html file", () => {
+    const src = assetPageSrc("/work/out/index.html", convert);
+    expect(src).toBe("asset://localhost/%2Fwork/out/index.html");
+    expect(new URL("_assets/kit.css", src!).href).toBe("asset://localhost/%2Fwork/out/_assets/kit.css");
+  });
+
+  it("does not collapse the directory the way convertFileSrc encoding does", () => {
+    const encoded = convert("/work/out/index.html");
+    expect(new URL("_assets/kit.css", encoded).href).toBe("asset://localhost/_assets/kit.css");
+  });
+
+  it("encodes spaces in iCloud-style segments without flattening slashes", () => {
+    const src = assetPageSrc("/Users/me/Mobile Documents/Vault/lecture-01.html", convert);
+    expect(src).toBe("asset://localhost/%2FUsers/me/Mobile%20Documents/Vault/lecture-01.html");
+    expect(new URL("_assets/kit.css", src!).href).toContain("/Vault/_assets/kit.css");
+  });
+
+  it("uses the https asset origin when convertFileSrc is on Windows", () => {
+    const win = (p: string) => `https://asset.localhost/${encodeURIComponent(p)}`;
+    expect(assetPageSrc("/work/out/index.html", win)).toBe(
+      "https://asset.localhost/%2Fwork/out/index.html",
+    );
+  });
+});
+
+describe("safeHtmlSrc", () => {
+  const convert = (p: string) => `asset://localhost/${encodeURIComponent(p)}`;
+
+  it("returns a page url inside the workspace and null outside", () => {
+    expect(safeHtmlSrc("/work/out/index.html", ["/work"], convert)).toBe(
+      "asset://localhost/%2Fwork/out/index.html",
+    );
+    expect(safeHtmlSrc("/etc/passwd", ["/work"], convert)).toBeNull();
   });
 });

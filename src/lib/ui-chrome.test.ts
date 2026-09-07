@@ -418,7 +418,9 @@ describe("chrome selection and focus", () => {
     const main = css("src/styles.css");
     const thread = css("src/styles/thread.css");
     expect(main).toMatch(/\.app\s*\{[^}]*user-select:\s*none/);
-    expect(thread).toMatch(/\.thread \.msg[\s\S]{0,500}user-select:\s*text/);
+    // One selection root on the thread column so WebKit can drag across <p> tags.
+    expect(thread).toMatch(/\.chat\s*\{[\s\S]{0,400}user-select:\s*text/);
+    expect(thread).not.toMatch(/\.thread \.msg[\s\S]{0,400}user-select:\s*text/);
   });
 
   it("does not draw the accent ring on text fields", () => {
@@ -442,15 +444,32 @@ describe("thread body size", () => {
   });
 
   it("sweeps a metallic sheen across live work-run text", () => {
+    const shell = css("src/styles/shell.css");
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?-webkit-background-clip:\s*text/);
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?background-clip:\s*text/);
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?-webkit-text-fill-color:\s*transparent/);
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?animation:[^;]*shimmer-text/);
+    expect(shell).toMatch(/@keyframes shimmer-text/);
+    expect(shell).toMatch(/@keyframes pixel-on/);
+  });
+
+  it("tiles the sheen so the loop never blanks the glyphs", () => {
+    const shell = css("src/styles/shell.css");
+    expect(shell).not.toMatch(/\.shimmer-text\s*\{[^}]*background-repeat:\s*no-repeat/);
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?background-repeat:\s*repeat-x/);
+    expect(shell).toMatch(/\.shimmer-text[\s\S]*?background-color:\s*var\(--muted\)/);
+    expect(shell).toMatch(/@keyframes shimmer-text[\s\S]*?background-position:\s*-200%/);
+  });
+
+  it("does not let a failed count kill the live sheen", () => {
     const sheet = css("src/styles/thread.css");
-    const live = sheet.match(/\.work-run\.live \.work-run-text\s*\{[^}]+\}/)?.[0] ?? "";
-    expect(live).toMatch(/-webkit-background-clip:\s*text/);
-    expect(live).toMatch(/background-clip:\s*text/);
-    expect(live).toMatch(/-webkit-text-fill-color:\s*transparent/);
-    expect(live).toMatch(/animation:[^;]*work-run-sheen/);
-    expect(live).toMatch(/var\(--sheen\)/);
-    expect(live).toMatch(/var\(--text\)/);
-    expect(sheet).toMatch(/@keyframes work-run-sheen/);
+    expect(sheet).toMatch(/\.work-run\.failed:not\(\.live\) \.work-run-text/);
+  });
+
+  it("shimmers working session titles in the sidebar", () => {
+    const sheet = css("src/styles/sidebar.css");
+    expect(sheet).toMatch(/\.session\.working \.sess-title/);
+    expect(sheet).toMatch(/\.session\.working \.sess-title[\s\S]*shimmer-text/);
   });
 
   it("keeps tool-call paths inside the thread width", () => {

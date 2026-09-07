@@ -433,7 +433,13 @@ export function PreviewPane({
         />
       ) : kind === "html" && !raw ? (
         <div className="preview-body html-frame">
-          <HtmlArtifactPreview html={displayText} title={t("preview.sandbox", { name: basename(displayPath) })} />
+          <HtmlArtifactPreview
+            html={displayText}
+            path={displayPath}
+            cwd={cwd}
+            convertFileSrc={convertFileSrc}
+            title={t("preview.sandbox", { name: basename(displayPath) })}
+          />
         </div>
       ) : kind === "markdown" && !raw ? (
         <div className="preview-body md-scroll">

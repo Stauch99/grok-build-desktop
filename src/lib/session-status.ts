@@ -29,6 +29,24 @@ export function deriveStatus({ id, busyIds, awaitingId, unread }: DeriveInput): 
   return "idle";
 }
 
+/** Sessions this window is driving. Falls back to the bound id before runningSessionId lands. */
+export function busySessionIds(opts: {
+  busy: boolean;
+  sessionId: string | null;
+  runningSessionId: string | null;
+  extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
+}): string[] {
+  const ids: string[] = [];
+  if (opts.busy) {
+    const id = opts.runningSessionId || opts.sessionId;
+    if (id) ids.push(id);
+  }
+  for (const pane of opts.extraPanes ?? []) {
+    if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
+  }
+  return ids;
+}
+
 const LABELS: Record<SessionStatus, string> = {
   working: "运行中",
   "needs-you": "等你确认",

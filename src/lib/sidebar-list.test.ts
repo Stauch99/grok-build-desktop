@@ -12,6 +12,7 @@ import {
   projectForSession,
   prunePinnedProjects,
   pruneSessionTokens,
+  sessionTokensAfterLiveUsage,
   resolveLastWorkspace,
   lastWorkspaceAfterOpen,
   resumeWorkspaceCwd,
@@ -67,6 +68,12 @@ describe("prune helpers", () => {
 
   it("drops tokens for deleted sessions", () => {
     expect(pruneSessionTokens({ a: 12, b: 3 }, ["b"])).toEqual({ b: 3 });
+  });
+
+  it("does not copy live usage onto a different session id", () => {
+    expect(sessionTokensAfterLiveUsage({ old: 129446 }, "new", 129446)).toBeNull();
+    expect(sessionTokensAfterLiveUsage({ old: 129446 }, "old", 129446)).toBeNull();
+    expect(sessionTokensAfterLiveUsage({ old: 129446 }, "old", 130000)).toEqual({ old: 130000 });
   });
 });
 

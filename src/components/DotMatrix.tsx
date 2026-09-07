@@ -1,6 +1,9 @@
-/** Cursor-style in-progress shimmer: a tiny grid of independently twinkling dots. */
-const GRID = 4;
-const COUNT = GRID * GRID;
+/** Drive pixel-grid: 3×3 square cells, chevron wavefront running right. */
+const CHEVRON_DELAYS_MS = Array.from({ length: 9 }, (_, i) => {
+  const r = Math.floor(i / 3);
+  const c = i % 3;
+  return (c + Math.abs(r - 1)) * 90;
+});
 
 export function DotMatrix({
   className,
@@ -19,8 +22,8 @@ export function DotMatrix({
       aria-hidden={ariaLabel ? undefined : true}
       role={ariaLabel ? "status" : undefined}
     >
-      {Array.from({ length: COUNT }, (_, i) => (
-        <span key={i} className="dot-matrix-cell" style={{ ["--i" as string]: String(i) }} />
+      {CHEVRON_DELAYS_MS.map((delay, index) => (
+        <span key={index} className="dot-matrix-cell" style={{ ["--d" as string]: `${delay}ms` }} />
       ))}
     </span>
   );

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { WorkItem } from "./chat";
+import type { ThreadBlock, WorkItem } from "./chat";
 import {
   LIVE_PHRASE_TICKS,
+  formatLiveElapsed,
+  liveTool,
+  liveWorkBlockId,
   visibleWorkItems,
   workRunCopy,
+  workRunIsLive,
   workRunKeywords,
 } from "./work-run";
 import { WORK_RUN_IDLE, WORK_RUN_VERBS } from "./work-run-copy";
@@ -178,11 +182,88 @@ describe("visibleWorkItems", () => {
   });
 });
 
+describe("workRunIsLive", () => {
+  it("stays live while the current turn is busy, even after tools settle", () => {
+    expect(
+      workRunIsLive({
+        items: [tool("1", "Read a.ts", { toolKind: "read" })],
+        busy: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays live while a tool is still in flight even if busy was cleared", () => {
+    expect(
+      workRunIsLive({
+        items: [tool("1", "Read a.ts", { toolKind: "read", status: "in_progress" })],
+        busy: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("settles when the turn is idle and every tool has finished", () => {
+    expect(
+      workRunIsLive({
+        items: [tool("1", "Read a.ts", { toolKind: "read" })],
+        busy: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("liveWorkBlockId", () => {
+  it("keeps the current turn's work cluster live after assistant text starts", () => {
+    const blocks: ThreadBlock[] = [
+      { kind: "item", item: { kind: "user", id: "u", text: "go" } },
+      {
+        kind: "work",
+        id: "work-k1",
+        items: [tool("k1", "Read a.ts", { toolKind: "read" })],
+      },
+      { kind: "item", item: { kind: "assistant", id: "a", text: "ok" } },
+    ];
+    expect(liveWorkBlockId(blocks, { busy: true, showThinking: true })).toBe("work-k1");
+  });
+
+  it("does not light up a previous turn after a new user message", () => {
+    const blocks: ThreadBlock[] = [
+      { kind: "item", item: { kind: "user", id: "u1", text: "go" } },
+      {
+        kind: "work",
+        id: "work-old",
+        items: [tool("k1", "Read a.ts", { toolKind: "read" })],
+      },
+      { kind: "item", item: { kind: "assistant", id: "a", text: "ok" } },
+      { kind: "item", item: { kind: "user", id: "u2", text: "again" } },
+    ];
+    expect(liveWorkBlockId(blocks, { busy: true, showThinking: true })).toBeNull();
+  });
+});
+
+describe("formatLiveElapsed", () => {
+  it("uses tenths of a second in mono-friendly units", () => {
+    expect(formatLiveElapsed(12_500)).toBe("12.5s");
+    expect(formatLiveElapsed(65_200)).toBe("1m 5.2s");
+  });
+});
+
 describe("work-run copy lists", () => {
   it("keeps zh/en phrase lists the same length so rotation stays aligned", () => {
     expect(WORK_RUN_VERBS.zh).toHaveLength(WORK_RUN_VERBS.en.length);
     expect(WORK_RUN_IDLE.zh).toHaveLength(WORK_RUN_IDLE.en.length);
     expect(WORK_RUN_VERBS.zh.length).toBeGreaterThanOrEqual(24);
     expect(WORK_RUN_IDLE.zh.length).toBeGreaterThanOrEqual(24);
+  });
+});
+
+describe("liveTool", () => {
+  it("returns the newest in-flight tool and skips workflow titles", () => {
+    expect(
+      liveTool([
+        tool("1", "Read a.ts", { toolKind: "read", status: "completed" }),
+        tool("2", "Edit b.ts", { toolKind: "edit", status: "in_progress" }),
+      ])?.id,
+    ).toBe("2");
+    expect(liveTool([tool("1", "Read a.ts", { toolKind: "read" })])).toBeUndefined();
   });
 });

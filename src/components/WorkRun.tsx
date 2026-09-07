@@ -1,10 +1,22 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { WorkItem } from "../lib/chat";
-import { workRunCopy } from "../lib/work-run";
+import { formatLiveElapsed, workRunCopy, workRunIsLive } from "../lib/work-run";
 import { useLocale, useT } from "../lib/locale-context";
 import { IconLight, IconStop } from "../icons";
 import { DotMatrix } from "./DotMatrix";
 import { WorkTimeline } from "./WorkTimeline";
+
+function useLiveElapsed(active: boolean, startedAt?: number) {
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = active && startedAt != null;
+  useEffect(() => {
+    if (!ticking) return;
+    const id = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(id);
+  }, [ticking]);
+  if (!ticking || startedAt == null) return null;
+  return formatLiveElapsed(now - startedAt);
+}
 
 export function WorkRun({
   items,
@@ -15,6 +27,7 @@ export function WorkRun({
   onStop,
   runId,
   tick = 0,
+  startedAt,
 }: {
   items: WorkItem[];
   busy?: boolean;
@@ -24,13 +37,19 @@ export function WorkRun({
   onStop?: () => void;
   runId: string;
   tick?: number;
+  startedAt?: number;
 }) {
   const locale = useLocale();
   const t = useT();
   const [open, setOpen] = useState(false);
-  const copy = workRunCopy({ items, busy, runId, tick, locale });
+  const running = workRunIsLive({ items, busy });
+  const copy = workRunCopy({ items, busy: running, runId, tick, locale });
+  const elapsed = useLiveElapsed(running, startedAt);
   return (
-    <div className={`work-cluster work-run${copy.failed ? " failed" : ""}${busy ? " live" : ""}${open ? " open" : ""}`}>
+    <div
+      className={`work-cluster work-run${copy.failed ? " failed" : ""}${running ? " live" : ""}${open ? " open" : ""}`}
+      aria-busy={running || undefined}
+    >
       <div className="work-run-bar">
         <button
           type="button"
@@ -40,11 +59,14 @@ export function WorkRun({
           onClick={() => setOpen((v) => !v)}
         >
           <span className="work-run-ico" aria-hidden>
-            {busy ? <DotMatrix /> : <IconLight size={18} />}
+            {running ? <DotMatrix /> : <IconLight size={18} />}
           </span>
-          <span className="work-run-text">{copy.text}</span>
+          <span className="work-run-text">
+            <span className={running ? "shimmer-text" : undefined}>{copy.text}</span>
+            {elapsed ? <span className="work-run-elapsed">{elapsed}</span> : null}
+          </span>
         </button>
-        {busy && onStop ? (
+        {running && onStop ? (
           <button
             type="button"
             className="work-run-stop"
@@ -59,9 +81,9 @@ export function WorkRun({
       {open ? (
         <WorkTimeline
           items={items}
-          busy={busy}
+          busy={running}
           cwd={cwd}
-          live={busy ? live : null}
+          live={running ? live : null}
           onInspectTool={onInspectTool}
         />
       ) : null}

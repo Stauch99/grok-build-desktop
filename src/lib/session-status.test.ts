@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attentionCount,
+  busySessionIds,
   clearUnread,
   deriveStatus,
   isAttention,
@@ -100,6 +101,38 @@ describe("unread map", () => {
     });
     expect(loadUnread(null)).toEqual({});
     expect(loadUnread("x")).toEqual({});
+  });
+});
+
+describe("busySessionIds", () => {
+  it("marks a new session that is busy before runningSessionId catches up", () => {
+    expect(
+      busySessionIds({
+        busy: true,
+        sessionId: "new-1",
+        runningSessionId: null,
+      }),
+    ).toEqual(["new-1"]);
+  });
+
+  it("prefers the running id when the open pane is a different session", () => {
+    expect(
+      busySessionIds({
+        busy: true,
+        sessionId: "open",
+        runningSessionId: "run",
+      }),
+    ).toEqual(["run"]);
+  });
+
+  it("stays empty when nothing is running", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: null,
+      }),
+    ).toEqual([]);
   });
 });
 

@@ -73,10 +73,7 @@ mod tests {
         assert!(mixed.contains("http://127.0.0.1:29979/mcp"));
         let flipped = upsert_mcp_servers_toml(&mixed, "paper", "uvx", &["paper-mcp".into()]);
         assert!(flipped.contains("command"));
-        let paper = flipped
-            .split("[mcp_servers.paper]")
-            .nth(1)
-            .unwrap_or("");
+        let paper = flipped.split("[mcp_servers.paper]").nth(1).unwrap_or("");
         assert!(paper.contains("command"));
         assert!(!paper.contains("url"));
     }

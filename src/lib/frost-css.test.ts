@@ -55,17 +55,13 @@ describe("spine enter motion", () => {
   });
 });
 
-describe("streaming caret and tool chip hover", () => {
-  it("Markdown exposes a data-live hook", () => {
+describe("streaming surface and tool chip hover", () => {
+  it("Markdown exposes a data-live hook without a blinking caret", () => {
     const src = cssFile("src/components/Markdown.tsx");
     expect(src).toMatch(/data-live=\{live \? "" : undefined\}/);
-  });
-
-  it("renders a blinking block caret on the last streamed node", () => {
-    const src = cssFile("src/styles/thread.css");
-    expect(src).toMatch(/\.md\[data-live\] > \*:last-child::after\s*\{/);
-    const kf = src.match(/@keyframes caret-blink\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(kf).toMatch(/opacity/);
+    const css = cssFile("src/styles/thread.css");
+    expect(css).not.toMatch(/\.md\[data-live\]/);
+    expect(css).not.toMatch(/caret-blink/);
   });
 
   it("lifts tool-result on hover", () => {
@@ -96,19 +92,18 @@ describe("composer and palette polish", () => {
 });
 
 describe("work-run progress", () => {
-  it("shows an indeterminate accent bar while live", () => {
+  it("does not draw a jumping accent bar under a live run", () => {
     const src = cssFile("src/styles/thread.css");
-    expect(src).toMatch(/\.work-run\.live \.work-run-bar::after\s*\{/);
-    const kf = src.match(/@keyframes run-progress\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(kf).toMatch(/transform/);
-    expect(kf).not.toMatch(/width|left:/);
+    expect(src).not.toMatch(/\.work-run\.live \.work-run-bar::after/);
+    expect(src).not.toMatch(/@keyframes run-progress/);
   });
 
-  it("is exempted from the reduced-motion kill switch like the spinner", () => {
+  it("freezes the pixel grid under reduced motion", () => {
     const src = cssFile("src/styles.css");
     const idx = src.indexOf("@media (prefers-reduced-motion: reduce)");
     const chunk = src.slice(idx, idx + 2200);
-    expect(chunk).toMatch(/run-progress[\s\S]*infinite/);
+    expect(chunk).toMatch(/\.dot-matrix-cell[\s\S]*animation:\s*none/);
+    expect(chunk).not.toMatch(/run-progress/);
   });
 });
 

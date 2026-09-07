@@ -8,9 +8,10 @@ const src = readFileSync(
   "utf8",
 );
 
-describe("DotMatrix stagger", () => {
-  it("uses a CSS --i custom property instead of 32 duration constants", () => {
-    expect(src).toMatch(/--i/);
+describe("DotMatrix Drive grid", () => {
+  it("staggers the chevron wavefront with --d instead of a duration table", () => {
+    expect(src).toMatch(/--d/);
+    expect(src).toMatch(/length: 9/);
     expect(src).not.toMatch(/const DURATION/);
     expect(src).not.toMatch(/const DELAY/);
   });

@@ -200,6 +200,67 @@ mod grok_asset_tests {
         assert_eq!(row.last_turn_summary_prompt_id.as_deref(), Some("prompt-9"));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn parse_summary_skips_untitled_shell_without_a_user_turn() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-summary-shell-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            r#"{
+              "info": { "id": "shell-1", "cwd": "/work" },
+              "session_summary": "",
+              "num_chat_messages": 2
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("chat_history.jsonl"),
+            "{\"type\":\"system\",\"content\":\"You are Grok\"}\n{\"type\":\"user\",\"content\":\"skills\",\"synthetic_reason\":\"system_reminder\"}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("updates.jsonl"),
+            r#"{"params":{"update":{"sessionUpdate":"hook_execution","event_name":"session_start"}}}"#,
+        )
+        .unwrap();
+        assert!(parse_summary(&dir.join("summary.json")).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parse_summary_keeps_untitled_session_after_a_real_user_turn() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-summary-user-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            r#"{
+              "info": { "id": "live-1", "cwd": "/work" },
+              "session_summary": "",
+              "num_chat_messages": 2
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("updates.jsonl"),
+            r#"{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"text":"修列表"}}}}"#,
+        )
+        .unwrap();
+        let row = parse_summary(&dir.join("summary.json")).expect("untitled with user turn");
+        assert_eq!(row.id, "live-1");
+        assert_eq!(row.title, "未命名会话");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 pub(crate) fn dirs_home() -> PathBuf {
@@ -713,6 +774,16 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
     if id.is_empty() {
         return None;
     }
+    let title = value
+        .get("generated_title")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("session_summary").and_then(|v| v.as_str()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or("未命名会话")
+        .to_string();
+    if title == "未命名会话" && !grok_has_user_turn(path.parent()?) {
+        return None;
+    }
     Some(SessionSummary {
         id,
         agent_id: "grok".into(),
@@ -721,13 +792,7 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        title: value
-            .get("generated_title")
-            .and_then(|v| v.as_str())
-            .or_else(|| value.get("session_summary").and_then(|v| v.as_str()))
-            .filter(|s| !s.is_empty())
-            .unwrap_or("未命名会话")
-            .to_string(),
+        title,
         model: value
             .get("current_model_id")
             .and_then(|v| v.as_str())
@@ -778,6 +843,58 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .filter(|s| !s.is_empty())
             .map(str::to_string),
     })
+}
+
+fn grok_has_user_turn(dir: &Path) -> bool {
+    jsonl_has_real_user_history(&dir.join("chat_history.jsonl"))
+        || jsonl_has_user_message_chunk(&dir.join("updates.jsonl"))
+}
+
+fn jsonl_has_real_user_history(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    for line in BufReader::new(file).lines() {
+        let Ok(line) = line else { continue };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if value.get("type").and_then(|v| v.as_str()) != Some("user") {
+            continue;
+        }
+        if value
+            .get("synthetic_reason")
+            .and_then(|v| v.as_str())
+            .is_some()
+        {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
+fn jsonl_has_user_message_chunk(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    for line in BufReader::new(file).lines() {
+        let Ok(line) = line else { continue };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let kind = value
+            .pointer("/params/update/sessionUpdate")
+            .or_else(|| value.pointer("/update/sessionUpdate"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if kind == "user_message_chunk" {
+            return true;
+        }
+    }
+    false
 }
 
 fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
@@ -3594,12 +3711,10 @@ mod final_review_tests {
         let skill_dir = dirs_home().join(".agents").join("skills").join(&stamp);
         std::fs::create_dir_all(&skill_dir).unwrap();
         let skill_file = skill_dir.join("SKILL.md");
-        assert!(resolve_allowed_path(
-            skill_file.to_str().unwrap(),
-            Some(&root),
-            PathAccess::Write
-        )
-        .is_ok());
+        assert!(
+            resolve_allowed_path(skill_file.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_ok()
+        );
 
         let outside = root.parent().unwrap().join(format!("{stamp}-outside.txt"));
         assert!(

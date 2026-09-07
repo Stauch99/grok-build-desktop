@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { composeRewriteDraft, formatQuote, toolbarPlacement, TOOLBAR_H, TOOLBAR_W } from "../lib/selection-actions";
 import { useT } from "../lib/locale-context";
-import type { TextSelectionState } from "../hooks/useTextSelection";
+import { useTextSelection, type TextSelectionState } from "../hooks/useTextSelection";
 
 interface SelectionActionsProps {
-  state: TextSelectionState | null;
+  state?: TextSelectionState | null;
   viewport: { width: number; height: number };
   locale: "zh" | "en";
   onRewrite: (draft: string) => void;
   onQuote: (quote: string) => void;
 }
 
-export function SelectionActions({ state, viewport, locale, onRewrite, onQuote }: SelectionActionsProps) {
+export function SelectionActions({ state: stateProp, viewport, locale, onRewrite, onQuote }: SelectionActionsProps) {
+  const live = useTextSelection();
+  const state = stateProp !== undefined ? stateProp : live;
   const t = useT();
   const [copied, setCopied] = useState(false);
 

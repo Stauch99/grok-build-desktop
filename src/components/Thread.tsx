@@ -37,7 +37,7 @@ import { ToolResult } from "./ToolResult";
 import { UserTurn } from "./UserTurn";
 import { WorkLiveRow } from "./WorkTimeline";
 import { WorkRun } from "./WorkRun";
-import { visibleWorkItems } from "../lib/work-run";
+import { liveWorkBlockId, visibleWorkItems } from "../lib/work-run";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 import { chatWidthCss } from "../lib/chat-width";
 import { tocActiveId } from "../lib/toc-active";
@@ -310,6 +310,7 @@ type ThreadRowCtx = {
   liveInTimeline: boolean;
   liveRow: ReactNode;
   liveTick: number;
+  liveStartedAt?: number;
   busy: boolean;
   items: ChatItem[];
   onResendUser?: (text: string) => void;
@@ -351,9 +352,9 @@ function ThreadBlockView({
     showThinking,
     sessionModel,
     lastWorkId,
-    liveInTimeline,
     liveRow,
     liveTick,
+    liveStartedAt,
     items,
     busy,
     onResendUser,
@@ -368,7 +369,7 @@ function ThreadBlockView({
   if (block.kind === "work") {
     const visible = visibleWorkItems(block.items, showThinking);
     if (visible.length === 0) return null;
-    const runBusy = liveInTimeline && lastWorkId === block.id;
+    const runBusy = lastWorkId === block.id;
     return (
       <WorkRun
         items={visible}
@@ -379,6 +380,7 @@ function ThreadBlockView({
         onStop={runBusy ? onCancel : undefined}
         runId={block.id}
         tick={runBusy ? liveTick : 0}
+        startedAt={runBusy ? liveStartedAt : undefined}
       />
     );
   }
@@ -512,14 +514,10 @@ export function ThreadColumn({
   const virtualize = blocks.length > VIRTUALIZE_AFTER;
   const listRef = useListRef(null);
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 72 });
-  const lastBlock = blocks[blocks.length - 1];
-  const lastWorkVisible =
-    lastBlock?.kind === "work" &&
-    visibleWorkItems(lastBlock.items, showThinking).length > 0;
-  const liveInTimeline = busy && lastWorkVisible;
+  const lastWorkId = liveWorkBlockId(blocks, { busy, showThinking });
+  const liveInTimeline = lastWorkId != null;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
   const liveRow = busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
-  const lastWorkId = lastBlock?.kind === "work" ? lastBlock.id : null;
   const rowCtx = useMemo(
     (): ThreadRowCtx => ({
       paneId,
@@ -532,6 +530,7 @@ export function ThreadColumn({
       liveInTimeline,
       liveRow,
       liveTick,
+      liveStartedAt,
       busy,
       items: chat.items,
       onResendUser,
@@ -553,6 +552,7 @@ export function ThreadColumn({
       liveInTimeline,
       liveRow,
       liveTick,
+      liveStartedAt,
       busy,
       chat.items,
       onResendUser,

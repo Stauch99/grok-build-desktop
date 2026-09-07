@@ -107,6 +107,13 @@ function overlayCreatedSessions(base: SessionSummary[], created: SessionSummary[
   return extra.length ? [...rows, ...extra] : rows;
 }
 
+function isAcpUntitledShell(s: SessionSummary): boolean {
+  if ((s.dir ?? "").trim()) return false;
+  if (s.sessionKind === "subagent" || s.parentSessionId) return false;
+  if ((s.lastTurnSummary ?? "").trim()) return false;
+  return isUntitledSessionTitle(s.id, s.title);
+}
+
 function pruneCreatedSessions(created: SessionSummary[], listed: SessionSummary[]): SessionSummary[] {
   const byKey = new Map(listed.map((s) => [sessionKey(s), s]));
   return created.filter((s) => {
@@ -123,7 +130,11 @@ export function catalogSessions(args: {
   acp: SessionSummary[];
   created: SessionSummary[];
 }): { rows: SessionSummary[]; created: SessionSummary[] } {
-  const unioned = unionSessionsById(args.disk, args.acp);
+  const createdKeys = new Set(args.created.map(sessionKey));
+  const unioned = unionSessionsById(args.disk, args.acp).filter((row) => {
+    if (!isAcpUntitledShell(row)) return true;
+    return createdKeys.has(sessionKey(row));
+  });
   const leftover = pruneCreatedSessions(args.created, unioned);
   return { rows: overlayCreatedSessions(unioned, leftover), created: leftover };
 }

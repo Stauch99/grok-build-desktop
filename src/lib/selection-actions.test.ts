@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { composeRewriteDraft, formatQuote, toolbarPlacement, TOOLBAR_H, TOOLBAR_W } from "./selection-actions";
+import {
+  composeRewriteDraft,
+  formatQuote,
+  sameSelectionState,
+  shouldPublishSelectionToolbar,
+  toolbarPlacement,
+  TOOLBAR_H,
+  TOOLBAR_W,
+} from "./selection-actions";
 
 const viewport = { width: 1280, height: 800 };
 const toolbar = { width: TOOLBAR_W, height: TOOLBAR_H };
@@ -45,5 +53,22 @@ describe("composeRewriteDraft", () => {
     const draft = composeRewriteDraft(formatQuote("hello"), "en");
     expect(draft).toContain("> hello");
     expect(draft).toMatch(/rewrite/i);
+  });
+});
+
+describe("shouldPublishSelectionToolbar", () => {
+  it("waits until the pointer is up so drag-select does not re-render the app", () => {
+    expect(shouldPublishSelectionToolbar({ pointerDown: true })).toBe(false);
+    expect(shouldPublishSelectionToolbar({ pointerDown: false })).toBe(true);
+  });
+});
+
+describe("sameSelectionState", () => {
+  const rect = { top: 10, left: 20, width: 30, height: 12 };
+  it("skips a React update when the snapshot did not change", () => {
+    expect(sameSelectionState({ text: "a", rect }, { text: "a", rect: { ...rect } })).toBe(true);
+    expect(sameSelectionState({ text: "a", rect }, { text: "b", rect })).toBe(false);
+    expect(sameSelectionState(null, null)).toBe(true);
+    expect(sameSelectionState(null, { text: "a", rect })).toBe(false);
   });
 });

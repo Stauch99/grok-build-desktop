@@ -3,6 +3,7 @@ import { openPath } from "../api";
 import { formatElapsed, type WorkItem } from "../lib/chat";
 import { thoughtLineLabel } from "../lib/time";
 import { classifyTool, compressLabel, compressTimeline, toolLineCopy } from "../lib/tool-render";
+import { liveTool } from "../lib/work-run";
 import {
   IconEdit,
   IconFileSearch,
@@ -30,6 +31,7 @@ function SpineRow({
   icon,
   expandable,
   failed,
+  live,
   onActivate,
   label,
   children,
@@ -38,6 +40,7 @@ function SpineRow({
   icon: ReactNode;
   expandable: boolean;
   failed?: boolean;
+  live?: boolean;
   onActivate?: () => void;
   label: string;
   children: ReactNode;
@@ -51,7 +54,7 @@ function SpineRow({
     else onActivate?.();
   };
   return (
-    <div className={`spine-row${open ? " open" : ""}${failed ? " failed" : ""}`}>
+    <div className={`spine-row${open ? " open" : ""}${failed ? " failed" : ""}${live ? " live" : ""}`}>
       <span className="spine-ico">{icon}</span>
       {interactive ? (
         <button
@@ -93,7 +96,7 @@ export function WorkLiveRow({
         <DotMatrix />
       </span>
       <span className="spine-head static">
-        <span className="spine-verb">{label}</span>
+        <span className="spine-verb shimmer-text">{label}</span>
       </span>
     </button>
   );
@@ -113,6 +116,7 @@ export function WorkTimeline({
   onInspectTool?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
 }) {
   const last = items[items.length - 1];
+  const currentTool = busy ? liveTool(items) : undefined;
   const openPathAbs = (p: string) => {
     const target = p.startsWith("/") ? p : cwd ? `${cwd.replace(/\/$/, "")}/${p}` : p;
     void openPath(target);
@@ -123,12 +127,14 @@ export function WorkTimeline({
     const kind = classifyTool(item.title, item.toolKind);
     const hasBody = !!(item.diff || item.detail);
     const label = detail ? `${verb} ${detail}` : verb;
+    const live = currentTool?.id === item.id;
     return (
       <SpineRow
         key={item.id}
-        icon={<ToolIcon kind={kind} />}
+        icon={live ? <DotMatrix /> : <ToolIcon kind={kind} />}
         expandable={hasBody}
         failed={item.status === "failed" || item.status === "cancelled"}
+        live={live}
         onActivate={!hasBody && onInspectTool ? () => onInspectTool(item) : undefined}
         label={label}
         body={
@@ -144,7 +150,7 @@ export function WorkTimeline({
           ) : null
         }
       >
-        <span className="spine-verb">{verb}</span>
+        <span className={`spine-verb${live ? " shimmer-text" : ""}`}>{verb}</span>
         {detail ? (
           <span className="spine-detail" data-tip={detail}>
             {detail}
@@ -160,18 +166,19 @@ export function WorkTimeline({
         if (row.kind === "item") {
           const item = row.item;
           if (item.kind === "thought") {
-            const liveThought = busy && last?.id === item.id;
+            const liveThought = busy && !currentTool && last?.id === item.id;
             const verb = thoughtLineLabel(item.at, item.until, liveThought);
             const text = item.text.trim();
             return (
               <SpineRow
                 key={item.id}
-                icon={<IconLight size={18} />}
+                icon={liveThought ? <DotMatrix /> : <IconLight size={18} />}
                 expandable={!!text}
+                live={liveThought}
                 label={verb}
                 body={text ? <div className="thought">{item.text}</div> : null}
               >
-                <span className="spine-verb">{verb}</span>
+                <span className={`spine-verb${liveThought ? " shimmer-text" : ""}`}>{verb}</span>
               </SpineRow>
             );
           }
@@ -179,12 +186,14 @@ export function WorkTimeline({
         }
         const label = compressLabel(row.cls, row.items.length);
         const failed = row.items.some((t) => t.status === "failed" || t.status === "cancelled");
+        const live = !!currentTool && row.items.some((t) => t.id === currentTool.id);
         return (
           <SpineRow
             key={row.items[0].id}
-            icon={<ToolIcon kind={row.cls === "call" ? "other" : row.cls} />}
+            icon={live ? <DotMatrix /> : <ToolIcon kind={row.cls === "call" ? "other" : row.cls} />}
             expandable
             failed={failed}
+            live={live}
             label={label}
             body={
               <div className="spine-group">
@@ -206,11 +215,11 @@ export function WorkTimeline({
               </div>
             }
           >
-            <span className="spine-verb">{label}</span>
+            <span className={`spine-verb${live ? " shimmer-text" : ""}`}>{label}</span>
           </SpineRow>
         );
       })}
-      {live}
+      {currentTool || (busy && last?.kind === "thought") ? null : live}
     </div>
   );
 }

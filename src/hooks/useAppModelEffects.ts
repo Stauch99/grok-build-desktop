@@ -21,6 +21,7 @@ import {
   type WebuiState,
 } from "../api";
 import { formatElapsed, type ChatItem } from "../lib/chat";
+import { sessionTokensAfterLiveUsage } from "../lib/sidebar-list";
 import { applyAccent } from "../lib/accent";
 import { t, type Locale } from "../lib/i18n";
 import { MAIN_PANE, leafIds } from "../lib/pane-tree";
@@ -564,11 +565,8 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [usage?.used, usage?.size]);
 
   useEffect(() => {
-    if (!acp.sessionId) return;
-    const used = usage?.used;
-    if (typeof used !== "number" || !Number.isFinite(used)) return;
-    if (s.sessionTokens[acp.sessionId] === used) return;
-    const next = { ...s.sessionTokens, [acp.sessionId]: used };
+    const next = sessionTokensAfterLiveUsage(s.sessionTokens, acp.sessionId, usage?.used);
+    if (!next) return;
     s.setSessionTokens(next);
     d.persist({ sessionTokens: next });
   }, [acp.sessionId, usage?.used, s.sessionTokens, d.persist]);

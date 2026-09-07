@@ -299,9 +299,15 @@ fn parse_iso_offset(s: &str) -> Option<i64> {
     };
     let rest = &s[1..];
     let (hour, min) = if rest.len() >= 5 && rest.as_bytes().get(2) == Some(&b':') {
-        (rest[..2].parse::<i64>().ok()?, rest[3..5].parse::<i64>().ok()?)
+        (
+            rest[..2].parse::<i64>().ok()?,
+            rest[3..5].parse::<i64>().ok()?,
+        )
     } else if rest.len() >= 4 {
-        (rest[..2].parse::<i64>().ok()?, rest[2..4].parse::<i64>().ok()?)
+        (
+            rest[..2].parse::<i64>().ok()?,
+            rest[2..4].parse::<i64>().ok()?,
+        )
     } else {
         return None;
     };
@@ -409,9 +415,7 @@ fn parse_kimi_append_message(value: &Value, ts: Option<u64>) -> Vec<Value> {
     if is_harness_user_text(&text) {
         return Vec::new();
     }
-    chunk("user_message_chunk", &text, ts)
-        .into_iter()
-        .collect()
+    chunk("user_message_chunk", &text, ts).into_iter().collect()
 }
 
 fn is_harness_user_text(text: &str) -> bool {

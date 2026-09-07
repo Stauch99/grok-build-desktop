@@ -49,7 +49,7 @@ describe("reduced motion", () => {
     expect(chunk).toMatch(/\.memory-dock[\s\S]*animation:\s*none/);
     expect(chunk).toMatch(/\.spinner[\s\S]*infinite/);
     expect(chunk).toMatch(/spinner-pulse/);
-    expect(chunk).toMatch(/\.work-run\.live \.work-run-text[\s\S]*animation:\s*none/);
+    expect(chunk).toMatch(/\.shimmer-text[\s\S]*animation:\s*none/);
   });
 });
 
@@ -99,8 +99,8 @@ describe("motion tokens and press feedback", () => {
     expect(sheet).not.toMatch(/transition:[^;]*grid-template-rows/);
   });
 
-  it("staggers dot-matrix cells from --i", () => {
-    expect(css("src/styles/shell.css")).toMatch(/\.dot-matrix-cell[\s\S]*--i/);
+  it("drives the pixel-grid cells from --d", () => {
+    expect(css("src/styles/shell.css")).toMatch(/\.dot-matrix-cell[\s\S]*pixel-on[\s\S]*--d/);
   });
 
   it("plays review-rail exit with transform, not layout", () => {
@@ -173,6 +173,19 @@ describe("brand accent surfaces", () => {
     const grip = css("src/styles/panes.css").match(/\.resizer-row:hover \.resizer-grip[\s\S]*?background:\s*var\(--accent\)/);
     expect(grip).toBeTruthy();
     expect(css("src/styles/panes.css")).not.toMatch(/\.resizer-row[\s\S]{0,200}--brand/);
+  });
+});
+
+describe("HTML preview frame", () => {
+  it("fills the preview pane instead of the iframe's 300x150 default", () => {
+    const extras = css("src/styles/extras.css");
+    const frame = extras.match(/iframe\.html-frame\s*\{[^}]+\}/)?.[0] ?? "";
+    const body = extras.match(/\.preview-body\.html-frame\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(frame).toMatch(/width:\s*100%/);
+    expect(frame).toMatch(/height:\s*100%/);
+    expect(frame).toMatch(/display:\s*block/);
+    expect(body).toMatch(/padding:\s*0/);
+    expect(body).toMatch(/overflow:\s*hidden/);
   });
 });
 
