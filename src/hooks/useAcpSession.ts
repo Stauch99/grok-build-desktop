@@ -17,6 +17,7 @@ import {
 import {
   afterByteFor,
   applySessionPage,
+  chatAfterBoundSessionChange,
   emptyChat,
   itemsAfterLastUser,
   shouldKeepSessionUpdate,
@@ -57,6 +58,13 @@ import { isDreamSession } from "../lib/memory-dream-acp";
 import { t, type Locale } from "../lib/i18n";
 import { createdSessionSummary, maybeFetchAcpSessionList } from "../lib/session-acp-list";
 import { titleFromUserText } from "../lib/session-title";
+import { applyTurnCrash, turnIsLive } from "../lib/turn-crash";
+import {
+  applyGhostHeal,
+  findOptimisticGhostTurn,
+  shouldHealGhostStreaming,
+  stampMainTurnClock,
+} from "../lib/ghost-streaming-heal";
 
 const MAIN_PANE = "main";
 const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
@@ -236,6 +244,15 @@ export function shouldIgnoreAcpEvent(
   return shouldDropAcpEvent(paneAgent, eventAgent);
 }
 
+/** After onAgentExit marks the CLI not ready, leftover session/update must not resurrect tools. */
+export function shouldDropUpdateAfterAgentExit(
+  ready: Readonly<Partial<Record<AgentId, boolean>>>,
+  eventAgent: AgentId | undefined,
+): boolean {
+  if (eventAgent == null) return false;
+  return ready[eventAgent] === false;
+}
+
 export function stderrToastText(eventAgent: AgentId, line: string): string | null {
   const msg = surfaceStderr(line);
   if (!msg) return null;
@@ -256,12 +273,19 @@ export function extraPanesHitAgent(
 export function extraPanesAfterAgentExit(
   prev: Record<string, ExtraPaneState>,
   eventAgent: AgentId,
+  crash: { detail: string; at: number },
+  liveChats?: Readonly<Record<string, ChatState>>,
 ): Record<string, ExtraPaneState> {
   let changed = false;
   const next: Record<string, ExtraPaneState> = {};
   for (const [id, pane] of Object.entries(prev)) {
-    if (pane.agentId === eventAgent && pane.busy) {
-      next[id] = { ...pane, busy: false };
+    const chat = liveChats?.[id] ?? pane.chat;
+    if (pane.agentId === eventAgent && turnIsLive(chat, pane.busy)) {
+      next[id] = {
+        ...pane,
+        busy: false,
+        chat: applyTurnCrash(chat, { busy: pane.busy, detail: crash.detail, at: crash.at }),
+      };
       changed = true;
     } else {
       next[id] = pane;
@@ -347,6 +371,7 @@ export type AcpSessionDeps = {
   setQueue: React.Dispatch<React.SetStateAction<QueueState>>;
   onLocalSlash: (cmd: CommandDef, rest: string, dest: PaneDest) => Promise<void>;
   onCancelPermission: (target: PaneDest) => Promise<void>;
+  abortTurnIdle: (paneId: string) => void;
   injectUserMemory: boolean;
   userMd: string | null;
   doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
@@ -410,6 +435,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const readyRef = useRef(false);
   const readyByAgentRef = useRef<Partial<Record<AgentId, boolean>>>({});
   const busyRef = useRef(false);
+  const sendInFlightRef = useRef(false);
+  const turnStartedAtRef = useRef<number | null>(null);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string }>());
   const echoedUser = useRef(false);
   const lastSentRef = useRef("");
@@ -440,12 +467,48 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     .join(",");
   const seenAssistantAtRef = useRef<number | null>(null);
   useEffect(() => {
+    turnStartedAtRef.current = stampMainTurnClock(busy, turnStartedAtRef.current, Date.now());
+    if (!busy) seenAssistantAtRef.current = null;
     if (!busy && !extraBusyKey) {
-      seenAssistantAtRef.current = null;
       return;
     }
     const tick = () => {
       const items = chatRef.current.items;
+      const ghostTurn = findOptimisticGhostTurn(items);
+      if (
+        ghostTurn &&
+        shouldHealGhostStreaming({
+          busy: busyRef.current,
+          pendingPermission: false,
+          sendInFlight: sendInFlightRef.current,
+          turnStartedAt: turnStartedAtRef.current,
+          nowMs: Date.now(),
+          items,
+        })
+      ) {
+        const d = depsRef.current;
+        setChat((prev) => {
+          const next = applyGhostHeal(prev, ghostTurn);
+          chatRef.current = next;
+          return next;
+        });
+        busyRef.current = false;
+        setBusy(false);
+        echoedUser.current = false;
+        turnStartedAtRef.current = null;
+        pendingPrompt.current = null;
+        abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
+        const sid = cancelTargetSessionId(runningSessionIdRef.current, sessionIdRef.current);
+        if (sid) {
+          void sendRaw(sessionCancelNotification(sid), paneAgent(MAIN_PANE)).catch(() => {});
+        }
+        d.setDraft(ghostTurn.restoreComposerText);
+        const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, ghostTurn.restoreComposerText);
+        d.setSessionDrafts(drafts);
+        d.persist({ drafts });
+        d.showToast(t(d.locale ?? "zh", "toast.ghostHeal"));
+        return;
+      }
       const turn = itemsAfterLastUser(items);
       if (
         seenAssistantAtRef.current == null &&
@@ -564,6 +627,18 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     });
   }
 
+  function dropPendingUpdatesForAgent(agentId: AgentId) {
+    if (mainAgentIdRef.current === agentId) delete pendingByPane.current[MAIN_PANE];
+    for (const [id, pane] of Object.entries(depsRef.current.extraPanes)) {
+      if (pane.agentId === agentId) delete pendingByPane.current[id];
+    }
+    const leftover = Object.values(pendingByPane.current).some((bucket) => bucket.length > 0);
+    if (!leftover) {
+      cancelFlush.current?.();
+      cancelFlush.current = null;
+    }
+  }
+
   function enqueueSessionUpdate(params: Record<string, unknown>, dest: PaneDest) {
     const bucket = pendingByPane.current[dest] ?? [];
     bucket.push(params);
@@ -573,9 +648,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   function adoptSession(id: string | null) {
-    if (id !== sessionIdRef.current) {
+    const prev = sessionIdRef.current;
+    if (id !== prev) {
       abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
       pendingPrompt.current = null;
+      setChat((chat) => chatAfterBoundSessionChange(chat, prev, id));
     }
     sessionIdRef.current = id;
     setSessionId(id);
@@ -768,6 +845,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         extra ? d.extraPanes[dest]?.agentId : undefined,
       );
       if (shouldIgnoreAcpEvent(paneAgent, eventAgent)) return;
+      if (shouldDropUpdateAfterAgentExit(readyByAgentRef.current, eventAgent)) return;
       if (ignoreReplay.current && !extra) return;
       if (extra && ignoreExtraReplay.current[dest]) return;
       enqueueSessionUpdate(params, dest);
@@ -820,22 +898,47 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const d = depsRef.current;
         const hitMain = mainAgentIdRef.current === eventAgent;
         const hitExtra = extraPanesHitAgent(d.extraPanes, eventAgent);
+        const detail = agentExitToastText(eventAgent);
+        const at = Date.now();
+        dropPendingUpdatesForAgent(eventAgent);
         if (hitMain) {
-          if (busyRef.current && runningSessionIdRef.current) {
-            const id = runningSessionIdRef.current;
-            d.setUnread((prev) => markUnread(prev, id, "error"));
+          d.abortTurnIdle(MAIN_PANE);
+          abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
+          const live = turnIsLive(chatRef.current, busyRef.current);
+          if (live) {
+            const id = cancelTargetSessionId(runningSessionIdRef.current, sessionIdRef.current);
+            if (id) d.setUnread((prev) => markUnread(prev, id, "error"));
+            setChat((prev) => applyTurnCrash(prev, { busy: busyRef.current, detail, at }));
           }
           readyRef.current = false;
           setReady(false);
           d.setSawExit(true);
+          busyRef.current = false;
           setBusy(false);
           setConnecting(false);
           pendingPrompt.current = null;
         }
         if (hitExtra) {
-          d.setExtraPanes((prev) => extraPanesAfterAgentExit(prev, eventAgent));
+          for (const [id, pane] of Object.entries(d.extraPanes)) {
+            if (pane.agentId !== eventAgent) continue;
+            d.abortTurnIdle(id);
+            abandonPendingForDest(pendingRpc.current, pendingDest.current, id);
+            if (pendingPrompt.current === id) pendingPrompt.current = null;
+            const liveChat = extraChatRef.current[id] ?? pane.chat;
+            if (turnIsLive(liveChat, pane.busy) && pane.sessionId) {
+              const sid = pane.sessionId;
+              d.setUnread((prev) => markUnread(prev, sid, "error"));
+            }
+          }
+          d.setExtraPanes((prev) => {
+            const next = extraPanesAfterAgentExit(prev, eventAgent, { detail, at }, extraChatRef.current);
+            for (const [id, pane] of Object.entries(next)) {
+              if (prev[id] && prev[id] !== pane) extraChatRef.current[id] = pane.chat;
+            }
+            return next;
+          });
         }
-        if (hitMain || hitExtra) d.showToast(agentExitToastText(eventAgent));
+        if (hitMain || hitExtra) d.showToast(detail);
       });
       if (cancelled) {
         a(); c(); exit();
@@ -1390,6 +1493,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setBusy(true);
     }
     let mainGen = promptGen.current[MAIN_PANE] ?? 0;
+    sendInFlightRef.current = true;
     try {
       const agentId = paneAgent(MAIN_PANE);
       await ensureAgent(agentId);
@@ -1412,7 +1516,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         mainGen = promptGen.current[MAIN_PANE] ?? mainGen;
       }
       if (d.cwd) await setWorkspace(d.cwd, sid);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
+      const promptWait = rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
+      sendInFlightRef.current = false;
+      await promptWait;
       drafts = writeDraft(drafts, sid, "");
       d.setSessionDrafts(drafts);
       d.persist({ drafts });
@@ -1429,6 +1535,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       setBusy(false);
       d.showToast(String(e));
       setChat((prev) => withPromptFail(prev, String(e), Date.now()));
+    } finally {
+      sendInFlightRef.current = false;
     }
   }
 

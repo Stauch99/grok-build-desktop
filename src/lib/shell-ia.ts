@@ -1,4 +1,5 @@
-import { t, type Locale } from "./i18n";
+import type { Locale } from "./i18n";
+import { sendIntentBusyHint } from "./send-intent";
 
 export const SIDEBAR_RAIL = 90;
 
@@ -51,7 +52,15 @@ export function contextSummary(opts: {
 }
 
 export function busyComposerHint(steerByDefault: boolean, locale: Locale = "zh"): string {
-  return t(locale, steerByDefault ? "composer.hintSteer" : "composer.hintQueue");
+  return (
+    sendIntentBusyHint({
+      host: "streaming",
+      hasBody: true,
+      steerByDefault,
+      queueLength: 0,
+      locale,
+    }) ?? ""
+  );
 }
 
 export function messageFeedbackSupported(): boolean {

@@ -16,7 +16,8 @@ import { CHAT_FONT_PRESETS, normalizeChatFontSize } from "./lib/chat-font";
 import { CHAT_WIDTH_PRESETS, normalizeChatWidth } from "./lib/chat-width";
 import { isDangerousTrustPath, localeSearchHay, LOCALE_CHOICES, t, type Locale } from "./lib/i18n";
 import { permissionModeHint } from "./lib/permission-copy";
-import { UPDATE_INSTALLATION_COPY } from "./lib/product-copy";
+import { APP_VERSION, UPDATE_INSTALLATION_COPY } from "./lib/product-copy";
+import { supportBundleText } from "./lib/support-bundle";
 import { stateAuthorityExplanation } from "./lib/state-authority";
 import { settingRowVisible } from "./lib/settings-search";
 import { ShortcutsTable } from "./components/ShortcutsTable";
@@ -315,9 +316,10 @@ export function SettingsPanel({
   const aboutConfig = show("config.toml") && !!cli?.configPath;
   const aboutUpdate = show("更新", UPDATE_INSTALLATION_COPY);
   const aboutManaged = show("managed_config");
+  const aboutSupport = show(hay("settings.copySupport"), hay("settings.supportHint"));
   const aboutMeta = aboutCli || aboutLogin;
   const aboutInstall = aboutConfig || aboutUpdate;
-  const aboutHas = aboutMeta || aboutInstall || aboutManaged;
+  const aboutHas = aboutMeta || aboutInstall || aboutManaged || aboutSupport;
 
   const emptyCopy = <p className="float-empty">{t(locale, "settings.empty")}</p>;
   const trustCwd = inspect?.cwd ?? "";
@@ -944,6 +946,30 @@ export function SettingsPanel({
                         </div>
                       ) : null}
                       {aboutUpdate ? <p className="hint">{UPDATE_INSTALLATION_COPY}</p> : null}
+                    </div>
+                  ) : null}
+                  {aboutSupport ? (
+                    <div className="set-card">
+                      <p className="hint">{t(locale, "settings.supportHint")}</p>
+                      <div className="set-actions">
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          onClick={() => {
+                            const text = supportBundleText({
+                              version: APP_VERSION,
+                              locale,
+                              doctors,
+                              env: {},
+                            });
+                            void navigator.clipboard.writeText(text).then(() => {
+                              setNote(t(locale, "toast.copied"));
+                            });
+                          }}
+                        >
+                          {t(locale, "settings.copySupport")}
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                   {aboutManaged ? (

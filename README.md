@@ -77,9 +77,17 @@ What it is **not**: a full IDE, a browser web UI, or a replacement for `git`, `l
 
 ## Download
 
-Prebuilt installers are published on [GitHub Releases](https://github.com/Stauch99/grok-build-desktop/releases) (macOS `.dmg`, Windows NSIS/MSI, Linux `.deb` / AppImage). The app has no in-app auto-update — install a new build when you want one.
+Prebuilt installers are published on [GitHub Releases](https://github.com/Stauch99/grok-build-desktop/releases) (macOS `.dmg`, Windows NSIS/MSI, Linux `.deb` / AppImage). The app has no in-app auto-update — install a new build when you want one. Each tagged release includes `SHA256SUMS`:
 
-You still need at least one ACP CLI installed and logged in.
+```bash
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+You still need at least one ACP CLI installed and logged in. For UI work without a CLI:
+
+```bash
+GROK_BUILD_ACP=mock npm run tauri dev
+```
 
 ## Quick start
 

@@ -10,6 +10,7 @@ import {
   extraPanesAfterAgentExit,
   extraPanesAfterAgentStderr,
   extraPanesHitAgent,
+  shouldDropUpdateAfterAgentExit,
   ignoreAcpHistoryDuringResume,
   isAgentReady,
   isPromptStopResult,
@@ -340,9 +341,11 @@ describe("cross-agent process exit", () => {
       split: extraPane({ agentId: "claude", busy: true }),
       p2: extraPane({ agentId: "grok", busy: true }),
     };
-    const next = extraPanesAfterAgentExit(prev, "claude");
+    const next = extraPanesAfterAgentExit(prev, "claude", { detail: "Claude 已退出", at: 9 });
     expect(next.split?.busy).toBe(false);
+    expect(next.split?.chat.items.at(-1)).toMatchObject({ status: "failed", detail: "Claude 已退出" });
     expect(next.p2?.busy).toBe(true);
+    expect(next.p2?.chat.items).toHaveLength(0);
     expect(extraPanesHitAgent(prev, "claude")).toBe(true);
     expect(extraPanesHitAgent(prev, "kimi")).toBe(false);
     expect(agentExitToastText("claude")).toBe("Claude 已退出");
@@ -353,9 +356,66 @@ describe("cross-agent process exit", () => {
       split: extraPane({ agentId: "claude", busy: true }),
       p2: extraPane({ agentId: "grok", busy: true }),
     };
-    const next = extraPanesAfterAgentExit(prev, "grok");
+    const next = extraPanesAfterAgentExit(prev, "grok", { detail: "Grok 已退出", at: 9 });
     expect(next.split?.busy).toBe(true);
     expect(next.p2?.busy).toBe(false);
+  });
+
+  it("cancels in-progress tools on the crashed pane", () => {
+    const prev = {
+      split: extraPane({
+        agentId: "claude",
+        busy: true,
+        chat: {
+          ...emptyChat(),
+          items: [{ kind: "tool", id: "t1", title: "bash", status: "in_progress", at: 1 }],
+          nextId: 2,
+        },
+      }),
+    };
+    const next = extraPanesAfterAgentExit(prev, "claude", { detail: "Claude 已退出", at: 9 });
+    expect(next.split?.chat.items[0]).toMatchObject({ id: "t1", status: "cancelled" });
+    expect(next.split?.chat.items.at(-1)).toMatchObject({ status: "failed" });
+  });
+
+  it("heals extra panes that went idle with tools still open", () => {
+    const prev = {
+      split: extraPane({
+        agentId: "claude",
+        busy: false,
+        chat: {
+          ...emptyChat(),
+          items: [{ kind: "tool", id: "t1", title: "bash", status: "in_progress", at: 1 }],
+          nextId: 2,
+        },
+      }),
+    };
+    const next = extraPanesAfterAgentExit(prev, "claude", { detail: "Claude 已退出", at: 9 });
+    expect(next.split?.chat.items[0]).toMatchObject({ status: "cancelled" });
+  });
+
+  it("crashes the live extra-pane chat when React state has not caught up", () => {
+    const live = {
+      ...emptyChat(),
+      items: [{ kind: "tool" as const, id: "t1", title: "bash", status: "in_progress" as const, at: 1 }],
+      nextId: 2,
+    };
+    const prev = {
+      split: extraPane({ agentId: "claude", busy: false, chat: emptyChat() }),
+    };
+    const next = extraPanesAfterAgentExit(prev, "claude", { detail: "Claude 已退出", at: 9 }, { split: live });
+    expect(next.split?.chat.items[0]).toMatchObject({ id: "t1", status: "cancelled" });
+    expect(next.split?.busy).toBe(false);
+  });
+});
+
+describe("shouldDropUpdateAfterAgentExit", () => {
+  it("drops leftover updates after the CLI is marked not ready, not before", () => {
+    expect(shouldDropUpdateAfterAgentExit({}, "grok")).toBe(false);
+    expect(shouldDropUpdateAfterAgentExit({ grok: true }, "grok")).toBe(false);
+    expect(shouldDropUpdateAfterAgentExit({ grok: false }, "grok")).toBe(true);
+    expect(shouldDropUpdateAfterAgentExit({ grok: false }, "claude")).toBe(false);
+    expect(shouldDropUpdateAfterAgentExit({ grok: false }, undefined)).toBe(false);
   });
 });
 
@@ -367,6 +427,11 @@ describe("resumeSession tree chrome", () => {
 });
 
 describe("createAcpSession sidebar", () => {
+  it("drops leftover usage when the bound session id changes", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/setChat\(\(chat\) => chatAfterBoundSessionChange\(chat, prev, id\)\)/);
+  });
+
   it("announces the new session instead of waiting for a disk scan", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).toMatch(/d\.onSessionCreated\(\s*createdSessionSummary\(/);

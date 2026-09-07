@@ -4,6 +4,7 @@ import {
   applyChatUpdate,
   applySessionPage,
   emptyChat,
+  chatAfterBoundSessionChange,
   groupWorkRuns,
   hydrateFromUpdates,
   shouldKeepSessionUpdate,
@@ -414,6 +415,14 @@ describe("usagePercent", () => {
   it("returns null without a window size", () => {
     expect(usagePercent(undefined)).toBeNull();
     expect(usagePercent({ used: 12 })).toBeNull();
+  });
+});
+
+describe("chatAfterBoundSessionChange", () => {
+  it("drops leftover usage so a new row does not inherit the previous token count", () => {
+    const chat = { ...emptyChat(), usage: { used: 129446, size: 500000, input: 1, output: 1, cache: 0 } };
+    expect(chatAfterBoundSessionChange(chat, "old", "new").usage).toBeUndefined();
+    expect(chatAfterBoundSessionChange(chat, "same", "same").usage?.used).toBe(129446);
   });
 });
 

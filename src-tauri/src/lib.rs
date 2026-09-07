@@ -24,6 +24,8 @@ mod marketplace;
 mod mcp_import;
 mod mcp_toml;
 mod memory_host;
+mod mock_acp;
+mod proxy;
 mod rpc_allowlist;
 mod session_lookup;
 mod session_replay;
@@ -537,33 +539,56 @@ async fn start_agent(
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = mpsc::channel::<String>(64);
 
-    let grok_bin = if id == AgentId::Grok {
+    let mock = crate::mock_acp::use_mock_acp();
+    let grok_bin = if mock {
+        None
+    } else if id == AgentId::Grok {
         resolve_grok()
     } else {
         None
     };
-    let registry =
-        std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
-    let (cmd_path, args) = crate::adapters::spawn_argv(
-        id,
-        grok_bin.as_deref(),
-        registry.as_deref(),
-    )
-    .ok_or_else(|| {
-        if id == AgentId::Grok {
-            AppError::Message("找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into())
-        } else {
-            AppError::Message(format!("无法解析 {} 的启动参数", id.as_str()))
-        }
-    })?;
-    let mut cmd = Command::new(&cmd_path);
-    cmd.args(&args)
-        .stdin(Stdio::piped())
+    let mut cmd = if mock {
+        let exe =
+            std::env::current_exe().map_err(|e| AppError::Message(format!("current_exe: {e}")))?;
+        let mut cmd = Command::new(exe);
+        cmd.arg("--acp-mock-stdio");
+        cmd
+    } else {
+        let registry =
+            std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home()))
+                .ok();
+        let (cmd_path, args) =
+            crate::adapters::spawn_argv(id, grok_bin.as_deref(), registry.as_deref()).ok_or_else(
+                || {
+                    if id == AgentId::Grok {
+                        AppError::Message(
+                            "找不到 grok。请先安装 Grok Build CLI（~/.grok/bin/grok）。".into(),
+                        )
+                    } else {
+                        AppError::Message(format!("无法解析 {} 的启动参数", id.as_str()))
+                    }
+                },
+            )?;
+        let mut cmd = Command::new(&cmd_path);
+        cmd.args(&args);
+        cmd
+    };
+    cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .env("HOME", dirs_home());
     for (key, value) in extra_spawn_env(id, which_on_path) {
+        cmd.env(key, value);
+    }
+    let scutil = if crate::proxy::env_has_outbound_proxy(|k| std::env::var(k).ok()) {
+        None
+    } else {
+        crate::proxy::scutil_proxy_text().await
+    };
+    for (key, value) in
+        crate::proxy::child_proxy_pairs(|k| std::env::var(k).ok(), scutil.as_deref())
+    {
         cmd.env(key, value);
     }
     let path = crate::agent_host::prepend_path_dirs(
@@ -3085,6 +3110,10 @@ fn focus_main_window(app: &AppHandle) {
             }
         }
     }
+}
+
+pub fn run_mock_acp_stdio() {
+    crate::mock_acp::run_mock_acp_stdio();
 }
 
 pub fn run() {

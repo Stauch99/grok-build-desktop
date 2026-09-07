@@ -20,7 +20,8 @@ import { chatWidthCss } from "./lib/chat-width";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
 import { maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
-import { busyComposerHint, paneComposerTakeover, SIDEBAR_RAIL } from "./lib/shell-ia";
+import { paneComposerTakeover, SIDEBAR_RAIL } from "./lib/shell-ia";
+import { composerSendIntentHint } from "./lib/send-intent";
 import { forkAtSlash } from "./lib/turn-files";
 import { RecapCard } from "./components/RecapCard";
 import { GoalBar } from "./components/GoalBar";
@@ -572,6 +573,16 @@ export function App() {
           onAlt={(text) => altSubmit(text, paneId)}
           altLabel={steerByDefault ? t(locale, "composer.queue") : t(locale, "composer.steer")}
           busy={paneBusy}
+          busyHint={composerSendIntentHint({
+            connecting,
+            ready,
+            busy: paneBusy,
+            pendingPermission: paneTakeover === "permission",
+            hasBody: !!paneDraft.trim(),
+            steerByDefault,
+            queueLength: paneQueue.items.length,
+            locale,
+          })}
           takeover={paneTakeover}
           enterSends={enterSends}
           threadWidth={chatWidthCss(chatWidth)}
@@ -1026,7 +1037,16 @@ return (
             busy={mainPaneBusy}
             blocked={hero.blocked || loadingSession}
             takeover={takeover}
-            busyHint={busyComposerHint(steerByDefault, locale)}
+            busyHint={composerSendIntentHint({
+              connecting,
+              ready,
+              busy: mainPaneBusy,
+              pendingPermission: takeover === "permission",
+              hasBody: !!draft.trim(),
+              steerByDefault,
+              queueLength: queue.items.length,
+              locale,
+            })}
             enterSends={enterSends}
             threadWidth={chatWidthCss(chatWidth)}
             commands={[...skillCommands, ...chat.commands]}

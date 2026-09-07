@@ -356,6 +356,16 @@ export function emptyChat(): ChatState {
   return { items: [], nextId: 1, plan: [], artifacts: [], commands: [] };
 }
 
+/** Switching the bound session must not keep the previous row's token usage. */
+export function chatAfterBoundSessionChange(
+  chat: ChatState,
+  prevId: string | null,
+  nextId: string | null,
+): ChatState {
+  if (prevId === nextId || !chat.usage) return chat;
+  return { ...chat, usage: undefined };
+}
+
 export function applyChatUpdate(
   state: ChatState,
   params: Record<string, unknown>,

@@ -6,7 +6,7 @@ export type QueueState = { items: QueuedPrompt[]; nextId: number };
 
 export const emptyQueue = (): QueueState => ({ items: [], nextId: 1 });
 
-const MAX_QUEUED = 10;
+export const QUEUE_MAX = 10;
 
 export type EnqueueResult =
   | { ok: true; state: QueueState }
@@ -16,7 +16,7 @@ export type EnqueueResult =
 export function tryEnqueue(state: QueueState, text: string): EnqueueResult {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, reason: "empty", state };
-  if (state.items.length >= MAX_QUEUED) return { ok: false, reason: "full", state };
+  if (state.items.length >= QUEUE_MAX) return { ok: false, reason: "full", state };
   return {
     ok: true,
     state: {

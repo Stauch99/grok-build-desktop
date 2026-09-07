@@ -104,6 +104,10 @@ export function useAppModel() {
     setQueue: s.setQueue,
     onLocalSlash: (cmd, rest, dest) => s.runSlashRef.current(cmd, rest, dest),
     onCancelPermission: (target) => s.permissionCancelRef.current(target),
+    abortTurnIdle: (paneId) => {
+      if (paneId === "main") s.busyStartRef.current = null;
+      else delete s.extraBusyStartRef.current[paneId];
+    },
     injectUserMemory: s.injectUserMemory,
     userMd: dream.userMd,
     doctors: s.doctors,
