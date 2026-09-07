@@ -17,6 +17,7 @@ import { paneComposerTakeover, heroLayout } from "../lib/shell-ia";
 import { shouldBlockIdleComposer } from "../lib/agent-warmup";
 import { turnStatsFromItems } from "../lib/usage-split";
 import { displayTitle } from "../lib/projects";
+import { liveSessionPreviews } from "../lib/session-summary";
 import { buildSidebarSections, type SidebarListPrefs } from "../lib/sidebar-list";
 import type { ProjectGroupState } from "../lib/project-groups";
 import { deriveStatus, type SessionStatus, type UnreadMap } from "../lib/session-status";
@@ -100,6 +101,18 @@ export function useAppModelView(input: AppModelViewInput) {
     [busyIds, input.awaitingId, input.unread],
   );
 
+  const sessionPreviews = useMemo(
+    () =>
+      liveSessionPreviews([
+        { sessionId: input.sessionId, items: input.chat.items },
+        ...Object.values(input.extraPanes).map((pane) => ({
+          sessionId: pane.sessionId,
+          items: pane.chat.items,
+        })),
+      ]),
+    [input.sessionId, input.chat.items, input.extraPanes],
+  );
+
   const sidebarSections = useMemo(
     () =>
       buildSidebarSections({
@@ -114,6 +127,7 @@ export function useAppModelView(input: AppModelViewInput) {
         now: Date.now(),
         prefs: input.sidebarList,
         titles: input.titles,
+        preview: sessionPreviews,
         statusFor,
         sessionTokens: input.sessionTokens,
       }),
@@ -129,6 +143,7 @@ export function useAppModelView(input: AppModelViewInput) {
       input.clock,
       input.sidebarList,
       input.titles,
+      sessionPreviews,
       statusFor,
       input.sessionTokens,
     ],
@@ -163,7 +178,7 @@ export function useAppModelView(input: AppModelViewInput) {
 
   const current = input.current;
   const currentTitle = current
-    ? displayTitle(current, input.titles)
+    ? displayTitle(current, input.titles, sessionPreviews)
     : input.sessionId
       ? t(input.locale, "app.newSession")
       : t(input.locale, "app.newChat");
@@ -193,9 +208,9 @@ export function useAppModelView(input: AppModelViewInput) {
         const st = statusFor(s.id);
         const status =
           st === "needs-you" ? "needs-input" : st === "working" ? "running" : "idle";
-        return { id: s.id, title: displayTitle(s, input.titles), status } as const;
+        return { id: s.id, title: displayTitle(s, input.titles, sessionPreviews), status } as const;
       }),
-    [input.allSessions, statusFor, input.titles],
+    [input.allSessions, statusFor, input.titles, sessionPreviews],
   );
 
   const memoryPath = input.rules.find((r) => r.name === "MEMORY.md")?.path;
@@ -280,6 +295,7 @@ export function useAppModelView(input: AppModelViewInput) {
     modelLabels,
     current,
     currentTitle,
+    sessionPreviews,
     sessionModel,
     cwdLocked,
     usage,

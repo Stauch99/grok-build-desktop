@@ -18,6 +18,8 @@ import {
   sessionIdFromNewResult,
   sessionUpdateDest,
   shouldClearBusyOnPromptError,
+  shouldClearBusyAfterPromptCatch,
+  shouldKeepBusyForNewerPrompt,
   shouldClearBusyOnPromptResult,
   shouldIgnoreAcpEvent,
   stderrToastText,
@@ -27,6 +29,9 @@ import {
   isAbandonedPromptError,
   abandonPendingForDest,
   destHasPendingPrompt,
+  shouldIdleAfterPromptRpc,
+  shouldSettlePaneBusy,
+  cancelTargetSessionId,
   type ExtraPaneState,
 } from "./useAcpSession";
 
@@ -96,6 +101,20 @@ describe("shouldClearBusyOnPromptError", () => {
   });
 });
 
+describe("shouldClearBusyAfterPromptCatch", () => {
+  it("keeps busy when the previous prompt was abandoned for a new send", () => {
+    expect(shouldClearBusyAfterPromptCatch(new Error("prompt-abandoned"))).toBe(false);
+    expect(shouldClearBusyAfterPromptCatch(new Error("rpc error"))).toBe(true);
+  });
+});
+
+describe("shouldKeepBusyForNewerPrompt", () => {
+  it("keeps busy when cancel of an older turn races a newer send", () => {
+    expect(shouldKeepBusyForNewerPrompt(1, 1)).toBe(false);
+    expect(shouldKeepBusyForNewerPrompt(1, 2)).toBe(true);
+  });
+});
+
 describe("withEchoedUser", () => {
   it("appends a local user item without mutating the previous chat", () => {
     const prev = emptyChat();
@@ -137,6 +156,30 @@ describe("abandonPendingForDest", () => {
     expect(pending.has(2)).toBe(true);
     expect(isAbandonedPromptError(new Error("prompt-abandoned"))).toBe(true);
     expect(isAbandonedPromptError(new Error("rpc error"))).toBe(false);
+  });
+});
+
+describe("shouldIdleAfterPromptRpc", () => {
+  it("keeps the pane busy when a steer/second prompt waiter is still live", () => {
+    expect(shouldIdleAfterPromptRpc({ clearOnResult: true, otherPromptWaiters: true })).toBe(false);
+    expect(shouldIdleAfterPromptRpc({ clearOnResult: true, otherPromptWaiters: false })).toBe(true);
+    expect(shouldIdleAfterPromptRpc({ clearOnResult: false, otherPromptWaiters: false })).toBe(false);
+  });
+});
+
+describe("shouldSettlePaneBusy", () => {
+  it("does not idle on the settle timer while a prompt waiter is still live", () => {
+    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: true })).toBe(false);
+    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: false })).toBe(true);
+    expect(shouldSettlePaneBusy({ settled: false, pendingPrompt: false })).toBe(false);
+  });
+});
+
+describe("cancelTargetSessionId", () => {
+  it("falls back to the bound session when runningSessionId was cleared", () => {
+    expect(cancelTargetSessionId("run", "bound")).toBe("run");
+    expect(cancelTargetSessionId(null, "bound")).toBe("bound");
+    expect(cancelTargetSessionId(null, null)).toBeNull();
   });
 });
 
@@ -320,5 +363,24 @@ describe("resumeSession tree chrome", () => {
   it("does not expand parent rows when opening a session", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/setExpandedIds\(\(prev\) => new Set\(prev\)\.add\(pid\)\)/);
+  });
+});
+
+describe("createAcpSession sidebar", () => {
+  it("announces the new session instead of waiting for a disk scan", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/d\.onSessionCreated\(\s*createdSessionSummary\(/);
+  });
+
+  it("stamps first-user text and does not wait 500ms for a vendor title", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/createdSessionSummary\(\{[\s\S]*?title:/);
+    expect(src).not.toMatch(/onSessionsNeedRefresh\(\), 500/);
+  });
+
+  it("passes the composer model into session/new and the sidebar placeholder", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/sessionNewMeta\(agentId, depsRef\.current\.mode === "yolo", depsRef\.current\.model\)/);
+    expect(src).toMatch(/model: d\.model/);
   });
 });

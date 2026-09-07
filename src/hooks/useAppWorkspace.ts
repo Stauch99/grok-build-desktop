@@ -39,7 +39,13 @@ import {
   ungroupProject,
   type ProjectGroupState,
 } from "../lib/project-groups";
-import { dropDiskSession, isMissingSessionError, omitListedSession, unionSessionsById } from "../lib/session-acp-list";
+import {
+  catalogSessions,
+  dropDiskSession,
+  isMissingSessionError,
+  omitListedSession,
+  rememberCreatedSession,
+} from "../lib/session-acp-list";
 import { lookupSession, sessionToOpen } from "../lib/live-roster";
 import { exportTranscript } from "../lib/session-local";
 import { planOpenSession } from "../lib/session-agent";
@@ -147,6 +153,7 @@ export type AppWorkspaceDeps = {
 export function useAppWorkspace(deps: AppWorkspaceDeps) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
+  const createdSessionsRef = useRef<SessionSummary[]>([]);
 
   function findSessionById(id: string): SessionSummary | null {
     return lookupSession(id, depsRef.current.allSessionsRef.current);
@@ -169,9 +176,13 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   function applySessionUnion(disk: SessionSummary[], inbox: string, projectPaths: string[] = depsRef.current.projectsRef.current) {
     const d = depsRef.current;
     d.diskSessionsRef.current = disk;
-    const all = unionSessionsById(disk, Object.values(d.acpListedRef.current).flat()).filter((s) =>
-      sessionInLibrary(s.cwd, projectPaths, inbox),
-    );
+    const { rows, created } = catalogSessions({
+      disk,
+      acp: Object.values(d.acpListedRef.current).flat(),
+      created: createdSessionsRef.current,
+    });
+    createdSessionsRef.current = created;
+    const all = rows.filter((s) => sessionInLibrary(s.cwd, projectPaths, inbox));
     d.setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
     d.setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
   }
@@ -180,6 +191,11 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     const d = depsRef.current;
     d.acpListedRef.current = { ...d.acpListedRef.current, [agentId]: rows };
     applySessionUnion(d.diskSessionsRef.current, d.inboxCwd);
+  }
+
+  function onSessionCreated(row: SessionSummary) {
+    createdSessionsRef.current = rememberCreatedSession(createdSessionsRef.current, row);
+    applySessionUnion(depsRef.current.diskSessionsRef.current, depsRef.current.inboxCwd);
   }
 
   async function refreshAllSessions(inbox = depsRef.current.inboxCwd) {
@@ -381,6 +397,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
         if (!isMissingSessionError(e)) throw e;
       }
       d.acpListedRef.current = omitListedSession(d.acpListedRef.current, s.id);
+      createdSessionsRef.current = dropDiskSession(createdSessionsRef.current, s.id);
       const next = setTitleOverride(d.titles, s.id, "");
       d.setTitles(next);
       d.persist({ titles: next });
@@ -698,6 +715,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     liveBindings,
     applySessionUnion,
     onAcpSessionList,
+    onSessionCreated,
     refreshAllSessions,
     refreshInbox,
     focusPane,

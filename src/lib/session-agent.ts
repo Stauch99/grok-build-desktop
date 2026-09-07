@@ -99,7 +99,30 @@ export function keepLiveAgentOnHydrate(
   return userPicked ? current : hydrateLastAgent(loaded);
 }
 
-/** `_meta.yoloMode` is Grok-only. Other CLIs ignore it or treat unknown meta as a hang risk. */
-export function sessionNewMeta(agentId: AgentId, yolo: boolean): Record<string, unknown> {
-  return agentId === "grok" && yolo ? { yoloMode: true } : {};
+/** A late `list_models` must not wipe the model the user just tapped. */
+export function keepLiveModelOnCatalog(
+  userPicked: boolean,
+  catalogModel: string,
+  current: string,
+): string {
+  return userPicked && current.trim() ? current : catalogModel;
+}
+
+/** Composer pick: `/model` only reaches a live ACP session. */
+export function shouldSendSessionModelSlash(opts: { hasSession: boolean; ready: boolean }): boolean {
+  return opts.hasSession && opts.ready;
+}
+
+/** `_meta.yoloMode` / `_meta.modelId` are Grok-only. Other CLIs ignore unknown meta or hang. */
+export function sessionNewMeta(
+  agentId: AgentId,
+  yolo: boolean,
+  model?: string,
+): Record<string, unknown> {
+  if (agentId !== "grok") return {};
+  const meta: Record<string, unknown> = {};
+  if (yolo) meta.yoloMode = true;
+  const id = model?.trim();
+  if (id) meta.modelId = id;
+  return meta;
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { splitSlashAction } from "./useSlashCommands";
 
 describe("splitSlashAction", () => {
@@ -16,5 +17,15 @@ describe("splitSlashAction", () => {
 
   it("forwards agent slash prompts", () => {
     expect(splitSlashAction(undefined)).toBe("prompt");
+  });
+});
+
+describe("applySessionModel", () => {
+  it("always writes the chip and only /model when a session is live", () => {
+    const src = readFileSync(new URL("./useSlashCommands.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/modelPickedRef\.current = true/);
+    expect(src).toMatch(/shouldSendSessionModelSlash/);
+    expect(src).toMatch(/applyModel\(next, \{ skipSessionToast: live \}\)/);
+    expect(src).toMatch(/sendPrompt\(`\/model \$\{next\}`\)/);
   });
 });

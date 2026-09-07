@@ -25,13 +25,20 @@ export type HotkeyEvent = {
 export function matchAppShortcut(
   e: HotkeyEvent,
   overrides: Record<string, string>,
-  opts: { overlayOpen?: boolean; canClosePane?: boolean } = {},
+  opts: {
+    overlayOpen?: boolean;
+    canClosePane?: boolean;
+    composing?: boolean;
+    allowCancel?: boolean;
+  } = {},
 ): AppHotkeyId | null {
   if (e.repeat) return null;
   for (const id of APP_HOTKEYS) {
     const spec = bindingFor(overrides, id);
     if (!spec || !matchBinding(spec, e)) continue;
-    if (id === "cancel" && opts.overlayOpen) return null;
+    if (id === "cancel" && (opts.overlayOpen || opts.composing || opts.allowCancel === false)) {
+      return null;
+    }
     if (id === "close-pane" && !opts.canClosePane) continue;
     return id;
   }

@@ -1,4 +1,6 @@
 import type { SessionSummary } from "../api";
+import { compareByUpdatedAtDesc } from "./session-time";
+import { UNTITLED_SESSION_LABEL, clipSessionTitle, isUntitledSessionTitle } from "./session-title";
 import { basename } from "./text";
 
 export type ProjectNode = {
@@ -65,7 +67,7 @@ export function nestByParent(sessions: SessionSummary[]): SessionNode[] {
     }
   }
   const attached = new Set([...kids.values()].flat().map((s) => s.id));
-  const sort = (xs: SessionSummary[]) => [...xs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const sort = (xs: SessionSummary[]) => [...xs].sort(compareByUpdatedAtDesc);
   const build = (s: SessionSummary): SessionNode => ({
     session: s,
     children: sort(kids.get(s.id) ?? []).map(build),
@@ -83,7 +85,7 @@ export function groupSessions(projects: string[], sessions: SessionSummary[]): P
     name: basename(path),
     sessions: sessions
       .filter((s) => s.cwd === path)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      .sort(compareByUpdatedAtDesc),
   }));
 }
 
@@ -94,10 +96,9 @@ export function displayTitle(
 ): string {
   const o = titles[s.id]?.trim();
   if (o) return o;
-  const generated = s.title.trim();
-  if (generated) return generated;
-  const clip = preview?.[s.id]?.replace(/\s+/g, " ").trim().slice(0, 40);
-  return clip || "未命名会话";
+  if (!isUntitledSessionTitle(s.id, s.title)) return s.title.trim();
+  const clip = clipSessionTitle(preview?.[s.id] ?? "");
+  return clip || s.title.trim() || UNTITLED_SESSION_LABEL;
 }
 
 export function setTitleOverride(

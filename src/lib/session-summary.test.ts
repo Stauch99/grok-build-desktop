@@ -3,6 +3,7 @@ import type { ChatItem } from "./chat";
 import {
   SUMMARY_TURN_THRESHOLD,
   firstUserPreview,
+  liveSessionPreviews,
   shouldShowSummary,
   summarizeThread,
 } from "./session-summary";
@@ -67,5 +68,17 @@ describe("firstUserPreview", () => {
     expect(firstUserPreview([user("u1", "字".repeat(80))])).toBe("字".repeat(40));
     expect(firstUserPreview([assistant("a1", "no"), user("u1", "  hi  ")])).toBe("hi");
     expect(firstUserPreview([])).toBe("");
+  });
+});
+
+describe("liveSessionPreviews", () => {
+  it("maps first-user text for every open pane that already has a session id", () => {
+    expect(
+      liveSessionPreviews([
+        { sessionId: "a", items: [user("u1", "hello world")] },
+        { sessionId: null, items: [user("u2", "skip")] },
+        { sessionId: "b", items: [assistant("a1", "no"), user("u3", "  整理桌面  ")] },
+      ]),
+    ).toEqual({ a: "hello world", b: "整理桌面" });
   });
 });

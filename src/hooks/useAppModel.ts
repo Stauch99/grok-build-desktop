@@ -30,7 +30,7 @@ import { useCommandPalette } from "./useCommandPalette";
 import { useSlashCommands } from "./useSlashCommands";
 import { useWebuiPersist } from "./useWebuiPersist";
 import type { AgentId } from "../lib/agent-id";
-import { shouldWarmupOnChipSelect } from "../lib/session-agent";
+import { keepLiveModelOnCatalog, shouldWarmupOnChipSelect } from "../lib/session-agent";
 import { readAgentModelSource } from "../lib/workbench-api";
 import type { HubTab } from "../lib/commands";
 import { useAppWorkspace, type AppConfirm } from "./useAppWorkspace";
@@ -72,6 +72,7 @@ export function useAppModel() {
     projects: s.projects,
     lastWorkspace: s.lastWorkspace,
     mode: s.mode,
+    model: s.model,
     selectedAgentId: s.selectedAgentId,
     setSelectedAgentId: setSelectedAgentIdPersist,
     sessionDrafts: s.sessionDrafts,
@@ -93,6 +94,7 @@ export function useAppModel() {
     setExtraPanes: s.setExtraPanes,
     onOpenSplit: () => s.setMenu(null),
     onSessionsNeedRefresh: (inbox) => s.refreshSessionsRef.current(inbox),
+    onSessionCreated: (row) => s.onSessionCreatedRef.current(row),
     onAcpSessionList: (agentId, rows) => s.onAcpSessionListRef.current(agentId, rows),
     setSawExit: s.setSawExit,
     lastActivityRef: s.lastActivityRef,
@@ -228,20 +230,36 @@ export function useAppModel() {
       if (s.selectedAgentIdLiveRef.current !== id) return;
       const catalog = catalogFromSource(source);
       s.setModelRows(catalog.models);
-      if (catalog.currentModel) s.setModel(catalog.currentModel);
+      const nextModel = keepLiveModelOnCatalog(
+        s.modelPickedRef.current,
+        catalog.currentModel,
+        s.modelLiveRef.current,
+      );
+      if (nextModel) s.setModel(nextModel);
       s.setEffort(catalog.currentEffort);
-      s.setEffortReady(effortsForModel(catalog.models, catalog.currentModel).length > 0);
+      s.setEffortReady(effortsForModel(catalog.models, nextModel || catalog.currentModel).length > 0);
     } catch {
       if (s.selectedAgentIdLiveRef.current !== id) return;
       const fallback = emptyCatalog(id);
       s.setModelRows(fallback.models);
-      if (fallback.currentModel) s.setModel(fallback.currentModel);
+      const nextModel = keepLiveModelOnCatalog(
+        s.modelPickedRef.current,
+        fallback.currentModel,
+        s.modelLiveRef.current,
+      );
+      if (nextModel) s.setModel(nextModel);
       s.setEffort(fallback.currentEffort);
-      s.setEffortReady(effortsForModel(fallback.models, fallback.currentModel).length > 0);
+      s.setEffortReady(effortsForModel(fallback.models, nextModel || fallback.currentModel).length > 0);
     }
   }, []);
 
   useEffect(() => {
+    s.modelPickedRef.current = false;
+    const fallback = emptyCatalog(s.selectedAgentId);
+    s.setModelRows(fallback.models);
+    if (fallback.currentModel) s.setModel(fallback.currentModel);
+    s.setEffort(fallback.currentEffort);
+    s.setEffortReady(effortsForModel(fallback.models, fallback.currentModel).length > 0);
     void refreshModels(s.selectedAgentId);
   }, [s.selectedAgentId, refreshModels]);
 
@@ -422,6 +440,7 @@ export function useAppModel() {
     showToast,
     setMode: s.setMode,
     setModel: s.setModel,
+    modelPickedRef: s.modelPickedRef,
     setEffort: s.setEffort,
     setCli: s.setCli,
     setBusy: acp.setBusy,

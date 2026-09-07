@@ -4,6 +4,7 @@ import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
 import { IconClose, IconFolder, IconFolderOpen, IconFolderPlus } from "../icons";
 import { nestByParent } from "../lib/projects";
+import { clipSessionTitle, isUntitledSessionTitle } from "../lib/session-title";
 import { windowedProjectNodes } from "../lib/project-session-window";
 import { dropTargetFromAttr, groupIdFor, parseGroupBandId, type ProjectGroup } from "../lib/project-groups";
 import { dragStarted } from "../lib/pane-tree";
@@ -229,8 +230,8 @@ export function Sidebar({
     for (const section of sections) {
       for (const row of section.rows) {
         const s = row.session;
-        if (titles[s.id]?.trim() || s.title.trim()) continue;
-        const clip = preview[s.id]?.replace(/\s+/g, " ").trim().slice(0, 40);
+        if (titles[s.id]?.trim() || !isUntitledSessionTitle(s.id, s.title)) continue;
+        const clip = clipSessionTitle(preview[s.id] ?? "");
         if (clip) next[s.id] = clip;
       }
     }

@@ -292,6 +292,7 @@ export function packAppModel(p: PackAppModelInput) {
     toggleExpand: ws.toggleExpand,
     current: view.current,
     currentTitle: view.currentTitle,
+    sessionPreviews: view.sessionPreviews,
     sessionModel: view.sessionModel,
     recapText: view.recapText,
     showRecap: view.showRecap,

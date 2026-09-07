@@ -4,6 +4,7 @@ import { patchAgentModelSettings } from "../lib/workbench-api";
 import type { AgentId } from "../lib/agent-id";
 import type { AgentModelRow } from "../lib/agent-models";
 import { snapModelChange } from "../lib/agent-models";
+import { shouldSendSessionModelSlash } from "../lib/session-agent";
 import type { CommandDef, HubTab } from "../lib/commands";
 import { parseRenameArgs } from "../lib/commands";
 import { t, type Locale } from "../lib/i18n";
@@ -58,6 +59,7 @@ export type SlashCommandDeps = {
   showToast: (msg: string) => void;
   setMode: (mode: Mode) => void;
   setModel: (model: string) => void;
+  modelPickedRef: React.MutableRefObject<boolean>;
   setEffort: (effort: string) => void;
   setCli: React.Dispatch<React.SetStateAction<CliSettings | null>>;
   setBusy: (value: boolean) => void;
@@ -125,9 +127,10 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     d.showToast(t(d.locale, "mode.noted", { mode: modeLabel(next, d.locale) }));
   }
 
-  function applyModel(next: string) {
+  function applyModel(next: string, opts?: { skipSessionToast?: boolean }) {
     const d = depsRef.current;
     const snapped = snapModelChange(d.modelRows, next, d.effort);
+    d.modelPickedRef.current = true;
     d.setModel(snapped.model);
     if (snapped.effort) d.setEffort(snapped.effort);
     const patch = snapped.effort ? { model: snapped.model, effort: snapped.effort } : { model: snapped.model };
@@ -136,7 +139,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
         if (d.selectedAgentId === "grok") {
           d.setCli((prev) => (prev ? { ...prev, model: snapped.model, effort: snapped.effort || prev.effort } : prev));
         }
-        if (d.sessionModel && d.sessionModel !== snapped.model) {
+        if (!opts?.skipSessionToast && d.sessionModel && d.sessionModel !== snapped.model) {
           d.showToast(t(d.locale, "toast.modelDefaultKept", { session: d.sessionModel }));
         }
       })
@@ -145,12 +148,14 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
 
   function applySessionModel(next: string) {
     const d = depsRef.current;
-    if (d.sessionIdRef.current && d.readyRef.current) {
-      void d.sendPrompt(`/model ${next}`);
-      d.showToast(t(d.locale, "toast.modelSent", { model: next }));
-      return;
-    }
-    applyModel(next);
+    const live = shouldSendSessionModelSlash({
+      hasSession: !!d.sessionIdRef.current,
+      ready: d.readyRef.current,
+    });
+    applyModel(next, { skipSessionToast: live });
+    if (!live) return;
+    void d.sendPrompt(`/model ${next}`);
+    d.showToast(t(d.locale, "toast.modelSent", { model: next }));
   }
 
   function applyEffort(next: string) {

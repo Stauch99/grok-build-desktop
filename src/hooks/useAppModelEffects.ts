@@ -82,6 +82,7 @@ export function useAppModelEffects(d: EffectsDeps) {
   const { s, ws, acp, view, review } = d;
   s.refreshSessionsRef.current = ws.refreshAllSessions;
   s.onAcpSessionListRef.current = ws.onAcpSessionList;
+  s.onSessionCreatedRef.current = ws.onSessionCreated;
   s.runSlashRef.current = d.runSlash;
   s.reviewCloseRef.current = () => review.close();
   s.permissionCancelRef.current = async (target) => {
@@ -592,6 +593,8 @@ export function useAppModelEffects(d: EffectsDeps) {
       s.extraPage != null ||
       s.rewindTarget != null,
     canClosePane: leafIds(s.paneTree).length > 1,
+    allowCancel:
+      s.focusedPaneId === MAIN_PANE ? acp.busy : !!s.extraPanes[s.focusedPaneId]?.busy,
     telemetry: !!s.cli?.telemetry,
     handlers: {
       palette: () => d.palette.setOpen(true),
@@ -630,10 +633,7 @@ export function useAppModelEffects(d: EffectsDeps) {
         const extra = s.extraPanesRef.current[paneId];
         const paneBusy = paneId === MAIN_PANE ? acp.busy : !!extra?.busy;
         const dest = paneId === MAIN_PANE ? MAIN_PANE : paneId;
-        if (!paneBusy) {
-          void acp.cancelTurn(dest);
-          return;
-        }
+        if (!paneBusy) return;
         const tapped = tapDanger(s.cancelArmRef.current, "cancel-turn", Date.now());
         s.cancelArmRef.current = tapped.next;
         if (!tapped.confirmed) {

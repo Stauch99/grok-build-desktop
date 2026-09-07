@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionSummary } from "../api";
 import {
+  catalogSessions,
+  createdSessionSummary,
   dropDiskSession,
   isMissingSessionError,
   mapAcpListedSessions,
   maybeFetchAcpSessionList,
   omitListedSession,
+  rememberCreatedSession,
   sessionListAdvertised,
   unionSessionsById,
 } from "./session-acp-list";
@@ -161,6 +164,20 @@ describe("unionSessionsById", () => {
     expect(out[0].dir).toBe("/Users/foxie/.claude/projects/p/e799.jsonl");
   });
 
+  it("keeps disk cwd when ACP omits it", () => {
+    const disk = [row({ id: "c1", agentId: "claude", cwd: "/work", title: "disk" })];
+    const acp = [row({ id: "c1", agentId: "claude", cwd: "", title: "acp" })];
+    const out = unionSessionsById(disk, acp);
+    expect(out[0].title).toBe("acp");
+    expect(out[0].cwd).toBe("/work");
+  });
+
+  it("keeps a generated disk title when ACP still lists the uuid", () => {
+    const disk = [row({ id: "c1", agentId: "claude", title: "列表刷新" })];
+    const acp = [row({ id: "c1", agentId: "claude", title: "c1" })];
+    expect(unionSessionsById(disk, acp)[0].title).toBe("列表刷新");
+  });
+
   it("keeps disk toolUseId when ACP omits it", () => {
     const disk = [
       row({
@@ -177,6 +194,175 @@ describe("unionSessionsById", () => {
     expect(out[0].title).toBe("acp");
     expect(out[0].toolUseId).toBe("toolu_1");
     expect(out[0].parentSessionId).toBe("parent");
+  });
+});
+
+describe("catalogSessions", () => {
+  it("keeps a just-created Claude session when disk has not scanned the jsonl yet", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/Users/foxie/project_development/grok_build_desktop",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const { rows, created: leftover } = catalogSessions({ disk: [], acp: [], created: [created] });
+    expect(rows).toEqual([created]);
+    expect(leftover).toEqual([created]);
+  });
+
+  it("drops the placeholder once disk has the same id+agent", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const disk = [
+      row({
+        id: "c1",
+        agentId: "claude",
+        title: "修列表",
+        dir: "/Users/me/.claude/projects/p/c1.jsonl",
+      }),
+    ];
+    const { rows, created: leftover } = catalogSessions({ disk, acp: [], created: [created] });
+    expect(rows).toEqual(disk);
+    expect(leftover).toEqual([]);
+  });
+
+  it("keeps the picked model on the chip until disk records it", () => {
+    const created = createdSessionSummary({
+      id: "g1",
+      cwd: "/work",
+      agentId: "grok",
+      model: "grok-4.6",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const disk = [row({ id: "g1", agentId: "grok", title: "整理桌面" })];
+    const { rows, created: leftover } = catalogSessions({ disk, acp: [], created: [created] });
+    expect(rows.find((s) => s.id === "g1")?.model).toBe("grok-4.6");
+    expect(leftover).toEqual([created]);
+  });
+
+  it("survives a disk refresh that still misses the new Claude jsonl", () => {
+    const grok = row({ id: "g1", agentId: "grok", title: "old grok" });
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const { rows } = catalogSessions({ disk: [grok], acp: [], created: [created] });
+    expect(rows.map((s) => s.id)).toEqual(["g1", "c1"]);
+  });
+
+  it("uses first-user text as the placeholder title instead of the session id", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      title: "  帮我修列表标题  ",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    expect(created.title).toBe("帮我修列表标题");
+  });
+
+  it("does not treat the uuid as a real title", () => {
+    expect(
+      createdSessionSummary({
+        id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        cwd: "/work",
+        agentId: "codex",
+        nowIso: "2026-09-07T07:00:00.000Z",
+      }).title,
+    ).toBe("");
+  });
+
+  it("keeps the first-user title when disk or ACP still only has the session id", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      title: "修列表",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const disk = [
+      row({
+        id: "c1",
+        agentId: "claude",
+        title: "c1",
+        dir: "/Users/me/.claude/projects/p/c1.jsonl",
+      }),
+    ];
+    const { rows, created: leftover } = catalogSessions({ disk, acp: [], created: [created] });
+    expect(rows.find((s) => s.id === "c1")?.title).toBe("修列表");
+    expect(leftover).toEqual([created]);
+  });
+
+  it("keeps the first-user title over Grok 未命名会话 until generated_title exists", () => {
+    const created = createdSessionSummary({
+      id: "g1",
+      cwd: "/work",
+      agentId: "grok",
+      title: "整理桌面",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const disk = [row({ id: "g1", agentId: "grok", title: "未命名会话" })];
+    const { rows, created: leftover } = catalogSessions({ disk, acp: [], created: [created] });
+    expect(rows.find((s) => s.id === "g1")?.title).toBe("整理桌面");
+    expect(leftover).toEqual([created]);
+  });
+
+  it("lets a generated disk title replace the first-user placeholder", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      title: "修列表",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const disk = [
+      row({
+        id: "c1",
+        agentId: "claude",
+        title: "列表刷新",
+        dir: "/Users/me/.claude/projects/p/c1.jsonl",
+      }),
+    ];
+    const { rows, created: leftover } = catalogSessions({ disk, acp: [], created: [created] });
+    expect(rows.find((s) => s.id === "c1")?.title).toBe("列表刷新");
+    expect(leftover).toEqual([]);
+  });
+
+  it("keeps the created cwd when ACP lists the session without one", () => {
+    const created = createdSessionSummary({
+      id: "c1",
+      cwd: "/work",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const acp = [row({ id: "c1", agentId: "claude", cwd: "", title: "c1" })];
+    const { rows, created: leftover } = catalogSessions({ disk: [], acp, created: [created] });
+    expect(rows.find((s) => s.id === "c1")?.cwd).toBe("/work");
+    expect(leftover).toEqual([created]);
+  });
+});
+
+describe("rememberCreatedSession", () => {
+  it("replaces the same id+agent so a retry does not duplicate", () => {
+    const first = createdSessionSummary({
+      id: "c1",
+      cwd: "/a",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:00:00.000Z",
+    });
+    const second = createdSessionSummary({
+      id: "c1",
+      cwd: "/b",
+      agentId: "claude",
+      nowIso: "2026-09-07T07:01:00.000Z",
+    });
+    expect(rememberCreatedSession([first], second)).toEqual([second]);
   });
 });
 

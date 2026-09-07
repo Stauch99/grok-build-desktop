@@ -1,10 +1,10 @@
 import type { ChatItem } from "./chat";
+import { clipSessionTitle } from "./session-title";
 
 export const SUMMARY_TURN_THRESHOLD = 10;
 
 function clip(text: string, n: number): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > n ? t.slice(0, n) : t;
+  return clipSessionTitle(text, n);
 }
 
 export function dialogueTurns(items: ChatItem[]): ChatItem[] {
@@ -35,4 +35,16 @@ export function summarizeThread(items: ChatItem[]): string {
 export function firstUserPreview(items: ChatItem[], n = 40): string {
   const first = items.find((item) => item.kind === "user");
   return first?.kind === "user" ? clip(first.text, n) : "";
+}
+
+export function liveSessionPreviews(
+  panes: readonly { sessionId: string | null; items: ChatItem[] }[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pane of panes) {
+    if (!pane.sessionId) continue;
+    const preview = firstUserPreview(pane.items);
+    if (preview) out[pane.sessionId] = preview;
+  }
+  return out;
 }

@@ -86,10 +86,13 @@ export function useAppModelState() {
   const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsage | null>(null);
   const [mode, setMode] = useState<Mode>("agent");
   const [model, setModel] = useState("grok-4.6");
+  const modelLiveRef = useRef(model);
+  modelLiveRef.current = model;
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId>("grok");
   const selectedAgentIdLiveRef = useRef<AgentId>("grok");
   selectedAgentIdLiveRef.current = selectedAgentId;
   const agentPickedRef = useRef(false);
+  const modelPickedRef = useRef(false);
   const [showThinking, setShowThinking] = useState(true);
   const [chatWidth, setChatWidth] = useState(680);
   const [info, setInfo] = useState<DoctorInfo | null>(null);
@@ -188,6 +191,7 @@ export function useAppModelState() {
     return name.trim() || t(locale, "notify.session");
   };
   const onAcpSessionListRef = useRef<(agentId: AgentId, rows: SessionSummary[]) => void>(() => {});
+  const onSessionCreatedRef = useRef<(row: SessionSummary) => void>(() => {});
   const reviewCloseRef = useRef(() => {});
   const persistReviewOpened = useRef(() => {});
   const runSlashRef = useRef<(cmd: CommandDef, rest?: string, dest?: string) => Promise<void>>(async () => {});
@@ -213,7 +217,7 @@ export function useAppModelState() {
     millerOpen, setMillerOpen, jobsOpen, setJobsOpen, catalogOpen, setCatalogOpen, searchJump, setSearchJump,
     chatFontSize, setChatFontSize, cwd, setCwd, projects, setProjects, projectsRef, manualProjects, setManualProjects,
     openProjects, setOpenProjects, sessions, setSessions, draft, setDraft, weeklyUsage, setWeeklyUsage,
-    mode, setMode, model, setModel, selectedAgentId, setSelectedAgentId, selectedAgentIdLiveRef, agentPickedRef,
+    mode, setMode, model, setModel, selectedAgentId, setSelectedAgentId, selectedAgentIdLiveRef, agentPickedRef, modelPickedRef, modelLiveRef,
     showThinking, setShowThinking, chatWidth, setChatWidth, info, setInfo, doctors, setDoctors, cli, setCli,
     atBottom, setAtBottom, paneTree, setPaneTree, focusedPaneId, setFocusedPaneId, extraPanes, setExtraPanes,
     paneDrag, setPaneDrag, setMainBusyAt, clock, setClock, picking, setPicking, titles, setTitles,
@@ -232,7 +236,7 @@ export function useAppModelState() {
     sidebarWidth, setSidebarWidth, previewWidth, setPreviewWidth, winWidth, setWinWidth,
     chatEl, extraChatEls, composerRef, extraComposerRefs, focusedPermissionPaneRef, titleInputRef,
     focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, focusedSessionIdRef, titlesRef, titleForSessionRef, lastActivityRef, queueRef, persistRef,
-    doctorsRef, refreshSessionsRef, acpListedRef, diskSessionsRef, allSessionsRef, onAcpSessionListRef,
+    doctorsRef, refreshSessionsRef, acpListedRef, diskSessionsRef, allSessionsRef, onAcpSessionListRef, onSessionCreatedRef,
     reviewCloseRef, persistReviewOpened, runSlashRef, permissionCancelRef, workColRef,
     extraPanesRef, focusedPaneIdRef, paneTreeRef, paneDragRef,
   };

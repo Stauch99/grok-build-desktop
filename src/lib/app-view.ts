@@ -25,10 +25,11 @@ export function mapDashboardSessions(
   sessions: readonly { id: string; title: string }[],
   titles: Record<string, string>,
   statusFor: (id: string) => SessionStatus,
+  preview?: Record<string, string>,
 ): DashboardSession[] {
   return sessions.map((s) => ({
     id: s.id,
-    title: displayTitle(s, titles),
+    title: displayTitle(s, titles, preview),
     status: dashboardStatus(statusFor(s.id)),
   }));
 }

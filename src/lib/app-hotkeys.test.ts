@@ -42,6 +42,13 @@ describe("matchAppShortcut", () => {
     expect(matchAppShortcut(chord("k"), {}, { overlayOpen: true })).toBe("palette");
   });
 
+  it("does not steal Escape during IME composition or when the pane is idle", () => {
+    const esc = { key: "Escape", metaKey: false, ctrlKey: false, shiftKey: false, repeat: false };
+    expect(matchAppShortcut(esc, {}, { composing: true })).toBeNull();
+    expect(matchAppShortcut(esc, {}, { allowCancel: false })).toBeNull();
+    expect(matchAppShortcut(esc, {}, { allowCancel: true })).toBe("cancel");
+  });
+
   it("ignores key repeat so new-chat does not fire in a burst", () => {
     expect(matchAppShortcut(chord("n", { repeat: true }), {})).toBeNull();
   });

@@ -8,6 +8,7 @@ export function useAppHotkeys(opts: {
   shortcuts: Record<string, string>;
   overlayOpen: boolean;
   canClosePane: boolean;
+  allowCancel?: boolean;
   telemetry?: boolean;
   handlers: AppHotkeyHandlers;
 }): void {
@@ -21,6 +22,8 @@ export function useAppHotkeys(opts: {
       const id = matchAppShortcut(e, opts.shortcuts, {
         overlayOpen: opts.overlayOpen,
         canClosePane: opts.canClosePane,
+        composing: e.isComposing,
+        allowCancel: opts.allowCancel,
       });
       if (!id) return;
       e.preventDefault();
@@ -29,5 +32,5 @@ export function useAppHotkeys(opts: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [opts.shortcuts, opts.overlayOpen, opts.canClosePane, telemetry]);
+  }, [opts.shortcuts, opts.overlayOpen, opts.canClosePane, opts.allowCancel, telemetry]);
 }

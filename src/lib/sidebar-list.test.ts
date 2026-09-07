@@ -334,6 +334,66 @@ describe("buildSidebarSections", () => {
     expect(today?.rows.map((r) => r.session.id)).toEqual(["a", "in"]);
     expect(sections.find((x) => x.id === "yesterday")?.rows.map((r) => r.session.id)).toEqual(["wt"]);
   });
+
+  it("sorts mixed ISO, unix-seconds, and unix-ms timestamps by real recency", () => {
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
+      sessions: [
+        s({ id: "iso-old", cwd: "/work/app", updatedAt: "2026-08-27T10:00:00.000Z", agentId: "grok" }),
+        s({
+          id: "unix-new",
+          cwd: "/work/app",
+          updatedAt: String(Math.floor(Date.parse("2026-08-27T17:00:00.000Z") / 1000)),
+          agentId: "claude",
+        }),
+        s({
+          id: "ms-mid",
+          cwd: "/work/app",
+          updatedAt: String(Date.parse("2026-08-27T14:00:00.000Z")),
+          agentId: "kimi",
+        }),
+        s({ id: "empty", cwd: "/work/app", updatedAt: "", agentId: "codex" }),
+      ],
+    });
+    expect(sections.find((x) => x.projectPath === "/work/app")?.rows.map((r) => r.session.id)).toEqual([
+      "unix-new",
+      "ms-mid",
+      "iso-old",
+      "empty",
+    ]);
+  });
+
+  it("keeps the same order for missing timestamps when input order flips", () => {
+    const rows = [
+      s({ id: "b", cwd: "/work/app", updatedAt: "" }),
+      s({ id: "a", cwd: "/work/app", updatedAt: "" }),
+    ];
+    const ids = (sessions: SessionSummary[]) =>
+      buildSidebarSections({ ...base, pinned: [], sessions }).find((x) => x.projectPath === "/work/app")?.rows.map(
+        (r) => r.session.id,
+      );
+    expect(ids(rows)).toEqual(["a", "b"]);
+    expect(ids([...rows].reverse())).toEqual(["a", "b"]);
+  });
+
+  it("puts a unix-epoch session from today into today, not older", () => {
+    const sections = buildSidebarSections({
+      ...base,
+      pinned: [],
+      sessions: [
+        s({
+          id: "claude-now",
+          cwd: "/work/app",
+          updatedAt: String(Math.floor(now / 1000)),
+          agentId: "claude",
+        }),
+      ],
+      prefs: { ...DEFAULT_SIDEBAR_LIST, grouping: "updated" },
+    });
+    expect(sections.find((x) => x.id === "today")?.rows.map((r) => r.session.id)).toEqual(["claude-now"]);
+    expect(sections.find((x) => x.id === "older")).toBeUndefined();
+  });
 });
 
 describe("groupSidebarBands hides empty bands", () => {

@@ -3,6 +3,7 @@ import { agentChipLabel } from "./agent-chip";
 import type { AgentId } from "./agent-id";
 import { sameCwd, normalizeCwd } from "./inbox";
 import { displayTitle } from "./projects";
+import { compareByUpdatedAtDesc, updatedAtMs } from "./session-time";
 import { visibleSessions, partitionPinned } from "./session-chrome";
 import { agentIdOfSession } from "./session-agent";
 import type { SessionStatus } from "./session-status";
@@ -151,8 +152,8 @@ export function tokenForRow(id: string, tokens: Record<string, number>): number 
 export type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 
 export function timeBucket(iso: string, now: number): TimeBucket {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "older";
+  const t = updatedAtMs(iso);
+  if (t <= 0) return "older";
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const today = start.getTime();
@@ -268,6 +269,7 @@ export type BuildSidebarOpts = {
   statusFor: (id: string) => SessionStatus;
   sessionTokens: Record<string, number>;
   projectGroups?: ProjectGroupState;
+  preview?: Record<string, string>;
 };
 
 const TIME_META: Record<TimeBucket, { id: string; label: string }> = {
@@ -285,12 +287,20 @@ const STATUS_META: Record<"needs-you" | "working" | "unread" | "other", { id: st
   other: { id: "other", label: "其他" },
 };
 
-function sortSessions(rows: SessionSummary[], ordering: SidebarOrdering, titles: Record<string, string>): SessionSummary[] {
+function sortSessions(
+  rows: SessionSummary[],
+  ordering: SidebarOrdering,
+  titles: Record<string, string>,
+  preview?: Record<string, string>,
+): SessionSummary[] {
   const copy = [...rows];
   if (ordering === "title") {
-    copy.sort((a, b) => displayTitle(a, titles).localeCompare(displayTitle(b, titles), "zh"));
+    copy.sort((a, b) => {
+      const byTitle = displayTitle(a, titles, preview).localeCompare(displayTitle(b, titles, preview), "zh");
+      return byTitle !== 0 ? byTitle : a.id.localeCompare(b.id);
+    });
   } else {
-    copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    copy.sort(compareByUpdatedAtDesc);
   }
   return copy;
 }
@@ -347,7 +357,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
       label: "置顶",
       kind: "pin",
       band: "pin",
-      rows: sortSessions(pinned, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
+      rows: sortSessions(pinned, opts.prefs.ordering, opts.titles, opts.preview).map((session) => toRow(opts, session, 0)),
     });
   }
 
@@ -393,7 +403,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
         projectPath: key,
         groupId: group?.id,
         groupLabel: group?.name,
-        rows: sortSessions(rows, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
+        rows: sortSessions(rows, opts.prefs.ordering, opts.titles, opts.preview).map((session) => toRow(opts, session, 0)),
       });
     }
 
@@ -436,7 +446,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
         label: "独立对话",
         kind: "inbox",
         band: "inbox",
-        rows: sortSessions(inboxRows, opts.prefs.ordering, opts.titles).map((session) => toRow(opts, session, 0)),
+        rows: sortSessions(inboxRows, opts.prefs.ordering, opts.titles, opts.preview).map((session) => toRow(opts, session, 0)),
       });
     }
     return sections;
@@ -453,7 +463,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
     for (const key of ["today", "yesterday", "week", "month", "older"] as TimeBucket[]) {
       const rows = buckets.get(key);
       if (!rows?.length) continue;
-      const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles));
+      const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles, opts.preview));
       sections.push({
         id: TIME_META[key].id,
         label: TIME_META[key].label,
@@ -474,7 +484,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
   for (const key of ["needs-you", "working", "unread", "other"] as const) {
     const rows = buckets.get(key);
     if (!rows?.length) continue;
-    const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles));
+    const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles, opts.preview));
     sections.push({
       id: STATUS_META[key].id,
       label: STATUS_META[key].label,

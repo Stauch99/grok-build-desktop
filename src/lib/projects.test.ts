@@ -82,6 +82,15 @@ describe("displayTitle / setTitleOverride", () => {
     expect(displayTitle({ id: "s1", title: "" }, {}, { s1: "   " })).toBe("未命名会话");
     expect(displayTitle({ id: "s1", title: "" }, {}, {})).toBe("未命名会话");
   });
+  it("treats a uuid or 未命名会话 as untitled so the first-user preview can show", () => {
+    const id = "3dd99a36-d95b-4789-9f13-aaceaafabbb9";
+    expect(displayTitle({ id, title: id }, {}, { [id]: "继续" })).toBe("继续");
+    expect(displayTitle({ id: "g1", title: "未命名会话" }, {}, { g1: "整理桌面" })).toBe("整理桌面");
+  });
+  it("keeps a uuid visible when there is no first-user preview yet", () => {
+    const id = "3dd99a36-d95b-4789-9f13-aaceaafabbb9";
+    expect(displayTitle({ id, title: id }, {})).toBe(id);
+  });
   it("clears override on empty", () => {
     expect(setTitleOverride({ a: "手改" }, "a", "  ")).toEqual({});
   });

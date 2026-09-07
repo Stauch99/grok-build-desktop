@@ -4,6 +4,7 @@ import {
   draftKey,
   getDraft,
   getSessionRailTab,
+  isStaleSentDraftChange,
   loadDrafts,
   resumeComposerDraft,
   setDraft,
@@ -17,13 +18,13 @@ describe("loadDrafts", () => {
   });
 
   it("copies string entries and drops empty", () => {
-    expect(loadDrafts({ a: "hi", b: "" })).toEqual({ a: "hi" });
+    expect(loadDrafts({ a: "hi", b: "" })).toEqual({ "grok/a": "hi" });
   });
 
   it("caps long drafts at 20_000", () => {
     const long = "x".repeat(25_000);
     const loaded = loadDrafts({ s: long });
-    expect(loaded.s).toHaveLength(20_000);
+    expect(getDraft(loaded, "s")).toHaveLength(20_000);
   });
 });
 
@@ -36,8 +37,8 @@ describe("setDraft", () => {
   it("caps text at 20_000 characters", () => {
     const long = "y".repeat(25_000);
     const next = setDraft({}, "s1", long);
-    expect(next.s1).toHaveLength(20_000);
-    expect(next.s1).toBe("y".repeat(20_000));
+    expect(getDraft(next, "s1")).toHaveLength(20_000);
+    expect(getDraft(next, "s1")).toBe("y".repeat(20_000));
   });
 
   it("deletes key when text is empty", () => {
@@ -56,7 +57,7 @@ describe("setDraft", () => {
     const base = { s1: "a" };
     const next = setDraft(base, "s1", "b");
     expect(base.s1).toBe("a");
-    expect(next.s1).toBe("b");
+    expect(getDraft(next, "s1")).toBe("b");
   });
 });
 
@@ -66,29 +67,53 @@ describe("getDraft", () => {
   });
 });
 
-describe("draft key __none__", () => {
-  it("maps empty and null session ids to __none__", () => {
+describe("draft key branding", () => {
+  it("maps empty and null session ids to grok/__none__", () => {
     expect(NONE_SESSION_KEY).toBe("__none__");
-    expect(draftKey(null)).toBe("__none__");
-    expect(draftKey(undefined)).toBe("__none__");
-    expect(draftKey("")).toBe("__none__");
-    expect(draftKey("__none__")).toBe("__none__");
-    expect(draftKey("s1")).toBe("s1");
+    expect(draftKey(null)).toBe("grok/__none__");
+    expect(draftKey(undefined)).toBe("grok/__none__");
+    expect(draftKey("")).toBe("grok/__none__");
+    expect(draftKey("__none__")).toBe("grok/__none__");
   });
 
-  it("persists no-session drafts under __none__", () => {
+  it("stores bare and branded ids in the same slot", () => {
+    expect(draftKey("s1")).toBe("grok/s1");
+    expect(draftKey("grok/s1")).toBe("grok/s1");
+    expect(draftKey("claude/x")).toBe("claude/x");
+    const next = setDraft({}, "s1", "hello");
+    expect(next).toEqual({ "grok/s1": "hello" });
+    expect(getDraft(next, "s1")).toBe("hello");
+    expect(getDraft(next, "grok/s1")).toBe("hello");
+  });
+
+  it("persists no-session drafts under grok/__none__", () => {
     const next = setDraft({}, "", "composer text");
-    expect(next).toEqual({ [NONE_SESSION_KEY]: "composer text" });
+    expect(next).toEqual({ "grok/__none__": "composer text" });
     expect(getDraft(next, "")).toBe("composer text");
     expect(getDraft(next, null)).toBe("composer text");
     expect(getDraft(next, NONE_SESSION_KEY)).toBe("composer text");
   });
 
-  it("loads empty-string keys as __none__", () => {
+  it("loads mixed bare and branded keys into one slot", () => {
     expect(loadDrafts({ "": "old", s1: "keep" })).toEqual({
-      [NONE_SESSION_KEY]: "old",
-      s1: "keep",
+      "grok/__none__": "old",
+      "grok/s1": "keep",
     });
+    expect(
+      loadDrafts({
+        "01a0789f-2f78-7f82-a7b6-ea19ea4415cf": "bare",
+        "grok/01a0789f-2f78-7f82-a7b6-ea19ea4415cf": "branded",
+      }),
+    ).toEqual({ "grok/01a0789f-2f78-7f82-a7b6-ea19ea4415cf": "branded" });
+  });
+
+  it("clears both aliases when the sent draft is dropped", () => {
+    const mixed = {
+      s1: "sent",
+      "grok/s1": "sent",
+      "grok/other": "keep",
+    };
+    expect(setDraft(mixed, "s1", "")).toEqual({ "grok/other": "keep" });
   });
 
   it("clears the __none__ draft when text is empty", () => {
@@ -135,6 +160,11 @@ describe("resumeComposerDraft", () => {
     expect(resumeComposerDraft(items, outgoing)).toBe("");
   });
 
+  it("does not restore a send the CLI wrapped in user_query tags", () => {
+    const items = [{ kind: "user", text: `<user_query>\n${outgoing}\n</user_query>` }];
+    expect(resumeComposerDraft(items, outgoing)).toBe("");
+  });
+
   it("leaves an empty stored draft empty", () => {
     expect(resumeComposerDraft([{ kind: "user", text: "hi" }], "")).toBe("");
   });
@@ -146,5 +176,18 @@ describe("resumeComposerDraft", () => {
       { kind: "assistant", text: "改好了" },
     ];
     expect(resumeComposerDraft(items, outgoing)).toBe(outgoing);
+  });
+});
+
+describe("isStaleSentDraftChange", () => {
+  const sent = "为什么整体的输出速度会这么慢呢？";
+
+  it("ignores a composer onChange that puts the just-sent text back into an empty box", () => {
+    expect(isStaleSentDraftChange({ next: sent, lastSent: sent, current: "" })).toBe(true);
+  });
+
+  it("lets the user type the same words later after the send echo has settled", () => {
+    expect(isStaleSentDraftChange({ next: sent, lastSent: "", current: "" })).toBe(false);
+    expect(isStaleSentDraftChange({ next: "other", lastSent: sent, current: "" })).toBe(false);
   });
 });

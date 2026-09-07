@@ -5,12 +5,14 @@ import {
   canChangeSelectedAgent,
   hydrateLastAgent,
   keepLiveAgentOnHydrate,
+  keepLiveModelOnCatalog,
   nextSelectedAgent,
   sessionNewMeta,
   sessionCancelNotification,
   shouldCancelAcpOnNewChat,
   shouldUnbindBeforeNewChat,
   shouldCreateAcpSessionOnNewChat,
+  shouldSendSessionModelSlash,
   shouldWarmupOnChipSelect,
   planOpenSession,
   selectedAgentAfterOpen,
@@ -156,5 +158,27 @@ describe("sessionNewMeta", () => {
     expect(sessionNewMeta("claude", true)).toEqual({});
     expect(sessionNewMeta("codex", true)).toEqual({});
     expect(sessionNewMeta("kimi", true)).toEqual({});
+  });
+
+  it("stamps the picked Grok model onto session/new so a warmed 4.5 process does not keep it", () => {
+    expect(sessionNewMeta("grok", false, "grok-4.6")).toEqual({ modelId: "grok-4.6" });
+    expect(sessionNewMeta("grok", true, "grok-4.6")).toEqual({ yoloMode: true, modelId: "grok-4.6" });
+    expect(sessionNewMeta("claude", false, "opus")).toEqual({});
+    expect(sessionNewMeta("grok", false, "  ")).toEqual({});
+  });
+});
+
+describe("keepLiveModelOnCatalog", () => {
+  it("does not let a late grok catalog overwrite a model the user already picked", () => {
+    expect(keepLiveModelOnCatalog(true, "grok-4.5", "grok-4.6")).toBe("grok-4.6");
+    expect(keepLiveModelOnCatalog(false, "grok-4.5", "grok-4.6")).toBe("grok-4.5");
+  });
+});
+
+describe("shouldSendSessionModelSlash", () => {
+  it("sends /model only when a live session can receive it", () => {
+    expect(shouldSendSessionModelSlash({ hasSession: true, ready: true })).toBe(true);
+    expect(shouldSendSessionModelSlash({ hasSession: false, ready: true })).toBe(false);
+    expect(shouldSendSessionModelSlash({ hasSession: true, ready: false })).toBe(false);
   });
 });
