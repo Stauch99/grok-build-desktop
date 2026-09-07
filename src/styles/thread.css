@@ -784,8 +784,10 @@
 }
 
 /* ---- entry + hover polish (spec §5.1/§5.2/§5.3 remainder) ---- */
-.thread .msg:last-child { animation: spine-enter var(--dur) var(--ease); }
-.permission { animation: spine-enter var(--dur) var(--ease), perm-pulse 900ms var(--ease) 1; }
+.thread > .msg:last-child,
+.thread > .turn-user:last-child > .msg {
+  animation: spine-enter var(--dur) var(--ease);
+}
 .diff-summary-inner > * { animation: chip-in var(--dur) var(--ease) backwards; }
 .diff-summary-inner > *:nth-child(2) { animation-delay: 40ms; }
 .diff-summary-inner > *:nth-child(3) { animation-delay: 80ms; }

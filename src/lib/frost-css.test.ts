@@ -115,10 +115,13 @@ describe("work-run progress", () => {
 describe("cards and messages motion", () => {
   it("animates the newest message and permission cards on entry", () => {
     const src = cssFile("src/styles/thread.css");
-    expect(src).toMatch(/\.thread \.msg:last-child\s*\{[^}]*animation:\s*spine-enter/);
-    const permission = src.match(/\.permission\s*\{[^}]*\}/)?.[0] ?? "";
-    expect(permission).toMatch(/animation:\s*spine-enter/);
-    expect(permission).toMatch(/perm-pulse/);
+    expect(src).toMatch(
+      /\.thread > \.msg:last-child[^{]*\.thread > \.turn-user:last-child > \.msg\s*\{[^}]*animation:\s*spine-enter/,
+    );
+    expect(src).not.toMatch(/\.thread \.msg:last-child\s*\{/);
+    expect(src).not.toMatch(/\.permission\s*\{[^}]*animation:/);
+    const overlays = cssFile("src/styles/overlays.css");
+    expect(overlays).toMatch(/\.permission\s*\{[^}]*animation:[^}]*rise-in[^}]*perm-pulse[^}]*spine-enter/);
   });
 
   it("stagger-animates diff summary chips", () => {

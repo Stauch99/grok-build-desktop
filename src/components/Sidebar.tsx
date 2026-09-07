@@ -159,7 +159,6 @@ export function Sidebar({
   const anchorId = useRef<string | null>(null);
   const modsRef = useRef({ shift: false, meta: false });
   const lastClickedId = useRef<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   function moveGlide(e: ReactMouseEvent<HTMLDivElement>) {
     const list = e.currentTarget;
@@ -642,7 +641,6 @@ export function Sidebar({
       ) : null}
 
       <div
-        ref={listRef}
         className={`session-list${selectedIds.length ? " is-batching" : ""}`}
         role="list"
         aria-label={t("sidebar.sessions")}
