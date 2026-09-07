@@ -645,6 +645,7 @@
   max-width: 100%;
   overflow-x: hidden;
   padding: 6px 0 10px;
+  animation: spine-enter var(--dur) var(--ease);
 }
 .spine-body .tool-result {
   border-left: 0;
@@ -736,3 +737,9 @@
 :root[data-density="compact"] .spine-row,
 :root[data-density="compact"] .work-live { padding-top: 3px; padding-bottom: 3px; }
 :root[data-density="compact"] .work-run-head { padding-top: 4px; padding-bottom: 6px; }
+
+@keyframes spine-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fold.open > * { animation: spine-enter var(--dur) var(--ease); }

@@ -52,3 +52,14 @@ describe("skeleton shimmer", () => {
     expect(kf).not.toMatch(/background-position/);
   });
 });
+
+describe("spine enter motion", () => {
+  it("animates spine-body entry with transform/opacity only", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.spine-body\s*\{[^}]*animation:\s*spine-enter/);
+    const kf = src.match(/@keyframes spine-enter\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(kf).toMatch(/opacity/);
+    expect(kf).toMatch(/translateY/);
+    expect(kf).not.toMatch(/height|margin|padding/);
+  });
+});
