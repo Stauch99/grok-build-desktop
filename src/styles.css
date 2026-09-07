@@ -35,11 +35,25 @@ button:disabled { opacity: 0.35; cursor: default; }
   width: min(100%, var(--thread, 680px));
 }
 .skeleton {
+  position: relative;
+  overflow: hidden;
   height: 12px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 8%, transparent);
   animation: skeleton-pulse 1.2s var(--ease-in-out) infinite;
   animation-delay: calc(var(--i, 0) * 80ms);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 10%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: skeleton-shimmer 1.6s var(--ease-in-out) infinite;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+@keyframes skeleton-shimmer {
+  to { transform: translateX(100%); }
 }
 .skeleton:nth-child(3n) { width: 72%; }
 .skeleton:nth-child(3n+2) { width: 88%; }

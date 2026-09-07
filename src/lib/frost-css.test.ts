@@ -41,3 +41,14 @@ describe("frost.css scope guard", () => {
     expect(cssFile("src/main.tsx")).toContain('./styles/frost.css');
   });
 });
+
+describe("skeleton shimmer", () => {
+  it("sweeps via transform on a clipped pseudo-element", () => {
+    const src = cssFile("src/styles.css");
+    expect(src).toMatch(/\.skeleton\s*\{[^}]*overflow: hidden/);
+    expect(src).toMatch(/\.skeleton::after\s*\{/);
+    const kf = src.match(/@keyframes skeleton-shimmer\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(kf).toMatch(/transform: translateX\(/);
+    expect(kf).not.toMatch(/background-position/);
+  });
+});
