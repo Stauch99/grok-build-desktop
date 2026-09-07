@@ -34,7 +34,12 @@ export function SelectionActions({ state, viewport, locale, onRewrite, onQuote }
   }
 
   return (
-    <div className="sel-toolbar" role="toolbar" style={{ transform: `translate(${p.x}px, ${p.y}px)` }}>
+    <div
+      className="sel-toolbar"
+      role="toolbar"
+      onMouseDown={(e) => e.preventDefault()}
+      style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
+    >
       <button type="button" onClick={() => onRewrite(composeRewriteDraft(formatQuote(state!.text), locale))}>
         {t("selection.rewrite")}
       </button>
