@@ -3,15 +3,6 @@ import { APP_STYLE_FILES, cssFile } from "./css-source";
 
 const PREFIX = ':root[data-theme-family="frost"]';
 
-function selectorLines(src: string): string[] {
-  return src
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("/*") && !l.startsWith("*") && !l.startsWith("}") && !l.startsWith("@"))
-    .filter((l) => /[,{]/.test(l) && !l.startsWith(":root {"))
-    .filter((l) => !l.includes(":") || /^[.:[]|\w/.test(l) || l.startsWith(PREFIX));
-}
-
 describe("frost.css scope guard", () => {
   it("every selector is scoped to the frost theme family", () => {
     const src = cssFile("src/styles/frost.css");
@@ -61,5 +52,24 @@ describe("spine enter motion", () => {
     expect(kf).toMatch(/opacity/);
     expect(kf).toMatch(/translateY/);
     expect(kf).not.toMatch(/height|margin|padding/);
+  });
+});
+
+describe("streaming caret and tool chip hover", () => {
+  it("Markdown exposes a data-live hook", () => {
+    const src = cssFile("src/components/Markdown.tsx");
+    expect(src).toMatch(/data-live=\{live \? "" : undefined\}/);
+  });
+
+  it("renders a blinking block caret on the last streamed node", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.md\[data-live\] > \*:last-child::after\s*\{/);
+    const kf = src.match(/@keyframes caret-blink\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(kf).toMatch(/opacity/);
+  });
+
+  it("lifts tool-result on hover", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.tool-result:hover\s*\{[^}]*translateY\(-1px\)/);
   });
 });
