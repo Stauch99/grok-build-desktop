@@ -640,3 +640,6 @@ span.crumb-cwd {
   color: var(--muted);
 }
 
+.file-item { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.file-item:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+

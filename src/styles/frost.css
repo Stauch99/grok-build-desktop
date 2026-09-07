@@ -50,3 +50,11 @@
   background-size: 16px 16px;
   border-radius: var(--radius);
 }
+
+:root[data-theme-family="frost"] .permission {
+  box-shadow: 0 0 0 1px var(--line);
+}
+:root[data-theme-family="frost"] .permission .btn,
+:root[data-theme-family="frost"] .perm-opt {
+  border-radius: 999px;
+}

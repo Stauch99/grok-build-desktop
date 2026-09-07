@@ -111,3 +111,28 @@ describe("work-run progress", () => {
     expect(chunk).toMatch(/run-progress[\s\S]*infinite/);
   });
 });
+
+describe("cards and messages motion", () => {
+  it("animates the newest message and permission cards on entry", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.thread \.msg:last-child\s*\{[^}]*animation:\s*spine-enter/);
+    expect(src).toMatch(/\.permission\s*\{[^}]*animation:\s*spine-enter/);
+  });
+
+  it("stagger-animates diff summary chips", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.diff-summary-inner > \*\s*\{[^}]*animation:\s*chip-in[^}]*backwards/);
+    expect(src).toMatch(/\.diff-summary-inner > \*:nth-child\(2\)\s*\{[^}]*animation-delay/);
+  });
+
+  it("rings code blocks on hover", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.md pre:hover\s*\{[^}]*box-shadow: 0 0 0 1px var\(--line-strong\)/);
+  });
+
+  it("gives frost permission cards a hairline ring and pill buttons", () => {
+    const src = cssFile("src/styles/frost.css");
+    expect(src).toMatch(/:root\[data-theme-family="frost"\] \.permission\s*\{[^}]*box-shadow: 0 0 0 1px var\(--line\)/);
+    expect(src).toMatch(/:root\[data-theme-family="frost"\] \.permission \.btn[^{]*\{[^}]*border-radius: 999px/);
+  });
+});
