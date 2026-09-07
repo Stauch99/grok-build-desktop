@@ -629,4 +629,4 @@
   z-index: 0;
 }
 .session-list.gliding .session-glide { opacity: 1; }
-.session-list > .session { position: relative; z-index: 1; }
+.session-list .session { position: relative; z-index: 1; }

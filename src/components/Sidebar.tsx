@@ -18,6 +18,7 @@ import {
   type SidebarRow,
   type SidebarSection,
 } from "../lib/sidebar-list";
+import { sessionGlideMetrics } from "../lib/session-glide";
 import { AccountMenu } from "./AccountMenu";
 import { ShortcutKbd } from "./ShortcutHint";
 import { sessionTreeNav } from "../lib/session-tree-keys";
@@ -167,8 +168,9 @@ export function Sidebar({
       list.classList.remove("gliding");
       return;
     }
-    list.style.setProperty("--glide-y", `${item.offsetTop}px`);
-    list.style.setProperty("--glide-h", `${item.offsetHeight}px`);
+    const { y, h } = sessionGlideMetrics(list, item);
+    list.style.setProperty("--glide-y", `${y}px`);
+    list.style.setProperty("--glide-h", `${h}px`);
     list.classList.add("gliding");
   }
 

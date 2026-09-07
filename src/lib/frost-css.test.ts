@@ -116,7 +116,9 @@ describe("cards and messages motion", () => {
   it("animates the newest message and permission cards on entry", () => {
     const src = cssFile("src/styles/thread.css");
     expect(src).toMatch(/\.thread \.msg:last-child\s*\{[^}]*animation:\s*spine-enter/);
-    expect(src).toMatch(/\.permission\s*\{[^}]*animation:\s*spine-enter/);
+    const permission = src.match(/\.permission\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(permission).toMatch(/animation:\s*spine-enter/);
+    expect(permission).toMatch(/perm-pulse/);
   });
 
   it("stagger-animates diff summary chips", () => {

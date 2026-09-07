@@ -1,10 +1,20 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../api";
 import { LocaleProvider } from "../lib/locale-context";
+import { sessionGlideMetrics } from "../lib/session-glide";
 import { DEFAULT_SIDEBAR_LIST, type SidebarSection } from "../lib/sidebar-list";
 import { Sidebar } from "./Sidebar";
+
+const sidebarSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+const sidebarCss = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../styles/sidebar.css"),
+  "utf8",
+);
 
 function session(id: string, title: string, n: number): SessionSummary {
   const pad = String(n).padStart(2, "0");
@@ -104,6 +114,25 @@ describe("Sidebar project session window", () => {
     const html = render(3);
     expect(html).toContain('class="session-glide"');
     expect(html.indexOf("session-glide")).toBeLessThan(html.indexOf('class="session"'));
+  });
+
+  it("places the glide using list-relative rects, not nested offsetTop", () => {
+    const list = {
+      scrollTop: 40,
+      getBoundingClientRect: () => ({ top: 100, height: 400 }),
+    };
+    const item = {
+      offsetTop: 8,
+      offsetHeight: 32,
+      getBoundingClientRect: () => ({ top: 220, height: 32 }),
+    };
+    const { y, h } = sessionGlideMetrics(list, item);
+    expect(y).toBe(160);
+    expect(h).toBe(32);
+    expect(y).not.toBe(item.offsetTop);
+    expect(sidebarSrc).toContain("sessionGlideMetrics");
+    expect(sidebarSrc).not.toMatch(/item\.offsetTop/);
+    expect(sidebarCss).toMatch(/\.session-list \.session \{/);
   });
 
   it("puts a plus on the project row to start a session in that folder", () => {
