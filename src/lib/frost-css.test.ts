@@ -94,3 +94,20 @@ describe("composer and palette polish", () => {
     expect(src).toMatch(/\.palette-empty\s*\{[^}]*1px dashed var\(--line\)/);
   });
 });
+
+describe("work-run progress", () => {
+  it("shows an indeterminate accent bar while live", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.work-run\.live \.work-run-bar::after\s*\{/);
+    const kf = src.match(/@keyframes run-progress\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(kf).toMatch(/transform/);
+    expect(kf).not.toMatch(/width|left:/);
+  });
+
+  it("is exempted from the reduced-motion kill switch like the spinner", () => {
+    const src = cssFile("src/styles.css");
+    const idx = src.indexOf("@media (prefers-reduced-motion: reduce)");
+    const chunk = src.slice(idx, idx + 2200);
+    expect(chunk).toMatch(/run-progress[\s\S]*infinite/);
+  });
+});

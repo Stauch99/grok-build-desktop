@@ -320,6 +320,9 @@ button:disabled { opacity: 0.35; cursor: default; }
     animation-duration: 1.2s !important;
     animation-iteration-count: infinite !important;
   }
+  .work-run.live .work-run-bar::after {
+    animation: run-progress 1.6s var(--ease-in-out) infinite !important;
+  }
   .dot-matrix-cell,
   .dot-matrix-cell { opacity: 0.35; }
   .work-run.live .work-run-text {

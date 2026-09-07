@@ -763,3 +763,22 @@
 /* ---- tool chip hover lift ---- */
 .tool-result { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
 .tool-result:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+
+/* ---- live run progress ---- */
+.work-run-bar { position: relative; }
+.work-run.live .work-run-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: run-progress 1.6s var(--ease-in-out) infinite;
+}
+@keyframes run-progress {
+  0% { transform: scaleX(0); }
+  55% { transform: scaleX(0.85); }
+  100% { transform: scaleX(1); opacity: 0.35; }
+}
