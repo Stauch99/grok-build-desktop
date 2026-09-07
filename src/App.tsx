@@ -62,6 +62,7 @@ import { PlanCompleteCard } from "./components/PlanCompleteCard";
 import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
 import { Composer } from "./components/Composer";
+import { SelectionActions } from "./components/SelectionActions";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { Skeleton } from "./components/Skeleton";
@@ -74,8 +75,10 @@ import { IconChevron, IconGitFork } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
+import { useTextSelection } from "./hooks/useTextSelection";
 
 export function App() {
+  const selectionState = useTextSelection();
   const {
     theme,
     setTheme,
@@ -1552,6 +1555,23 @@ return (
           onClose={() => setMillerOpen(false)}
         />
       )}
+      <SelectionActions
+        state={selectionState}
+        viewport={{ width: window.innerWidth, height: window.innerHeight }}
+        locale={locale}
+        onRewrite={(next) => {
+          onDraftChange(next);
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+          });
+        }}
+        onQuote={(quote) => {
+          onDraftChange(draft ? `${draft}\n${quote}` : quote);
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+          });
+        }}
+      />
       {toast && (
         <div
           className="toast"

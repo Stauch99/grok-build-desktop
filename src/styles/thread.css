@@ -645,6 +645,7 @@
   max-width: 100%;
   overflow-x: hidden;
   padding: 6px 0 10px;
+  animation: spine-enter var(--dur) var(--ease);
 }
 .spine-body .tool-result {
   border-left: 0;
@@ -736,3 +737,89 @@
 :root[data-density="compact"] .spine-row,
 :root[data-density="compact"] .work-live { padding-top: 3px; padding-bottom: 3px; }
 :root[data-density="compact"] .work-run-head { padding-top: 4px; padding-bottom: 6px; }
+
+@keyframes spine-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fold.open > * { animation: spine-enter var(--dur) var(--ease); }
+
+/* ---- streaming caret ---- */
+.md[data-live] > *:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+/* ---- tool chip hover lift ---- */
+.tool-result { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.tool-result:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+
+/* ---- live run progress ---- */
+.work-run-bar { position: relative; }
+.work-run.live .work-run-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: run-progress 1.6s var(--ease-in-out) infinite;
+}
+@keyframes run-progress {
+  0% { transform: scaleX(0); }
+  55% { transform: scaleX(0.85); }
+  100% { transform: scaleX(1); opacity: 0.35; }
+}
+
+/* ---- entry + hover polish (spec §5.1/§5.2/§5.3 remainder) ---- */
+.thread > .msg:last-child,
+.thread > .turn-user:last-child > .msg {
+  animation: spine-enter var(--dur) var(--ease);
+}
+.diff-summary-inner > * { animation: chip-in var(--dur) var(--ease) backwards; }
+.diff-summary-inner > *:nth-child(2) { animation-delay: 40ms; }
+.diff-summary-inner > *:nth-child(3) { animation-delay: 80ms; }
+.md pre { transition: box-shadow var(--dur-fast) var(--ease); }
+.md pre:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+
+/* ---- selection actions toolbar ---- */
+.sel-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-l);
+  animation: sel-in var(--dur-fast) var(--ease);
+}
+.sel-toolbar button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--ui-small);
+  padding: 4px 12px;
+  border-radius: 999px;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.sel-toolbar button:hover { background: var(--bg-hover); color: var(--text); }
+@keyframes sel-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

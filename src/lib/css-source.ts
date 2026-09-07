@@ -21,6 +21,7 @@ export const APP_STYLE_FILES = [
   "src/styles/composer.css",
   "src/styles/settings.css",
   "src/styles/review.css",
+  "src/styles/frost.css",
 ] as const;
 
 export function cssFile(rel: string): string {

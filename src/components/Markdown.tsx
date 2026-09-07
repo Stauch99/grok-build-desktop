@@ -35,7 +35,7 @@ export const Markdown = memo(function Markdown({
   const htmlFor = (md: string) =>
     live ? renderMd(md, cwd, toSrc) : memoizeMarkdown(md, cwd, toSrc);
   return (
-    <div className={className} onClick={onClick}>
+    <div className={className} data-live={live ? "" : undefined} onClick={onClick}>
       {blocks.map((b, i) =>
         b.kind === "mermaid" ? (
           <Suspense

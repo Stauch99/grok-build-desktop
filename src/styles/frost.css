@@ -1,0 +1,60 @@
+/* frost theme family — structural overrides (spec §4).
+   EVERY selector must start with :root[data-theme-family="frost"]. */
+
+/* ---- dashed separators ---- */
+:root[data-theme-family="frost"] .md hr {
+  border-top: 1px dashed var(--line);
+}
+:root[data-theme-family="frost"] .palette-input {
+  border-bottom: 1px dashed var(--line);
+}
+:root[data-theme-family="frost"] .composer-meta-row {
+  border-top: 1px dashed var(--line);
+}
+:root[data-theme-family="frost"] .session-batch {
+  border-top: 1px dashed var(--line);
+}
+:root[data-theme-family="frost"] .set-row + .set-row {
+  border-top: 1px dashed var(--line);
+}
+
+/* ---- hairline ring instead of heavy shadow ---- */
+:root[data-theme-family="frost"] .palette,
+:root[data-theme-family="frost"] .settings-dialog,
+:root[data-theme-family="frost"] .composer {
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-l);
+}
+:root[data-theme-family="frost"] .tool-result {
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* ---- pill controls ---- */
+:root[data-theme-family="frost"] .toggle,
+:root[data-theme-family="frost"] .toggle i,
+:root[data-theme-family="frost"] .agent-chip,
+:root[data-theme-family="frost"] .mode-chip,
+:root[data-theme-family="frost"] .composer-chips > * {
+  border-radius: 999px;
+}
+
+/* ---- compact secondary labels ---- */
+:root[data-theme-family="frost"] .ws-band-label {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--faint);
+}
+
+/* ---- dotted canvas ---- */
+:root[data-theme-family="frost"] .mermaid-view {
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 16px 16px;
+  border-radius: var(--radius);
+}
+
+:root[data-theme-family="frost"] .permission {
+  box-shadow: 0 0 0 1px var(--line);
+}
+:root[data-theme-family="frost"] .permission .btn,
+:root[data-theme-family="frost"] .perm-opt {
+  border-radius: 999px;
+}

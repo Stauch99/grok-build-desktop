@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
@@ -19,6 +19,7 @@ import {
   type SidebarRow,
   type SidebarSection,
 } from "../lib/sidebar-list";
+import { sessionGlideMetrics } from "../lib/session-glide";
 import { AccountMenu } from "./AccountMenu";
 import { ShortcutKbd } from "./ShortcutHint";
 import { sessionTreeNav } from "../lib/session-tree-keys";
@@ -159,6 +160,23 @@ export function Sidebar({
   const anchorId = useRef<string | null>(null);
   const modsRef = useRef({ shift: false, meta: false });
   const lastClickedId = useRef<string | null>(null);
+
+  function moveGlide(e: ReactMouseEvent<HTMLDivElement>) {
+    const list = e.currentTarget;
+    const item = (e.target as HTMLElement).closest(".session");
+    if (!item || !(item instanceof HTMLElement) || !list.contains(item)) {
+      list.classList.remove("gliding");
+      return;
+    }
+    const { y, h } = sessionGlideMetrics(list, item);
+    list.style.setProperty("--glide-y", `${y}px`);
+    list.style.setProperty("--glide-h", `${h}px`);
+    list.classList.add("gliding");
+  }
+
+  function hideGlide(e: ReactMouseEvent<HTMLDivElement>) {
+    e.currentTarget.classList.remove("gliding");
+  }
 
   useEffect(() => {
     if (!projectMenu && !groupMenu) return;
@@ -524,7 +542,13 @@ export function Sidebar({
       </div>
 
       {searchHits !== null ? (
-        <div className="session-list inbox-list" style={{ flex: "0 0 auto", maxHeight: 160 }}>
+        <div
+          className="session-list inbox-list"
+          style={{ flex: "0 0 auto", maxHeight: 160 }}
+          onMouseOver={moveGlide}
+          onMouseLeave={hideGlide}
+        >
+          <span className="session-glide" aria-hidden="true" />
           <div className="section-label ws-hits">
             {t("sidebar.searchResults")}
             <button type="button" className="icon-btn" onClick={onClearHits} aria-label={t("sidebar.clearSearch")} data-tip={t("sidebar.clear")}>
@@ -622,6 +646,8 @@ export function Sidebar({
         role="list"
         aria-label={t("sidebar.sessions")}
         onKeyDown={onSessionTreeKeyDown}
+        onMouseOver={moveGlide}
+        onMouseLeave={hideGlide}
         onDoubleClick={(e) => {
           const target = e.target;
           if (!(target instanceof Element)) return;
@@ -630,6 +656,7 @@ export function Sidebar({
           if (id) onStartRename?.(id);
         }}
       >
+        <span className="session-glide" aria-hidden="true" />
         {sections.length === 0 ? (
           <p className="footnote">{t("sidebar.empty")}</p>
         ) : null}

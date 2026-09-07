@@ -46,7 +46,7 @@ export function useAppModelState() {
   const [hubOpen, setHubOpen] = useState(false);
   const [hubTab, setHubTab] = useState<HubTab>("skills");
   const [locale, setLocale] = useState<Locale>("zh");
-  const [themeFamily, setThemeFamily] = useState<"default" | "paper" | "ink">("default");
+  const [themeFamily, setThemeFamily] = useState<"default" | "paper" | "ink" | "frost">("default");
   const [accentId, setAccentId] = useState<AccentId>(DEFAULT_ACCENT_ID);
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [hideToTray, setHideToTray] = useState(true);

@@ -29,6 +29,7 @@
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--brand) 50%, var(--line));
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .composer-wrap[data-mode="yolo"] .composer {
   border-color: var(--danger);
@@ -74,6 +75,7 @@
   flex: 0 0 auto;
   order: 1;
 }
+.composer-chips > * { animation: chip-in var(--dur) var(--ease); }
 .composer-meta-row {
   display: flex;
   align-items: center;
@@ -584,3 +586,11 @@
   align-items: center;
   gap: 8px;
 }
+
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.recap-card { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.recap-card:hover { transform: translateY(-1px); box-shadow: var(--shadow); }

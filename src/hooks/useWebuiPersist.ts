@@ -29,7 +29,7 @@ export type WebuiSnapshot = {
   sidebarWidth: number;
   previewWidth: number;
   locale: Locale;
-  themeFamily: "default" | "paper" | "ink";
+  themeFamily: "default" | "paper" | "ink" | "frost";
   accentId: string;
   hideToTray: boolean;
   defaultRail: "tasks" | "changes" | "context";

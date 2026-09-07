@@ -6,7 +6,7 @@
   border-left: 3px solid var(--warn);
   border-radius: var(--radius-m);
   padding: 10px 12px;
-  animation: rise-in var(--dur) var(--ease), perm-pulse 900ms var(--ease) 1;
+  animation: rise-in var(--dur) var(--ease), perm-pulse 900ms var(--ease) 1, spine-enter var(--dur) var(--ease);
 }
 @keyframes perm-pulse {
   0%, 100% { box-shadow: none; }

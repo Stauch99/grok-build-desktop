@@ -612,3 +612,25 @@
 .session-list.is-batching .session:hover {
   outline: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
 }
+
+/* ---- gliding hover indicator ---- */
+.session-list { position: relative; }
+.session-glide {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 0;
+  height: var(--glide-h, 0px);
+  transform: translateY(var(--glide-y, 0px));
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+  opacity: 0;
+  transition:
+    transform var(--dur) var(--ease),
+    height var(--dur) var(--ease),
+    opacity var(--dur-fast) linear;
+  pointer-events: none;
+  z-index: 0;
+}
+.session-list.gliding .session-glide { opacity: 1; }
+.session-list .session { position: relative; z-index: 1; }

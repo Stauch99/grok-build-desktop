@@ -68,8 +68,8 @@ type Props = {
   dreamAgentOptions?: { id: string; label: string }[];
   locale?: Locale;
   onLocale?: (l: Locale) => void;
-  themeFamily?: "default" | "paper" | "ink";
-  onThemeFamily?: (f: "default" | "paper" | "ink") => void;
+  themeFamily?: "default" | "paper" | "ink" | "frost";
+  onThemeFamily?: (f: "default" | "paper" | "ink" | "frost") => void;
   accentId?: AccentId;
   onAccentId?: (id: AccentId) => void;
   hideToTray?: boolean;
@@ -262,7 +262,7 @@ export function SettingsPanel({
   const overviewHas = overviewHealth || overviewInbox;
 
   const appearanceDark = show(hay("settings.dark"));
-  const appearanceFamily = show(hay("settings.themeFamily"), "默认 Paper 暖纸 Ink 高对比 Default Warm High contrast");
+  const appearanceFamily = show(hay("settings.themeFamily"), "默认 Paper 暖纸 Ink 高对比 Frost 冷灰 Default Warm High contrast Cool gray");
   const appearanceAccent = show(hay("settings.accent"), "蓝 橙 绿 紫 粉 青 Blue Orange Green Purple Pink Teal");
   const appearanceLocale = show(hay("settings.locale"), "简体中文 English 中文");
   const appearanceWidth = show(hay("settings.chatWidth"), "窄 中 宽 填充 Narrow Medium Wide Fill");
@@ -536,8 +536,9 @@ export function SettingsPanel({
                               { value: "default", label: t(locale, "settings.themeDefault") },
                               { value: "paper", label: "Paper", hint: t(locale, "settings.paperHint") },
                               { value: "ink", label: "Ink", hint: t(locale, "settings.inkHint") },
+                              { value: "frost", label: "Frost", hint: t(locale, "settings.frostHint") },
                             ]}
-                            onChange={(v) => onThemeFamily?.(v as "default" | "paper" | "ink")}
+                            onChange={(v) => onThemeFamily?.(v as "default" | "paper" | "ink" | "frost")}
                           />
                         </div>
                       ) : null}
