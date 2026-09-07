@@ -793,3 +793,33 @@
 .diff-summary-inner > *:nth-child(3) { animation-delay: 80ms; }
 .md pre { transition: box-shadow var(--dur-fast) var(--ease); }
 .md pre:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+
+/* ---- selection actions toolbar ---- */
+.sel-toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-l);
+  animation: sel-in var(--dur-fast) var(--ease);
+}
+.sel-toolbar button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--ui-small);
+  padding: 4px 12px;
+  border-radius: 999px;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.sel-toolbar button:hover { background: var(--bg-hover); color: var(--text); }
+@keyframes sel-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
