@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import { APP_STYLE_FILES, cssFile } from "./css-source";
+
+const PREFIX = ':root[data-theme-family="frost"]';
+
+function selectorLines(src: string): string[] {
+  return src
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("/*") && !l.startsWith("*") && !l.startsWith("}") && !l.startsWith("@"))
+    .filter((l) => /[,{]/.test(l) && !l.startsWith(":root {"))
+    .filter((l) => !l.includes(":") || /^[.:[]|\w/.test(l) || l.startsWith(PREFIX));
+}
+
+describe("frost.css scope guard", () => {
+  it("every selector is scoped to the frost theme family", () => {
+    const src = cssFile("src/styles/frost.css");
+    const selectors = src
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.endsWith("{") && !l.startsWith("@") && !l.startsWith("/*"));
+    expect(selectors.length).toBeGreaterThan(8);
+    for (const s of selectors) {
+      for (const part of s.replace(/\{$/, "").split(",")) {
+        expect(part.trim().startsWith(PREFIX), `unscoped selector: ${part}`).toBe(true);
+      }
+    }
+  });
+
+  it("carries the structural motifs from the spec", () => {
+    const src = cssFile("src/styles/frost.css");
+    expect(src).toMatch(/border-top-style: dashed|1px dashed/);       // 虚线分隔
+    expect(src).toMatch(/box-shadow: 0 0 0 1px var\(--line\)/);        // 描边代阴影
+    expect(src).toMatch(/border-radius: 999px/);                        // 胶囊
+    expect(src).toMatch(/radial-gradient\(var\(--line\) 1px/);          // 点状画布
+    expect(src).toMatch(/font-size: 11\.5px/);                          // 紧凑辅助字
+  });
+
+  it("is registered in main.tsx and css-source.ts", () => {
+    expect(APP_STYLE_FILES).toContain("src/styles/frost.css");
+    expect(cssFile("src/main.tsx")).toContain('./styles/frost.css');
+  });
+});
