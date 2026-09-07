@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-07
+
 ### Added
 
-- Mock ACP child when `GROK_BUILD_ACP=mock` or `GROK_APP_ACP=mock`, so the UI can boot without a real CLI.
+- Mock ACP child when `GROK_BUILD_ACP=mock` or `GROK_APP_ACP=mock`, so the UI can boot without a CLI.
 - Ghost-turn heal: if a send never reaches the agent, restore the composer after 45s.
 - Settings → About copies a redacted support bundle (doctors + version).
 - ACP children inherit HTTP(S) proxy env; on macOS, `scutil --proxy` fills in when env is empty.
@@ -17,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host session FSM (idle → connecting → ready → streaming / permission → crash).
 - Agent process exit cancels open tools and appends a crash notice instead of looking idle-complete.
 - Composer send button states queue / steer / blocked-permission before you press it.
+
+### Changed
+
+- Untitled Grok shells with no real user turn stay off the session list.
+- HTML artifacts preview over `asset://` (CSP `frame-src` includes the asset protocol).
+- Selection actions, work-run, and timeline own their chrome; live tools stay on the spine.
 
 ## [0.6.1] - 2026-09-07
 
