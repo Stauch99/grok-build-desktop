@@ -87,10 +87,12 @@
   font-size: var(--ui-smaller);
 }
 .palette-empty {
-  margin: 0;
-  padding: 16px 12px;
+  margin: 24px 16px;
+  padding: 28px 16px;
   text-align: center;
   color: var(--faint);
-  font-size: var(--ui-small);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-m);
+  animation: rise-in var(--dur) var(--ease);
 }
 

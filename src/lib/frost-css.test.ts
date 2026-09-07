@@ -73,3 +73,24 @@ describe("streaming caret and tool chip hover", () => {
     expect(src).toMatch(/\.tool-result:hover\s*\{[^}]*translateY\(-1px\)/);
   });
 });
+
+describe("composer and palette polish", () => {
+  it("adds an accent focus ring while keeping the border-color rule", () => {
+    const src = cssFile("src/styles/composer.css");
+    expect(src).toMatch(/\.composer:focus-within\s*\{[^}]*border-color:/);
+    expect(src).toMatch(/\.composer:focus-within\s*\{[^}]*box-shadow: 0 0 0 1px var\(--accent\)/);
+  });
+
+  it("animates chip entry with transform/opacity", () => {
+    const src = cssFile("src/styles/composer.css");
+    expect(src).toMatch(/\.composer-chips > \*\s*\{[^}]*animation:\s*chip-in/);
+    const kf = src.match(/@keyframes chip-in\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(kf).toMatch(/translateY/);
+    expect(kf).toMatch(/opacity/);
+  });
+
+  it("gives the palette empty state a dashed ring", () => {
+    const src = cssFile("src/styles/palette.css");
+    expect(src).toMatch(/\.palette-empty\s*\{[^}]*1px dashed var\(--line\)/);
+  });
+});
