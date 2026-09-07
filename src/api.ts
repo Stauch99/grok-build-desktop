@@ -57,7 +57,7 @@ export type WebuiState = {
   /** sessionId → terminal state you have not looked at yet. */
   unread?: Record<string, "done" | "error">;
   locale?: "zh" | "en";
-  themeFamily?: "default" | "paper" | "ink";
+  themeFamily?: "default" | "paper" | "ink" | "frost";
   accentId?: string;
   hideToTray?: boolean;
   defaultRail?: "tasks" | "changes" | "context";

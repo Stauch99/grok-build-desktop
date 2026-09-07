@@ -63,7 +63,7 @@ export type HydrateWebuiDeps = {
   setDreamingEnabled: (value: boolean) => void;
   setDreamAgentId: (id: AgentId) => void;
   setLocale: (locale: Locale) => void;
-  setThemeFamily: (family: "default" | "paper" | "ink") => void;
+  setThemeFamily: (family: "default" | "paper" | "ink" | "frost") => void;
   setAccentId: (id: AccentId) => void;
   setDensity: (density: "comfortable" | "compact") => void;
   setHideToTray: (value: boolean) => void;
@@ -153,7 +153,7 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     d.setDreamingEnabled(memory.dreamingEnabled);
     d.setDreamAgentId(memory.dreamAgentId);
     d.setLocale(normalizeLocale(state.locale));
-    if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default") {
+    if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default" || state.themeFamily === "frost") {
       d.setThemeFamily(state.themeFamily);
     }
     d.setAccentId(normalizeAccentId(state.accentId));

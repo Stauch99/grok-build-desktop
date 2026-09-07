@@ -56,6 +56,11 @@ describe("buildWebuiState", () => {
   it("includes lastAgent from the snapshot", () => {
     expect(buildWebuiState({ ...base, lastAgent: "kimi" }, {}).lastAgent).toBe("kimi");
   });
+
+  it("persists the frost theme family", () => {
+    const state = buildWebuiState({ ...base, themeFamily: "frost" });
+    expect(state.themeFamily).toBe("frost");
+  });
 });
 
 describe("webui persist throttle", () => {
