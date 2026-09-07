@@ -6,8 +6,10 @@ import {
   deriveReviewTabs,
   initialReviewState,
   persistReviewOpen,
+  recalledReviewPane,
   recalledReviewTab,
   reconcileReviewTab,
+  rememberReviewPane,
   rememberReviewTab,
   reviewLandingTab,
   reviewPeerPane,
@@ -183,5 +185,53 @@ describe("review rail model", () => {
     expect(recalledReviewTab(b, "s3|/new", "git")).toBe("git");
     expect(rememberReviewTab(b, "s1|/work", "preview")).toBe(b);
     expect(rememberReviewTab(b, "", "git")).toBe(b);
+  });
+
+  it("remembers preview files and explorer folders per session", () => {
+    const a = rememberReviewPane({}, "s1|/work", {
+      previewPaths: ["/work/a.ts", "/work/b.md"],
+      previewPath: "/work/b.md",
+      expandedDirs: ["/work/src", "/work/src/lib"],
+    });
+    const b = rememberReviewPane(a, "s2|/other", {
+      previewPaths: ["/other/c.ts"],
+      previewPath: "/other/c.ts",
+      expandedDirs: ["/other"],
+    });
+    expect(recalledReviewPane(b, "s1|/work")).toEqual({
+      previewPaths: ["/work/a.ts", "/work/b.md"],
+      previewPath: "/work/b.md",
+      expandedDirs: ["/work/src", "/work/src/lib"],
+    });
+    expect(recalledReviewPane(b, "s2|/other")).toEqual({
+      previewPaths: ["/other/c.ts"],
+      previewPath: "/other/c.ts",
+      expandedDirs: ["/other"],
+    });
+    expect(recalledReviewPane(b, "s3|/new")).toEqual({
+      previewPaths: [],
+      previewPath: null,
+      expandedDirs: [],
+    });
+    expect(rememberReviewPane(b, "s1|/work", {
+      previewPaths: ["/work/a.ts", "/work/b.md"],
+      previewPath: "/work/b.md",
+      expandedDirs: ["/work/src", "/work/src/lib"],
+    })).toBe(b);
+    expect(rememberReviewPane(b, "", {
+      previewPaths: ["/x"],
+      previewPath: "/x",
+      expandedDirs: ["/"],
+    })).toBe(b);
+  });
+
+  it("reloads a remembered file without stealing the active rail tab", () => {
+    const explorer = { ...initialReviewState, open: true, tab: "explorer" as const };
+    const silent = reviewReducer(explorer, { type: "preview-start", path: "a.md", requestId: 1, silent: true });
+    expect(silent.open).toBe(true);
+    expect(silent.tab).toBe("explorer");
+    expect(silent.preview.path).toBe("a.md");
+    const opened = reviewReducer(explorer, { type: "preview-start", path: "a.md", requestId: 1 });
+    expect(opened.tab).toBe("preview");
   });
 });

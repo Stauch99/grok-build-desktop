@@ -66,6 +66,13 @@ describe("ExplorerPane dir Finder button", () => {
     const src = source("./ExplorerPane.tsx");
     expect(src).toMatch(/className="file-open file-finder"/);
   });
+
+  it("keeps folder expansion in the parent so hiding the rail does not reset the tree", () => {
+    const src = source("./ExplorerPane.tsx");
+    expect(src).toMatch(/expandedDirs/);
+    expect(src).toMatch(/onToggleDir/);
+    expect(src).not.toMatch(/useState\(false\)/);
+  });
 });
 
 describe("file-finder hover CSS", () => {
@@ -86,5 +93,49 @@ describe("file-finder hover CSS", () => {
     const open = ruleBlock(css, ".file-open");
     expect(open).toMatch(/min-width:\s*22px/);
     expect(open).toMatch(/min-height:\s*22px/);
+  });
+});
+
+describe("FileListRow attach-to-session button", () => {
+  it("adds a session attach control when onAttach is provided", () => {
+    const html = renderToStaticMarkup(
+      createElement(FileListRow, {
+        name: "plan.md",
+        path: "/work/plan.md",
+        onOpen: () => {},
+        onReveal: () => {},
+        onAttach: () => {},
+      }),
+    );
+    expect(html).toContain('aria-label="添加到会话"');
+    expect(html).toMatch(/class="file-open file-attach"/);
+  });
+
+  it("omits the attach control when onAttach is missing", () => {
+    const html = renderToStaticMarkup(
+      createElement(FileListRow, {
+        name: "plan.md",
+        path: "/work/plan.md",
+        onOpen: () => {},
+        onReveal: () => {},
+      }),
+    );
+    expect(html).not.toMatch(/file-attach/);
+  });
+});
+
+describe("ExplorerPane and PreviewPane attach wiring", () => {
+  it("lets explorer files and folders call onAttach", () => {
+    const src = source("./ExplorerPane.tsx");
+    expect(src).toMatch(/onAttach\?:/);
+    expect(src).toMatch(/onAttach=\{onAttach \? \(\) => onAttach\(entry\.path/);
+    expect(src).toMatch(/onAttach\(entry\.path, "dir"\)/);
+  });
+
+  it("lets an open preview file attach to the session", () => {
+    const src = source("./PreviewPane.tsx");
+    expect(src).toMatch(/onAttach\?:/);
+    expect(src).toMatch(/onAttach\(displayPath\)/);
+    expect(src).toMatch(/session\.attach/);
   });
 });

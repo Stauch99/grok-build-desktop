@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { IconFileTxt, IconFinder, IconFolder } from "../icons";
+import { IconFileTxt, IconFinder, IconFolder, IconPaperclip } from "../icons";
 import { useT } from "../lib/locale-context";
 
 export type FileListRowProps = {
@@ -9,6 +9,7 @@ export type FileListRowProps = {
   kind?: "file" | "dir";
   onOpen: () => void;
   onReveal: () => void;
+  onAttach?: () => void;
   leading?: ReactNode;
   trailing?: ReactNode;
 };
@@ -21,6 +22,7 @@ export function FileListRow({
   kind = "file",
   onOpen,
   onReveal,
+  onAttach,
   leading,
   trailing,
 }: FileListRowProps) {
@@ -40,6 +42,17 @@ export function FileListRow({
         </span>
       </button>
       {trailing}
+      {onAttach ? (
+        <button
+          type="button"
+          className="file-open file-attach"
+          data-tip={t("session.attach")}
+          aria-label={t("session.attach")}
+          onClick={onAttach}
+        >
+          <IconPaperclip size={14} />
+        </button>
+      ) : null}
       <button
         type="button"
         className="file-open file-finder"

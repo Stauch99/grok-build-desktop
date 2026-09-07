@@ -38,6 +38,27 @@ describe("shouldClearBusyOnSessionUpdate", () => {
     expect(shouldClearBusyOnSessionUpdate(chunk("pong"))).toBe(false);
     expect(shouldClearBusyOnSessionUpdate(kind("auto_compact_completed"))).toBe(false);
   });
+
+  it("does not idle on turn_completed while a tool is still running", () => {
+    const items = [
+      { kind: "user" as const, id: "u", text: "go" },
+      { kind: "tool" as const, id: "t1", title: "Bash", status: "in_progress" as const },
+    ];
+    expect(shouldClearBusyOnSessionUpdate(kind("turn_completed"), items)).toBe(false);
+    expect(
+      shouldClearBusyOnSessionUpdate(kind("turn_completed"), [
+        { kind: "user" as const, id: "u", text: "go" },
+        { kind: "assistant" as const, id: "a", text: "done" },
+      ]),
+    ).toBe(true);
+    expect(
+      shouldClearBusyOnSessionUpdate(kind("turn_completed"), [
+        { kind: "user" as const, id: "u", text: "go" },
+        { kind: "tool" as const, id: "t1", title: "TaskUpdate", status: "in_progress" as const },
+        { kind: "assistant" as const, id: "a", text: "done" },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("shouldFlushSessionUpdateNow", () => {

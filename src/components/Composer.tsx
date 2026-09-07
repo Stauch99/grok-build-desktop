@@ -67,6 +67,8 @@ export type ComposerHandle = {
   focus: () => void;
   /** Put text in the box and focus it — used by slash commands that expect an argument. */
   setText: (text: string) => void;
+  /** Attach workspace files/folders so the next send includes `@path` tokens. */
+  attachPaths: (paths: { path: string; kind: "file" | "dir"; bytes?: number; name?: string }[]) => void;
 };
 
 export type ComposerProps = {
@@ -241,14 +243,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     ring: false,
   });
 
-  useImperativeHandle(ref, () => ({
-    focus: () => taRef.current?.focus(),
-    setText: (text: string) => {
-      onChange(text);
-      taRef.current?.focus();
-    },
-  }));
-
   useEffect(() => {
     growArea(taRef.current);
   }, [value]);
@@ -348,6 +342,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   ingestPathsRef.current = ingestPaths;
   const ingestClipboardHitsRef = useRef(ingestClipboardHits);
   ingestClipboardHitsRef.current = ingestClipboardHits;
+
+  useImperativeHandle(ref, () => ({
+    focus: () => taRef.current?.focus(),
+    setText: (text: string) => {
+      onChange(text);
+      taRef.current?.focus();
+    },
+    attachPaths: (paths) => {
+      void ingestPathsRef.current(paths);
+      taRef.current?.focus();
+    },
+  }));
   const pointInWrapRef = useRef(pointInWrap);
   pointInWrapRef.current = pointInWrap;
 

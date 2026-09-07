@@ -98,10 +98,10 @@
   font-size: var(--md-size, 15px);
   line-height: 1.5;
   letter-spacing: normal;
-  text-wrap: pretty;
   overflow-wrap: anywhere;
 }
-.md p { margin: 0 0 0.85em; }
+.md p { margin: 0 0 0.85em; text-align: justify; }
+.md p:last-child { margin-bottom: 0; }
 .md p:last-child { margin-bottom: 0; }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
   font-family: var(--display);
@@ -128,7 +128,7 @@
   list-style-position: outside;
 }
 .md ol { padding-inline-start: 2em; }
-.md li { margin: 0.175em 0; }
+.md li { margin: 0.175em 0; text-align: justify; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.1em 0; }
 .md blockquote {
   position: relative;
@@ -316,7 +316,7 @@
   font-family: var(--font);
 }
 .msg.assistant .md {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   max-width: calc(100% - 36px);
 }

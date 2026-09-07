@@ -11,9 +11,16 @@ describe("subagentStatusFromTool", () => {
     expect(subagentStatusFromTool("spawn_subagent", "failed")).toBe("failed");
   });
 
-  it("maps get_command_or_subagent_output titles", () => {
-    expect(subagentStatusFromTool("get_command_or_subagent_output", "running")).toBe("running");
-    expect(subagentStatusFromTool("get_command_or_subagent_output (1)", "completed")).toBe("completed");
+  it("does not treat output polls as independent subagents", () => {
+    expect(subagentStatusFromTool("get_command_or_subagent_output", "running")).toBeNull();
+    expect(subagentStatusFromTool("get_command_or_subagent_output (1)", "completed")).toBeNull();
+    expect(
+      subagentStatusFromItem({
+        title: "Execute `git rev-parse HEAD`",
+        status: "in_progress",
+        toolName: "get_command_or_subagent_output",
+      }),
+    ).toBeNull();
   });
 
   it("accepts spaced or dashed titles", () => {

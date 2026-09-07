@@ -322,6 +322,7 @@ export function App() {
     toggleExpand,
     current,
     currentTitle,
+    sessionPreviews,
     sessionModel,
     recapText,
     showRecap,
@@ -364,6 +365,14 @@ export function App() {
   } = useAppModel();
   const reviewPresence = usePresence(reviewOpen);
 
+  function attachToSession(path: string, kind: "file" | "dir" = "file") {
+    const handle = focusedPaneId === MAIN_PANE
+      ? composerRef.current
+      : extraComposerRefs.current[focusedPaneId];
+    handle?.attachPaths([{ path, kind }]);
+    handle?.focus();
+  }
+
   function renderSplitLeaf(paneId: string) {
     const extra = paneId === MAIN_PANE ? null : extraPanes[paneId];
     const sid = extra?.sessionId ?? sessionId;
@@ -376,7 +385,7 @@ export function App() {
     const paneSession = sid
       ? sessions.find((s) => s.id === sid) ?? inboxSessions.find((s) => s.id === sid) ?? null
       : paneId === MAIN_PANE ? current : null;
-    const paneTitle = paneSession ? displayTitle(paneSession, titles) : t(locale, "chrome.newSession");
+    const paneTitle = paneSession ? displayTitle(paneSession, titles, sessionPreviews) : t(locale, "chrome.newSession");
     const mentions = extra
       ? selectPaneMentionSource(extra.cwd, extraMentionData[paneId] ?? null)
       : { dirs: workspaceEntries.filter((e) => e.kind === "dir").map((e) => e.name), changes: changes.map((c) => c.path) };
@@ -667,6 +676,7 @@ return (
         openIds={openIds}
         focusedId={focusedSessionId}
         titles={titles}
+        preview={sessionPreviews}
         expandedIds={expandedIds}
         collapsedIds={collapsedIds}
         onToggleExpand={toggleExpand}
@@ -1206,12 +1216,15 @@ return (
                   onDiscard={(path) => void discardChange(path)}
                 />
               ),
-              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
+              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
               explorer: (
                 <ExplorerPane
                   cwd={reviewCwd}
+                  expandedDirs={review.expandedDirs}
+                  onToggleDir={review.toggleExplorerDir}
                   onPreview={(p) => void openPreview(p)}
                   onReveal={(p) => void review.revealPath(p)}
+                  onAttach={attachToSession}
                 />
               ),
               terminal: (
@@ -1488,7 +1501,7 @@ return (
                   void openSession(s);
                 }}
               >
-                {i + 1} {displayTitle(s, titles)}
+                {i + 1} {displayTitle(s, titles, sessionPreviews)}
               </button>
             );
           })}

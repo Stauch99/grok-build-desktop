@@ -67,6 +67,34 @@ describe("workRunCopy settled", () => {
     expect(copy.failed).toBe(0);
   });
 
+  it("ignores Claude workflow tools like TaskUpdate in the settled summary", () => {
+    const copy = workRunCopy({
+      items: [
+        tool("1", "TaskUpdate"),
+        tool("2", "TaskUpdate"),
+        tool("3", "Bash: ls", { toolKind: "execute" }),
+      ],
+      locale: "zh",
+    });
+    expect(copy.text).toBe("使用 1 个工具，操作结果：ls");
+    expect(copy.text).not.toContain("TaskUpdate");
+  });
+
+  it("does not headline an in-flight TaskUpdate as the live tool", () => {
+    const copy = workRunCopy({
+      items: [
+        tool("1", "TaskUpdate", { status: "in_progress" }),
+        thought("t", "下一步"),
+      ],
+      busy: true,
+      runId: "work-1",
+      tick: 0,
+      locale: "zh",
+    });
+    expect(copy.text).not.toContain("TaskUpdate");
+    expect(copy.ariaLabel).toBe("思考中");
+  });
+
   it("falls back to count when nothing useful remains", () => {
     const copy = workRunCopy({
       items: [tool("1", "Read", { toolKind: "read" }), tool("2", "Read", { toolKind: "read" })],

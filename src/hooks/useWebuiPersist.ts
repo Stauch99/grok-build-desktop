@@ -50,18 +50,29 @@ export function buildWebuiState(snapshot: WebuiSnapshot, partial: WebuiState = {
   return { ...snapshot, ...partial };
 }
 
+export function accumulatePersistPartial(pending: WebuiState, incoming: WebuiState): WebuiState {
+  return { ...pending, ...incoming };
+}
+
+export function flushWebuiPersist(snapshot: WebuiSnapshot, pending: WebuiState): WebuiState {
+  return buildWebuiState(snapshot, pending);
+}
+
 export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) => void {
   const timer = useRef<number | null>(null);
   const snapRef = useRef(snapshot);
+  const pendingRef = useRef<WebuiState>({});
   snapRef.current = snapshot;
   useEffect(() => () => {
     if (timer.current != null) window.clearTimeout(timer.current);
   }, []);
   return useCallback((partial: WebuiState) => {
-    const next = buildWebuiState(snapRef.current, partial);
+    pendingRef.current = accumulatePersistPartial(pendingRef.current, partial);
     if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = null;
+      const next = flushWebuiPersist(snapRef.current, pendingRef.current);
+      pendingRef.current = {};
       void saveWebuiState(next);
     }, WEBUI_PERSIST_MS);
   }, []);

@@ -69,6 +69,67 @@ export function persistReviewOpen(open: boolean): { filePanelOpen: boolean } {
 
 export type ReviewTabMemory = Record<string, ReviewTab>;
 
+export type ReviewPaneSnapshot = {
+  previewPaths: string[];
+  previewPath: string | null;
+  expandedDirs: string[];
+};
+
+export type ReviewPaneMemory = Record<string, ReviewPaneSnapshot>;
+
+export const emptyReviewPaneSnapshot: ReviewPaneSnapshot = {
+  previewPaths: [],
+  previewPath: null,
+  expandedDirs: [],
+};
+
+function cloneReviewPaneSnapshot(snapshot: ReviewPaneSnapshot): ReviewPaneSnapshot {
+  return {
+    previewPaths: [...snapshot.previewPaths],
+    previewPath: snapshot.previewPath,
+    expandedDirs: [...snapshot.expandedDirs],
+  };
+}
+
+function sameReviewPaneSnapshot(a: ReviewPaneSnapshot | undefined, b: ReviewPaneSnapshot): boolean {
+  if (!a) return false;
+  return a.previewPath === b.previewPath
+    && a.previewPaths.length === b.previewPaths.length
+    && a.expandedDirs.length === b.expandedDirs.length
+    && a.previewPaths.every((path, i) => path === b.previewPaths[i])
+    && a.expandedDirs.every((path, i) => path === b.expandedDirs[i]);
+}
+
+/** Store the last preview files and explorer folders a session used. Empty keys are ignored. */
+export function rememberReviewPane(
+  memory: ReviewPaneMemory,
+  ownerKey: string,
+  snapshot: ReviewPaneSnapshot,
+): ReviewPaneMemory {
+  if (!ownerKey) return memory;
+  const next = cloneReviewPaneSnapshot(snapshot);
+  if (sameReviewPaneSnapshot(memory[ownerKey], next)) return memory;
+  return { ...memory, [ownerKey]: next };
+}
+
+/** Recall a session's last preview files and explorer folders, or an empty snapshot. */
+export function recalledReviewPane(memory: ReviewPaneMemory, ownerKey: string): ReviewPaneSnapshot {
+  const hit = ownerKey ? memory[ownerKey] : undefined;
+  return hit ? cloneReviewPaneSnapshot(hit) : emptyReviewPaneSnapshot;
+}
+
+export function reviewPaneSnapshotFrom(
+  tabs: readonly { path: string }[],
+  path: string | null | undefined,
+  expandedDirs: readonly string[],
+): ReviewPaneSnapshot {
+  return {
+    previewPaths: tabs.map((tab) => tab.path),
+    previewPath: path || null,
+    expandedDirs: [...expandedDirs],
+  };
+}
+
 /** Store the last rail tab a session used. Empty keys are ignored. */
 export function rememberReviewTab(memory: ReviewTabMemory, ownerKey: string, tab: ReviewTab): ReviewTabMemory {
   if (!ownerKey) return memory;
@@ -158,7 +219,7 @@ export type ReviewAction =
   | { type: "tab"; tab: ReviewTab }
   | { type: "hydrate-legacy"; open?: boolean; defaultTab?: LegacyReviewTab }
   | { type: "details"; tool: ReviewDetailsTool }
-  | { type: "preview-start"; path: string; requestId: number }
+  | { type: "preview-start"; path: string; requestId: number; silent?: boolean }
   | { type: "preview-invalidate"; requestId: number }
   | { type: "preview-success"; path: string; text: string; truncated: boolean; requestId: number }
   | { type: "preview-error"; error: string; requestId: number }
@@ -196,8 +257,8 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
     case "details": return { ...state, open: true, detailsTool: action.tool };
     case "preview-start": return {
       ...state,
-      open: true,
-      tab: "preview",
+      open: action.silent ? state.open : true,
+      tab: action.silent ? state.tab : "preview",
       preview: { path: action.path, text: null, truncated: false, error: null, requestId: action.requestId },
     };
     case "preview-invalidate": return { ...state, preview: { ...state.preview, requestId: action.requestId } };

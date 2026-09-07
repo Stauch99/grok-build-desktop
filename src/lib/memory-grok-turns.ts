@@ -4,6 +4,7 @@ import { memoryCursorKey } from "./memory-clock";
 import { isDreamSession } from "./memory-dream-acp";
 import type { DreamIo } from "./memory-dream";
 import { filterIngestTurns, formatDailyFile, parseDailyFile, type IngestTurn } from "./memory-ingest";
+import { isHarnessUserText } from "./chat";
 import { asRecord, textFromContent } from "./text";
 
 export type GrokTurnMeta = { agentId: AgentId; sessionId: string; cwd: string };
@@ -37,7 +38,7 @@ export function grokTurnsFromUpdates(rows: AcpRecord[], meta: GrokTurnMeta): Ing
     const kind = String(update.sessionUpdate ?? "");
     if (kind === "user_message_chunk") {
       const text = textFromContent(update.content).trim();
-      if (!text) continue;
+      if (!text || isHarnessUserText(text)) continue;
       out.push({ ...meta, role: "user", text });
       continue;
     }

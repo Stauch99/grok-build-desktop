@@ -1,4 +1,4 @@
-import type { WorkItem } from "./chat";
+import { isWorkflowToolTitle, type WorkItem } from "./chat";
 import { t, type Locale } from "./i18n";
 import { classifyTool, toolDetailFromTitle, TOOL_VERB, type ToolClass } from "./tool-render";
 import { thoughtDuration } from "./time";
@@ -22,6 +22,13 @@ const KEYWORD_SKIP = new Set([
   "搜索",
   "调用",
   "运行命令",
+  "taskupdate",
+  "taskcreate",
+  "taskget",
+  "tasklist",
+  "todowrite",
+  "todoread",
+  "exitplanmode",
 ]);
 
 const ARIA_VERB: Record<Locale, Record<ToolClass, string>> = {
@@ -43,11 +50,18 @@ export type WorkRunCopy = {
 };
 
 export function visibleWorkItems(items: WorkItem[], showThinking: boolean): WorkItem[] {
-  return showThinking ? items : items.filter((item) => item.kind !== "thought");
+  return items.filter((item) => {
+    if (item.kind === "thought") return showThinking;
+    if (item.kind === "tool" && isWorkflowToolTitle(item.title)) return false;
+    return true;
+  });
 }
 
 function toolsOf(items: WorkItem[]): Extract<WorkItem, { kind: "tool" }>[] {
-  return items.filter((item): item is Extract<WorkItem, { kind: "tool" }> => item.kind === "tool");
+  return items.filter(
+    (item): item is Extract<WorkItem, { kind: "tool" }> =>
+      item.kind === "tool" && !isWorkflowToolTitle(item.title),
+  );
 }
 
 function keywordFromTool(item: Extract<WorkItem, { kind: "tool" }>): string | null {
@@ -124,6 +138,7 @@ function liveTool(items: WorkItem[]): Extract<WorkItem, { kind: "tool" }> | unde
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item?.kind === "tool" && (item.status === "in_progress" || item.status === "pending")) {
+      if (isWorkflowToolTitle(item.title)) continue;
       return item;
     }
   }
@@ -134,6 +149,7 @@ function liveIsThinking(items: WorkItem[]): boolean {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item?.kind === "tool" && (item.status === "in_progress" || item.status === "pending")) {
+      if (isWorkflowToolTitle(item.title)) continue;
       return false;
     }
     if (item?.kind === "thought") return true;

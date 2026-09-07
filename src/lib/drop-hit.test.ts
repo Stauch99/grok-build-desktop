@@ -52,4 +52,9 @@ describe("composer drop overlay wiring", () => {
     expect(composer).toContain("claimComposerDrop");
     expect(composer).toContain("ingestPathsRef.current");
   });
+
+  it("exposes attachPaths so the file rail can add documents to the session", () => {
+    expect(composer).toContain("attachPaths:");
+    expect(composer).toContain("ingestPathsRef.current(paths)");
+  });
 });

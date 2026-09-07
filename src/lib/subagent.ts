@@ -3,7 +3,8 @@ import type { AgentId } from "./agent-id";
 export type SubagentStatus = "running" | "completed" | "cancelled" | "failed";
 export type McpInheritance = "inherit" | "none";
 
-const DEFAULT_ALIASES = ["spawn_subagent", "get_command_or_subagent_output", "task", "agent"] as const;
+const DEFAULT_ALIASES = ["spawn_subagent", "task", "agent"] as const;
+const POLL_ALIASES = ["get_command_or_subagent_output"] as const;
 
 const EXTRA: Record<AgentId, readonly string[]> = {
   grok: [],
@@ -36,6 +37,16 @@ function matchesAlias(normalized: string, alias: string): boolean {
 function isSubagentTitle(title: string, agentId?: AgentId): boolean {
   const t = norm(title);
   return aliasesFor(agentId).some((alias) => matchesAlias(t, alias));
+}
+
+function isPollTitle(title: string): boolean {
+  const t = norm(title);
+  return POLL_ALIASES.some((alias) => matchesAlias(t, alias));
+}
+
+/** Output polls are not independent children. Keep them out of the jobs chip too. */
+export function isSubagentPollTool(title: string, toolName?: string): boolean {
+  return isPollTitle(title) || (toolName ? isPollTitle(toolName) : false);
 }
 
 /** Keep the first matching spawn alias when later ACP updates replace the display title. */

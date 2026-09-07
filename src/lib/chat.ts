@@ -52,7 +52,58 @@ export type ApplyOptions = {
   skipUser?: boolean;
   /** Clock override for live updates that carry no timestamp. Tests pass this. */
   now?: number;
+  /** Disk replay: missing clocks must not glue adjacent user turns. */
+  hydrate?: boolean;
 };
+
+/** User chunks closer than this belong to one streamed message, not a new turn. */
+export const USER_CHUNK_MERGE_MS = 1_500;
+
+const HARNESS_USER_PREFIXES = [
+  "<local-command-caveat>",
+  "<command-name>",
+  "<command-message>",
+  "<command-args>",
+  "<local-command-stdout>",
+  "<task-notification>",
+  "<system-reminder>",
+  "<INSTRUCTIONS",
+  "<permissions",
+  "<multi_agent_mode>",
+];
+
+const WORKFLOW_TOOL_TITLES = new Set([
+  "taskupdate",
+  "taskcreate",
+  "taskget",
+  "tasklist",
+  "todowrite",
+  "todoread",
+  "exitplanmode",
+]);
+
+export function isHarnessUserText(text: string): boolean {
+  const t = text.trimStart();
+  if (/^\[Request interrupted by user\]\s*$/i.test(t)) return true;
+  return HARNESS_USER_PREFIXES.some((prefix) => t.startsWith(prefix));
+}
+
+export function isWorkflowToolTitle(title: string): boolean {
+  const token = (title.trim().split(/[\s:/]+/)[0] ?? "").toLowerCase();
+  return WORKFLOW_TOOL_TITLES.has(token);
+}
+
+export function shouldMergeUserChunk(
+  last: ChatItem | undefined,
+  at: number,
+  opts?: { hydrate?: boolean; stamped?: boolean },
+): boolean {
+  if (last?.kind !== "user") return false;
+  if (opts?.hydrate && !opts.stamped) return false;
+  const prev = last.until ?? last.at;
+  if (prev == null) return !opts?.hydrate;
+  return at - prev <= USER_CHUNK_MERGE_MS;
+}
 
 export type WorkItem = Extract<ChatItem, { kind: "thought" } | { kind: "tool" }>;
 
@@ -109,6 +160,7 @@ export function liveWorkStatus(items: ChatItem[]): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if (it.kind === "tool" && (it.status === "in_progress" || it.status === "pending")) {
+      if (isWorkflowToolTitle(it.title)) continue;
       return it.title || it.toolKind || "调用中";
     }
     if (it.kind === "thought") return "思考中";
@@ -125,6 +177,15 @@ export function itemsAfterLastUser(items: ChatItem[]): ChatItem[] {
   return items;
 }
 
+export function turnHasOpenTools(items: ChatItem[]): boolean {
+  return itemsAfterLastUser(items).some(
+    (it) =>
+      it.kind === "tool" &&
+      (it.status === "pending" || it.status === "in_progress") &&
+      !isWorkflowToolTitle(it.title),
+  );
+}
+
 /** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
 export const SETTLED_TURN_MS = 4_000;
 
@@ -138,16 +199,13 @@ export function shouldClearBusyOnSettledChat(opts: {
 }): boolean {
   if (!opts.busy) return false;
   const turn = itemsAfterLastUser(opts.items);
-  if (
-    turn.some(
-      (it) => it.kind === "tool" && (it.status === "pending" || it.status === "in_progress"),
-    )
-  ) {
+  if (turnHasOpenTools(opts.items)) {
     return false;
   }
   if (!turn.some((it) => it.kind === "assistant" && it.text.trim())) return false;
   let last = 0;
   for (const it of turn) {
+    if (it.kind === "tool" && isWorkflowToolTitle(it.title)) continue;
     const t = it.until ?? it.at;
     if (typeof t === "number" && t > last) last = t;
   }
@@ -307,9 +365,14 @@ export function applyChatUpdate(
   const kind = String(update.sessionUpdate ?? "");
   // Rust injects `_ts` from the record's own timestamp when replaying from
   // disk; a live notification has none, so it happened just now.
-  const at = typeof params._ts === "number" && Number.isFinite(params._ts)
-    ? params._ts
-    : opts.now ?? Date.now();
+  const rawTs = params._ts;
+  let stamped = false;
+  let at = opts.now ?? Date.now();
+  if (typeof rawTs === "number" && Number.isFinite(rawTs)) {
+    stamped = true;
+    at = rawTs;
+  }
+  const mergeOpts = { hydrate: opts.hydrate, stamped };
   const meta = asRecord(update._meta);
   let nextId = state.nextId;
   const nid = (prefix: string) => {
@@ -321,12 +384,15 @@ export function applyChatUpdate(
     case "user_message_chunk": {
       if (opts.skipUser) return state;
       const text = textFromContent(update.content);
-      if (!text) return state;
+      if (!text || isHarnessUserText(text)) return state;
       const items = [...state.items];
       const last = items[items.length - 1];
       const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
       const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
-      if (last?.kind === "user") {
+      if (last?.kind === "user" && last.text === text && shouldMergeUserChunk(last, at, mergeOpts)) {
+        return state;
+      }
+      if (last?.kind === "user" && shouldMergeUserChunk(last, at, mergeOpts)) {
         items[items.length - 1] = { ...last, text: last.text + text, until: at };
       } else {
         items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
@@ -462,7 +528,7 @@ export function hydrateFromUpdates(rows: unknown[], prev?: ChatState): ChatState
     const rec = parseAcpRecord(row);
     if (!rec) continue;
     const params = rec.params ? asRecord(rec.params) : rec;
-    state = applyChatUpdate(state, params);
+    state = applyChatUpdate(state, params, { hydrate: true });
   }
   return state;
 }

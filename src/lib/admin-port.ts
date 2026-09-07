@@ -1,4 +1,5 @@
 import type { AgentId } from "./agent-id";
+import { compareByUpdatedAtDesc } from "./session-time";
 
 export type AdminSession = {
   agentId: AgentId;
@@ -11,7 +12,7 @@ export type AdminSession = {
 };
 
 export function unionSessions(groups: AdminSession[][]): AdminSession[] {
-  return groups.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return groups.flat().sort(compareByUpdatedAtDesc);
 }
 
 export function emptySessions(_id: AgentId): AdminSession[] {

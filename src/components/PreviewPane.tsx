@@ -25,7 +25,7 @@ import {
 import { findNext, findPrev, previewFind, type PreviewFindState } from "../lib/preview-find";
 import { basename } from "../lib/text";
 import { IconGrokClose } from "../grok-icons";
-import { IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconSave, IconSearch } from "../icons";
+import { IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconPaperclip, IconSave, IconSearch } from "../icons";
 import { Markdown } from "./Markdown";
 import { HtmlArtifactPreview } from "./HtmlArtifactPreview";
 import { PreviewTabs } from "./PreviewTabs";
@@ -46,6 +46,7 @@ export type PreviewPaneProps = {
   onCloseTab?: (path: string) => void;
   onClose?: () => void;
   onReveal?: (path: string) => void;
+  onAttach?: (path: string) => void;
   /** A local path clicked inside a rendered markdown preview. */
   onFollowLink?: (e: ReactMouseEvent) => void;
   onSave?: (path: string, text: string) => void | Promise<void>;
@@ -72,6 +73,7 @@ export function PreviewPane({
   onCloseTab,
   onClose,
   onReveal,
+  onAttach,
   onFollowLink,
   onSave,
   onSaved,
@@ -313,6 +315,17 @@ export function PreviewPane({
               }}
             >
               {editing ? <IconSave size={14} /> : <IconEdit size={14} />}
+            </button>
+          ) : null}
+          {onAttach && displayPath ? (
+            <button
+              type="button"
+              className="file-open file-attach"
+              data-tip={t("session.attach")}
+              aria-label={t("session.attach")}
+              onClick={() => onAttach(displayPath)}
+            >
+              <IconPaperclip size={14} />
             </button>
           ) : null}
           {onReveal ? (

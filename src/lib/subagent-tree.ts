@@ -44,11 +44,24 @@ export function subagentChips(
   sessions: SessionSummary[],
   opts: { parentSessionId: string | null; agentId: AgentId },
 ): SubagentChipModel[] {
-  return subagentCatalog(items, opts.agentId).map((row) => {
+  const chips = subagentCatalog(items, opts.agentId).map((row) => {
     const session = resolveSubagentSession(row.id, sessions, opts);
     const title = session?.title?.trim();
     const named = title && title !== session?.id ? title : row.name;
     const sessionId = session && !isLiveRosterId(session.id) ? session.id : null;
     return { id: row.id, name: named, status: row.status, sessionId };
   });
+  return uniqueSubagentChips(chips);
+}
+
+export function uniqueSubagentChips(chips: SubagentChipModel[]): SubagentChipModel[] {
+  const seen = new Set<string>();
+  const out: SubagentChipModel[] = [];
+  for (const chip of chips) {
+    const key = chip.sessionId ?? `tool:${chip.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chip);
+  }
+  return out;
 }

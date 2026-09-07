@@ -15,20 +15,9 @@ pub struct AgentManifest {
     pub initialize_timeout_ms: u64,
 }
 
-const DEFAULT_ALIASES: &[&str] = &[
-    "spawn_subagent",
-    "get_command_or_subagent_output",
-    "task",
-    "agent",
-];
+const DEFAULT_ALIASES: &[&str] = &["spawn_subagent", "task", "agent"];
 
-const KIMI_ALIASES: &[&str] = &[
-    "spawn_subagent",
-    "get_command_or_subagent_output",
-    "task",
-    "agent",
-    "swarm",
-];
+const KIMI_ALIASES: &[&str] = &["spawn_subagent", "task", "agent", "swarm"];
 
 pub fn manifest(id: AgentId) -> AgentManifest {
     match id {
@@ -74,6 +63,9 @@ mod tests {
         assert_eq!(manifest(AgentId::Claude).home_rel, ".claude");
         assert_eq!(manifest(AgentId::Claude).initialize_timeout_ms, 20_000);
         assert!(manifest(AgentId::Kimi).subagent_aliases.contains(&"swarm"));
+        assert!(!manifest(AgentId::Grok)
+            .subagent_aliases
+            .contains(&"get_command_or_subagent_output"));
         assert!(matches!(
             manifest(AgentId::Claude).catalog,
             CatalogKind::ClaudeJsonl

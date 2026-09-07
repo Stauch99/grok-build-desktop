@@ -34,6 +34,21 @@ describe("headerJobs", () => {
     ];
     expect(headerJobs(items)).toEqual([]);
   });
+
+  it("does not list output polls as jobs either", () => {
+    const items: ChatItem[] = [
+      { kind: "tool", id: "p1", title: "get_command_or_subagent_output", status: "in_progress" },
+      {
+        kind: "tool",
+        id: "p2",
+        title: "[bg] pnpm test",
+        toolName: "get_command_or_subagent_output",
+        status: "pending",
+      },
+      { kind: "tool", id: "t1", title: "bash ls", status: "in_progress" },
+    ];
+    expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
+  });
 });
 
 describe("goalFromPlan", () => {
@@ -72,5 +87,20 @@ describe("subagentCatalog", () => {
     expect(subagentCatalog(items, "grok")).toEqual([
       { id: "s1", name: "解读 Attention Is All You Need", status: "running" },
     ]);
+  });
+
+  it("does not catalog output polls as subagents", () => {
+    const items: ChatItem[] = [
+      { kind: "tool", id: "s1", title: "spawn_subagent researcher", status: "completed" },
+      { kind: "tool", id: "p1", title: "get_command_or_subagent_output", status: "completed" },
+      {
+        kind: "tool",
+        id: "p2",
+        title: "[subagent:general-purpose] researcher (01abc)",
+        toolName: "get_command_or_subagent_output",
+        status: "completed",
+      },
+    ];
+    expect(subagentCatalog(items)).toEqual([{ id: "s1", name: "researcher", status: "completed" }]);
   });
 });

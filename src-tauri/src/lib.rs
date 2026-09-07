@@ -348,6 +348,9 @@ pub(crate) fn resolve_allowed_path(
         return Err("path is blocked".into());
     }
     if matches!(access, PathAccess::Write) {
+        if extra_agent_write_root(&canon) {
+            return Ok(canon);
+        }
         let root = workspace
             .ok_or_else(|| "trusted workspace is not set".to_string())?
             .canonicalize()
@@ -563,13 +566,12 @@ async fn start_agent(
     for (key, value) in extra_spawn_env(id, which_on_path) {
         cmd.env(key, value);
     }
+    let path = crate::agent_host::prepend_path_dirs(
+        &std::env::var("PATH").unwrap_or_default(),
+        &crate::agent_host::default_spawn_path_extras(&dirs_home(), &grok_home()),
+    );
+    cmd.env("PATH", path);
     if id == AgentId::Grok {
-        let mut path = std::env::var("PATH").unwrap_or_default();
-        let extra = grok_home().join("bin");
-        if !path.split(':').any(|p| Path::new(p) == extra) {
-            path = format!("{}:{path}", extra.display());
-        }
-        cmd.env("PATH", path);
         cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
     }
     let mut child = cmd
@@ -906,18 +908,7 @@ fn empty_session_updates() -> SessionUpdates {
 
 fn parse_update_line(line: &str) -> Option<Value> {
     let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-    // Records store `timestamp` in seconds, but very large values are already ms.
-    let ts_ms = value
-        .get("timestamp")
-        .and_then(|v| v.as_f64())
-        .map(|ts| {
-            if ts > 100_000_000_000.0 {
-                ts
-            } else {
-                ts * 1000.0
-            }
-        })
-        .map(|ms| ms as u64);
+    let ts_ms = crate::session_replay::timestamp_ms_from_record(&value);
     let mut params = value.get("params").cloned().unwrap_or(value);
     if let (Some(ms), Some(obj)) = (ts_ms, params.as_object_mut()) {
         obj.insert("_ts".into(), json!(ms));
@@ -1672,7 +1663,7 @@ fn allow_text_read(canon: &Path, allow_root: Option<&Path>) -> bool {
 }
 
 /// ACP reads follow the preview allowlist, plus user skill/agent homes that
-/// live outside the project (`~/.agents`, and the same roots other CLIs use).
+/// live outside the project (`~/.agents`, `~/.grok`, and the same roots other CLIs use).
 fn extra_skill_read_root(canon: &Path) -> bool {
     if is_blocked_path(canon) || !canon.is_file() {
         return false;
@@ -1683,12 +1674,32 @@ fn extra_skill_read_root(canon: &Path) -> bool {
         home.join(".claude"),
         home.join(".codex"),
         home.join(".kimi-code"),
+        grok_home(),
     ];
     roots.iter().any(|root| {
         if let Ok(root) = root.canonicalize() {
             is_under(canon, &root)
         } else {
             is_under(canon, root)
+        }
+    })
+}
+
+fn extra_agent_write_root(canon: &Path) -> bool {
+    if is_blocked_path(canon) {
+        return false;
+    }
+    let home = dirs_home();
+    let roots = [
+        home.join(".agents"),
+        grok_home().join("memory"),
+        grok_home().join("skills"),
+    ];
+    roots.iter().any(|root| {
+        if let Ok(root) = root.canonicalize() {
+            is_under(canon, &root)
+        } else {
+            canon.starts_with(root)
         }
     })
 }
@@ -2071,6 +2082,43 @@ fn open_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
     }
 }
 
+fn reveal_command(target: &Path) -> (&'static str, Vec<std::ffi::OsString>) {
+    #[cfg(target_os = "macos")]
+    {
+        if target.is_dir() {
+            ("open", vec!["--".into(), target.as_os_str().to_owned()])
+        } else {
+            (
+                "open",
+                vec!["-R".into(), "--".into(), target.as_os_str().to_owned()],
+            )
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let shown = if target.is_dir() {
+            target
+        } else {
+            target.parent().unwrap_or(target)
+        };
+        ("xdg-open", vec![shown.as_os_str().to_owned()])
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if target.is_dir() {
+            ("explorer", vec![target.as_os_str().to_owned()])
+        } else {
+            (
+                "explorer",
+                vec![std::ffi::OsString::from(format!(
+                    "/select,{}",
+                    target.display()
+                ))],
+            )
+        }
+    }
+}
+
 fn decode_file_url(raw: &str) -> String {
     let path = raw.strip_prefix("file://").unwrap_or(raw);
     let bytes = path.as_bytes();
@@ -2183,7 +2231,7 @@ async fn open_review_path(
 ) -> AppResult<()> {
     let workspace = state.workspace.lock().await.clone();
     let target = validate_review_open_target(&path, workspace.as_deref(), &allow_root)?;
-    let (program, args) = open_command(&target);
+    let (program, args) = reveal_command(&target);
     let status = Command::new(program)
         .args(args)
         .status()
@@ -3497,6 +3545,75 @@ mod final_review_tests {
     }
 
     #[test]
+    fn acp_write_allows_home_memory_and_agents_outside_workspace() {
+        let root = acp_path_root();
+        let stamp = format!(
+            "grok-acp-write-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        );
+        let memory_dir = grok_home().join("memory").join(&stamp);
+        std::fs::create_dir_all(&memory_dir).unwrap();
+        let memory_file = memory_dir.join("MEMORY.md");
+        assert!(resolve_allowed_path(
+            memory_file.to_str().unwrap(),
+            Some(&root),
+            PathAccess::Write
+        )
+        .is_ok());
+
+        let skill_dir = dirs_home().join(".agents").join("skills").join(&stamp);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        let skill_file = skill_dir.join("SKILL.md");
+        assert!(resolve_allowed_path(
+            skill_file.to_str().unwrap(),
+            Some(&root),
+            PathAccess::Write
+        )
+        .is_ok());
+
+        let outside = root.parent().unwrap().join(format!("{stamp}-outside.txt"));
+        assert!(
+            resolve_allowed_path(outside.to_str().unwrap(), Some(&root), PathAccess::Write)
+                .is_err()
+        );
+
+        let _ = std::fs::remove_dir_all(memory_dir);
+        let _ = std::fs::remove_dir_all(skill_dir);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reveal_command_selects_in_the_file_manager() {
+        let target = Path::new("/tmp/a file; touch pwned");
+        let (program, args) = reveal_command(target);
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program, "open");
+            assert_eq!(
+                args,
+                vec!["-R".into(), "--".into(), target.as_os_str().to_owned()]
+            );
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(program, "xdg-open");
+            assert_eq!(args, vec![Path::new("/tmp").as_os_str().to_owned()]);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(program, "explorer");
+            assert_eq!(
+                args,
+                vec![std::ffi::OsString::from(format!(
+                    "/select,{}",
+                    target.display()
+                ))]
+            );
+        }
+    }
+
+    #[test]
     fn launcher_arguments_are_platform_specific_and_literal() {
         let target = Path::new("/tmp/a file; touch pwned");
         let (program, args) = open_command(target);
@@ -3659,5 +3776,25 @@ mod session_updates_tests {
         assert_eq!(page.next_byte, body.len() as u64);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_update_line_prefers_agent_timestamp_ms() {
+        let line = r#"{"timestamp":1788768442,"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"text":"hi"}},"_meta":{"agentTimestampMs":1788768442146}}}"#;
+        let row = parse_update_line(line).unwrap();
+        assert_eq!(
+            row.get("_ts").and_then(|v| v.as_u64()),
+            Some(1_788_768_442_146)
+        );
+    }
+
+    #[test]
+    fn parse_update_line_stamps_iso_timestamp() {
+        let line = r#"{"timestamp":"2026-09-07T08:07:29.976Z","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"text":"hi"}}}}"#;
+        let row = parse_update_line(line).unwrap();
+        assert_eq!(
+            row.get("_ts").and_then(|v| v.as_u64()),
+            Some(1_788_768_449_976)
+        );
     }
 }

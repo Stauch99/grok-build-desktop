@@ -1,4 +1,5 @@
 import type { SessionSummary } from "../api";
+import { updatedAtMs } from "./session-time";
 
 export function toggleId(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
@@ -29,8 +30,8 @@ function isStale(
   now: number,
 ): boolean {
   if (autoArchiveDays <= 0) return false;
-  const t = Date.parse(updatedAt);
-  if (Number.isNaN(t)) return false;
+  const t = updatedAtMs(updatedAt);
+  if (t <= 0) return false;
   return t < now - autoArchiveDays * DAY_MS;
 }
 

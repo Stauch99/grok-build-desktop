@@ -215,6 +215,68 @@ describe("applyChatUpdate", () => {
       until: 42,
     });
   });
+
+  it("merges rapid user chunks of the same turn", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("user_message_chunk", { content: { text: "你好" } }), { now: 1000 });
+    s = applyChatUpdate(s, upd("user_message_chunk", { content: { text: "世界" } }), { now: 1100 });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "user", text: "你好世界", at: 1000, until: 1100 });
+  });
+
+  it("does not glue a later user turn onto the previous user bubble", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(
+      s,
+      { ...upd("user_message_chunk", { content: { text: "先写方案" } }), _ts: 1_000 },
+    );
+    s = applyChatUpdate(
+      s,
+      { ...upd("user_message_chunk", { content: { text: "继续" } }), _ts: 48_000 },
+    );
+    expect(s.items.map((it) => it.kind + ":" + ("text" in it ? it.text : ""))).toEqual([
+      "user:先写方案",
+      "user:继续",
+    ]);
+  });
+
+  it("does not show Claude's interrupt harness as a user bubble", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(
+      s,
+      upd("user_message_chunk", { content: { text: "[Request interrupted by user]" } }),
+      { now: 1 },
+    );
+    s = applyChatUpdate(
+      s,
+      { ...upd("user_message_chunk", { content: { text: "继续" } }), _ts: 48_000 },
+    );
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "user", text: "继续" });
+  });
+
+  it("drops Claude/Kimi harness tags on live user chunks, not just interrupt", () => {
+    let s = emptyChat();
+    for (const text of [
+      "<system-reminder>\nskip",
+      "<task-notification>\n后台代理结束</task-notification>",
+      "<command-name>/model</command-name>",
+      "<local-command-stdout>ok</local-command-stdout>",
+    ]) {
+      s = applyChatUpdate(s, upd("user_message_chunk", { content: { text } }), { now: 1 });
+    }
+    s = applyChatUpdate(s, upd("user_message_chunk", { content: { text: "继续" } }), { now: 2 });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "user", text: "继续" });
+  });
+
+  it("does not concatenate a duplicate user snapshot of the same turn", () => {
+    let s = emptyChat();
+    s = applyChatUpdate(s, upd("user_message_chunk", { content: { text: "美化PPT" } }), { now: 1000 });
+    s = applyChatUpdate(s, upd("user_message_chunk", { content: { text: "美化PPT" } }), { now: 1001 });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]).toMatchObject({ kind: "user", text: "美化PPT" });
+  });
 });
 
 describe("hydrateFromUpdates", () => {
@@ -259,6 +321,14 @@ describe("hydrateFromUpdates", () => {
     expect(next.items[1]).toMatchObject({ text: "yo" });
     expect(next.nextId).toBeGreaterThan(first.nextId);
     expect(next.items[1].id).not.toBe(first.items[0].id);
+  });
+
+  it("does not glue consecutive user turns when the log has no clocks", () => {
+    const s = hydrateFromUpdates([
+      upd("user_message_chunk", { content: { text: "第一句" } }),
+      upd("user_message_chunk", { content: { text: "第二句" } }),
+    ]);
+    expect(s.items.map((it) => ("text" in it ? it.text : ""))).toEqual(["第一句", "第二句"]);
   });
 });
 
@@ -362,6 +432,15 @@ describe("liveWorkStatus", () => {
     expect(liveWorkStatus([{ kind: "thought", id: "t", text: "…" }])).toBe("思考中");
     expect(liveWorkStatus([{ kind: "user", id: "u", text: "hi" }])).toBe("工作中");
   });
+
+  it("skips workflow tools like TaskUpdate when naming the live job", () => {
+    expect(
+      liveWorkStatus([
+        { kind: "thought", id: "t", text: "下一步" },
+        { kind: "tool", id: "k", title: "TaskUpdate", status: "in_progress" },
+      ]),
+    ).toBe("思考中");
+  });
 });
 
 describe("trailingWorkStartedAt", () => {
@@ -435,6 +514,14 @@ describe("shouldClearBusyOnSettledChat", () => {
   it("waits while a tool is still running", () => {
     const live = [...items, { kind: "tool" as const, id: "t", title: "Read", status: "in_progress" as const, at: 4 }];
     expect(shouldClearBusyOnSettledChat({ busy: true, now: 9_000, items: live })).toBe(false);
+  });
+
+  it("still settles when only a workflow tool like TaskUpdate is in flight", () => {
+    const live = [
+      ...items,
+      { kind: "tool" as const, id: "t", title: "TaskUpdate", status: "in_progress" as const, at: 4 },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items: live })).toBe(true);
   });
 
   it("does not treat the user send time as the end of the turn", () => {

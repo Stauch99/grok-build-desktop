@@ -269,10 +269,14 @@
 }
 .file-open:hover { color: var(--text); background: var(--bg-hover); }
 .file-open svg { display: block; }
-.file-entry .file-finder { opacity: 0; }
+.file-entry .file-finder,
+.file-entry .file-attach { opacity: 0; }
 .file-entry:hover .file-finder,
 .file-entry:focus-within .file-finder,
-.file-finder:focus-visible { opacity: 1; }
+.file-finder:focus-visible,
+.file-entry:hover .file-attach,
+.file-entry:focus-within .file-attach,
+.file-attach:focus-visible { opacity: 1; }
 
 .mru-list {
   position: fixed;

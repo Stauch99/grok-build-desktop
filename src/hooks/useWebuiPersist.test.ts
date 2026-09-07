@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SIDEBAR_LIST } from "../lib/sidebar-list";
-import { buildWebuiState, WEBUI_PERSIST_MS, type WebuiSnapshot } from "./useWebuiPersist";
+import {
+  accumulatePersistPartial,
+  buildWebuiState,
+  flushWebuiPersist,
+  WEBUI_PERSIST_MS,
+  type WebuiSnapshot,
+} from "./useWebuiPersist";
 
 const base: WebuiSnapshot = {
   projects: ["/a"],
@@ -61,5 +67,17 @@ describe("buildWebuiState", () => {
 describe("webui persist throttle", () => {
   it("debounces writes at 500 ms", () => {
     expect(WEBUI_PERSIST_MS).toBe(500);
+  });
+});
+
+describe("persist partial accumulation", () => {
+  it("keeps a drafts clear when a later unread persist uses a stale snapshot", () => {
+    const pending = accumulatePersistPartial(
+      accumulatePersistPartial({}, { drafts: {} }),
+      { unread: { s1: "done" } },
+    );
+    const stale = { ...base, drafts: { "grok/s1": "already sent" } };
+    expect(flushWebuiPersist(stale, pending).drafts).toEqual({});
+    expect(flushWebuiPersist(stale, pending).unread).toEqual({ s1: "done" });
   });
 });

@@ -82,7 +82,12 @@ export function parseMcpJson(raw: unknown): McpServer[] {
     const transport = rec.transport;
     if (!name || (transport !== "stdio" && transport !== "http" && transport !== "sse")) continue;
     const row: McpServer = { name, transport };
-    if (typeof rec.commandOrUrl === "string") row.commandOrUrl = rec.commandOrUrl;
+    if (typeof rec.commandOrUrl === "string") {
+      row.commandOrUrl = rec.commandOrUrl;
+      if (transport === "stdio" && /^https?:\/\//i.test(rec.commandOrUrl.trim())) {
+        row.transport = "http";
+      }
+    }
     const args = asStringArray(rec.args);
     if (args) row.args = args;
     const env = asStringArray(rec.env);

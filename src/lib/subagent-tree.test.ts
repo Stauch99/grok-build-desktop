@@ -110,4 +110,38 @@ describe("subagentChips", () => {
       { id: "toolu_1", name: "Agent", status: "running", sessionId: null },
     ]);
   });
+
+  it("keeps one chip per independent child session", () => {
+    const chips = subagentChips(
+      [
+        { kind: "tool", id: "spawn", title: "spawn_subagent writer", status: "completed" },
+        { kind: "tool", id: "again", title: "spawn_subagent writer", status: "completed" },
+      ],
+      [
+        session({
+          id: "child-1",
+          parentSessionId: "parent",
+          sessionKind: "subagent",
+          toolUseId: "spawn",
+          title: "[subagent:general-purpose] writer (child-1)",
+        }),
+        session({
+          id: "child-1",
+          parentSessionId: "parent",
+          sessionKind: "subagent",
+          toolUseId: "again",
+          title: "[subagent:general-purpose] writer (child-1)",
+        }),
+      ],
+      { parentSessionId: "parent", agentId: "grok" },
+    );
+    expect(chips).toEqual([
+      {
+        id: "spawn",
+        name: "[subagent:general-purpose] writer (child-1)",
+        status: "completed",
+        sessionId: "child-1",
+      },
+    ]);
+  });
 });

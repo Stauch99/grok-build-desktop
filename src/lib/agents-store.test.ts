@@ -58,6 +58,20 @@ describe("mcp catalog", () => {
     expect(parseMcpJson(null)).toEqual([]);
     expect(parseMcpJson({ servers: [{ name: "" }] })).toEqual([]);
   });
+
+  it("treats an http(s) commandOrUrl as http even when transport says stdio", () => {
+    expect(
+      parseMcpJson({
+        servers: [
+          { name: "paper", transport: "stdio", commandOrUrl: "http://127.0.0.1:29979/mcp" },
+          { name: "docs", transport: "stdio", commandOrUrl: "https://mcp.example.com" },
+        ],
+      }),
+    ).toEqual([
+      { name: "paper", transport: "http", commandOrUrl: "http://127.0.0.1:29979/mcp" },
+      { name: "docs", transport: "http", commandOrUrl: "https://mcp.example.com" },
+    ]);
+  });
 });
 
 describe("defaultSyncFlags", () => {

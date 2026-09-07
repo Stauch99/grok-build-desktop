@@ -84,6 +84,11 @@ describe("sidebar project indent", () => {
     expect(ruleBlock(".session.child")).toMatch(/padding-left:\s*1[6-8]px/);
     expect(ruleBlock(".inbox-list .session")).toMatch(/padding-left:\s*6px/);
   });
+
+  it("sets session titles one pixel smaller than the default UI small size", () => {
+    expect(ruleBlock(".session")).toMatch(/font-size:\s*var\(--ui-smaller\)/);
+    expect(ruleBlock(".session .title")).toMatch(/font-size:\s*var\(--ui-smaller\)/);
+  });
 });
 
 describe("collapsed rail affordance", () => {
@@ -103,5 +108,12 @@ describe("sidebar account fade", () => {
     expect(fade).toMatch(/linear-gradient\(\s*to top,\s*var\(--bg-side\)/);
     expect(fade).toMatch(/transparent/);
     expect(ruleBlock(".sidebar.rail .side-account::before")).toMatch(/content:\s*none/);
+  });
+
+  it("pads the session list past the account fade so the last row stays visible", () => {
+    expect(css).toMatch(/--session-list-end-pad:\s*48px/);
+    expect(ruleBlock(".session-list")).toMatch(/padding:\s*0 8px var\(--session-list-end-pad\)/);
+    expect(ruleBlock(".side-account::before")).toMatch(/height:\s*var\(--session-list-end-pad\)/);
+    expect(ruleBlock(".session-list.inbox-list")).toMatch(/padding-bottom:\s*0/);
   });
 });

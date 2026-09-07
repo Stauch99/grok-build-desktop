@@ -1,4 +1,4 @@
-import { applyChatUpdate, type ApplyOptions, type ChatState } from "./chat";
+import { applyChatUpdate, turnHasOpenTools, type ApplyOptions, type ChatItem, type ChatState } from "./chat";
 import { asRecord } from "./text";
 
 const FLUSH_NOW = new Set([
@@ -22,9 +22,14 @@ export function shouldFlushSessionUpdateNow(params: Record<string, unknown>): bo
 }
 
 /** Kimi (and others) may stream the reply and emit `turn_completed` without a prompt `stopReason`. */
-export function shouldClearBusyOnSessionUpdate(params: Record<string, unknown>): boolean {
+export function shouldClearBusyOnSessionUpdate(
+  params: Record<string, unknown>,
+  items?: ChatItem[],
+): boolean {
   const update = params.update ? asRecord(params.update) : params;
-  return String(update.sessionUpdate ?? "") === "turn_completed";
+  if (String(update.sessionUpdate ?? "") !== "turn_completed") return false;
+  if (items && turnHasOpenTools(items)) return false;
+  return true;
 }
 
 /** One animation frame, or a microtask when rAF is missing (Node tests). */

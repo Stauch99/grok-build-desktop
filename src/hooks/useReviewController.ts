@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { TextFilePreview } from "../api";
+import { toggleExplorerDir } from "../lib/explorer";
 import {
   initialReviewState,
+  recalledReviewPane,
   recalledReviewTab,
+  rememberReviewPane,
   rememberReviewTab,
+  reviewPaneSnapshotFrom,
   reviewReducer,
   type LegacyReviewTab,
   type ReviewDetailsTool,
   type ReviewOpenAction,
+  type ReviewPaneMemory,
   type ReviewTab,
   type ReviewTabMemory,
 } from "../lib/review-rail";
@@ -53,6 +58,8 @@ export type ReviewController = {
   previewTabs: PreviewTab[];
   selectPreviewTab: (path: string) => void;
   closePreviewTab: (path: string) => void;
+  expandedDirs: string[];
+  toggleExplorerDir: (path: string) => void;
 };
 
 export function replaceAbortController(prev: AbortController | null): AbortController {
@@ -62,6 +69,20 @@ export function replaceAbortController(prev: AbortController | null): AbortContr
 
 export function reviewOwnerKey(sessionId: string | null, cwd: string): string {
   return (sessionId || "") + "|" + cwd;
+}
+
+/** True when a blank new-chat owner becomes a real session id in the same workspace. */
+export function reviewOwnerAdopted(prevKey: string, nextKey: string): boolean {
+  const prevBar = prevKey.indexOf("|");
+  const nextBar = nextKey.indexOf("|");
+  if (prevBar < 0 || nextBar < 0) return false;
+  const prevId = prevKey.slice(0, prevBar);
+  const nextId = nextKey.slice(0, nextBar);
+  return !prevId && !!nextId && prevKey.slice(prevBar + 1) === nextKey.slice(nextBar + 1);
+}
+
+export function shouldSkipRememberOnOwnerChange(currentTab: ReviewTab, recalledTab: ReviewTab): boolean {
+  return currentTab !== recalledTab;
 }
 
 export function resolveReviewPath(path: string, cwd: string): string {
@@ -84,30 +105,63 @@ export function validateReviewFallbackTarget(path: string, cwd: string, locale: 
 export function useReviewController(deps: ReviewControllerDependencies): ReviewController {
   const [state, dispatch] = useReducer(reviewReducer, initialReviewState);
   const [previewTabs, setPreviewTabs] = useState<PreviewTab[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<string[]>([]);
   const requestId = useRef(0);
   const ownerKey = useRef(deps.ownerKey);
   const abortRef = useRef<AbortController | null>(null);
   const previewCache = useRef(new Map<string, PreviewCacheEntry>());
   const tabMemory = useRef<ReviewTabMemory>({});
+  const paneMemory = useRef<ReviewPaneMemory>({});
   const lastTab = useRef<ReviewTab>(initialReviewState.tab);
   const rememberedOwner = useRef(deps.ownerKey);
   const skipRemember = useRef(false);
+  const pendingRestore = useRef<string | null>(null);
+  const previewTabsRef = useRef(previewTabs);
+  const previewPathRef = useRef(state.preview.path);
+  const expandedDirsRef = useRef(expandedDirs);
+  const openPreviewRef = useRef<(path: string, opts?: { silent?: boolean }) => Promise<void>>(async () => {});
+  previewTabsRef.current = previewTabs;
+  previewPathRef.current = state.preview.path;
+  expandedDirsRef.current = expandedDirs;
   ownerKey.current = deps.ownerKey;
 
   useEffect(() => {
     abortRef.current = replaceAbortController(abortRef.current);
     const ac = abortRef.current;
     requestId.current += 1;
-    if (rememberedOwner.current !== deps.ownerKey) {
-      tabMemory.current = rememberReviewTab(tabMemory.current, rememberedOwner.current, lastTab.current);
+    const prevOwner = rememberedOwner.current;
+    const prevTab = lastTab.current;
+    const ownerChanged = prevOwner !== deps.ownerKey;
+    if (ownerChanged) {
+      tabMemory.current = rememberReviewTab(tabMemory.current, prevOwner, prevTab);
+      paneMemory.current = rememberReviewPane(
+        paneMemory.current,
+        prevOwner,
+        reviewPaneSnapshotFrom(previewTabsRef.current, previewPathRef.current, expandedDirsRef.current),
+      );
     }
-    const recalled = recalledReviewTab(tabMemory.current, deps.ownerKey, lastTab.current);
+    const recalled = recalledReviewTab(tabMemory.current, deps.ownerKey, prevTab);
+    skipRemember.current = shouldSkipRememberOnOwnerChange(prevTab, recalled);
     lastTab.current = recalled;
-    skipRemember.current = true;
     rememberedOwner.current = deps.ownerKey;
     dispatch({ type: "owner-change", requestId: requestId.current, disabled: deps.disabled, tab: recalled });
-    setPreviewTabs([]);
-    previewCache.current.clear();
+    if (ownerChanged) {
+      const pane = recalledReviewPane(paneMemory.current, deps.ownerKey);
+      const live = reviewPaneSnapshotFrom(previewTabsRef.current, previewPathRef.current, expandedDirsRef.current);
+      const keepLive = reviewOwnerAdopted(prevOwner, deps.ownerKey)
+        && pane.previewPaths.length === 0
+        && pane.expandedDirs.length === 0
+        && !pane.previewPath;
+      if (keepLive) {
+        paneMemory.current = rememberReviewPane(paneMemory.current, deps.ownerKey, live);
+        pendingRestore.current = live.previewPath || live.previewPaths.at(-1) || null;
+      } else {
+        setPreviewTabs(pane.previewPaths.map((path) => ({ path })));
+        setExpandedDirs(pane.expandedDirs);
+        previewCache.current.clear();
+        pendingRestore.current = pane.previewPath || pane.previewPaths.at(-1) || null;
+      }
+    }
     return () => ac.abort();
   }, [deps.ownerKey, deps.disabled]);
 
@@ -130,19 +184,22 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     const resolvedPath = resolveReviewPath(path, deps.cwd);
     const error = validateReviewFallbackTarget(resolvedPath, deps.cwd, deps.locale);
     if (error) { deps.onError(error); return; }
+    try { await deps.openReviewPath(resolvedPath, deps.cwd); } catch (reason) { deps.onError(previewErrorCopy(reason)); }
   }, [deps.cwd, deps.locale, deps.onError, deps.openReviewPath]);
 
-  const openPreview = useCallback(async (path: string) => {
+  const openPreview = useCallback(async (path: string, opts?: { silent?: boolean }) => {
     if (deps.disabled) return;
+    const silent = opts?.silent === true;
     const resolvedPath = resolveReviewPath(path, deps.cwd);
     const kind = previewKind(resolvedPath);
     if (kind === "image" || kind === "video") {
       setPreviewTabs((tabs) => upsertPreviewTab(tabs, resolvedPath));
-      dispatch({ type: "preview-start", path: resolvedPath, requestId: ++requestId.current });
-      deps.onOpened?.();
+      dispatch({ type: "preview-start", path: resolvedPath, requestId: ++requestId.current, silent });
+      if (!silent) deps.onOpened?.();
       return;
     }
     if (!deps.isTextPreviewable(resolvedPath)) {
+      if (silent) return;
       dispatch({ type: "preview-invalidate", requestId: ++requestId.current });
       const error = validateReviewFallbackTarget(resolvedPath, deps.cwd, deps.locale);
       if (error) { deps.onError(error); return; }
@@ -153,11 +210,11 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     const cached = previewCache.current.get(resolvedPath);
     const id = ++requestId.current;
     const requestOwner = deps.ownerKey;
-    dispatch({ type: "preview-start", path: resolvedPath, requestId: id });
+    dispatch({ type: "preview-start", path: resolvedPath, requestId: id, silent });
     if (cached) {
       dispatch({ type: "preview-success", requestId: id, path: resolvedPath, text: cached.text, truncated: false });
     }
-    deps.onOpened?.();
+    if (!silent) deps.onOpened?.();
     const signal = abortRef.current?.signal;
     try {
       const row = await deps.readTextFile(resolvedPath, deps.cwd || null);
@@ -182,20 +239,32 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     void openPreview(path);
   }, [openPreview]);
 
+  useEffect(() => {
+    openPreviewRef.current = openPreview;
+  }, [openPreview]);
+
+  useEffect(() => {
+    const path = pendingRestore.current;
+    pendingRestore.current = null;
+    if (!path || deps.disabled) return;
+    void openPreviewRef.current(path, { silent: true });
+  }, [deps.ownerKey, deps.disabled]);
+
+  const onToggleExplorerDir = useCallback((path: string) => {
+    setExpandedDirs((dirs) => toggleExplorerDir(dirs, path));
+  }, []);
+
   const closePreviewTab = useCallback((path: string) => {
     const nextActive = activeTabAfterClose(previewTabs, path, state.preview.path);
     setPreviewTabs((tabs) => removePreviewTab(tabs, path));
     previewCache.current.delete(path);
     if (state.preview.path !== path) return;
     if (nextActive) {
-      const cached = previewCache.current.get(nextActive);
-      const id = ++requestId.current;
-      dispatch({ type: "preview-start", path: nextActive, requestId: id });
-      if (cached) dispatch({ type: "preview-success", requestId: id, path: nextActive, text: cached.text, truncated: false });
+      void selectPreviewTab(nextActive);
       return;
     }
     dispatch({ type: "preview-start", path: "", requestId: ++requestId.current });
-  }, [previewTabs, state.preview.path]);
+  }, [previewTabs, selectPreviewTab, state.preview.path]);
 
   const previewTabsMemo = useMemo(() => previewTabs, [previewTabs]);
 
@@ -224,5 +293,7 @@ export function useReviewController(deps: ReviewControllerDependencies): ReviewC
     previewTabs: previewTabsMemo,
     selectPreviewTab,
     closePreviewTab,
+    expandedDirs,
+    toggleExplorerDir: onToggleExplorerDir,
   };
 }

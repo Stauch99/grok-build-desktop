@@ -504,6 +504,28 @@ describe("thread body size", () => {
     expect(sheet).toMatch(/:is\(\.thread,\s*\.preview-body\.md-scroll\) \.md\s*\{[^}]*line-height:\s*1\.65/);
     expect(sheet).toMatch(/:is\(\.thread,\s*\.preview-body\.md-scroll\) \.md h1[\s\S]*?line-height:\s*1\.485/);
   });
+
+  it("lets assistant markdown fill the row so CJK wraps at the column edge", () => {
+    const sheet = css("src/styles/thread.css");
+    const block = sheet.match(/\.msg\.assistant \.md\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(block).toMatch(/flex:\s*1\b/);
+    expect(block).toMatch(/min-width:\s*0/);
+    expect(block).not.toMatch(/flex:\s*0\s+1\s+auto/);
+  });
+
+  it("does not pretty-wrap markdown body, which leaves CJK lines short of the column", () => {
+    const sheet = css("src/styles/thread.css");
+    const body = [...sheet.matchAll(/(?:^|\n)\.md\s*\{[^}]+\}/g)].at(-1)?.[0] ?? "";
+    expect(body).not.toMatch(/text-wrap:\s*pretty/);
+  });
+
+  it("justifies markdown paragraphs so full CJK lines share one right edge", () => {
+    const sheet = css("src/styles/thread.css");
+    const p = sheet.match(/(?:^|\n)\.md p\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(p).toMatch(/text-align:\s*justify/);
+    const li = sheet.match(/(?:^|\n)\.md li\s*\{[^}]+\}/)?.[0] ?? "";
+    expect(li).toMatch(/text-align:\s*justify/);
+  });
 });
 
 describe("thread end reading pad", () => {

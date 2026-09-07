@@ -38,6 +38,7 @@ import {
   IconMessageCircle,
   IconMoon as TablerMoon,
   IconPencil,
+  IconPaperclip as TablerPaperclip,
   IconPhoto as TablerPhoto,
   IconPlayerStop,
   IconPlug as TablerPlug,
@@ -72,6 +73,7 @@ function wrap(Tabler: TablerIcon, defaultSize = 16, stroke: number | undefined =
 }
 
 export const IconPlus = wrap(TablerPlus);
+export const IconPaperclip = wrap(TablerPaperclip);
 export const IconChevron = wrap(IconChevronDown, 12);
 export const IconChevronUp = wrap(TablerChevronUp, 12);
 export const IconFolder = wrap(TablerFolder);

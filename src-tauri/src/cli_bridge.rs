@@ -315,13 +315,13 @@ pub async fn stat_attachment(path: String, allow_root: Option<String>) -> AppRes
 }
 
 fn apply_grok_env(cmd: &mut Command) {
-    let mut path = std::env::var("PATH").unwrap_or_default();
-    let extra = grok_home().join("bin");
-    if !path.split(':').any(|p| Path::new(p) == extra) {
-        path = format!("{}:{path}", extra.display());
-    }
+    let home = dirs_home();
+    let path = crate::agent_host::prepend_path_dirs(
+        &std::env::var("PATH").unwrap_or_default(),
+        &crate::agent_host::default_spawn_path_extras(&home, &grok_home()),
+    );
     cmd.env("PATH", path);
-    cmd.env("HOME", dirs_home());
+    cmd.env("HOME", home);
     cmd.env("GROK_DISABLE_AUTOUPDATER", "1");
 }
 

@@ -4,6 +4,46 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const TAIL_MAX: u64 = 4 * 1024 * 1024;
+const MS_EPOCH_FLOOR: f64 = 100_000_000_000.0;
+
+pub(crate) fn normalize_epoch_ms(n: f64) -> u64 {
+    if n > MS_EPOCH_FLOOR {
+        n as u64
+    } else {
+        (n * 1000.0) as u64
+    }
+}
+
+fn agent_timestamp_ms(value: &Value) -> Option<u64> {
+    let metas = [
+        value.get("_meta"),
+        value.get("params").and_then(|p| p.get("_meta")),
+        value
+            .get("params")
+            .and_then(|p| p.get("update"))
+            .and_then(|u| u.get("_meta")),
+        value.get("update").and_then(|u| u.get("_meta")),
+    ];
+    for meta in metas.into_iter().flatten() {
+        let Some(raw) = meta.get("agentTimestampMs") else {
+            continue;
+        };
+        if let Some(n) = raw
+            .as_u64()
+            .or_else(|| raw.as_f64().map(|f| f as u64))
+            .filter(|n| *n > 0)
+        {
+            return Some(n);
+        }
+    }
+    None
+}
+
+pub(crate) fn timestamp_ms_from_record(value: &Value) -> Option<u64> {
+    agent_timestamp_ms(value)
+        .or_else(|| ts_from(value))
+        .or_else(|| value.get("params").and_then(ts_from))
+}
 
 pub struct ReplayPage {
     pub rows: Vec<Value>,
@@ -227,10 +267,112 @@ fn json_text(value: &Value) -> String {
 
 fn ts_from(value: &Value) -> Option<u64> {
     match value.get("time").or_else(|| value.get("timestamp")) {
-        Some(Value::Number(n)) => n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)),
-        Some(Value::String(s)) => s.parse().ok(),
+        Some(Value::Number(n)) => n.as_f64().map(normalize_epoch_ms),
+        Some(Value::String(s)) => parse_ts_string(s),
         _ => None,
     }
+}
+
+fn parse_ts_string(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<u64>() {
+        return Some(if (n as f64) > MS_EPOCH_FLOOR {
+            n
+        } else {
+            n.saturating_mul(1000)
+        });
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        return Some(normalize_epoch_ms(f));
+    }
+    parse_rfc3339_millis(s)
+}
+
+fn parse_iso_offset(s: &str) -> Option<i64> {
+    if s.eq_ignore_ascii_case("Z") {
+        return Some(0);
+    }
+    let sign = match s.as_bytes().first()? {
+        b'+' => 1i64,
+        b'-' => -1i64,
+        _ => return None,
+    };
+    let rest = &s[1..];
+    let (hour, min) = if rest.len() >= 5 && rest.as_bytes().get(2) == Some(&b':') {
+        (rest[..2].parse::<i64>().ok()?, rest[3..5].parse::<i64>().ok()?)
+    } else if rest.len() >= 4 {
+        (rest[..2].parse::<i64>().ok()?, rest[2..4].parse::<i64>().ok()?)
+    } else {
+        return None;
+    };
+    Some(sign * (hour * 3600 + min * 60))
+}
+
+fn split_rfc3339_offset(s: &str) -> Option<(&str, i64)> {
+    if let Some(body) = s.strip_suffix('Z').or_else(|| s.strip_suffix('z')) {
+        return Some((body, 0));
+    }
+    let t_pos = s.find('T').or_else(|| s.find(' '))?;
+    let time = &s[t_pos + 1..];
+    let mut off_at = None;
+    for (i, &b) in time.as_bytes().iter().enumerate().rev() {
+        if b == b'+' || b == b'-' {
+            off_at = Some(i);
+            break;
+        }
+    }
+    let Some(i) = off_at else {
+        return Some((s, 0));
+    };
+    let offset = parse_iso_offset(&time[i..])?;
+    Some((&s[..t_pos + 1 + i], offset))
+}
+
+fn parse_rfc3339_millis(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let (body, offset_secs) = split_rfc3339_offset(s)?;
+    let (date, time) = body.split_once('T').or_else(|| body.split_once(' '))?;
+    let mut d = date.split('-');
+    let year: i32 = d.next()?.parse().ok()?;
+    let month: u32 = d.next()?.parse().ok()?;
+    let day: u32 = d.next()?.parse().ok()?;
+    let (hms, frac) = match time.split_once('.') {
+        Some((hms, frac)) => (hms, Some(frac)),
+        None => (time, None),
+    };
+    let mut t = hms.split(':');
+    let hour: u32 = t.next()?.parse().ok()?;
+    let min: u32 = t.next()?.parse().ok()?;
+    let sec: u32 = t.next()?.parse().ok()?;
+    let millis = match frac {
+        None => 0u32,
+        Some(f) => {
+            let digits: String = f.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+            format!("{:0<3}", digits).parse().ok()?
+        }
+    };
+    let days = days_from_civil(year, month, day)?;
+    let secs = days
+        .checked_mul(86400)?
+        .checked_add(i64::from(hour) * 3600)?
+        .checked_add(i64::from(min) * 60)?
+        .checked_add(i64::from(sec))?;
+    let local_ms = secs.checked_mul(1000)?.checked_add(i64::from(millis))?;
+    let utc_ms = local_ms.checked_sub(offset_secs.checked_mul(1000)?)?;
+    u64::try_from(utc_ms).ok()
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
+    if !(1..=12).contains(&month) || day == 0 || day > 31 {
+        return None;
+    }
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400) as u32;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(i64::from(era) * 146097 + i64::from(doe) - 719468)
 }
 
 fn parse_kimi_wire(value: &Value) -> Option<Vec<Value>> {
@@ -243,9 +385,48 @@ fn parse_kimi_wire(value: &Value) -> Option<Vec<Value>> {
                 .collect(),
         ),
         "context.append_loop_event" => Some(parse_kimi_loop(value.get("event")?, ts)),
-        "context.append_message" => Some(Vec::new()),
+        "context.append_message" => Some(parse_kimi_append_message(value, ts)),
         _ => None,
     }
+}
+
+fn parse_kimi_append_message(value: &Value, ts: Option<u64>) -> Vec<Value> {
+    let Some(message) = value.get("message") else {
+        return Vec::new();
+    };
+    if message.get("role").and_then(|v| v.as_str()) != Some("user") {
+        return Vec::new();
+    }
+    let origin = message
+        .get("origin")
+        .and_then(|o| o.get("kind"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if origin == "injection" {
+        return Vec::new();
+    }
+    let text = json_text(message.get("content").unwrap_or(&Value::Null));
+    if is_harness_user_text(&text) {
+        return Vec::new();
+    }
+    chunk("user_message_chunk", &text, ts)
+        .into_iter()
+        .collect()
+}
+
+fn is_harness_user_text(text: &str) -> bool {
+    let t = text.trim_start();
+    t.eq_ignore_ascii_case("[Request interrupted by user]")
+        || t.starts_with("<local-command-caveat>")
+        || t.starts_with("<command-name>")
+        || t.starts_with("<command-message>")
+        || t.starts_with("<command-args>")
+        || t.starts_with("<local-command-stdout>")
+        || t.starts_with("<task-notification>")
+        || t.starts_with("<system-reminder>")
+        || t.starts_with("<INSTRUCTIONS")
+        || t.starts_with("<permissions")
+        || t.starts_with("<multi_agent_mode>")
 }
 
 fn parse_kimi_loop(event: &Value, ts: Option<u64>) -> Vec<Value> {
@@ -334,15 +515,7 @@ fn claude_hide_user(value: &Value, content: &Value) -> bool {
     if value.get("isMeta").and_then(|v| v.as_bool()) == Some(true) {
         return true;
     }
-    let text = json_text(content);
-    let t = text.trim_start();
-    t.starts_with("<local-command-caveat>")
-        || t.starts_with("<command-name>")
-        || t.starts_with("<command-message>")
-        || t.starts_with("<command-args>")
-        || t.starts_with("<local-command-stdout>")
-        || t.starts_with("<task-notification>")
-        || t.starts_with("<system-reminder>")
+    is_harness_user_text(&json_text(content))
 }
 
 fn claude_rows(kind: &str, content: &Value, ts: Option<u64>) -> Vec<Value> {
@@ -440,7 +613,13 @@ fn parse_codex_event_msg(payload: &Value, ts: Option<u64>) -> Vec<Value> {
         .or_else(|| payload.get("text").and_then(|v| v.as_str()))
         .unwrap_or("");
     match kind {
-        "user_message" => chunk("user_message_chunk", text, ts).into_iter().collect(),
+        "user_message" => {
+            if is_harness_user_text(text) {
+                Vec::new()
+            } else {
+                chunk("user_message_chunk", text, ts).into_iter().collect()
+            }
+        }
         "agent_message" => chunk("agent_message_chunk", text, ts).into_iter().collect(),
         "agent_reasoning" => chunk("agent_thought_chunk", text, ts).into_iter().collect(),
         _ => Vec::new(),
@@ -584,6 +763,60 @@ mod tests {
             ]
         );
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn kimi_append_message_keeps_user_followup_and_drops_injections() {
+        let dir = uniq("kimi_followup");
+        let wire = dir.join("agents").join("main");
+        fs::create_dir_all(&wire).unwrap();
+        fs::write(
+            wire.join("wire.jsonl"),
+            concat!(
+                r#"{"type":"turn.prompt","input":[{"type":"text","text":"美化PPT"}],"time":1785300746544}"#,
+                "\n",
+                r#"{"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"美化PPT"}],"origin":{"kind":"user"}},"time":1785300746545}"#,
+                "\n",
+                r#"{"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>\nskip"}]},"origin":{"kind":"injection","variant":"plan_mode"},"time":1785300746546}"#,
+                "\n",
+                r#"{"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"继续"}],"origin":{"kind":"user"}},"time":1785301905526}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&dir, None).unwrap();
+        assert_eq!(
+            texts(&page),
+            vec![
+                ("user_message_chunk".into(), "美化PPT".into()),
+                ("user_message_chunk".into(), "美化PPT".into()),
+                ("user_message_chunk".into(), "继续".into()),
+            ]
+        );
+        assert_eq!(
+            page.rows[0].get("_ts").and_then(|v| v.as_u64()),
+            Some(1_785_300_746_544)
+        );
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn claude_jsonl_stamps_offset_iso_time() {
+        let path = uniq("claude_offset.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","timestamp":"2026-09-07T16:07:29.976+08:00","message":{"role":"user","content":"继续"}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&path, None).unwrap();
+        assert_eq!(
+            page.rows[0].get("_ts").and_then(|v| v.as_u64()),
+            Some(1_788_768_449_976)
+        );
+        fs::remove_file(path).ok();
     }
 
     #[test]
@@ -756,6 +989,31 @@ mod tests {
         assert!(!blob.contains("local-command-caveat"));
         assert!(!blob.contains("command-name"));
         assert!(!blob.contains("task-notification"));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn claude_jsonl_hides_interrupt_and_stamps_iso_time() {
+        let path = uniq("claude_interrupt.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","timestamp":"2026-09-07T08:06:42.659Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#,
+                "\n",
+                r#"{"type":"user","timestamp":"2026-09-07T08:07:29.976Z","message":{"role":"user","content":[{"type":"text","text":"继续"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let page = replay_session(&path, None).unwrap();
+        assert_eq!(
+            texts(&page),
+            vec![("user_message_chunk".into(), "继续".into())]
+        );
+        assert_eq!(
+            page.rows[0].get("_ts").and_then(|v| v.as_u64()),
+            Some(1_788_768_449_976)
+        );
         fs::remove_file(path).ok();
     }
 

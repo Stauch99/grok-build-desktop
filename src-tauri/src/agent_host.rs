@@ -54,6 +54,34 @@ pub(crate) fn extra_spawn_env(
     }
 }
 
+pub(crate) fn prepend_path_dirs(existing: &str, extras: &[PathBuf]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for extra in extras {
+        let s = extra.to_string_lossy();
+        if s.is_empty() {
+            continue;
+        }
+        if !parts.iter().any(|p| p == s.as_ref()) {
+            parts.push(s.into_owned());
+        }
+    }
+    for dir in existing.split(':').filter(|d| !d.is_empty()) {
+        if !parts.iter().any(|p| p == dir) {
+            parts.push(dir.to_string());
+        }
+    }
+    parts.join(":")
+}
+
+pub(crate) fn default_spawn_path_extras(home: &Path, grok_home: &Path) -> Vec<PathBuf> {
+    vec![
+        grok_home.join("bin"),
+        home.join(".local/bin"),
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]
+}
+
 pub(crate) fn which_search_dirs(path: &str, home: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = path
         .split(':')
@@ -346,6 +374,19 @@ mod tests {
         assert!(dirs.contains(&PathBuf::from("/usr/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/me/.local/bin")));
         assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+    }
+
+    #[test]
+    fn prepend_path_dirs_puts_extras_first_without_duplicates() {
+        let extra = [
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/bin"),
+        ];
+        let next = prepend_path_dirs("/usr/bin:/bin", &extra);
+        assert!(next.starts_with("/opt/homebrew/bin:/usr/local/bin:/usr/bin:"));
+        assert!(next.contains("/bin"));
+        assert_eq!(next.matches("/usr/bin").count(), 1);
     }
 
     #[test]

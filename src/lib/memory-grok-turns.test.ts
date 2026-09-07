@@ -40,6 +40,17 @@ describe("grokTurnsFromUpdates", () => {
     expect(turns[2]?.role).toBe("tool");
     expect(turns[3]?.text).toBe("also rust");
   });
+
+  it("drops harness user chunks so they are not ingested as preferences", () => {
+    const turns = grokTurnsFromUpdates(
+      [
+        { update: { sessionUpdate: "user_message_chunk", content: { text: "<system-reminder>\nskip" } } },
+        { update: { sessionUpdate: "user_message_chunk", content: { text: "I like dark mode" } } },
+      ],
+      meta,
+    );
+    expect(turns.map((t) => t.text)).toEqual(["I like dark mode"]);
+  });
 });
 
 describe("applyGrokIngest", () => {
