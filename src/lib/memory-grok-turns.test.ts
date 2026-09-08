@@ -197,6 +197,25 @@ describe("applyGrokIngest", () => {
       expect(body).not.toContain("- [grok | late |");
     }
   });
+
+  it("appends to an existing shard 2 instead of replacing it", () => {
+    const day = "2026-09-08";
+    const cwd = "/p";
+    const chunk = "x".repeat(DREAM_LINE_MAX_CHARS);
+    const header = `# ${day}\n`;
+    const filled = packUntilCap(header, dailyLine("s1", cwd, chunk));
+    const existing2 = `${header}- [grok | old | /p | user_utterance] keep-me\n`;
+    const { shards, io } = applyGrokIngest(
+      { ...blankIo(), dailyMd: filled.body },
+      [userPage("n", cwd, [chunk], 11)],
+      day,
+      "",
+      { 1: filled.body, 2: existing2 },
+    );
+    expect(io.state.cursors["grok/n"]).toBe(11);
+    expect(shards[2]).toContain("keep-me");
+    expect(shards[2]).toContain("- [grok | n |");
+  });
 });
 
 describe("skipDreamIngestPage", () => {

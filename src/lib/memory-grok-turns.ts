@@ -80,17 +80,27 @@ function shardFits(shard: string, lineText: string): boolean {
   return utf8Bytes(shard + lineText) <= MEMORY_FILE_MAX_BYTES;
 }
 
+function normalizeShardBody(text: string, day: string): string {
+  if (!text) return emptyDailyShard(day);
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
 export function applyGrokIngest(
   io: DreamIo,
   pages: GrokIngestPage[],
   day: string,
   memoryRoot = "",
+  existingShards: Record<number, string> = {},
 ): { io: DreamIo; newSessionCount: number; shards: Record<number, string>; stoppedEarly: boolean } {
   const forgotten = new Set(io.state.forgotten);
   const cursors = { ...io.state.cursors };
-  const shards: Record<number, string> = {
-    1: io.dailyMd ? (io.dailyMd.endsWith("\n") ? io.dailyMd : `${io.dailyMd}\n`) : emptyDailyShard(day),
-  };
+  const shards: Record<number, string> = {};
+  for (const [key, body] of Object.entries(existingShards)) {
+    const shard = Number(key);
+    if (!Number.isInteger(shard) || shard < 1 || shard > DAILY_MAX_SHARDS) continue;
+    shards[shard] = normalizeShardBody(body, day);
+  }
+  shards[1] = io.dailyMd ? normalizeShardBody(io.dailyMd, day) : shards[1] ?? emptyDailyShard(day);
   let index = 1;
   let newSessionCount = 0;
   let stoppedEarly = false;

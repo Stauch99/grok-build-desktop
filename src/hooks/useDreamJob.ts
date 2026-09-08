@@ -6,7 +6,6 @@ import {
   readMemoryHost,
   readSessionUpdates,
   readTextFile,
-  writeMemoryHost,
   type MemoryHostSnapshot,
 } from "../api";
 import type { AgentDoctor } from "../lib/agent-doctor";
@@ -19,7 +18,8 @@ import { parseDailyFile } from "../lib/memory-ingest";
 import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
 import { runDreamSweep, type DreamIo } from "../lib/memory-dream";
 import { applyGrokIngest, skipDreamIngestPage, type GrokIngestPage } from "../lib/memory-grok-turns";
-import { dailyMdPath, dreamsMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
+import { persistDreamFiles, persistIngest, persistState } from "../lib/memory-host-persist";
+import { dailyMdPath, dailyShardPath, DAILY_MAX_SHARDS, dreamsMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
 import { mainPrompt, parseMainOutput } from "../lib/memory-phase-prompt";
 import { selectDreamInput } from "../lib/memory-weight";
 import { armRecurringLocalHour } from "../lib/memory-schedule";
@@ -59,24 +59,63 @@ async function localDaily(memoryRoot: string, day: string, fallback: string): Pr
   }
 }
 
-async function ioFromHost(snap: MemoryHostSnapshot, day: string): Promise<DreamIo> {
+async function loadDailyShards(memoryRoot: string, day: string, shard1: string): Promise<Record<number, string>> {
+  const shards: Record<number, string> = { 1: shard1 };
+  for (let index = 2; index <= DAILY_MAX_SHARDS; index++) {
+    try {
+      const text = (await readTextFile(dailyShardPath(memoryRoot, day, index), memoryRoot)).text;
+      if (text) shards[index] = text;
+    } catch {
+      /* missing numbered shard */
+    }
+  }
+  return shards;
+}
+
+async function ioFromHost(
+  snap: MemoryHostSnapshot,
+  day: string,
+): Promise<{ io: DreamIo; shards: Record<number, string> }> {
   const dailyMd = await localDaily(snap.memoryRoot, day, snap.dailyMd);
+  const shards = await loadDailyShards(snap.memoryRoot, day, dailyMd);
   return {
-    userMd: snap.userMd,
-    dreamsMd: snap.dreamsMd,
-    dailyMd,
-    state: parseHostState(snap.stateJson),
+    io: {
+      userMd: snap.userMd,
+      dreamsMd: snap.dreamsMd,
+      dailyMd,
+      state: parseHostState(snap.stateJson),
+    },
+    shards,
   };
 }
 
-async function persistIo(io: DreamIo, day: string): Promise<void> {
-  await writeMemoryHost({
-    userMd: io.userMd,
-    dreamsMd: io.dreamsMd,
-    dailyMd: io.dailyMd,
-    dailyDay: day,
-    stateJson: JSON.stringify(io.state),
-  });
+function dailyDays(
+  shards: Record<number, string>,
+  day: string,
+  fallbackDailyMd: string,
+): { lines: ReturnType<typeof parseDailyFile>; day: string }[] {
+  const indexes = Object.keys(shards)
+    .map(Number)
+    .filter((index) => Number.isInteger(index) && index >= 1)
+    .sort((a, b) => a - b);
+  if (!indexes.length) return [{ lines: parseDailyFile(fallbackDailyMd), day }];
+  return indexes.map((index) => ({ lines: parseDailyFile(shards[index] ?? ""), day }));
+}
+
+function sameShards(a: Record<number, string>, b: Record<number, string>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (a[Number(key)] !== b[Number(key)]) return false;
+  }
+  return true;
+}
+
+function shardLines(shards: Record<number, string> | undefined, dailyMd: string) {
+  if (!shards) return parseDailyFile(dailyMd);
+  return Object.keys(shards)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .flatMap((index) => parseDailyFile(shards[index] ?? ""));
 }
 
 async function recordEvent(event: Parameters<typeof appendMemoryEvent>[0]): Promise<void> {
@@ -111,8 +150,8 @@ async function mcpBatchesSince(sinceMs: number): Promise<number> {
   }
 }
 
-function countNewGrokSessions(io: DreamIo, pages: GrokIngestPage[], day: string, memoryRoot: string): number {
-  return applyGrokIngest(io, pages, day, memoryRoot).newSessionCount;
+async function persistHostIngest(day: string, shards: Record<number, string>, state: DreamIo["state"]): Promise<void> {
+  await persistIngest({ day, shards, state }).catch(() => undefined);
 }
 
 export function useDreamJob(opts: DreamJobOpts) {
@@ -128,11 +167,11 @@ export function useDreamJob(opts: DreamJobOpts) {
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
-  const applyIo = useCallback((io: DreamIo, root: string, pending: number) => {
+  const applyIo = useCallback((io: DreamIo, root: string, pending: number, shards?: Record<number, string>) => {
     setMemoryRoot(root);
     setDiary(parseDreamsMd(io.dreamsMd));
     setStatus(overlayStatus(io.state, pending));
-    setCorpus(corpusLine(parseDailyFile(io.dailyMd)));
+    setCorpus(corpusLine(shardLines(shards, io.dailyMd)));
     setUserMd(io.userMd.trim() ? io.userMd : null);
     setTagline(io.state.tagline);
   }, []);
@@ -142,13 +181,20 @@ export function useDreamJob(opts: DreamJobOpts) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const day = localDayStamp(now, tz);
     const snap = await readMemoryHost();
-    const io = await ioFromHost(snap, day);
-    const pages = await collectGrokPages(io, snap.memoryRoot);
-    const newSessionCount = countNewGrokSessions(io, pages, day, snap.memoryRoot);
+    const loaded = await ioFromHost(snap, day);
+    const pages = await collectGrokPages(loaded.io, snap.memoryRoot);
+    const ingested = applyGrokIngest(loaded.io, pages, day, snap.memoryRoot, loaded.shards);
+    const cursorsChanged =
+      JSON.stringify(ingested.io.state.cursors) !== JSON.stringify(loaded.io.state.cursors);
+    if (ingested.newSessionCount > 0 || cursorsChanged) {
+      await persistHostIngest(day, ingested.shards, ingested.io.state);
+    }
+    const io = ingested.io;
+    const newSessionCount = ingested.newSessionCount;
     const mcpBatches = await mcpBatchesSince(io.state.lastDeepAt ?? 0);
     const pending = newSessionCount + mcpBatches;
-    applyIo(io, snap.memoryRoot, pending);
-    return { snap, io, now, tz, day, pending, newSessionCount, pages };
+    applyIo(io, snap.memoryRoot, pending, ingested.shards);
+    return { snap, io, now, tz, day, pending, newSessionCount, pages, shards: ingested.shards };
   }, [applyIo]);
 
   const runSweep = useCallback(async (trigger: DreamTrigger) => {
@@ -162,9 +208,12 @@ export function useDreamJob(opts: DreamJobOpts) {
     }
     let snap: MemoryHostSnapshot;
     let io: DreamIo;
+    let shards: Record<number, string> = {};
     try {
       snap = await readMemoryHost();
-      io = await ioFromHost(snap, day);
+      const loaded = await ioFromHost(snap, day);
+      io = loaded.io;
+      shards = loaded.shards;
     } catch (e) {
       o.showToast(friendlyError(e));
       return;
@@ -189,7 +238,8 @@ export function useDreamJob(opts: DreamJobOpts) {
     const docs = await doctorAll().catch(() => [...o.doctors]);
     const loggedIn = loggedInAgentIds(docs);
     const pages = await collectGrokPages(io, snap.memoryRoot);
-    const newSessionCount = trigger === "manual" ? 0 : countNewGrokSessions(io, pages, day, snap.memoryRoot);
+    const newSessionCount =
+      trigger === "manual" ? 0 : applyGrokIngest(io, pages, day, snap.memoryRoot, shards).newSessionCount;
     const mcpBatches = trigger === "manual" ? 0 : await mcpBatchesSince(io.state.lastDeepAt ?? 0);
     const pendingMaterial = newSessionCount + mcpBatches;
     runningRef.current = true;
@@ -197,6 +247,8 @@ export function useDreamJob(opts: DreamJobOpts) {
     const beforeUser = io.userMd;
     const acp = { handle: null as Awaited<ReturnType<typeof openDreamAcp>> | null };
     const usage = { inChars: 0, outChars: 0, selected: 0 };
+    let postIngest: DreamIo = io;
+    let shardsChanged = false;
     try {
       const result = await runDreamSweep({
         trigger,
@@ -209,13 +261,17 @@ export function useDreamJob(opts: DreamJobOpts) {
         io,
         runPhase: async (phase, current) => {
           if (phase === "gather") {
-            const merged = applyGrokIngest(current, pages, day, snap.memoryRoot).io;
-            return { dailyMd: merged.dailyMd, state: merged.state };
+            const ingested = applyGrokIngest(current, pages, day, snap.memoryRoot, shards);
+            shardsChanged = !sameShards(shards, ingested.shards);
+            shards = ingested.shards;
+            postIngest = ingested.io;
+            await persistIngest({ day, shards: ingested.shards, state: ingested.io.state }).catch(() => undefined);
+            return { dailyMd: ingested.io.dailyMd, state: ingested.io.state };
           }
-          const selection = selectDreamInput([{ lines: parseDailyFile(current.dailyMd), day }], day);
+          const selection = selectDreamInput(dailyDays(shards, day, current.dailyMd), day);
           usage.selected = selection.selected.length;
           if (!acp.handle) {
-            await persistIo(current, day);
+            await persistState(current.state);
             acp.handle = await openDreamAcp({
               agentId: o.dreamAgentId,
               memoryRoot: snap.memoryRoot,
@@ -234,7 +290,17 @@ export function useDreamJob(opts: DreamJobOpts) {
           };
         },
       });
-      await persistIo(result.io, day);
+      postIngest = result.io;
+      if (result.io.state.lastStatus === "failed" || !result.started) {
+        await persistState(result.io.state);
+      } else {
+        if (shardsChanged) await persistIngest({ day, shards, state: result.io.state });
+        await persistDreamFiles({
+          userMd: result.io.userMd,
+          dreamsMd: result.io.dreamsMd,
+          state: result.io.state,
+        });
+      }
       if (result.started) {
         const deltaBytes = Math.max(0, result.io.userMd.length - beforeUser.length);
         await recordEvent({
@@ -258,15 +324,15 @@ export function useDreamJob(opts: DreamJobOpts) {
         }
       }
       const pending = result.started ? 0 : pendingMaterial;
-      applyIo(result.io, snap.memoryRoot, pending);
+      applyIo(result.io, snap.memoryRoot, pending, shards);
       setProfileUpdated(result.started && result.io.userMd !== beforeUser);
     } catch (e) {
       const failed: DreamIo = {
-        ...io,
-        state: { ...io.state, lastStatus: "failed", lastError: String(e), lockOwner: null },
+        ...postIngest,
+        state: { ...postIngest.state, lastStatus: "failed", lastError: String(e), lockOwner: null },
       };
-      await persistIo(failed, day).catch(() => undefined);
-      applyIo(failed, snap.memoryRoot, 0);
+      await persistState(failed.state).catch(() => undefined);
+      applyIo(failed, snap.memoryRoot, 0, shards);
     } finally {
       runningRef.current = false;
       if (acp.handle) await acp.handle.close().catch(() => undefined);
