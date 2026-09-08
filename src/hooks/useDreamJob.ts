@@ -17,6 +17,7 @@ import {
   BACKFILL_MAX_SWEEPS,
   backfillEligible,
   nextBackfillAction,
+  sweepStateToPersist,
   unconsumedPageCount,
 } from "../lib/memory-backfill";
 import { evaluateDreamGates, type DreamTrigger } from "../lib/memory-gates";
@@ -248,6 +249,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     let stoppedEarly = false;
     let pending = pendingMaterial;
     let lastIo = io;
+    let previousLastScanAt: number | null | undefined;
     try {
       while (sweepsDone < BACKFILL_MAX_SWEEPS) {
         const sweepNow = Date.now();
@@ -305,8 +307,13 @@ export function useDreamJob(opts: DreamJobOpts) {
         stoppedEarly = iterationStoppedEarly;
         pending = unconsumedPageCount(pages, result.io.state.cursors, result.io.state.forgotten);
         sweepsDone += 1;
+        const persistStatePayload = sweepStateToPersist(
+          result.io.state,
+          result.started,
+          previousLastScanAt,
+        );
         if (result.io.state.lastStatus === "failed" || !result.started) {
-          await persistState(result.io.state);
+          await persistState(persistStatePayload);
         } else {
           if (shardsChanged) await persistIngest({ day, shards, state: result.io.state });
           await persistDreamFiles({
@@ -350,6 +357,7 @@ export function useDreamJob(opts: DreamJobOpts) {
           break;
         }
         currentTrigger = "manual";
+        previousLastScanAt = result.io.state.lastScanAt;
         io = { ...result.io, state: { ...result.io.state, lastScanAt: null } };
         pages = await collectGrokPages(io, snap.memoryRoot);
       }
@@ -382,7 +390,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     void (async () => {
       try {
         const loaded = await refreshFromHost();
-        if (loaded.io.state.lastDeepAt === null) await runSweep("launch");
+        if (loaded.io.state.lastDeepAt === null) await runSweep("manual");
       } catch {
         /* best-effort */
       }

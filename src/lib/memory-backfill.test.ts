@@ -4,6 +4,7 @@ import {
   BACKFILL_MAX_SWEEPS,
   backfillEligible,
   nextBackfillAction,
+  sweepStateToPersist,
   unconsumedPageCount,
 } from "./memory-backfill";
 
@@ -96,5 +97,24 @@ describe("unconsumedPageCount", () => {
     };
     expect(unconsumedPageCount(pages, cursors, ["s3"])).toBe(1);
     expect(unconsumedPageCount(pages, cursors)).toBe(2);
+  });
+});
+
+describe("sweepStateToPersist", () => {
+  it("restores lastScanAt when a follow-up never started", () => {
+    expect(
+      sweepStateToPersist({ lastScanAt: null, lastStatus: "blocked-login" }, false, 1_700),
+    ).toEqual({ lastScanAt: 1_700, lastStatus: "blocked-login" });
+  });
+
+  it("keeps the sweep state when the round started or it is not a follow-up", () => {
+    expect(sweepStateToPersist({ lastScanAt: 9, lastStatus: "ok" }, true, 1_700)).toEqual({
+      lastScanAt: 9,
+      lastStatus: "ok",
+    });
+    expect(sweepStateToPersist({ lastScanAt: null, lastStatus: "ok" }, false, undefined)).toEqual({
+      lastScanAt: null,
+      lastStatus: "ok",
+    });
   });
 });

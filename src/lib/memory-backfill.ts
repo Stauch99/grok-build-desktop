@@ -21,6 +21,17 @@ export function backfillEligible(trigger: DreamTrigger, lastDeepAt: number | nul
   return trigger === "launch" && lastDeepAt === null;
 }
 
+export function sweepStateToPersist<S extends { lastScanAt: number | null }>(
+  state: S,
+  started: boolean,
+  previousLastScanAt?: number | null,
+): S {
+  if (!started && previousLastScanAt !== undefined) {
+    return { ...state, lastScanAt: previousLastScanAt };
+  }
+  return state;
+}
+
 export function unconsumedPageCount(
   pages: readonly { sessionId: string; nextByte: number }[],
   cursors: Record<string, number>,

@@ -50,9 +50,20 @@ describe("useDreamJob persist wiring", () => {
     expect(src).toContain("nextBackfillAction");
     expect(src).toContain("backfillEligible");
     expect(src).toContain("unconsumedPageCount");
-    expect(src).toContain('runSweep("launch")');
-    expect(src).toContain("lastDeepAt === null");
     expect(src).toContain("stoppedEarly");
     expect(src).not.toMatch(/result\.started \? 0 : pendingMaterial/);
+  });
+
+  it("starts first-launch catch-up as manual so eager ingest cannot no-material the gate", () => {
+    const catchUp = src.slice(src.indexOf("catchUpTried.current"), src.indexOf("Accumulation trigger"));
+    expect(catchUp).toContain("lastDeepAt === null");
+    expect(catchUp).toContain('runSweep("manual")');
+    expect(catchUp).not.toContain('runSweep("launch")');
+  });
+
+  it("does not persist a follow-up lastScanAt null when the sweep never started", () => {
+    expect(src).toContain("sweepStateToPersist");
+    expect(src).toContain("previousLastScanAt");
+    expect(src).toContain("lastScanAt: null");
   });
 });
