@@ -538,6 +538,7 @@ export type ThreadColumnProps = {
   sessionId?: string | null;
   loading?: boolean;
   onDraftUser?: (text: string) => void;
+  stallNote?: string;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -569,6 +570,7 @@ export function ThreadColumn({
   sessionId = null,
   loading = false,
   onDraftUser,
+  stallNote,
 }: ThreadColumnProps) {
   const t = useT();
   const [tocHover, setTocHover] = useState<{
@@ -589,7 +591,7 @@ export function ThreadColumn({
   const liveInTimeline = lastWorkId != null;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
   const liveRow =
-    busy || lastWorkId ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
+    busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} /> : null;
   const rowCtx = useMemo(
     (): ThreadRowCtx => ({
       paneId,

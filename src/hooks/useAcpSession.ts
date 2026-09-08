@@ -33,13 +33,14 @@ import {
   scheduleSessionUpdateFlush,
   shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
+  shouldResumeBusyOnSessionUpdate,
 } from "../lib/session-update-batch";
 import { filterCommands, type CommandDef } from "../lib/commands";
 import { sameCwd } from "../lib/inbox";
 import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
-import { tryEnqueue, emptyQueue, type QueueState } from "../lib/prompt-queue";
+import { tryEnqueue, emptyQueue, dequeue, type QueueState } from "../lib/prompt-queue";
 import { agentChipLabel } from "../lib/agent-chip";
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
@@ -71,7 +72,6 @@ import {
 
 import { classifyAgentExit } from "../lib/agent-exit";
 import { friendlyError } from "../lib/error-copy";
-import { evaluateHangWatchdog } from "../lib/hang-watchdog";
 import { recordPromptHistory } from "../lib/prompt-history";
 import { shouldWatchDisplayedSession } from "../lib/run-status";
 
@@ -232,7 +232,7 @@ export function shouldIdleAfterPromptRpc(opts: {
 }
 
 export function shouldSettlePaneBusy(opts: { settled: boolean; pendingPrompt: boolean }): boolean {
-  return opts.settled && !opts.pendingPrompt;
+  return opts.settled;
 }
 
 export function cancelTargetSessionId(
@@ -430,9 +430,8 @@ export type AcpSessionDeps = {
   abortTurnIdle: (paneId: string) => void;
   injectUserMemory: boolean;
   userMd: string | null;
-  doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
+    doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
   locale?: Locale;
-  setStallRecover?: React.Dispatch<React.SetStateAction<import("./useAppModelState").StallRecover | null>>;
   promptHistoryRef?: React.MutableRefObject<string[]>;
 };
 
@@ -589,75 +588,29 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
                 now: Date.now(),
                 items,
                 seenAssistantAt: seenAssistantAtRef.current,
+                lastActivityAt: depsRef.current.lastActivityRef.current,
               }),
             pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE),
           })
         ) {
           busyRef.current = false;
           setBusy(false);
-          pendingPrompt.current = null;
-        }
-        if (depsRef.current.setStallRecover) {
-          const verdict = evaluateHangWatchdog({
-            busy: !!busyRef.current,
-            nowMs: Date.now(),
-            lastActivityMs: depsRef.current.lastActivityRef.current,
-            items,
-            permissionPending: false,
-          });
-          if (verdict.shouldOffer && verdict.text) {
-            const text = verdict.text;
-            depsRef.current.setStallRecover((prev) =>
-              prev?.dest === MAIN_PANE
-                ? { ...prev, quietMs: verdict.quietMs }
-                : {
-                    dest: MAIN_PANE,
-                    sessionId: sessionIdRef.current,
-                    text,
-                    quietMs: verdict.quietMs,
-                  },
-            );
-          } else if (!busyRef.current) {
-            depsRef.current.setStallRecover((prev) => (prev?.dest === MAIN_PANE ? null : prev));
-          }
         }
       }
       for (const [id, pane] of Object.entries(depsRef.current.extraPanes)) {
-        if (!pane.busy) {
-          if (depsRef.current.setStallRecover) {
-            depsRef.current.setStallRecover((prev) => (prev?.dest === id ? null : prev));
-          }
-          continue;
-        }
+        if (!pane.busy) continue;
         if (
           shouldSettlePaneBusy({
             settled: shouldClearBusyOnSettledChat({
               busy: true,
               now: Date.now(),
               items: pane.chat.items,
+              lastActivityAt: extraActivityRef.current[id],
             }),
             pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, id),
           })
         ) {
           patchExtra(id, (prev) => ({ ...prev, busy: false }));
-          if (pendingPrompt.current === id) pendingPrompt.current = null;
-        }
-        if (depsRef.current.setStallRecover) {
-          const extraVerdict = evaluateHangWatchdog({
-            busy: true,
-            nowMs: Date.now(),
-            lastActivityMs: extraActivityRef.current[id] ?? depsRef.current.lastActivityRef.current,
-            items: pane.chat.items,
-            permissionPending: false,
-          });
-          if (extraVerdict.shouldOffer && extraVerdict.text) {
-            depsRef.current.setStallRecover({
-              dest: id,
-              sessionId: pane.sessionId,
-              text: extraVerdict.text,
-              quietMs: extraVerdict.quietMs,
-            });
-          }
         }
       }
     };
@@ -816,6 +769,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     setBusy(true);
   }
 
+  function drainComposerQueue() {
+    const d = depsRef.current;
+    if (destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE)) return;
+    const { next, rest } = dequeue(d.queueRef.current);
+    if (!next) return;
+    d.setQueue(rest);
+    d.queueRef.current = rest;
+    void sendPrompt(next.text, MAIN_PANE);
+  }
+
   async function rpc(
     method: string,
     params: unknown,
@@ -960,6 +923,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         }
         pendingPrompt.current = null;
         void d.onSessionsNeedRefresh();
+        if (!dest || dest === MAIN_PANE) drainComposerQueue();
       }
     }
     if (msg.method === "session/update" || msg.method === "_x.ai/session/update") {
@@ -978,11 +942,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (shouldDropUpdateAfterAgentExit(readyByAgentRef.current, eventAgent)) return;
       if (ignoreReplay.current && !extra) return;
       if (extra && ignoreExtraReplay.current[dest]) return;
-      enqueueSessionUpdate(params, dest);
       const destKey = extra ? dest : MAIN_PANE;
       const items = extra
         ? extraChatRef.current[dest]?.items ?? d.extraPanes[dest]?.chat.items
         : chatRef.current.items;
+      enqueueSessionUpdate(params, dest);
+      if (shouldResumeBusyOnSessionUpdate(params, items)) {
+        if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: true }));
+        else {
+          busyRef.current = true;
+          setBusy(true);
+          if (sid) {
+            runningSessionIdRef.current = sid;
+            setRunningSessionId(sid);
+          }
+        }
+      }
       if (
         shouldClearBusyOnSessionUpdate(params, items) &&
         !destHasPendingPrompt(pendingRpc.current, pendingDest.current, destKey)

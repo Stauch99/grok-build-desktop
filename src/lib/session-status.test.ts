@@ -7,6 +7,7 @@ import {
   loadUnread,
   markUnread,
   pruneUnread,
+  sidebarWorkingIds,
   statusLabel,
   statusOrder,
   type UnreadMap,
@@ -132,6 +133,32 @@ describe("busySessionIds", () => {
         runningSessionId: null,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("sidebarWorkingIds", () => {
+  it("does not keep live children working after this window has idled", () => {
+    expect(
+      sidebarWorkingIds({
+        busy: false,
+        sessionId: "parent",
+        runningSessionId: null,
+        liveRosterIds: ["live:grok:c1"],
+        runningChildIds: ["child-1"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("includes live children only while this window is driving a turn", () => {
+    expect(
+      sidebarWorkingIds({
+        busy: true,
+        sessionId: "parent",
+        runningSessionId: "parent",
+        liveRosterIds: ["live:grok:c1"],
+        runningChildIds: ["child-1"],
+      }),
+    ).toEqual(["parent", "live:grok:c1", "child-1"]);
   });
 });
 

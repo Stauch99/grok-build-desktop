@@ -11,9 +11,9 @@ import {
   IconFolder,
   IconLight,
   IconSearch,
-  IconSpark,
   IconTerminal,
 } from "../icons";
+import { GrokBotIcon } from "./GrokBotIcon";
 import { ToolResult } from "./ToolResult";
 import { useT } from "../lib/locale-context";
 import { useBriefMotion } from "../lib/motion";
@@ -81,9 +81,11 @@ function SpineRow({
 export function WorkLiveRow({
   startedAt,
   onStop,
+  note,
 }: {
   startedAt?: number;
   onStop: () => void;
+  note?: string;
 }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
@@ -92,22 +94,23 @@ export function WorkLiveRow({
     return () => window.clearInterval(id);
   }, []);
   const label =
-    startedAt != null
+    note ||
+    (startedAt != null
       ? t("timeline.worked", { elapsed: formatWorkedElapsed(now - startedAt) })
-      : t("timeline.working");
+      : t("timeline.working"));
   return (
     <button
       type="button"
-      className="work-live"
+      className={`work-live${note ? " stalled" : ""}`}
       aria-label={t("timeline.stopAria", { label })}
       data-tip={t("thread.stop")}
       onClick={onStop}
     >
       <span className="spine-ico" aria-hidden>
-        <IconSpark size={18} />
+        <GrokBotIcon size={18} />
       </span>
       <span className="spine-head static">
-        <span className="spine-verb shimmer-text">{label}</span>
+        <span className={`spine-verb${note ? "" : " shimmer-text"}`}>{label}</span>
       </span>
     </button>
   );

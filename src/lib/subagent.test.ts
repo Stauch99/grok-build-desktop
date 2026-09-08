@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { childSessionIdFromToolDetail, mcpInheritanceLabel, subagentDisplayName, subagentStatusFromItem, subagentStatusFromTool } from "./subagent";
+import { childSessionIdFromToolDetail, isSubagentPollTool, mcpInheritanceLabel, subagentDisplayName, subagentStatusFromItem, subagentStatusFromTool } from "./subagent";
 
 describe("subagentStatusFromTool", () => {
   it("maps spawn_subagent statuses", () => {
@@ -21,6 +21,11 @@ describe("subagentStatusFromTool", () => {
         toolName: "get_command_or_subagent_output",
       }),
     ).toBeNull();
+  });
+
+  it("treats Grok Get task output as a poll, not a spawn", () => {
+    expect(isSubagentPollTool("Get task output: 01abc")).toBe(true);
+    expect(isSubagentPollTool("Get task output")).toBe(true);
   });
 
   it("accepts spaced or dashed titles", () => {

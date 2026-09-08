@@ -13,6 +13,8 @@ import {
   formatElapsed,
   liveWorkStatus,
   shouldClearBusyOnSettledChat,
+  turnHasOpenTools,
+  BUSY_HARD_IDLE_MS,
   assistantCopyReady,
   workRunLabel,
   workRunMeta,
@@ -532,6 +534,97 @@ describe("shouldClearBusyOnSettledChat", () => {
       { kind: "tool" as const, id: "t", title: "TaskUpdate", status: "in_progress" as const, at: 4 },
     ];
     expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items: live })).toBe(true);
+  });
+
+  it("does not stay working forever on a Grok Get task output poll", () => {
+    const live = [
+      ...items,
+      {
+        kind: "tool" as const,
+        id: "t",
+        title: "Get task output: 01abc",
+        status: "in_progress" as const,
+        at: 4,
+      },
+    ];
+    expect(turnHasOpenTools(live)).toBe(false);
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items: live })).toBe(true);
+  });
+
+  it("ignores poll timestamps when deciding the reply has been quiet", () => {
+    const live = [
+      ...items,
+      {
+        kind: "tool" as const,
+        id: "t",
+        title: "Get task output: 01abc",
+        status: "in_progress" as const,
+        at: 4,
+        until: 50_000,
+      },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 3 + 4000, items: live })).toBe(true);
+  });
+
+  it("idles a quiet turn after the hard cap even if a tool never completed", () => {
+    const live = [
+      ...items,
+      { kind: "tool" as const, id: "t", title: "Read", status: "in_progress" as const, at: 4 },
+    ];
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 4 + BUSY_HARD_IDLE_MS,
+        items: live,
+        lastActivityAt: 4,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 4 + BUSY_HARD_IDLE_MS - 1,
+        items: live,
+        lastActivityAt: 4,
+      }),
+    ).toBe(false);
+  });
+
+  it("hard-idles a stuck spawn even if poll pings keep lastActivityAt fresh", () => {
+    const live = [
+      { kind: "user" as const, id: "u", text: "ping", at: 1 },
+      {
+        kind: "tool" as const,
+        id: "s",
+        title: "spawn_subagent",
+        status: "in_progress" as const,
+        at: 2,
+        until: 4,
+      },
+      {
+        kind: "tool" as const,
+        id: "t",
+        title: "Get task output: 01abc",
+        status: "in_progress" as const,
+        at: 4,
+        until: 4 + BUSY_HARD_IDLE_MS,
+      },
+    ];
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 4 + BUSY_HARD_IDLE_MS,
+        items: live,
+        lastActivityAt: 4 + BUSY_HARD_IDLE_MS,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearBusyOnSettledChat({
+        busy: true,
+        now: 4 + BUSY_HARD_IDLE_MS - 1,
+        items: live,
+        lastActivityAt: 4 + BUSY_HARD_IDLE_MS - 1,
+      }),
+    ).toBe(false);
   });
 
   it("does not treat the user send time as the end of the turn", () => {

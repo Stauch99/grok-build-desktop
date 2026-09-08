@@ -187,10 +187,11 @@ describe("shouldIdleAfterPromptRpc", () => {
 });
 
 describe("shouldSettlePaneBusy", () => {
-  it("does not idle on the settle timer while a prompt waiter is still live", () => {
-    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: true })).toBe(false);
+  it("idles when the transcript has settled, even if session/prompt has not returned", () => {
+    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: true })).toBe(true);
     expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: false })).toBe(true);
     expect(shouldSettlePaneBusy({ settled: false, pendingPrompt: false })).toBe(false);
+    expect(shouldSettlePaneBusy({ settled: false, pendingPrompt: true })).toBe(false);
   });
 });
 
@@ -512,5 +513,18 @@ describe("ACP image prompt", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).toMatch(/echoUserOnce\(prev\.chat, text, "u-local"/);
     expect(src).toMatch(/echoUserOnce\(prev, text, "u-local"/);
+  });
+});
+
+describe("session working chrome", () => {
+  it("resumes busy on live work and hard-idles from last activity, not a hung prompt", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/shouldResumeBusyOnSessionUpdate/);
+    expect(src).toMatch(/lastActivityAt:/);
+    expect(src).toMatch(/function drainComposerQueue/);
+    expect(src).not.toMatch(/setStallRecover/);
+    const effects = readFileSync(new URL("./useAppModelEffects.ts", import.meta.url), "utf8");
+    expect(effects).toMatch(/pendingPrompt\.current === MAIN_PANE/);
+    expect(effects).not.toMatch(/dequeue\(s\.queueRef/);
   });
 });

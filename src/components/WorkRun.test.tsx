@@ -61,17 +61,15 @@ describe("WorkRun", () => {
     expect(html).not.toContain("过一遍");
   });
 
-  it("stays live when a tool is still in flight even if busy was cleared", () => {
+  it("settles leftover in-flight tools once the pane is no longer busy", () => {
     const html = render(
       [{ kind: "tool", id: "1", title: "Read a.ts", toolKind: "read", status: "in_progress" }],
       { onStop: () => {} },
     );
-    expect(html).toContain("work-run live");
-    expect(html).toContain("work-timeline");
-    expect(html).toContain("work-live");
-    expect(html).not.toContain("work-run-bar");
-    expect(html).not.toContain("使用 1 个工具");
-    expect(html).toContain("shimmer-text");
+    expect(html).not.toContain("work-run live");
+    expect(html).not.toContain("work-live");
+    expect(html).toContain("work-run-bar");
+    expect(html).toContain("使用 1 个工具");
   });
 
   it("puts stop on the trailing working-for line so the composer dock can stay quiet", () => {

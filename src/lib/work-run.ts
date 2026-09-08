@@ -1,4 +1,4 @@
-import { isWorkflowToolTitle, type ThreadBlock, type WorkItem } from "./chat";
+import { isBusyNoiseTool, isWorkflowToolTitle, type ThreadBlock, type WorkItem } from "./chat";
 import { t, type Locale } from "./i18n";
 import { classifyTool, toolDetailFromTitle, TOOL_VERB, type ToolClass } from "./tool-render";
 import { thoughtDuration } from "./time";
@@ -140,7 +140,7 @@ export function liveTool(items: WorkItem[]): Extract<WorkItem, { kind: "tool" }>
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item?.kind === "tool" && (item.status === "in_progress" || item.status === "pending")) {
-      if (isWorkflowToolTitle(item.title)) continue;
+      if (isBusyNoiseTool(item.title, item.toolName)) continue;
       return item;
     }
   }
@@ -151,7 +151,7 @@ function liveIsThinking(items: WorkItem[]): boolean {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item?.kind === "tool" && (item.status === "in_progress" || item.status === "pending")) {
-      if (isWorkflowToolTitle(item.title)) continue;
+      if (isBusyNoiseTool(item.title, item.toolName)) continue;
       return false;
     }
     if (item?.kind === "thought") return true;
@@ -216,11 +216,7 @@ export function formatWorkedElapsed(ms: number): string {
 }
 
 export function workRunIsLive(opts: { items: WorkItem[]; busy?: boolean }): boolean {
-  if (opts.busy) return true;
-  return opts.items.some(
-    (item) =>
-      item.kind === "tool" && (item.status === "in_progress" || item.status === "pending"),
-  );
+  return !!opts.busy;
 }
 
 /** Last work cluster in the in-flight turn — stays live after assistant text starts. */
@@ -228,18 +224,16 @@ export function liveWorkBlockId(
   blocks: ThreadBlock[],
   opts: { busy: boolean; showThinking: boolean },
 ): string | null {
+  if (!opts.busy) return null;
   let candidate: string | null = null;
-  let inFlight = false;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
     if (block.kind === "item" && block.item.kind === "user") break;
     if (block.kind !== "work") continue;
     if (visibleWorkItems(block.items, opts.showThinking).length === 0) continue;
     if (candidate == null) candidate = block.id;
-    if (workRunIsLive({ items: block.items })) inFlight = true;
   }
-  if (opts.busy || inFlight) return candidate;
-  return null;
+  return candidate;
 }
 
 export function workRunCopy(opts: {

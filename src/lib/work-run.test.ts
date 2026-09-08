@@ -193,13 +193,19 @@ describe("workRunIsLive", () => {
     ).toBe(true);
   });
 
-  it("stays live while a tool is still in flight even if busy was cleared", () => {
+  it("settles when the pane is idle, even if a poll or spawn tool never completed", () => {
     expect(
       workRunIsLive({
         items: [tool("1", "Read a.ts", { toolKind: "read", status: "in_progress" })],
         busy: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      workRunIsLive({
+        items: [tool("1", "Get task output: 01abc", { status: "in_progress" })],
+        busy: false,
+      }),
+    ).toBe(false);
   });
 
   it("settles when the turn is idle and every tool has finished", () => {
@@ -239,6 +245,19 @@ describe("liveWorkBlockId", () => {
     ];
     expect(liveWorkBlockId(blocks, { busy: true, showThinking: true })).toBeNull();
   });
+
+  it("does not keep a finished turn's work cluster live after busy clears", () => {
+    const blocks: ThreadBlock[] = [
+      { kind: "item", item: { kind: "user", id: "u", text: "go" } },
+      {
+        kind: "work",
+        id: "work-k1",
+        items: [tool("k1", "Get task output: 01abc", { status: "in_progress" })],
+      },
+      { kind: "item", item: { kind: "assistant", id: "a", text: "ok" } },
+    ];
+    expect(liveWorkBlockId(blocks, { busy: false, showThinking: true })).toBeNull();
+  });
 });
 
 describe("formatLiveElapsed", () => {
@@ -273,5 +292,14 @@ describe("liveTool", () => {
       ])?.id,
     ).toBe("2");
     expect(liveTool([tool("1", "Read a.ts", { toolKind: "read" })])).toBeUndefined();
+  });
+
+  it("does not treat a Get task output poll as the live tool", () => {
+    expect(
+      liveTool([
+        tool("1", "Read a.ts", { toolKind: "read", status: "completed" }),
+        tool("2", "Get task output: 01abc", { status: "in_progress" }),
+      ]),
+    ).toBeUndefined();
   });
 });

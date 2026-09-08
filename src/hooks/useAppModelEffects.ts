@@ -280,6 +280,11 @@ export function useAppModelEffects(d: EffectsDeps) {
       s.setMainBusyAt((t) => t ?? Date.now());
       return;
     }
+    if (acp.pendingPrompt.current === MAIN_PANE) {
+      s.busyStartRef.current = null;
+      s.setMainBusyAt(null);
+      return;
+    }
     const started = s.busyStartRef.current;
     const finishedId = acp.runningSessionIdRef.current;
     s.busyStartRef.current = null;
@@ -309,17 +314,12 @@ export function useAppModelEffects(d: EffectsDeps) {
       );
       void notify(title, body);
     }
-    const { next, rest } = dequeue(s.queueRef.current);
-    if (next) {
-      s.setQueue(rest);
-      s.queueRef.current = rest;
-      void d.sendPrompt(next.text);
-    }
   }, [acp.busy, d.refreshGit]);
 
   useEffect(() => {
     const idle = Object.entries(s.extraPanes).filter(([, pane]) => !pane.busy);
     for (const [id, pane] of idle) {
+      if (acp.pendingPrompt.current === id) continue;
       const started = s.extraBusyStartRef.current[id];
       delete s.extraBusyStartRef.current[id];
       if (started == null) continue;

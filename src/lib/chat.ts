@@ -1,6 +1,6 @@
 import { parseAcpRecord } from "./acp-events";
 import type { AgentId } from "./agent-id";
-import { stickyToolName } from "./subagent";
+import { stickyToolName, isSubagentPollTool } from "./subagent";
 import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
 import { tr } from "./i18n-bridge";
@@ -97,6 +97,11 @@ export function isHarnessUserText(text: string): boolean {
 export function isWorkflowToolTitle(title: string): boolean {
   const token = (title.trim().split(/[\s:/]+/)[0] ?? "").toLowerCase();
   return WORKFLOW_TOOL_TITLES.has(token);
+}
+
+/** Workflow pings and subagent output polls are not a live turn. */
+export function isBusyNoiseTool(title: string, toolName?: string): boolean {
+  return isWorkflowToolTitle(title) || isSubagentPollTool(title, toolName);
 }
 
 export function shouldMergeUserChunk(
@@ -198,8 +203,22 @@ export function turnHasOpenTools(items: ChatItem[]): boolean {
     (it) =>
       it.kind === "tool" &&
       (it.status === "pending" || it.status === "in_progress") &&
-      !isWorkflowToolTitle(it.title),
+      !isBusyNoiseTool(it.title, it.toolName),
   );
+}
+
+/** Quiet this long with no ACP activity and the sidebar/work timer must idle. */
+export const BUSY_HARD_IDLE_MS = 10 * 60 * 1000;
+
+function lastTurnActivityMs(items: ChatItem[]): number | null {
+  const turn = itemsAfterLastUser(items);
+  let last = 0;
+  for (const it of turn) {
+    if (it.kind === "tool" && isBusyNoiseTool(it.title, it.toolName)) continue;
+    const t = it.until ?? it.at;
+    if (typeof t === "number" && t > last) last = t;
+  }
+  return last || null;
 }
 
 /** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
@@ -212,22 +231,30 @@ export function shouldClearBusyOnSettledChat(opts: {
   settleMs?: number;
   /** Wall time when assistant text first appeared, if items have no clocks. */
   seenAssistantAt?: number | null;
+  /** Last ACP session/update for this turn. */
+  lastActivityAt?: number | null;
+  hardIdleMs?: number;
 }): boolean {
   if (!opts.busy) return false;
+  const last =
+    lastTurnActivityMs(opts.items) ?? opts.seenAssistantAt ?? opts.lastActivityAt ?? null;
+  if (last != null && opts.now - last >= (opts.hardIdleMs ?? BUSY_HARD_IDLE_MS)) {
+    return true;
+  }
   const turn = itemsAfterLastUser(opts.items);
   if (turnHasOpenTools(opts.items)) {
     return false;
   }
   if (!turn.some((it) => it.kind === "assistant" && it.text.trim())) return false;
-  let last = 0;
+  let replyClock = 0;
   for (const it of turn) {
-    if (it.kind === "tool" && isWorkflowToolTitle(it.title)) continue;
+    if (it.kind === "tool" && isBusyNoiseTool(it.title, it.toolName)) continue;
     const t = it.until ?? it.at;
-    if (typeof t === "number" && t > last) last = t;
+    if (typeof t === "number" && t > replyClock) replyClock = t;
   }
-  if (!last && opts.seenAssistantAt) last = opts.seenAssistantAt;
-  if (!last) return false;
-  return opts.now - last >= (opts.settleMs ?? SETTLED_TURN_MS);
+  if (!replyClock && opts.seenAssistantAt) replyClock = opts.seenAssistantAt;
+  if (!replyClock) return false;
+  return opts.now - replyClock >= (opts.settleMs ?? SETTLED_TURN_MS);
 }
 
 /** Start of the current turn (after the last user message), for “工作了 …”. */

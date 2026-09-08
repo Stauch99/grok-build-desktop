@@ -4,7 +4,7 @@ export type SubagentStatus = "running" | "completed" | "cancelled" | "failed";
 export type McpInheritance = "inherit" | "none";
 
 const DEFAULT_ALIASES = ["spawn_subagent", "task", "agent"] as const;
-const POLL_ALIASES = ["get_command_or_subagent_output"] as const;
+const POLL_ALIASES = ["get_command_or_subagent_output", "get_task_output"] as const;
 
 const EXTRA: Record<AgentId, readonly string[]> = {
   grok: [],

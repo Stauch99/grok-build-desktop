@@ -700,6 +700,9 @@
   padding: 6px 0 8px;
   animation: spine-enter 480ms var(--ease) both;
 }
+.work-live .spine-ico {
+  color: var(--brand);
+}
 .work-live .spine-head { padding-top: 0; }
 .work-live .spine-verb {
   font-variant-numeric: tabular-nums;
@@ -708,6 +711,10 @@
 .work-live .spine-verb.shimmer-text {
   display: inline-block;
   color: var(--muted);
+}
+.work-live.stalled .spine-ico,
+.work-live.stalled .spine-verb {
+  color: color-mix(in srgb, var(--warn) 82%, var(--muted));
 }
 .work-live:hover .spine-verb:not(.shimmer-text) {
   color: color-mix(in srgb, var(--text) 64%, transparent);

@@ -113,7 +113,6 @@ export function useAppModel() {
     injectUserMemory: s.injectUserMemory,
     userMd: dream.userMd,
     doctors: s.doctors,
-    setStallRecover: s.setStallRecover,
     promptHistoryRef: s.promptHistoryRef,
   });
 

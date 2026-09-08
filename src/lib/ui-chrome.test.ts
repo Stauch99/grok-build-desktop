@@ -77,6 +77,10 @@ describe("composer dock stack", () => {
     expect(app).toMatch(/goalView && !mainPaneBusy/);
     const thread = readFileSync(join(root, "src/components/Thread.tsx"), "utf8");
     expect(thread).toMatch(/onStop=\{runBusy \? onCancel/);
+    expect(app).not.toMatch(/HangRecoverBanner/);
+    expect(app).not.toMatch(/hangRecoverNode/);
+    expect(app).toMatch(/stallNote=\{/);
+    expect(thread).toMatch(/note=\{stallNote\}/);
   });
 
   it("turns the header jobs chip into a stop-and-inspect menu for the window", () => {
@@ -601,6 +605,11 @@ describe("work-run expand layout", () => {
   it("does not scale the header on press", () => {
     const sheet = css("src/styles/thread.css");
     expect(sheet).toMatch(/\.work-run-head:active[\s\S]{0,80}transform:\s*none/);
+  });
+
+  it("tints the live work bot with the selected brand color", () => {
+    const sheet = css("src/styles/thread.css");
+    expect(sheet).toMatch(/\.work-live \.spine-ico\s*\{[^}]*color:\s*var\(--brand\)/);
   });
 });
 

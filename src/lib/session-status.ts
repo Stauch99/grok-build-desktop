@@ -48,6 +48,20 @@ export function busySessionIds(opts: {
   return ids;
 }
 
+/** Live roster / child rows stay working only while this window is still driving. */
+export function sidebarWorkingIds(opts: {
+  busy: boolean;
+  sessionId: string | null;
+  runningSessionId: string | null;
+  extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
+  liveRosterIds?: string[];
+  runningChildIds?: string[];
+}): string[] {
+  const ids = busySessionIds(opts);
+  if (!opts.busy) return ids;
+  return [...ids, ...(opts.liveRosterIds ?? []), ...(opts.runningChildIds ?? [])];
+}
+
 const LABELS: Record<SessionStatus, string> = {
   working: "status.working",
   "needs-you": "status.needsYou",

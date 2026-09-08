@@ -45,7 +45,6 @@ import { allowForGrant, allowForSession, findAlwaysOption, parseToolName, pickAl
 import type { QueuedPermission } from "./lib/permission-queue";
 import { subagentChips } from "./lib/subagent-tree";
 import { friendlyError } from "./lib/error-copy";
-import { HangRecoverBanner } from "./components/HangRecoverBanner";
 import { JobsMenu } from "./components/JobsMenu";
 import { WorkPane } from "./components/WorkPane";
 import { SessionMenu } from "./SessionMenu";
@@ -384,8 +383,6 @@ export function App() {
     setSounds,
     pendingMode,
     promptHistoryRef,
-    stallRecover,
-    setStallRecover,
     cancelPermission,
     allowedTools,
   } = useAppModel();
@@ -448,27 +445,6 @@ export function App() {
     );
   }
 
-  function hangRecoverNode(paneId: string) {
-    if (!stallRecover || stallRecover.dest !== paneId) return null;
-    const stuck = stallRecover;
-    return (
-      <HangRecoverBanner
-        quietMs={stuck.quietMs}
-        onResend={() => {
-          setStallRecover(null);
-          void cancelTurn(paneId).then(() => submitPrompt(stuck.text, paneId));
-        }}
-        onDraft={() => {
-          if (paneId === MAIN_PANE) onDraftChange(stuck.text);
-          else onExtraDraftChange(paneId, stuck.text);
-          setStallRecover(null);
-          void cancelTurn(paneId);
-        }}
-        onWait={() => setStallRecover(null)}
-      />
-    );
-  }
-
   function customAnswerFor(perm: QueuedPermission, paneId: string) {
     return (text: string) => {
       void cancelPermission(perm);
@@ -488,7 +464,6 @@ export function App() {
     const timedOut = timedOutByPane[paneId] ?? [];
     return (
       <>
-        {hangRecoverNode(paneId)}
         {timedOut.map((item) => (
           <PendingRequestCard
             key={`to-${String(item.rpcId)}`}
@@ -708,6 +683,7 @@ export function App() {
             sessionModel={paneSession?.model ?? null}
             urlChips={[]}
             busy={paneBusy}
+            stallNote={paneId === MAIN_PANE && runStatus.kind === "stalled" ? runStatus.detail : undefined}
             onCancel={() => void cancelTurn(paneId)}
             chatRef={paneChatRef}
             pinToLatest={paneAtBottom}
@@ -1207,6 +1183,7 @@ return (
               }
               urlChips={urlChips}
               busy={mainPaneBusy}
+              stallNote={runStatus.kind === "stalled" ? runStatus.detail : undefined}
               onCancel={() => void cancelTurn("main")}
               sessionModel={sessionModel}
               chatRef={chatEl}

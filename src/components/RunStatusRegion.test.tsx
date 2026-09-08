@@ -22,13 +22,13 @@ function render(kind: "idle" | "running" | "stalled" | "permission") {
 }
 
 describe("RunStatusRegion", () => {
-  it("hides idle and running — the thread work-run is the live chrome", () => {
+  it("hides idle, running, and stalled — the thread yellow bar is the stall chrome", () => {
     expect(render("idle")).toBe("");
     expect(render("running")).toBe("");
+    expect(render("stalled")).toBe("");
   });
 
-  it("still shows stalled and permission capsules", () => {
-    expect(render("stalled")).toContain("运行可能停滞");
+  it("still shows permission capsules", () => {
     expect(render("permission")).toContain("需要许可");
   });
 });

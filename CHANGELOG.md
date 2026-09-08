@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-09-09
+
+### Added
+
+- Live work row uses the accent-tinted animated Grok bot (one silhouette per theme color).
+- Daily memory overflow shards, a seven-day dream lookback, and a bounded first-launch catch-up sweep.
+
+### Fixed
+
+- Working chrome follows real work: hung `session/prompt` and Grok `Get task output` polls no longer pin the sidebar or “工作了 …” timer for hours.
+- Stall copy lives only on the timeline yellow bar; the composer no longer stacks a second stall capsule or hang-recover card.
+- Quiet turns hard-idle after ten minutes even if a spawn tool never completed.
+
 ## [0.6.3] - 2026-09-08
 
 ### Added

@@ -5,6 +5,7 @@ import {
   scheduleSessionUpdateFlush,
   shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
+  shouldResumeBusyOnSessionUpdate,
 } from "./session-update-batch";
 
 function chunk(text: string) {
@@ -58,6 +59,42 @@ describe("shouldClearBusyOnSessionUpdate", () => {
         { kind: "assistant" as const, id: "a", text: "done" },
       ]),
     ).toBe(true);
+  });
+});
+
+describe("shouldResumeBusyOnSessionUpdate", () => {
+  it("re-enters working on live work after the UI had gone idle", () => {
+    expect(shouldResumeBusyOnSessionUpdate(chunk("more"))).toBe(true);
+    expect(shouldResumeBusyOnSessionUpdate(kind("tool_call"))).toBe(true);
+    expect(
+      shouldResumeBusyOnSessionUpdate({ update: { sessionUpdate: "tool_call_update", status: "in_progress" } }),
+    ).toBe(true);
+    expect(
+      shouldResumeBusyOnSessionUpdate({ update: { sessionUpdate: "tool_call_update", status: "completed" } }),
+    ).toBe(false);
+    expect(shouldResumeBusyOnSessionUpdate(kind("turn_completed"))).toBe(false);
+  });
+
+  it("does not re-enter working on Grok poll loops or workflow pings", () => {
+    expect(
+      shouldResumeBusyOnSessionUpdate({
+        update: { sessionUpdate: "tool_call", title: "Get task output: 01abc" },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResumeBusyOnSessionUpdate({
+        update: { sessionUpdate: "tool_call_update", status: "in_progress", title: "Get task output" },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResumeBusyOnSessionUpdate(
+        { update: { sessionUpdate: "tool_call_update", status: "in_progress", toolCallId: "p1" } },
+        [{ kind: "tool", id: "p1", title: "Get task output: 01abc", status: "in_progress" }],
+      ),
+    ).toBe(false);
+    expect(
+      shouldResumeBusyOnSessionUpdate({ update: { sessionUpdate: "tool_call", title: "TaskUpdate" } }),
+    ).toBe(false);
   });
 });
 
