@@ -192,6 +192,7 @@ export type MemoryHostPatch = {
   dreamsMd?: string;
   dailyMd?: string;
   dailyDay?: string;
+  dailyShard?: number;
   stateJson?: string;
 };
 

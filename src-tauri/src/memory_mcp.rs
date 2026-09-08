@@ -292,7 +292,7 @@ fn memory_append(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
     }
     let day = today_stamp();
     with_lock(&ctx.root, || {
-        let rel = daily_rel(&day)?;
+        let rel = daily_rel(&day, 1)?;
         let path = resolve_under(&ctx.root, &rel)?;
         let mut body = read_capped(&path)?;
         if body.trim().is_empty() {

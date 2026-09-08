@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
 pub const MAX_FILE_BYTES: usize = 64 * 1024;
+pub(crate) const DAILY_MAX_SHARDS: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,7 @@ pub struct WritePatch {
     pub dreams_md: Option<String>,
     pub daily_md: Option<String>,
     pub daily_day: Option<String>,
+    pub daily_shard: Option<u32>,
     pub state_json: Option<String>,
 }
 
@@ -27,7 +29,7 @@ pub fn read_at(root: &Path, day: &str) -> Result<Snapshot, String> {
     Ok(Snapshot {
         user_md: read_capped(&resolve_under(root, Path::new("USER.md"))?)?,
         dreams_md: read_capped(&resolve_under(root, Path::new("DREAMS.md"))?)?,
-        daily_md: read_capped(&resolve_under(root, &daily_rel(day)?)?)?,
+        daily_md: read_capped(&resolve_under(root, &daily_rel(day, 1)?)?)?,
         state_json: read_capped(&resolve_under(
             root,
             &Path::new(".dreams").join("state.json"),
@@ -48,7 +50,8 @@ pub fn write_at(root: &Path, patch: WritePatch) -> Result<(), String> {
             .daily_day
             .as_deref()
             .ok_or_else(|| "daily day is required".to_string())?;
-        write_capped(&resolve_under(root, &daily_rel(day)?)?, &text)?;
+        let shard = patch.daily_shard.unwrap_or(1);
+        write_capped(&resolve_under(root, &daily_rel(day, shard)?)?, &text)?;
     }
     if let Some(text) = patch.state_json {
         write_capped(
@@ -88,11 +91,18 @@ pub(crate) fn is_ymd(day: &str) -> bool {
         && b[8..].iter().all(u8::is_ascii_digit)
 }
 
-pub(crate) fn daily_rel(day: &str) -> Result<PathBuf, String> {
+pub(crate) fn daily_rel(day: &str, shard: u32) -> Result<PathBuf, String> {
     if !is_ymd(day) {
         return Err("invalid daily day".into());
     }
-    Ok(PathBuf::from("daily").join(format!("{day}.md")))
+    if shard == 0 || shard > DAILY_MAX_SHARDS {
+        return Err("invalid daily shard".into());
+    }
+    if shard == 1 {
+        Ok(PathBuf::from("daily").join(format!("{day}.md")))
+    } else {
+        Ok(PathBuf::from("daily").join(format!("{day}.{shard}.md")))
+    }
 }
 
 pub(crate) fn resolve_under(root: &Path, rel: &Path) -> Result<PathBuf, String> {
@@ -212,6 +222,7 @@ mod tests {
                 daily_md: Some("# Daily\n".into()),
                 daily_day: Some("2026-08-30".into()),
                 state_json: Some(r#"{"lockOwner":null}"#.into()),
+                ..WritePatch::default()
             },
         )
         .expect("write");
@@ -408,5 +419,42 @@ mod tests {
     fn utc_ymd_known_unix_epochs() {
         assert_eq!(utc_ymd(0), "1970-01-01");
         assert_eq!(utc_ymd(1_777_507_200), "2026-04-30");
+    }
+
+    #[test]
+    fn write_daily_shard_two_roundtrips() {
+        let root = temp_root();
+        write_at(
+            &root,
+            WritePatch {
+                daily_md: Some("b".into()),
+                daily_day: Some("2026-09-08".into()),
+                daily_shard: Some(2),
+                ..WritePatch::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("daily").join("2026-09-08.2.md")).unwrap(),
+            "b"
+        );
+        cleanup(&root);
+    }
+
+    #[test]
+    fn write_rejects_shard_nine() {
+        let root = temp_root();
+        let err = write_at(
+            &root,
+            WritePatch {
+                daily_md: Some("x".into()),
+                daily_day: Some("2026-09-08".into()),
+                daily_shard: Some(9),
+                ..WritePatch::default()
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_lowercase().contains("shard") || err.to_lowercase().contains("day"));
+        cleanup(&root);
     }
 }
