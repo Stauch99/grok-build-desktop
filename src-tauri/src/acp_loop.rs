@@ -340,7 +340,7 @@ pub(crate) fn spawn_exit_watcher(
                                     status.signal()
                                 };
                                 #[cfg(not(unix))]
-                                let signal = None;
+                                let signal: Option<i32> = None;
                                 pool.remove(agent_id);
                                 exit_payload = Some(json!({
                                     "code": code,
