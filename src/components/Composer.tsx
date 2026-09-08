@@ -37,6 +37,7 @@ import {
 import { dropPointHitsZone } from "../lib/drop-hit";
 import { readTextFile, importDroppedFile, savePasteBytes, statAttachment } from "../api";
 import { filterCommands, type CommandDef } from "../lib/commands";
+import { historyBack, historyForward } from "../lib/prompt-history";
 import { modeNeedsConfirm, nextMode, type Mode } from "../lib/mode";
 import type { SlashCommand } from "../lib/chat";
 import {
@@ -56,6 +57,7 @@ import {
   applyImeComposition,
   emptyImeEnterState,
   imeBlocksEnter,
+  imeEnterShouldPreventDefault,
 } from "../lib/ime-enter";
 import {
   composerMetaHide,
@@ -74,8 +76,8 @@ export type ComposerHandle = {
 export type ComposerProps = {
   value: string;
   onChange: (next: string) => void;
-  /** Primary action. While `busy` the parent decides whether that means queue or steer. */
-  onSend: (text: string) => void;
+  /** Primary action. While `busy` the parent decides whether that means queue or steer. Returns false to keep the draft. */
+  onSend: (text: string) => boolean | void;
   /** Secondary action offered only while busy — the one `onSend` did not do. */
   onAlt?: (text: string) => void;
   /** Label for the secondary action, e.g. steer or queue. */
@@ -145,6 +147,8 @@ export type ComposerProps = {
   selectedAgentId: AgentId;
   onSelectedAgent: (id: AgentId) => void;
   hasOpenSession: boolean;
+  promptHistoryRef?: React.MutableRefObject<string[]>;
+  pendingMode?: Mode | null;
 };
 
 function growArea(el: HTMLTextAreaElement | null, max = 200) {
@@ -206,6 +210,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     selectedAgentId,
     onSelectedAgent,
     hasOpenSession,
+    promptHistoryRef,
+    pendingMode,
   },
   ref,
 ) {
@@ -220,12 +226,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const mentionVisibleRef = useRef(false);
   const mentionOwnerRef = useRef(cwd);
   const mentionEffectOwnerRef = useRef(cwd);
+  const histPosRef = useRef(-1);
+  const liveDraftRef = useRef("");
   const imeRef = useRef(emptyImeEnterState());
   mentionOwnerRef.current = cwd;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [slashOn, setSlashOn] = useState(false);
   const [slashHits, setSlashHits] = useState<CommandDef[]>([]);
+  const [slashActive, setSlashActive] = useState(0);
   const [mentionOn, setMentionOn] = useState(false);
   const [mentions, setMentions] = useState<MentionHit[]>([]);
   const [mentionActive, setMentionActive] = useState(0);
@@ -513,6 +522,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (next.startsWith("/")) {
       setSlashOn(true);
       setSlashHits(filterCommands(next, commands));
+      setSlashActive(0);
       mentionVisibleRef.current = false;
       mentionGenerationRef.current += 1;
       setMentionOn(false);
@@ -555,10 +565,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setAttachments([]);
   }
 
-  function dispatchSend(send: (text: string) => void) {
+  function dispatchSend(send: (text: string) => boolean | void) {
     const text = promptText();
     if (!text.trim() || blocked) return;
-    send(text);
+    const ok = send(text);
+    if (ok === false) return;
+    histPosRef.current = -1;
+    onChange("");
     clearAttachments();
   }
 
@@ -574,8 +587,25 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-      if (e.key === "Tab" && e.shiftKey) {
-      if (slashOn || mentionOn) return;
+      if (e.key === "Tab" && (slashOn || mentionOn)) {
+      e.preventDefault();
+      const dir = e.shiftKey ? -1 : 1;
+      if (slashOn) {
+        setSlashActive((i) => {
+          const n = slashHits.length;
+          if (n === 0) return 0;
+          return (i + dir + n) % n;
+        });
+        return;
+      }
+      setMentionActive((i) => {
+        const n = mentions.length;
+        if (n === 0) return 0;
+        return (i + dir + n) % n;
+      });
+      return;
+    }
+    if (e.key === "Tab" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       const next = nextMode(mode);
       if (modeNeedsConfirm(mode, next)) {
@@ -583,6 +613,40 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         return;
       }
       onMode(next);
+      return;
+    }
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && (slashOn || mentionOn)) {
+      e.preventDefault();
+      if (slashOn) {
+        setSlashActive((i) => {
+          const n = slashHits.length;
+          if (n === 0) return 0;
+          return e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n;
+        });
+        return;
+      }
+      setMentionActive((i) => {
+        const n = mentions.length;
+        if (n === 0) return 0;
+        return e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n;
+      });
+      return;
+    }
+    if (e.key === "ArrowUp" && !value.trim() && !slashOn && !mentionOn && promptHistoryRef) {
+      const list = promptHistoryRef.current;
+      if (!list.length) return;
+      e.preventDefault();
+      if (histPosRef.current < 0) liveDraftRef.current = value;
+      const step = historyBack(list, histPosRef.current);
+      histPosRef.current = step.pos;
+      if (step.text != null) onChange(step.text);
+      return;
+    }
+    if (e.key === "ArrowDown" && histPosRef.current >= 0 && !slashOn && !mentionOn && promptHistoryRef) {
+      e.preventDefault();
+      const step = historyForward(promptHistoryRef.current, histPosRef.current);
+      histPosRef.current = step.pos;
+      onChange(step.text ?? liveDraftRef.current);
       return;
     }
     if (e.key === "Escape" && (slashOn || mentionOn)) {
@@ -602,6 +666,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         Date.now(),
       )
     ) {
+      if (
+        imeEnterShouldPreventDefault(
+          { key: e.key, isComposing: e.nativeEvent.isComposing, keyCode: e.nativeEvent.keyCode },
+          imeRef.current,
+          Date.now(),
+        )
+      ) {
+        e.preventDefault();
+      }
       return;
     }
 
@@ -612,10 +685,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (busy) {
       if (!sendKey && !altKey) return;
       e.preventDefault();
-      if (slashOn && slashHits[0] && sendKey) {
+      if (slashOn && slashHits.length && sendKey) {
         const name = value.split(/\s/)[0];
         const exact = slashHits.find((c) => c.name === name);
-        const cmd = exact ?? slashHits[0];
+        const cmd = exact ?? slashHits[slashActive] ?? slashHits[0];
         runSlash(cmd, exact ? value.slice(name.length).trimStart() : "");
         return;
       }
@@ -631,11 +704,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
     if (!sendKey) return;
     e.preventDefault();
-    if (slashOn && slashHits[0]) {
+    if (slashOn && slashHits.length) {
       const name = value.split(/\s/)[0];
       const exact = slashHits.find((c) => c.name === name);
-      const cmd = exact ?? slashHits[0];
+      const cmd = exact ?? slashHits[slashActive] ?? slashHits[0];
       runSlash(cmd, exact ? value.slice(name.length).trimStart() : "");
+      return;
+    }
+    if (mentionOn && mentions[mentionActive]) {
+      void selectMention(mentions[mentionActive]!);
       return;
     }
     dispatchSend(onSend);
@@ -736,7 +813,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         onEdit={onEditQueued}
       />
 
-      <SlashMenu open={slashOn} items={slashHits} active={0} onPick={runSlash} />
+      <SlashMenu open={slashOn} items={slashHits} active={slashActive} onPick={runSlash} />
 
       <MentionMenu
         open={mentionOn}
@@ -868,6 +945,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 />
                 <ComposerChips
                   mode={mode}
+                  pendingMode={pendingMode}
                   onMode={(next) => {
                     setModeOpen(false);
                     onMode(next);

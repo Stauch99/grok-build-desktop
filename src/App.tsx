@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   doctor,
   listProjectFiles,
@@ -40,7 +41,13 @@ import { PaneLayout } from "./components/PaneLayout";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
 import { INBOX_PIN } from "./lib/sidebar-list";
-import { allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
+import { allowForGrant, allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
+import type { QueuedPermission } from "./lib/permission-queue";
+import { subagentChips } from "./lib/subagent-tree";
+import { friendlyError } from "./lib/error-copy";
+import { HangRecoverBanner } from "./components/HangRecoverBanner";
+import { JobsMenu } from "./components/JobsMenu";
+import { WorkPane } from "./components/WorkPane";
 import { SessionMenu } from "./SessionMenu";
 import { SettingsPanel } from "./Settings";
 import { ExtensionsHub } from "./components/ExtensionsHub";
@@ -234,6 +241,8 @@ export function App() {
     dreamStatus,
     dreamCorpus,
     dreamUserMdPath,
+    dreamDreamsMdPath,
+    dreamTagline,
     onDreamNow,
     profileUpdated,
     dismissProfileUpdated,
@@ -242,6 +251,12 @@ export function App() {
     setDreamingEnabled,
     dreamAgentId,
     setDreamAgentId,
+    dreamThresholdSessions,
+    setDreamThresholdSessions,
+    memoryMcpEnabled,
+    setMemoryMcpEnabled,
+    memoryDisplayName,
+    setMemoryDisplayName,
     doctors,
     setUnread,
     sidebarWidth,
@@ -352,6 +367,7 @@ export function App() {
     mainPermission,
     mainPermissionView,
     panePermissions,
+    timedOutByPane,
     takeover,
     hero,
     turnFiles,
@@ -364,8 +380,21 @@ export function App() {
     health,
     runStatus,
     turnStats,
+    sounds,
+    setSounds,
+    pendingMode,
+    promptHistoryRef,
+    stallRecover,
+    setStallRecover,
+    cancelPermission,
+    allowedTools,
   } = useAppModel();
   const reviewPresence = usePresence(reviewOpen);
+  const [planMarkedComplete, setPlanMarkedComplete] = useState(false);
+  useEffect(() => {
+    setPlanMarkedComplete(false);
+  }, [sessionId]);
+  const showPlanComplete = planComplete || planMarkedComplete;
 
   function attachToSession(path: string, kind: "file" | "dir" = "file") {
     const handle = focusedPaneId === MAIN_PANE
@@ -373,6 +402,120 @@ export function App() {
       : extraComposerRefs.current[focusedPaneId];
     handle?.attachPaths([{ path, kind }]);
     handle?.focus();
+  }
+
+  function rememberGrant(perm: QueuedPermission, paneCwd: string, paneSid: string | null) {
+    const tool = parseToolName(perm.title, perm.toolKind);
+    let next = allowForGrant(allowedTools, perm.agentId, paneCwd, tool);
+    if (paneSid) next = allowForSession(next, paneSid, tool);
+    setAllowedTools(next);
+    persist({ allowedTools: [...next] });
+    const pick = findAlwaysOption(perm.options) ?? pickAllowOption(perm.options);
+    if (pick) void answerPermission(perm, pick);
+  }
+
+  function inspectJob(job: { id: string; paneId: string }) {
+    setJobsOpen(false);
+    if (job.paneId !== focusedPaneId) focusPane(job.paneId);
+    const items = job.paneId === MAIN_PANE ? chat.items : extraPanes[job.paneId]?.chat.items;
+    const item = items?.find((it) => it.kind === "tool" && it.id === job.id);
+    if (item && item.kind === "tool") review.inspectTool(item);
+  }
+
+  function stopJob(job: { paneId: string }) {
+    setJobsOpen(false);
+    void cancelTurn(job.paneId);
+  }
+
+  function jobsMenu() {
+    const sessionHint: Record<string, string> = {};
+    for (const job of jobs) {
+      if (!job.sessionId || job.sessionId in sessionHint) continue;
+      const s = findSessionById(job.sessionId);
+      if (s) sessionHint[job.sessionId] = displayTitle(s, titles, sessionPreviews);
+    }
+    return (
+      <JobsMenu
+        jobs={jobs}
+        open={jobsOpen}
+        onToggle={() => setJobsOpen((o) => !o)}
+        onClose={() => setJobsOpen(false)}
+        sessionHint={sessionHint}
+        currentSessionId={sessionId}
+        onInspect={inspectJob}
+        onStop={stopJob}
+      />
+    );
+  }
+
+  function hangRecoverNode(paneId: string) {
+    if (!stallRecover || stallRecover.dest !== paneId) return null;
+    const stuck = stallRecover;
+    return (
+      <HangRecoverBanner
+        quietMs={stuck.quietMs}
+        onResend={() => {
+          setStallRecover(null);
+          void cancelTurn(paneId).then(() => submitPrompt(stuck.text, paneId));
+        }}
+        onDraft={() => {
+          if (paneId === MAIN_PANE) onDraftChange(stuck.text);
+          else onExtraDraftChange(paneId, stuck.text);
+          setStallRecover(null);
+          void cancelTurn(paneId);
+        }}
+        onWait={() => setStallRecover(null)}
+      />
+    );
+  }
+
+  function customAnswerFor(perm: QueuedPermission, paneId: string) {
+    return (text: string) => {
+      void cancelPermission(perm);
+      if (paneId === MAIN_PANE) onDraftChange(text);
+      else onExtraDraftChange(paneId, text);
+    };
+  }
+
+  function requestCards(
+    paneId: string,
+    perm: QueuedPermission | null,
+    kind: "permission" | "question" | null,
+    paneCwd: string,
+    paneSid: string | null,
+    visible: boolean,
+  ) {
+    const timedOut = timedOutByPane[paneId] ?? [];
+    return (
+      <>
+        {hangRecoverNode(paneId)}
+        {timedOut.map((item) => (
+          <PendingRequestCard
+            key={`to-${String(item.rpcId)}`}
+            kind="permission"
+            title={item.title}
+            options={item.options}
+            timedOut
+            receivedAt={item.receivedAt}
+            onPick={(id) => void answerPermission(item, id)}
+            onAlwaysAllow={() => rememberGrant(item, paneCwd, paneSid)}
+          />
+        ))}
+        {perm && kind && visible && (
+          <PendingRequestCard
+            kind={kind}
+            title={perm.title}
+            options={perm.options}
+            timedOut={perm.timedOut}
+            timeoutNotice={permissionTimeoutNotice(locale)}
+            receivedAt={perm.receivedAt}
+            onPick={(id) => void answerPermission(perm, id)}
+            onAlwaysAllow={kind === "permission" ? () => rememberGrant(perm, paneCwd, paneSid) : undefined}
+            onCustomAnswer={kind === "question" ? customAnswerFor(perm, paneId) : undefined}
+          />
+        )}
+      </>
+    );
   }
 
   function renderSplitLeaf(paneId: string) {
@@ -405,9 +548,13 @@ export function App() {
       pane: paneId,
       pendingPane: permView.pane,
       pendingKind: permView.kind,
-      plan: paneId === MAIN_PANE && planComplete,
+      plan: paneId === MAIN_PANE && showPlanComplete,
     });
     const paneTurns = paneChat.items.filter((i): i is Extract<typeof i, { kind: "user" }> => i.kind === "user");
+    const paneCatalog = subagentChips(paneChat.items, allSessions, {
+      parentSessionId: sid,
+      agentId: extra?.agentId ?? selectedAgentId,
+    });
     const paneStats = turnStatsFromItems(paneChat.items, paneChat.usage?.output, {
       now: Date.now(),
       live: paneBusy,
@@ -422,11 +569,16 @@ export function App() {
             extraChatEls.current[paneId] = el;
           },
         };
+    const panePlanComplete =
+      (mode === "plan" &&
+        paneChat.plan.length > 0 &&
+        paneChat.plan.every((e) => e.status === "completed")) ||
+      (paneId === MAIN_PANE && planMarkedComplete);
     return (
-      <div
-        className={`pane${focusedPaneId === paneId ? " is-focused" : ""}`}
-        onPointerDown={() => focusPane(paneId)}
-        onFocusCapture={() => {
+      <WorkPane
+        paneId={paneId}
+        focused={focusedPaneId === paneId}
+        onFocus={() => {
           focusedPermissionPaneRef.current = paneId;
           focusPane(paneId);
         }}
@@ -476,6 +628,7 @@ export function App() {
                 <button type="button" className="icon-btn" data-menu-trigger aria-label={t(locale, "session.actions")} onClick={(e) => openMenu("header", sid, e.currentTarget)}>
                   <IconGrokMore size={18} />
                 </button>
+                <DiffSummary items={paneChat.items} onOpen={() => openReview("changed-file")} />
               </>
             ) : (
               <span className="title-static">{t(locale, "chrome.newSession")}</span>
@@ -491,6 +644,35 @@ export function App() {
             />
           </div>
           <div className="head-actions">
+            {git?.isRepo ? (
+              <GitChip status={git} onClick={() => openReview("changed-file")} />
+            ) : null}
+            {jobsMenu()}
+            {paneCatalog.length > 0 && (
+              <div className="chip-wrap">
+                <button type="button" className="btn ghost" aria-expanded={catalogOpen} onClick={() => setCatalogOpen((o) => !o)}>
+                  {t(locale, "subagent.count", { n: paneCatalog.length })}
+                </button>
+                {catalogOpen ? (
+                  <div className="chip-menu" role="menu">
+                    {paneCatalog.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setCatalogOpen(false);
+                          if (!s.sessionId) return;
+                          const sess = findSessionById(s.sessionId);
+                          if (sess) void openSession(sess);
+                        }}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
             <button
               type="button"
               className="icon-btn shortcut-host"
@@ -538,6 +720,33 @@ export function App() {
             }}
             turns={paneTurns}
             onResendUser={(text) => submitPrompt(text, paneId)}
+            rewindFor={rewindForItem}
+            onForkTurn={() => void sendPrompt(forkAtSlash(), paneId)}
+            onInspectTool={review.inspectTool}
+            onPreviewPath={(p) => void openPreview(p)}
+            highlightQuery={searchJump}
+            jumpId={jumpTurnId}
+            onDraftUser={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
+            emptyNode={
+              paneChat.items.length === 0 ? (
+                <EmptyState
+                  doctor={doctors.find((d) => d.agentId === selectedAgentId) ?? null}
+                  agentLabel={agentChipLabel(selectedAgentId)}
+                  cwd={paneCwd}
+                  projectCount={projects.length}
+                  onPickProject={() => void addProject()}
+                  onInbox={() => void startInboxSession()}
+                  onCopyLogin={(text) => {
+                    void navigator.clipboard.writeText(text);
+                    showToast(t(locale, "toast.copiedLogin"));
+                  }}
+                  onBrowseWorkspace={() => setMillerOpen(true)}
+                  lastPrompt={promptHistoryRef.current.at(-1) ?? null}
+                  onUseLastPrompt={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
+                  onUseExample={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
+                />
+              ) : undefined
+            }
           />
           {!paneAtBottom && paneChat.items.length > 0 && (
             <button
@@ -616,27 +825,46 @@ export function App() {
             if (paneId === MAIN_PANE) setQueue((q) => reorderQueue(q, from, to));
             else onExtraQueue(paneId, (q) => reorderQueue(q, from, to));
           }}
+          onEditQueued={(id, text) => {
+            if (paneId === MAIN_PANE) setQueue((q) => editQueued(q, id, text));
+            else onExtraQueue(paneId, (q) => editQueued(q, id, text));
+          }}
           onOverflow={showToast}
           footer={<StatsLineView stats={paneStats} sessionTokens={paneChat.usage?.used} usageHistory={usageHistory} />}
-          metaActions={<UsageRing usage={paneChat.usage ?? {}} compactPercent={cli?.compactPercent ?? 85} />}
-        >
-          {perm && permView.kind && (paneId === MAIN_PANE ? permView.mainVisible : permView.splitVisible) && (
-            <PendingRequestCard
-              kind={permView.kind}
-              title={perm.title}
-              options={perm.options}
-              onPick={(id) => void answerPermission(perm, id)}
-              onAlwaysAllow={permView.kind === "permission" ? () => {
-                const id = perm.sessionId || sid;
-                const tool = parseToolName(perm.title, perm.toolKind);
-                if (id) setAllowedTools((prev) => allowForSession(prev, id, tool));
-                const pick = findAlwaysOption(perm.options) ?? pickAllowOption(perm.options);
-                if (pick) void answerPermission(perm, pick);
-              } : undefined}
+          metaActions={
+            <UsageRing
+              usage={paneChat.usage ?? {}}
+              compactPercent={cli?.compactPercent ?? 85}
+              onCompact={(pct) => {
+                if (window.confirm(t(locale, "usage.compactAsk", { pct }))) void sendPrompt("/compact", paneId);
+              }}
             />
+          }
+          pendingMode={pendingMode}
+          promptHistoryRef={promptHistoryRef}
+        >
+          {requestCards(
+            paneId,
+            perm,
+            permView.kind,
+            paneCwd,
+            sid,
+            paneId === MAIN_PANE ? permView.mainVisible : permView.splitVisible,
           )}
+          {panePlanComplete ? (
+            <PlanCompleteCard
+              onApprove={() => void applyMode("agent")}
+              onReject={() => void sendPrompt(t(locale, "plan.rejectFeedback"), paneId)}
+              onFeedback={(text) => void sendPrompt(text, paneId)}
+            />
+          ) : null}
+          {mode === "plan" && !panePlanComplete ? (
+            <button type="button" className="btn ghost" onClick={() => setPlanMarkedComplete(true)}>
+              {t(locale, "plan.markComplete")}
+            </button>
+          ) : null}
         </Composer>
-      </div>
+      </WorkPane>
     );
   }
 
@@ -776,7 +1004,7 @@ return (
               type="button"
               className="btn primary"
               onClick={() => {
-                void ensureAgent().catch((e) => showToast(String(e)));
+                void ensureAgent().catch((e) => showToast(friendlyError(e)));
               }}
             >
               {restartAgentBannerText(selectedAgentId)}
@@ -815,7 +1043,7 @@ return (
           </div>
         )}
         {paneCount === 1 ? (
-        <div className="pane solo">
+        <WorkPane paneId={MAIN_PANE} focused className="solo" onFocus={() => focusPane(MAIN_PANE)}>
           <div className="pane-body">
           <div className="work-col" ref={workColRef}>
           <header className="workspace-head">
@@ -904,20 +1132,7 @@ return (
               {git?.isRepo ? (
                 <GitChip status={git} onClick={() => openReview("changed-file")} />
               ) : null}
-              {jobs.length > 0 && (
-                <div className="chip-wrap">
-                  <button type="button" className="btn ghost" aria-expanded={jobsOpen} onClick={() => setJobsOpen((o) => !o)}>
-                    {t(locale, "jobs.count", { n: jobs.length })}
-                  </button>
-                  {jobsOpen ? (
-                    <div className="chip-menu" role="menu">
-                      {jobs.map((j) => (
-                        <button key={j.id} type="button" onClick={() => setJobsOpen(false)}>{j.title}</button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              )}
+              {jobsMenu()}
               {catalog.length > 0 && (
                 <div className="chip-wrap">
                   <button type="button" className="btn ghost" aria-expanded={catalogOpen} onClick={() => setCatalogOpen((o) => !o)}>
@@ -985,6 +1200,9 @@ return (
                     showToast(t(locale, "toast.copiedLogin"));
                   }}
                   onBrowseWorkspace={() => setMillerOpen(true)}
+                  lastPrompt={promptHistoryRef.current.at(-1) ?? null}
+                  onUseLastPrompt={(text) => onDraftChange(text)}
+                  onUseExample={(text) => onDraftChange(text)}
                 />
               }
               urlChips={urlChips}
@@ -1004,6 +1222,7 @@ return (
               onPreviewPath={(p) => void openPreview(p)}
               highlightQuery={searchJump}
               jumpId={jumpTurnId}
+              onDraftUser={onDraftChange}
             />
             {!atBottom && chat.items.length > 0 && (
               <button
@@ -1075,6 +1294,8 @@ return (
             onReorderQueued={(from, to) => setQueue((q) => reorderQueue(q, from, to))}
             onEditQueued={(id, text) => setQueue((q) => editQueued(q, id, text))}
             onOverflow={showToast}
+            pendingMode={pendingMode}
+            promptHistoryRef={promptHistoryRef}
             workspaceLabel={inboxCwd && cwd && sameCwd(cwd, inboxCwd) ? t(locale, "sidebar.inbox") : cwd ? basename(cwd) : ""}
             workspaceOptions={[
               ...(inboxCwd ? [{ path: INBOX_PIN, label: t(locale, "sidebar.inbox") }] : []),
@@ -1088,7 +1309,7 @@ return (
               const folder = path === INBOX_PIN ? inboxCwd : path;
               if (!folder) return;
               setCwd(folder);
-              void setWorkspace(folder).catch((e) => showToast(String(e)));
+              void setWorkspace(folder).catch((e) => showToast(friendlyError(e)));
             }}
             footer={<StatsLineView stats={turnStats} sessionTokens={usage?.used} usageHistory={usageHistory} />}
             metaActions={
@@ -1107,6 +1328,9 @@ return (
                 <UsageRing
                   usage={usage ?? {}}
                   compactPercent={cli?.compactPercent ?? 85}
+                  onCompact={(pct) => {
+                    if (window.confirm(t(locale, "usage.compactAsk", { pct }))) void sendPrompt("/compact");
+                  }}
                 />
               </>
             }
@@ -1156,34 +1380,30 @@ return (
                 <GoalBar goal={goalView.text} startedAt={goalView.startedAt} />
               ) : null}
             </ComposerDock>
-            {planComplete ? (
+            {requestCards(
+              MAIN_PANE,
+              mainPermission,
+              mainPermissionView.kind,
+              cwd,
+              sessionId,
+              mainPermissionView.mainVisible,
+            )}
+            {showPlanComplete ? (
               <PlanCompleteCard
                 onApprove={() => void applyMode("agent")}
-                onReject={() => showToast(t(locale, "toast.planRejected"))}
+                onReject={() => void sendPrompt(t(locale, "plan.rejectFeedback"))}
                 onFeedback={(text) => void sendPrompt(text)}
               />
             ) : null}
-            {mainPermission && mainPermissionView.mainVisible && mainPermissionView.kind && (
-              <PendingRequestCard
-                kind={mainPermissionView.kind}
-                title={mainPermission.title}
-                options={mainPermission.options}
-                timedOut={mainPermission.timedOut}
-                timeoutNotice={permissionTimeoutNotice(locale)}
-                onPick={(id) => void answerPermission(mainPermission, id)}
-                onAlwaysAllow={mainPermissionView.kind === "permission" ? () => {
-                  const sid = mainPermission.sessionId || sessionId;
-                  const tool = parseToolName(mainPermission.title, mainPermission.toolKind);
-                  if (sid) setAllowedTools((prev) => allowForSession(prev, sid, tool));
-                  const pick = findAlwaysOption(mainPermission.options) ?? pickAllowOption(mainPermission.options);
-                  if (pick) void answerPermission(mainPermission, pick);
-                } : undefined}
-              />
-            )}
+            {mode === "plan" && !showPlanComplete ? (
+              <button type="button" className="btn ghost" onClick={() => setPlanMarkedComplete(true)}>
+                {t(locale, "plan.markComplete")}
+              </button>
+            ) : null}
           </Composer>
           </div>
           </div>
-        </div>
+        </WorkPane>
         ) : (
           <div className="work-panes" ref={workColRef}>
             <PaneLayout tree={paneTree} onRatio={onPaneRatio} renderLeaf={renderSplitLeaf} />
@@ -1237,7 +1457,7 @@ return (
                   onDiscard={(path) => void discardChange(path)}
                 />
               ),
-              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(String(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
+              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(friendlyError(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
               explorer: (
                 <ExplorerPane
                   cwd={reviewCwd}
@@ -1252,7 +1472,7 @@ return (
                 <div className="review-stack">
                   <button type="button" className="btn primary" disabled={!reviewCwd} onClick={() => {
                     if (!reviewCwd) return;
-                    void openInTerminal(reviewCwd).catch((e) => showToast(String(e)));
+                    void openInTerminal(reviewCwd).catch((e) => showToast(friendlyError(e)));
                   }}> {t(locale, "rail.openProject")}</button>
                   {terminalTools.length === 0 ? (
                     <p className="float-empty">{t(locale, "rail.emptyTerminal")}</p>
@@ -1396,7 +1616,7 @@ return (
               agentConnecting={connecting}
               agentDisconnected={health === "disconnected"}
               onRestartAgent={() => {
-                void ensureAgent().catch((e) => showToast(String(e)));
+                void ensureAgent().catch((e) => showToast(friendlyError(e)));
               }}
               chatWidth={chatWidth}
               setChatWidth={(n) => { setChatWidth(n); persist({ chatWidth: n }); }}
@@ -1410,6 +1630,15 @@ return (
               setChatFontSize={(n) => { setChatFontSize(n); persist({ chatFontSize: n }); }}
               enterSends={enterSends}
               onEnterSends={(v) => { setEnterSends(v); persist({ enterSends: v }); }}
+              sounds={sounds}
+              onSounds={(v) => { setSounds(v); persist({ sounds: v }); }}
+              allowedTools={[...allowedTools]}
+              onRevokeTool={(key) => {
+                const next = new Set(allowedTools);
+                next.delete(key);
+                setAllowedTools(next);
+                persist({ allowedTools: [...next] });
+              }}
               autoArchiveDays={autoArchiveDays}
               onAutoArchiveDays={(n) => { setAutoArchiveDays(n); persist({ autoArchiveDays: n }); }}
               steerByDefault={steerByDefault}
@@ -1423,6 +1652,25 @@ return (
                 if (!isAgentId(id)) return;
                 setDreamAgentId(id);
                 persist({ dreamAgentId: id });
+              }}
+              dreamThresholdSessions={dreamThresholdSessions}
+              onDreamThresholdSessions={(n) => {
+                setDreamThresholdSessions(n);
+                persist({ dreamThresholdSessions: n });
+              }}
+              memoryMcpEnabled={memoryMcpEnabled}
+              onMemoryMcpEnabled={(v) => {
+                setMemoryMcpEnabled(v);
+                persist({ memoryMcpEnabled: v });
+              }}
+              memoryDisplayName={memoryDisplayName}
+              onMemoryDisplayName={(v) => {
+                setMemoryDisplayName(v);
+                persist({ memoryDisplayName: v });
+              }}
+              onOpenMemory={() => {
+                setSettingsOpen(false);
+                setExtraPage("memory");
               }}
               dreamAgentOptions={doctors.filter((d) => d.authPresent).map((d) => ({
                 id: d.agentId,
@@ -1486,6 +1734,14 @@ return (
         corpus={dreamCorpus}
         onDreamNow={onDreamNow}
         userMdPath={dreamUserMdPath || undefined}
+        dreamsMdPath={dreamDreamsMdPath || undefined}
+        tagline={dreamTagline}
+        displayName={memoryDisplayName}
+        onOpenMemorySettings={() => {
+          setExtraPage(null);
+          setSettingsOpen(true);
+          setSettingsFocus("memory");
+        }}
         usagePoints={usageHistory}
         usageDays={usageDays}
         onUsageDays={setUsageDays}
@@ -1557,7 +1813,7 @@ return (
                 }
               })
               .catch((e) => {
-                showToast(String(e));
+                showToast(friendlyError(e));
               });
           }}
           onClose={() => palette.setOpen(false)}

@@ -81,8 +81,3 @@ export function notifyText(
   }
   return { title: t(locale, "notify.done"), body: detail ? `${name} · ${detail}` : name };
 }
-
-/** Dock badge: pending permissions first, then turns that finished while away. */
-export function badgeCount(pendingPermissions: number, unseenDone: number): number {
-  return Math.max(0, pendingPermissions) + Math.max(0, unseenDone);
-}

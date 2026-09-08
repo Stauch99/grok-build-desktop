@@ -4,7 +4,6 @@ import { forgetDreamSession, rememberDreamSession } from "./memory-dream-acp";
 import { emptyMemoryState } from "./memory-state";
 import {
   applyGrokIngest,
-  finishLightAfterPrompt,
   grokTurnsFromUpdates,
   skipDreamIngestPage,
 } from "./memory-grok-turns";
@@ -125,31 +124,5 @@ describe("skipDreamIngestPage", () => {
     expect(skipDreamIngestPage({ sessionId: "dream-sid", cwd: "/proj" }, "/wb/memory")).toBe(true);
     expect(skipDreamIngestPage({ sessionId: "chat", cwd: "/proj" }, "/wb/memory")).toBe(false);
     forgetDreamSession("dream-sid");
-  });
-});
-
-describe("finishLightAfterPrompt", () => {
-  it("does not assign cursors when the light prompt rejects", async () => {
-    const live = blankIo();
-    const { io: ingested } = applyGrokIngest(
-      live,
-      [{ sessionId: "s1", cwd: "/proj", rows: fixture, nextByte: 420 }],
-      "2026-08-30",
-    );
-    await expect(finishLightAfterPrompt(live, ingested, Promise.reject(new Error("down")))).rejects.toThrow("down");
-    expect(live.state.cursors).toEqual({});
-  });
-
-  it("assigns cursors only after prompt and keeps ingest daily when parse is empty", async () => {
-    const live = blankIo();
-    const { io: ingested } = applyGrokIngest(
-      live,
-      [{ sessionId: "s1", cwd: "/proj", rows: fixture, nextByte: 420 }],
-      "2026-08-30",
-    );
-    const out = await finishLightAfterPrompt(live, ingested, Promise.resolve("sorry, prose only"));
-    expect(live.state.cursors["grok/s1"]).toBe(420);
-    expect(out.dailyMd).toBe(ingested.dailyMd);
-    expect(out.dailyMd).toContain("I like dark mode");
   });
 });

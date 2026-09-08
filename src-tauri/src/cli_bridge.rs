@@ -11,12 +11,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::BufReader;
 use tokio::process::Command;
 use walkdir::WalkDir;
 
 const GROK_TIMEOUT_SECS: u64 = 90;
 const GROK_LONG_TIMEOUT_SECS: u64 = 180;
+
+/// Per-session tail budget for the usage scan (see read_tail_lines).
+const TOKEN_TURNS_TAIL_BYTES: u64 = 512 * 1024;
 
 const AUDIT_ROTATE_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) const ATTACHMENT_BYTE_CAP: u64 = 20 * 1024 * 1024;
@@ -299,6 +302,126 @@ pub async fn save_paste_bytes(
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+fn mime_from_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "heic" => "image/heic",
+        "avif" => "image/avif",
+        _ => "application/octet-stream",
+    }
+}
+
+fn b64_encode(data: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut i = 0;
+    while i + 3 <= data.len() {
+        let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | data[i + 2] as u32;
+        out.push(T[(n >> 18) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(T[((n >> 6) & 63) as usize] as char);
+        out.push(T[(n & 63) as usize] as char);
+        i += 3;
+    }
+    match data.len() - i {
+        1 => {
+            let n = (data[i] as u32) << 16;
+            out.push(T[(n >> 18) as usize] as char);
+            out.push(T[((n >> 12) & 63) as usize] as char);
+            out.push('=');
+            out.push('=');
+        }
+        2 => {
+            let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8);
+            out.push(T[(n >> 18) as usize] as char);
+            out.push(T[((n >> 12) & 63) as usize] as char);
+            out.push(T[((n >> 6) & 63) as usize] as char);
+            out.push('=');
+        }
+        _ => {}
+    }
+    out
+}
+
+pub(crate) fn workspace_paste_dest(cwd: &Path, src: &Path) -> AppResult<PathBuf> {
+    let name = sanitize_paste_filename(src.to_string_lossy().as_ref())
+        .ok_or_else(|| AppError::Message("无法添加没有名字的附件".into()))?;
+    Ok(cwd.join(".grok").join("pastes").join(name))
+}
+
+pub(crate) fn copy_attachment_into_cwd(src: &Path, cwd: &Path) -> AppResult<PathBuf> {
+    let dest = workspace_paste_dest(cwd, src)?;
+    if dest == src {
+        return Ok(dest);
+    }
+    if dest.exists() {
+        return Ok(dest);
+    }
+    let bytes = std::fs::read(src).map_err(|e| AppError::Message(e.to_string()))?;
+    if bytes.len() as u64 > ATTACHMENT_BYTE_CAP {
+        return Err(AppError::Message("文件太大".into()));
+    }
+    write_nofollow(&dest, &bytes).map_err(|e| AppError::Message(e.to_string()))?;
+    Ok(dest)
+}
+
+#[tauri::command]
+pub async fn read_attachment_b64(path: String, allow_root: Option<String>) -> AppResult<Value> {
+    tokio::task::spawn_blocking(move || {
+        validate_attachment(&path, allow_root.as_deref())?;
+        let canon = PathBuf::from(path.trim())
+            .canonicalize()
+            .map_err(|_| AppError::Message("附件不存在".into()))?;
+        let meta = std::fs::metadata(&canon).map_err(|_| AppError::Message("附件不存在".into()))?;
+        if !meta.is_file() {
+            return Err(AppError::Message("不是文件".into()));
+        }
+        if meta.len() > ATTACHMENT_BYTE_CAP {
+            return Err(AppError::Message("文件太大".into()));
+        }
+        let bytes = std::fs::read(&canon).map_err(|e| AppError::Message(e.to_string()))?;
+        Ok(json!({
+            "path": canon.to_string_lossy(),
+            "mime": mime_from_path(&canon),
+            "data": b64_encode(&bytes),
+            "bytes": bytes.len(),
+        }))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn copy_paste_into_workspace(path: String, cwd: String) -> AppResult<Value> {
+    tokio::task::spawn_blocking(move || {
+        validate_attachment(&path, Some(cwd.trim()))?;
+        let src = PathBuf::from(path.trim())
+            .canonicalize()
+            .map_err(|_| AppError::Message("附件不存在".into()))?;
+        let cwd_path = PathBuf::from(cwd.trim())
+            .canonicalize()
+            .map_err(|_| AppError::Message("工作区不存在".into()))?;
+        if is_under(&src, &cwd_path) {
+            return Ok(json!({ "path": src.to_string_lossy() }));
+        }
+        let dest = copy_attachment_into_cwd(&src, &cwd_path)?;
+        Ok(json!({ "path": dest.to_string_lossy() }))
+    })
+    .await
+    .map_err(|e| AppError::Message(e.to_string()))?
+}
+
 #[tauri::command]
 pub async fn stat_attachment(path: String, allow_root: Option<String>) -> AppResult<Value> {
     tokio::task::spawn_blocking(move || {
@@ -402,8 +525,11 @@ pub async fn run_grok_stream(
     let out_task = tauri::async_runtime::spawn(async move {
         let mut buf = String::new();
         if let Some(pipe) = stdout {
-            let mut lines = BufReader::new(pipe).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+            let mut reader = BufReader::new(pipe);
+            while let Ok(Some((line, _))) =
+                crate::acp_loop::next_bounded_line(&mut reader, crate::acp_loop::MAX_STDIO_LINE)
+                    .await
+            {
                 buf.push_str(&line);
                 buf.push('\n');
                 let _ = app_out.emit("grok-cli-log", json!({ "stream": "stdout", "line": line }));
@@ -415,8 +541,11 @@ pub async fn run_grok_stream(
     let err_task = tauri::async_runtime::spawn(async move {
         let mut buf = String::new();
         if let Some(pipe) = stderr {
-            let mut lines = BufReader::new(pipe).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+            let mut reader = BufReader::new(pipe);
+            while let Ok(Some((line, _))) =
+                crate::acp_loop::next_bounded_line(&mut reader, crate::acp_loop::MAX_STDIO_LINE)
+                    .await
+            {
                 buf.push_str(&line);
                 buf.push('\n');
                 let _ = app_err.emit("grok-cli-log", json!({ "stream": "stderr", "line": line }));
@@ -424,13 +553,24 @@ pub async fn run_grok_stream(
         }
         buf
     });
-    let status = tokio::time::timeout(
+    let waited = tokio::time::timeout(
         std::time::Duration::from_secs(long_timeout(&args)),
         child.wait(),
     )
-    .await
-    .map_err(|_| AppError::Message("grok 命令超时".into()))?
-    .map_err(|e| AppError::Message(e.to_string()))?;
+    .await;
+    let status = match waited {
+        Ok(Ok(status)) => status,
+        Ok(Err(e)) => return Err(AppError::Message(e.to_string())),
+        // On timeout the child must be killed; otherwise it lingers as an
+        // orphan while the log tasks keep streaming events.
+        Err(_) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            let _ = out_task.await;
+            let _ = err_task.await;
+            return Err(AppError::Message("grok 命令超时".into()));
+        }
+    };
     let stdout = out_task.await.unwrap_or_default();
     let stderr = err_task.await.unwrap_or_default();
     Ok(json!({ "code": status.code(), "stdout": stdout, "stderr": stderr }))
@@ -1088,7 +1228,7 @@ pub async fn trust_folder(cwd: String, trusted: bool) -> AppResult<()> {
         };
         let mut doc = text.parse::<toml_edit::DocumentMut>().unwrap_or_default();
         let key = format!("folders.\"{}\"", dir.display());
-        let folders = ensure_table(&mut doc, "folders");
+        let folders = ensure_table(&mut doc, "folders")?;
         let entry = folders
             .entry(&dir.display().to_string())
             .or_insert_with(|| {
@@ -1251,7 +1391,7 @@ pub async fn patch_skills_disabled(names: Vec<String>) -> AppResult<()> {
             String::new()
         };
         let mut doc = text.parse::<toml_edit::DocumentMut>().unwrap_or_default();
-        let skills = ensure_table(&mut doc, "skills");
+        let skills = ensure_table(&mut doc, "skills")?;
         let mut arr = toml_edit::Array::new();
         for name in names {
             if !name.trim().is_empty() {
@@ -1288,7 +1428,12 @@ pub async fn patch_compat(vendor: String, surface: String, enabled: bool) -> App
         if !doc.contains_key("compat") {
             doc["compat"] = toml_edit::Item::Table(toml_edit::Table::new());
         }
-        let compat = doc["compat"].as_table_mut().expect("compat");
+        // A user config may hold `compat = "x"` (scalar); never panic on it.
+        let Some(compat) = doc["compat"].as_table_mut() else {
+            return Err(AppError::Message(
+                "配置里 compat 不是表，请先修正 config.toml 再试".into(),
+            ));
+        };
         if !compat.contains_key(&vendor) {
             compat[&vendor] = toml_edit::Item::Table(toml_edit::Table::new());
         }
@@ -1681,6 +1826,26 @@ pub(crate) fn token_turn_from_record(value: &Value, cwd: &str) -> Option<Value> 
     }))
 }
 
+/// Reads at most the trailing `max` bytes of a file, aligned to the first
+/// whole line. Usage scans only need recent turns; reading multi-hundred-MB
+/// session logs in full spiked memory for no benefit.
+fn read_tail_lines(path: &Path, max: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(max);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start).min(max) as usize);
+    file.read_to_end(&mut buf).ok()?;
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    if start > 0 {
+        if let Some(pos) = text.find('\n') {
+            text.drain(..=pos);
+        }
+    }
+    Some(text)
+}
+
 #[tauri::command]
 pub async fn read_token_turns() -> AppResult<Value> {
     tokio::task::spawn_blocking(|| {
@@ -1701,7 +1866,7 @@ pub async fn read_token_turns() -> AppResult<Value> {
                 .and_then(|name| name.to_str())
                 .map(decode_session_cwd)
                 .unwrap_or_default();
-            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            let Some(text) = read_tail_lines(entry.path(), TOKEN_TURNS_TAIL_BYTES) else {
                 continue;
             };
             for line in text.lines() {
@@ -2206,6 +2371,25 @@ mod security_tests {
         let too_big = vec![0u8; (ATTACHMENT_BYTE_CAP as usize) + 1];
         assert!(super::write_paste_file(&root, &too_big, "png", 8).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn copy_attachment_into_cwd_writes_under_project_pastes() {
+        let root = temp_dir("paste-copy");
+        let src = super::write_paste_file(&root, b"\x89PNG", "png", 9).unwrap();
+        let cwd = temp_dir("paste-cwd");
+        let dest = super::copy_attachment_into_cwd(&src, &cwd).unwrap();
+        assert!(dest.ends_with(".grok/pastes/paste-9.png"));
+        assert_eq!(std::fs::read(&dest).unwrap(), b"\x89PNG");
+        let again = super::copy_attachment_into_cwd(&src, &cwd).unwrap();
+        assert_eq!(dest, again);
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(cwd);
+    }
+
+    #[test]
+    fn b64_encode_png_magic() {
+        assert_eq!(super::b64_encode(b"\x89PNG"), "iVBORw==");
     }
 
     #[test]

@@ -15,6 +15,8 @@ export type ToolResultProps = {
   detail?: string;
   diff?: ToolResultDiff;
   onOpenPath?: (path: string) => void;
+  onRetry?: () => void;
+  onDraft?: () => void;
 };
 
 /**
@@ -29,6 +31,8 @@ export function ToolResult({
   detail,
   diff,
   onOpenPath,
+  onRetry,
+  onDraft,
 }: ToolResultProps) {
   const t = useT();
   const kind = classifyTool(title, toolKind);
@@ -54,6 +58,30 @@ export function ToolResult({
       ) : (
         <p className="tool-empty">{t("tool.empty")}</p>
       )}
+      {status === "failed" && (onRetry || onDraft) ? (
+        <div style={{ padding: "6px 8px", display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+          {onDraft ? (
+            <button
+              type="button"
+              className="secondary-btn small"
+              onClick={onDraft}
+              style={{ fontSize: "12px", padding: "3px 10px", cursor: "pointer" }}
+            >
+              {t("error.draft")}
+            </button>
+          ) : null}
+          {onRetry ? (
+            <button
+              type="button"
+              className="secondary-btn small"
+              onClick={onRetry}
+              style={{ fontSize: "12px", padding: "3px 10px", cursor: "pointer" }}
+            >
+              {t("error.retry")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

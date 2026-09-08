@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyMemoryState } from "./memory-state";
-import { phasePrompt } from "./memory-phase-prompt";
+import { mainPrompt, parseMainOutput } from "./memory-phase-prompt";
 import type { DreamIo } from "./memory-dream";
 
 const io: DreamIo = {
@@ -10,29 +10,54 @@ const io: DreamIo = {
   state: emptyMemoryState(),
 };
 
-describe("phasePrompt", () => {
-  it("asks Light for a replacement daily file body", () => {
-    const text = phasePrompt("light", io);
-    expect(text).toMatch(/daily/i);
-    expect(text).toMatch(/2026-08-30/);
-    expect(text).toMatch(/\[agent \| session \| cwd \| kind\]/);
-    expect(text).not.toMatch(/USER\.md/);
-  });
-
-  it("asks REM for one diary appendix and forbids USER.md", () => {
-    const text = phasePrompt("rem", io);
+describe("mainPrompt", () => {
+  it("produces one prompt asking for all three sections by marker", () => {
+    const text = mainPrompt(io, ["- [grok | s1 | /p | user_pref] loves vim"]);
+    expect(text).toMatch(/<<<DIARY>>>/);
+    expect(text).toMatch(/<<<USER>>>/);
+    expect(text).toMatch(/<<<TAGLINE>>>/);
     expect(text).toMatch(/## 2026-08-30/);
-    expect(text).toMatch(/USER\.md/);
-    expect(text).toMatch(/do not|don't|forbid|不得|不要|禁止/i);
+    expect(text).toMatch(/loves vim/);
+    expect(text).toMatch(/Source:/);
+  });
+});
+
+describe("parseMainOutput", () => {
+  it("parses well-formed three-section output", () => {
+    const raw = `
+<<<DIARY>>>
+## 2026-08-30
+The user worked on tests.
+
+<<<USER>>>
+# You
+- likes tests Source: grok · s1
+- loves vim Source: grok · s2
+
+<<<TAGLINE>>>
+极简主义的全栈开发者工作台
+`;
+    const parsed = parseMainOutput(raw);
+    expect(parsed.diary).toContain("The user worked on tests.");
+    expect(parsed.userMd).toContain("loves vim Source:");
+    expect(parsed.tagline).toBe("极简主义的全栈开发者工作台");
   });
 
-  it("asks Deep for a full USER.md with Source: and 8KiB", () => {
-    const text = phasePrompt("deep", io);
-    expect(text).toMatch(/USER\.md/);
-    expect(text).toMatch(/Source:/);
-    expect(text).toMatch(/8\s*KiB/i);
-    expect(text).toMatch(/keep existing USER\.md lines on conflict/i);
-    expect(text).not.toMatch(/unless they are wrong/);
-    expect(text).not.toMatch(/DREAMS\.md/);
+  it("handles missing sections gracefully with null fallback", () => {
+    const raw = `
+<<<USER>>>
+# You
+- only user
+`;
+    const parsed = parseMainOutput(raw);
+    expect(parsed.diary).toBe(null);
+    expect(parsed.userMd).toContain("# You");
+    expect(parsed.tagline).toBe(null);
+  });
+
+  it("strips code fences if the model wrapped the output", () => {
+    const raw = "```markdown\n<<<TAGLINE>>>\nSingle line tagline\n```";
+    const parsed = parseMainOutput(raw);
+    expect(parsed.tagline).toBe("Single line tagline");
   });
 });

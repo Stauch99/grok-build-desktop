@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  appendMemoryEvent,
   listSessions,
+  readMemoryEvents,
   readMemoryHost,
   readSessionUpdates,
   readTextFile,
@@ -10,20 +12,17 @@ import {
 import type { AgentDoctor } from "../lib/agent-doctor";
 import type { AgentId } from "../lib/agent-id";
 import { t, type Locale } from "../lib/i18n";
+import { friendlyError } from "../lib/error-copy";
 import { memoryCursorKey, localDayStamp } from "../lib/memory-clock";
 import { evaluateDreamGates, type DreamTrigger } from "../lib/memory-gates";
 import { parseDailyFile } from "../lib/memory-ingest";
 import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
 import { runDreamSweep, type DreamIo } from "../lib/memory-dream";
-import {
-  applyGrokIngest,
-  finishLightAfterPrompt,
-  skipDreamIngestPage,
-  type GrokIngestPage,
-} from "../lib/memory-grok-turns";
-import { dailyMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
-import { phasePrompt } from "../lib/memory-phase-prompt";
-import { armRecurringLocalHour, shouldCatchUp } from "../lib/memory-schedule";
+import { applyGrokIngest, skipDreamIngestPage, type GrokIngestPage } from "../lib/memory-grok-turns";
+import { dailyMdPath, dreamsMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
+import { mainPrompt, parseMainOutput } from "../lib/memory-phase-prompt";
+import { selectDreamInput } from "../lib/memory-weight";
+import { armRecurringLocalHour } from "../lib/memory-schedule";
 import { emptyMemoryState, parseMemoryState } from "../lib/memory-state";
 import { corpusLine, overlayStatus, parseDreamsMd, type DiaryEntry, type OverlayStatus } from "../lib/memory-view";
 import { brandSessionList } from "../lib/session-list";
@@ -36,8 +35,12 @@ export type DreamJobOpts = {
   doctors: readonly AgentDoctor[];
   locale: Locale;
   settingsHydrated: boolean;
+  thresholdSessions: number;
   showToast: (msg: string) => void;
 };
+
+/** How often the accumulation trigger is re-checked while the app is open. */
+const THRESHOLD_CHECK_MS = 10 * 60 * 1000;
 
 function parseHostState(raw: string) {
   if (!raw.trim()) return emptyMemoryState();
@@ -76,6 +79,14 @@ async function persistIo(io: DreamIo, day: string): Promise<void> {
   });
 }
 
+async function recordEvent(event: Parameters<typeof appendMemoryEvent>[0]): Promise<void> {
+  try {
+    await appendMemoryEvent(event);
+  } catch {
+    /* events are best-effort; never fail a sweep over telemetry */
+  }
+}
+
 async function collectGrokPages(io: DreamIo, memoryRoot: string): Promise<GrokIngestPage[]> {
   const sessions = brandSessionList(await listSessions(null));
   const pages: GrokIngestPage[] = [];
@@ -90,6 +101,16 @@ async function collectGrokPages(io: DreamIo, memoryRoot: string): Promise<GrokIn
   return pages;
 }
 
+/** MCP append batches since the last deep sweep join the accumulation count. */
+async function mcpBatchesSince(sinceMs: number): Promise<number> {
+  try {
+    const events = await readMemoryEvents();
+    return events.filter((e) => e.kind === "mcp_append" && e.at >= sinceMs).length;
+  } catch {
+    return 0;
+  }
+}
+
 function countNewGrokSessions(io: DreamIo, pages: GrokIngestPage[], day: string, memoryRoot: string): number {
   return applyGrokIngest(io, pages, day, memoryRoot).newSessionCount;
 }
@@ -101,6 +122,7 @@ export function useDreamJob(opts: DreamJobOpts) {
   const [userMd, setUserMd] = useState<string | null>(null);
   const [memoryRoot, setMemoryRoot] = useState("");
   const [profileUpdated, setProfileUpdated] = useState(false);
+  const [tagline, setTagline] = useState<string | null>(null);
   const runningRef = useRef(false);
   const catchUpTried = useRef(false);
   const optsRef = useRef(opts);
@@ -112,6 +134,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     setStatus(overlayStatus(io.state, pending));
     setCorpus(corpusLine(parseDailyFile(io.dailyMd)));
     setUserMd(io.userMd.trim() ? io.userMd : null);
+    setTagline(io.state.tagline);
   }, []);
 
   const refreshFromHost = useCallback(async () => {
@@ -122,7 +145,8 @@ export function useDreamJob(opts: DreamJobOpts) {
     const io = await ioFromHost(snap, day);
     const pages = await collectGrokPages(io, snap.memoryRoot);
     const newSessionCount = countNewGrokSessions(io, pages, day, snap.memoryRoot);
-    const pending = shouldCatchUp({ now, lastDeepAt: io.state.lastDeepAt, timeZone: tz }) ? newSessionCount : 0;
+    const mcpBatches = await mcpBatchesSince(io.state.lastDeepAt ?? 0);
+    const pending = newSessionCount + mcpBatches;
     applyIo(io, snap.memoryRoot, pending);
     return { snap, io, now, tz, day, pending, newSessionCount, pages };
   }, [applyIo]);
@@ -142,7 +166,7 @@ export function useDreamJob(opts: DreamJobOpts) {
       snap = await readMemoryHost();
       io = await ioFromHost(snap, day);
     } catch (e) {
-      o.showToast(String(e));
+      o.showToast(friendlyError(e));
       return;
     }
     const lockHeld = !!io.state.lockOwner;
@@ -152,7 +176,8 @@ export function useDreamJob(opts: DreamJobOpts) {
         now,
         lastDeepAt: io.state.lastDeepAt,
         lastScanAt: io.state.lastScanAt,
-        newSessionCount: 0,
+        pendingMaterial: 0,
+        thresholdSessions: o.thresholdSessions,
         lockHeld,
         trigger,
       });
@@ -165,22 +190,30 @@ export function useDreamJob(opts: DreamJobOpts) {
     const loggedIn = loggedInAgentIds(docs);
     const pages = await collectGrokPages(io, snap.memoryRoot);
     const newSessionCount = trigger === "manual" ? 0 : countNewGrokSessions(io, pages, day, snap.memoryRoot);
+    const mcpBatches = trigger === "manual" ? 0 : await mcpBatchesSince(io.state.lastDeepAt ?? 0);
+    const pendingMaterial = newSessionCount + mcpBatches;
     runningRef.current = true;
     setStatus({ kind: "running" });
     const beforeUser = io.userMd;
     const acp = { handle: null as Awaited<ReturnType<typeof openDreamAcp>> | null };
+    const usage = { inChars: 0, outChars: 0, selected: 0 };
     try {
       const result = await runDreamSweep({
         trigger,
         enabled: o.enabled,
         now,
-        newSessionCount,
+        pendingMaterial,
+        thresholdSessions: o.thresholdSessions,
         dreamAgentId: o.dreamAgentId,
         loggedIn,
         io,
         runPhase: async (phase, current) => {
-          let next = current;
-          if (phase === "light") next = applyGrokIngest(current, pages, day, snap.memoryRoot).io;
+          if (phase === "gather") {
+            const merged = applyGrokIngest(current, pages, day, snap.memoryRoot).io;
+            return { dailyMd: merged.dailyMd, state: merged.state };
+          }
+          const selection = selectDreamInput([{ lines: parseDailyFile(current.dailyMd), day }], day);
+          usage.selected = selection.selected.length;
           if (!acp.handle) {
             await persistIo(current, day);
             acp.handle = await openDreamAcp({
@@ -189,16 +222,42 @@ export function useDreamJob(opts: DreamJobOpts) {
               alreadyRunning: dreamAlreadyRunning(o.selectedAgentId, o.dreamAgentId),
             });
           }
-          if (phase === "light") {
-            return finishLightAfterPrompt(current, next, acp.handle.prompt(phasePrompt(phase, next)));
-          }
-          const text = await acp.handle.prompt(phasePrompt(phase, next));
-          if (phase === "rem") return { dreamsMd: appendDreamsAppendix(next.dreamsMd, text) };
-          return { userMd: text };
+          const prompt = mainPrompt(current, selection.selected);
+          usage.inChars = prompt.length;
+          const text = await acp.handle.prompt(prompt);
+          usage.outChars = text.length;
+          const parsed = parseMainOutput(text);
+          return {
+            userMd: parsed.userMd ?? undefined,
+            dreamsMd: parsed.diary ? appendDreamsAppendix(current.dreamsMd, parsed.diary) : undefined,
+            tagline: parsed.tagline ?? undefined,
+          };
         },
       });
       await persistIo(result.io, day);
-      const pending = result.started ? 0 : shouldCatchUp({ now, lastDeepAt: result.io.state.lastDeepAt, timeZone: tz }) ? newSessionCount : 0;
+      if (result.started) {
+        const deltaBytes = Math.max(0, result.io.userMd.length - beforeUser.length);
+        await recordEvent({
+          at: now,
+          kind: "dream_sweep",
+          agent: o.dreamAgentId,
+          prompts: 1,
+          inChars: usage.inChars,
+          outChars: usage.outChars,
+          count: usage.selected,
+          bytes: deltaBytes,
+        });
+        if (result.io.userMd !== beforeUser) {
+          await recordEvent({
+            at: now,
+            kind: "promote",
+            agent: o.dreamAgentId,
+            count: 1,
+            bytes: deltaBytes,
+          });
+        }
+      }
+      const pending = result.started ? 0 : pendingMaterial;
       applyIo(result.io, snap.memoryRoot, pending);
       setProfileUpdated(result.started && result.io.userMd !== beforeUser);
     } catch (e) {
@@ -225,27 +284,37 @@ export function useDreamJob(opts: DreamJobOpts) {
   useEffect(() => {
     if (!opts.settingsHydrated || catchUpTried.current) return;
     catchUpTried.current = true;
-    void (async () => {
-      try {
-        const loaded = await refreshFromHost();
-        if (!optsRef.current.enabled) return;
-        const gate = evaluateDreamGates({
-          enabled: optsRef.current.enabled,
-          now: loaded.now,
-          lastDeepAt: loaded.io.state.lastDeepAt,
-          lastScanAt: loaded.io.state.lastScanAt,
-          newSessionCount: loaded.newSessionCount,
-          lockHeld: !!loaded.io.state.lockOwner,
-          trigger: "launch",
-        });
-        if (shouldCatchUp({ now: loaded.now, lastDeepAt: loaded.io.state.lastDeepAt, timeZone: loaded.tz }) && gate.ok) {
-          await runSweep("launch");
+    void refreshFromHost().catch(() => undefined);
+  }, [opts.settingsHydrated, refreshFromHost]);
+
+  // Accumulation trigger: cheap pre-check on the clock only, then let the
+  // real gate (with fresh material counts) decide inside runSweep.
+  useEffect(() => {
+    if (!opts.settingsHydrated || !opts.enabled) return;
+    const check = () => {
+      void (async () => {
+        try {
+          const snap = await readMemoryHost();
+          const state = parseHostState(snap.stateJson);
+          const cheap = evaluateDreamGates({
+            enabled: true,
+            now: Date.now(),
+            lastDeepAt: state.lastDeepAt,
+            lastScanAt: state.lastScanAt,
+            pendingMaterial: Number.MAX_SAFE_INTEGER,
+            thresholdSessions: optsRef.current.thresholdSessions,
+            lockHeld: !!state.lockOwner,
+            trigger: "threshold",
+          });
+          if (cheap.ok) await runSweep("threshold");
+        } catch {
+          /* best-effort */
         }
-      } catch {
-        /* overlay already best-effort */
-      }
-    })();
-  }, [opts.settingsHydrated, refreshFromHost, runSweep]);
+      })();
+    };
+    const timer = window.setInterval(check, THRESHOLD_CHECK_MS);
+    return () => window.clearInterval(timer);
+  }, [opts.settingsHydrated, opts.enabled, runSweep]);
 
   useEffect(() => {
     if (!opts.settingsHydrated || !opts.enabled) return;
@@ -268,7 +337,10 @@ export function useDreamJob(opts: DreamJobOpts) {
     status,
     corpus,
     userMd,
+    tagline,
     userMdPath: memoryRoot ? userMdPathOf(memoryRoot) : "",
+    dreamsMdPath: memoryRoot ? dreamsMdPath(memoryRoot) : "",
+    memoryRoot,
     profileUpdated,
     dismissProfileUpdated: () => setProfileUpdated(false),
   };

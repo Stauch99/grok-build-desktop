@@ -77,6 +77,13 @@ describe("resolveOpenTarget", () => {
   it("joins relative paths to cwd", () => {
     expect(resolveOpenTarget("src/App.tsx", "/proj")).toBe("/proj/src/App.tsx");
   });
+
+  it("strips a mention @ so paste images resolve to the real file", () => {
+    expect(resolveOpenTarget("@/Users/foxie/.grok/sessions/pastes/1-image.png")).toBe(
+      "/Users/foxie/.grok/sessions/pastes/1-image.png",
+    );
+    expect(resolveOpenTarget("@src/App.tsx", "/proj")).toBe("/proj/src/App.tsx");
+  });
 });
 
 describe("linkifyLocalPaths", () => {
@@ -126,6 +133,12 @@ describe("linkifyLocalPaths", () => {
     const html = linkifyLocalPaths('<a href="src/App.tsx">src/App.tsx</a>');
     expect(html.match(/class="file-link"/g) ?? []).toHaveLength(1);
   });
+
+  it("linkifies @-mentioned paste images with a real filesystem href", () => {
+    const html = linkifyLocalPaths("@/Users/foxie/.grok/sessions/pastes/1-image.png");
+    expect(html).toContain('href="/Users/foxie/.grok/sessions/pastes/1-image.png"');
+    expect(html).not.toContain('href="@/');
+  });
 });
 
 describe("surfaceStderr", () => {
@@ -144,6 +157,9 @@ describe("surfaceStderr", () => {
       ),
     ).toMatch(/Authentication required/);
     expect(surfaceStderr("Authentication required")).toBe("Authentication required");
+  });
+  it("surfaces Chinese errors that are not noise", () => {
+    expect(surfaceStderr("无法连接远端服务")).toMatch(/无法连接/);
   });
 });
 

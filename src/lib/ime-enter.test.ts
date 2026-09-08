@@ -5,6 +5,7 @@ import {
   IME_ENTER_GRACE_MS,
   imeBlocksDigitHotkey,
   imeBlocksEnter,
+  imeEnterShouldPreventDefault,
 } from "./ime-enter";
 
 describe("imeBlocksEnter", () => {
@@ -37,6 +38,29 @@ describe("imeBlocksEnter", () => {
     ).toBe(true);
     expect(
       imeBlocksEnter(
+        { key: "Enter", isComposing: false, keyCode: 13 },
+        justEnded,
+        1100 + IME_ENTER_GRACE_MS,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("imeEnterShouldPreventDefault", () => {
+  const idle = emptyImeEnterState();
+
+  it("does not swallow Enter while the IME is confirming a candidate", () => {
+    expect(imeEnterShouldPreventDefault({ key: "Enter", isComposing: true, keyCode: 13 }, idle, 1000)).toBe(false);
+    expect(imeEnterShouldPreventDefault({ key: "Enter", isComposing: false, keyCode: 229 }, idle, 1000)).toBe(false);
+    const composing = applyImeComposition(idle, "start", 1000);
+    expect(imeEnterShouldPreventDefault({ key: "Enter", isComposing: false, keyCode: 13 }, composing, 1001)).toBe(false);
+  });
+
+  it("swallows the leftover Enter after compositionend so it cannot insert a newline", () => {
+    const justEnded = applyImeComposition(applyImeComposition(idle, "start", 1000), "end", 1100);
+    expect(imeEnterShouldPreventDefault({ key: "Enter", isComposing: false, keyCode: 13 }, justEnded, 1100)).toBe(true);
+    expect(
+      imeEnterShouldPreventDefault(
         { key: "Enter", isComposing: false, keyCode: 13 },
         justEnded,
         1100 + IME_ENTER_GRACE_MS,

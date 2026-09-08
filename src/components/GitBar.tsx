@@ -17,6 +17,7 @@ import { IconBranch, IconCheck, IconChevron, IconGitFork } from "../icons";
 import { basename } from "../lib/text";
 import { sameCwd } from "../lib/inbox";
 import { useT, useLocale } from "../lib/locale-context";
+import { friendlyError } from "../lib/error-copy";
 import { t as tx } from "../lib/i18n";
 
 export type GitChipProps = {
@@ -224,7 +225,7 @@ export function GitBar({
         onToast?.(err);
       }
     } catch (e) {
-      const err = String(e);
+      const err = friendlyError(e);
       setHint(err);
       onToast?.(err);
     } finally {
@@ -247,7 +248,7 @@ export function GitBar({
         onToast?.(err);
       }
     } catch (e) {
-      const err = String(e);
+      const err = friendlyError(e);
       setHint(err);
       onToast?.(err);
     } finally {

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  copyPasteIntoWorkspace,
   ensureInbox,
   nextRpcId,
   onAcpMessage,
   onAcpStderr,
   onAgentExit,
+  readAttachmentB64,
   readSessionUpdates,
   readSessionUsage,
   sendRaw,
@@ -14,6 +16,7 @@ import {
   type SessionSummary,
   type WebuiState,
 } from "../api";
+import { prepareAcpPrompt, promptCapabilitiesFromInitialize, type PromptCapabilities } from "../lib/acp-prompt";
 import {
   afterByteFor,
   applySessionPage,
@@ -66,8 +69,55 @@ import {
   stampMainTurnClock,
 } from "../lib/ghost-streaming-heal";
 
+import { classifyAgentExit } from "../lib/agent-exit";
+import { friendlyError } from "../lib/error-copy";
+import { evaluateHangWatchdog } from "../lib/hang-watchdog";
+import { recordPromptHistory } from "../lib/prompt-history";
+import { shouldWatchDisplayedSession } from "../lib/run-status";
+
 const MAIN_PANE = "main";
 const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
+const liveGeneration: Partial<Record<AgentId, number>> = {};
+const spawning: Partial<Record<AgentId, boolean>> = {};
+const promptCapsByAgent: Partial<Record<AgentId, PromptCapabilities>> = {};
+
+async function acpPromptBlocks(text: string, cwd: string, agentId: AgentId) {
+  try {
+    return await prepareAcpPrompt({
+      text,
+      cwd: cwd || "",
+      caps: promptCapsByAgent[agentId] ?? { image: false, embeddedContext: false },
+      load: async (path, allow) => {
+        try {
+          const loaded = await readAttachmentB64(path, allow || null);
+          return loaded?.data
+            ? { mime: loaded.mime, data: loaded.data, bytes: loaded.bytes }
+            : null;
+        } catch {
+          return null;
+        }
+      },
+      copyIntoWorkspace: cwd
+        ? async (src, root) => (await copyPasteIntoWorkspace(src, root)).path
+        : undefined,
+    });
+  } catch {
+    return [{ type: "text" as const, text }];
+  }
+}
+
+/** Stale `agent-exit` from a replaced CLI must not abort the boot currently in flight. */
+export function shouldHonorAgentExit(opts: {
+  spawning: boolean;
+  liveGeneration: number;
+  eventGeneration: number;
+}): boolean {
+  if (opts.spawning) return false;
+  if (opts.eventGeneration > 0 && opts.liveGeneration > 0 && opts.eventGeneration !== opts.liveGeneration) {
+    return false;
+  }
+  return true;
+}
 
 export function sessionIdFromNewResult(result: unknown): string {
   const sid = String(asRecord(result).sessionId ?? "");
@@ -118,6 +168,12 @@ export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, 
     items: [...chat.items, { kind: "user", id: `${idPrefix}-${chat.nextId}`, text, at }],
     nextId: chat.nextId + 1,
   };
+}
+
+export function echoUserOnce(chat: ChatState, text: string, idPrefix: string, at: number): ChatState {
+  const last = chat.items[chat.items.length - 1];
+  if (last?.kind === "user" && last.text === text) return chat;
+  return withEchoedUser(chat, text, idPrefix, at);
 }
 
 export function withPromptFail(chat: ChatState, text: string, at: number): ChatState {
@@ -376,6 +432,8 @@ export type AcpSessionDeps = {
   userMd: string | null;
   doctors: ReadonlyArray<Pick<AgentDoctor, "agentId" | "authPresent" | "binary" | "loginHint">>;
   locale?: Locale;
+  setStallRecover?: React.Dispatch<React.SetStateAction<import("./useAppModelState").StallRecover | null>>;
+  promptHistoryRef?: React.MutableRefObject<string[]>;
 };
 
 export type AcpSession = {
@@ -410,8 +468,8 @@ export type AcpSession = {
   refreshUsage: (id: string, dest?: PaneDest) => Promise<void>;
   sendPrompt: (text: string, dest?: PaneDest) => Promise<void>;
   steerPrompt: (text: string, dest?: PaneDest) => Promise<void>;
-  queuePrompt: (text: string, dest?: PaneDest) => void;
-  submitPrompt: (text: string, dest?: PaneDest) => void;
+  queuePrompt: (text: string, dest?: PaneDest) => boolean;
+  submitPrompt: (text: string, dest?: PaneDest) => boolean;
   altSubmit: (text: string, dest?: PaneDest) => void;
   cancelTurn: (target?: PaneDest) => Promise<void>;
   onDraftChange: (value: string) => void;
@@ -453,6 +511,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const pendingDest = useRef(new Map<number, PaneDest>());
   const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
   const pendingByPane = useRef<Record<string, Record<string, unknown>[]>>({});
+  const extraActivityRef = useRef<Record<string, number>>({});
   const cancelFlush = useRef<(() => void) | null>(null);
   const drainRef = useRef<() => void>(() => {});
   const depsRef = useRef(deps);
@@ -474,7 +533,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     const tick = () => {
       const items = chatRef.current.items;
-      const ghostTurn = findOptimisticGhostTurn(items);
+      const watchingMain = shouldWatchDisplayedSession({
+        boundSessionId: sessionIdRef.current,
+        runningSessionId: runningSessionIdRef.current,
+      });
+      const ghostTurn = watchingMain ? findOptimisticGhostTurn(items) : null;
       if (
         ghostTurn &&
         shouldHealGhostStreaming({
@@ -509,32 +572,63 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         d.showToast(t(d.locale ?? "zh", "toast.ghostHeal"));
         return;
       }
-      const turn = itemsAfterLastUser(items);
-      if (
-        seenAssistantAtRef.current == null &&
-        turn.some((it) => it.kind === "assistant" && it.text.trim())
-      ) {
-        seenAssistantAtRef.current = Date.now();
-      }
-      if (
-        shouldSettlePaneBusy({
-          settled:
-            !!busyRef.current &&
-            shouldClearBusyOnSettledChat({
-              busy: true,
-              now: Date.now(),
-              items,
-              seenAssistantAt: seenAssistantAtRef.current,
-            }),
-          pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE),
-        })
-      ) {
-        busyRef.current = false;
-        setBusy(false);
-        pendingPrompt.current = null;
+      if (watchingMain) {
+        const turn = itemsAfterLastUser(items);
+        if (
+          seenAssistantAtRef.current == null &&
+          turn.some((it) => it.kind === "assistant" && it.text.trim())
+        ) {
+          seenAssistantAtRef.current = Date.now();
+        }
+        if (
+          shouldSettlePaneBusy({
+            settled:
+              !!busyRef.current &&
+              shouldClearBusyOnSettledChat({
+                busy: true,
+                now: Date.now(),
+                items,
+                seenAssistantAt: seenAssistantAtRef.current,
+              }),
+            pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE),
+          })
+        ) {
+          busyRef.current = false;
+          setBusy(false);
+          pendingPrompt.current = null;
+        }
+        if (depsRef.current.setStallRecover) {
+          const verdict = evaluateHangWatchdog({
+            busy: !!busyRef.current,
+            nowMs: Date.now(),
+            lastActivityMs: depsRef.current.lastActivityRef.current,
+            items,
+            permissionPending: false,
+          });
+          if (verdict.shouldOffer && verdict.text) {
+            const text = verdict.text;
+            depsRef.current.setStallRecover((prev) =>
+              prev?.dest === MAIN_PANE
+                ? { ...prev, quietMs: verdict.quietMs }
+                : {
+                    dest: MAIN_PANE,
+                    sessionId: sessionIdRef.current,
+                    text,
+                    quietMs: verdict.quietMs,
+                  },
+            );
+          } else if (!busyRef.current) {
+            depsRef.current.setStallRecover((prev) => (prev?.dest === MAIN_PANE ? null : prev));
+          }
+        }
       }
       for (const [id, pane] of Object.entries(depsRef.current.extraPanes)) {
-        if (!pane.busy) continue;
+        if (!pane.busy) {
+          if (depsRef.current.setStallRecover) {
+            depsRef.current.setStallRecover((prev) => (prev?.dest === id ? null : prev));
+          }
+          continue;
+        }
         if (
           shouldSettlePaneBusy({
             settled: shouldClearBusyOnSettledChat({
@@ -547,6 +641,23 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         ) {
           patchExtra(id, (prev) => ({ ...prev, busy: false }));
           if (pendingPrompt.current === id) pendingPrompt.current = null;
+        }
+        if (depsRef.current.setStallRecover) {
+          const extraVerdict = evaluateHangWatchdog({
+            busy: true,
+            nowMs: Date.now(),
+            lastActivityMs: extraActivityRef.current[id] ?? depsRef.current.lastActivityRef.current,
+            items: pane.chat.items,
+            permissionPending: false,
+          });
+          if (extraVerdict.shouldOffer && extraVerdict.text) {
+            depsRef.current.setStallRecover({
+              dest: id,
+              sessionId: pane.sessionId,
+              text: extraVerdict.text,
+              quietMs: extraVerdict.quietMs,
+            });
+          }
         }
       }
     };
@@ -597,7 +708,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (!updates.length) continue;
       if (paneId === MAIN_PANE) {
         setChat((prev) => {
-          const next = foldSessionUpdates(prev, updates, { skipUser: echoedUser.current });
+          const next = foldSessionUpdates(prev, updates, {
+            skipUser: echoedUser.current,
+            agentId: paneAgent(MAIN_PANE),
+          });
           chatRef.current = next;
           return next;
         });
@@ -605,7 +719,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       const skipUser = !!echoedExtra.current[paneId];
       patchExtra(paneId, (prev) => {
-        const next = foldSessionUpdates(prev.chat, updates, { skipUser });
+        const next = foldSessionUpdates(prev.chat, updates, {
+          skipUser,
+          agentId: paneAgent(paneId),
+        });
         extraChatRef.current[paneId] = next;
         return { ...prev, chat: next };
       });
@@ -640,6 +757,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   function enqueueSessionUpdate(params: Record<string, unknown>, dest: PaneDest) {
+    const now = Date.now();
+    if (dest === MAIN_PANE) depsRef.current.lastActivityRef.current = now;
+    else extraActivityRef.current[dest] = now;
     const bucket = pendingByPane.current[dest] ?? [];
     bucket.push(params);
     pendingByPane.current[dest] = bucket;
@@ -725,6 +845,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   }
 
   function applyWarmupFlags(agentId: AgentId, ok: boolean) {
+    if (!ok) delete promptCapsByAgent[agentId];
     const flags = flagsAfterWarmup(ok);
     readyByAgentRef.current[agentId] = flags.ready;
     if (agentId === selectedAgentIdRef.current) {
@@ -752,13 +873,18 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     setConnecting(true);
+    spawning[id] = true;
     agentBoots[id] = (async () => {
-      await startAgent(id);
+      const started = await startAgent(id);
+      const gen = typeof started?.generation === "number" ? started.generation : 0;
+      liveGeneration[id] = gen;
+      spawning[id] = false;
       const initializeResult = await rpc("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       }, { agentId: id, timeoutMs: initializeTimeoutMs(id) });
+      promptCapsByAgent[id] = promptCapabilitiesFromInitialize(initializeResult);
       applyWarmupFlags(id, true);
       setConnecting(false);
       await afterInitializeFetchSessionList(async () => {
@@ -776,10 +902,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     })()
       .catch((e) => {
         delete agentBoots[id];
+        spawning[id] = false;
         applyWarmupFlags(id, false);
         throw e;
       })
-      .finally(() => setConnecting(false));
+      .finally(() => {
+        spawning[id] = false;
+        setConnecting(false);
+      });
     return agentBoots[id];
   }
 
@@ -867,6 +997,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (shouldFlushSessionUpdateNow(params)) {
         const id = sid || (extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current);
         if (id) void refreshUsage(id, dest);
+        const kind = String(asRecord(params.update ?? params).sessionUpdate ?? "");
+        if (kind === "auto_compact_completed") {
+          d.showToast(t(d.locale ?? "zh", "toast.autoCompacted"));
+        }
       }
     }
   }
@@ -892,13 +1026,24 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         }
         depsRef.current.setExtraPanes((prev) => extraPanesAfterAgentStderr(prev, eventAgent, line, Date.now()));
       });
-      const exit = await onAgentExit((eventAgent) => {
+      const exit = await onAgentExit((eventAgent, payload, generation) => {
+        if (
+          !shouldHonorAgentExit({
+            spawning: !!spawning[eventAgent],
+            liveGeneration: liveGeneration[eventAgent] ?? 0,
+            eventGeneration: generation,
+          })
+        ) {
+          return;
+        }
         readyByAgentRef.current[eventAgent] = false;
         delete agentBoots[eventAgent];
+        spawning[eventAgent] = false;
         const d = depsRef.current;
         const hitMain = mainAgentIdRef.current === eventAgent;
         const hitExtra = extraPanesHitAgent(d.extraPanes, eventAgent);
-        const detail = agentExitToastText(eventAgent);
+        const classified = classifyAgentExit(eventAgent, payload, d.locale);
+        const detail = classified.label;
         const at = Date.now();
         dropPendingUpdatesForAgent(eventAgent);
         if (hitMain) {
@@ -950,7 +1095,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       offs.push(a, c, exit);
       if (shouldStartWarmup(offs.length > 0, cancelled)) {
         void ensureAgent().catch((e) => {
-          depsRef.current.showToast(String(e));
+          depsRef.current.showToast(friendlyError(e));
         });
       }
     })();
@@ -1035,7 +1180,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       d.setSettingsOpen(false);
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -1061,7 +1206,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       d.setSettingsOpen(false);
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -1111,7 +1256,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }));
       announceCreatedSession({ id: sid, cwd: dir, agentId });
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -1176,13 +1321,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         await resumeBoundSession(s);
       } catch (e) {
         if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
-        d.showToast(String(e));
+        d.showToast(friendlyError(e));
       } finally {
         ignoreReplay.current = false;
       }
     } catch (e) {
       if (token !== loadGen.current) return;
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     } finally {
       if (token === loadGen.current) setLoadingSession(false);
     }
@@ -1226,12 +1371,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         await resumeBoundSession(s);
       } catch (e) {
         if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
-        d.showToast(String(e));
+        d.showToast(friendlyError(e));
       } finally {
         ignoreExtraReplay.current[paneId] = false;
       }
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -1289,14 +1434,14 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (extra) {
       echoedExtra.current[dest] = true;
       patchExtra(dest, (prev) => {
-        const chat = withEchoedUser(prev.chat, text, "u-steer", at);
+        const chat = echoUserOnce(prev.chat, text, "u-steer", at);
         extraChatRef.current[dest] = chat;
         return { ...prev, chat, draft: "" };
       });
     } else {
       echoedUser.current = true;
       setChat((prev) => {
-        const next = withEchoedUser(prev, text, "u-steer", at);
+        const next = echoUserOnce(prev, text, "u-steer", at);
         chatRef.current = next;
         return next;
       });
@@ -1306,28 +1451,36 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     try {
       const agentId = paneAgent(dest);
       await ensureAgent(agentId);
-      await rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text }] }, { dest, agentId });
+      const cwd = extra ? extra.cwd : d.cwd || d.inboxCwd || "";
+      const blocks = await acpPromptBlocks(text, cwd, agentId);
+      await rpc("session/prompt", { sessionId: sid, prompt: blocks }, { dest, agentId });
     } catch (e) {
-      d.showToast(t(d.locale ?? "zh", "toast.steerQueued", { error: String(e) }));
+      d.showToast(t(d.locale ?? "zh", "toast.steerQueued", { error: friendlyError(e) }));
       queuePrompt(text, dest);
     }
   }
 
-  function queuePrompt(text: string, dest: PaneDest = MAIN_PANE) {
+  function queuePrompt(text: string, dest: PaneDest = MAIN_PANE): boolean {
     const d = depsRef.current;
+    const at = Date.now();
     if (dest !== MAIN_PANE) {
       const pane = d.extraPanes[dest];
-      if (!pane) return;
+      if (!pane) return false;
       const result = tryEnqueue(pane.queue, text);
       if (!result.ok) {
         if (result.reason === "full") {
           d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
           patchExtra(dest, (prev) => ({ ...prev, draft: text }));
         }
-        return;
+        return false;
       }
-      patchExtra(dest, (prev) => ({ ...prev, queue: result.state, draft: "" }));
-      return;
+      echoedExtra.current[dest] = true;
+      patchExtra(dest, (prev) => {
+        const chat = echoUserOnce(prev.chat, text, "u-queue", at);
+        extraChatRef.current[dest] = chat;
+        return { ...prev, chat, queue: result.state, draft: "" };
+      });
+      return true;
     }
     const result = tryEnqueue(d.queueRef.current, text);
     if (!result.ok) {
@@ -1335,10 +1488,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         d.showToast(t(d.locale ?? "zh", "toast.queueFull"));
         d.setDraft(text);
       }
-      return;
+      return false;
     }
     d.queueRef.current = result.state;
     d.setQueue(result.state);
+    echoedUser.current = true;
+    setChat((prev) => {
+      const next = echoUserOnce(prev, text, "u-queue", at);
+      chatRef.current = next;
+      return next;
+    });
     d.setDraft("");
     lastSentRef.current = text;
     if (sessionIdRef.current) {
@@ -1346,18 +1505,28 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       d.setSessionDrafts(drafts);
       d.persist({ drafts });
     }
+    return true;
   }
 
-  function submitPrompt(text: string, dest: PaneDest = MAIN_PANE) {
+  function submitPrompt(text: string, dest: PaneDest = MAIN_PANE): boolean {
     const d = depsRef.current;
-    if (!text.trim()) return;
+    if (!text.trim()) return false;
+    const agentId = paneAgent(dest);
+    const blocked = blockedSendToast(agentId);
+    if (blocked) {
+      d.showToast(blocked);
+      return false;
+    }
     const paneBusy = dest !== MAIN_PANE ? !!d.extraPanes[dest]?.busy : busyRef.current;
     if (!paneBusy) {
       void sendPrompt(text, dest);
-      return;
+      return true;
     }
-    if (d.steerByDefault) void steerPrompt(text, dest);
-    else queuePrompt(text, dest);
+    if (d.steerByDefault) {
+      void steerPrompt(text, dest);
+      return true;
+    }
+    return queuePrompt(text, dest);
   }
 
   function altSubmit(text: string, dest: PaneDest = MAIN_PANE) {
@@ -1426,6 +1595,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const extraBlocked = blockedSendToast(extraAgent);
       if (extraBlocked) {
         d.showToast(extraBlocked);
+        patchExtra(dest, (prev) => ({ ...prev, draft: text, busy: false }));
         return;
       }
       const firstTurn = !pane.chat.items.some((item) => item.kind === "user");
@@ -1434,7 +1604,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       pendingPrompt.current = dest;
       const extraGen = bumpPromptGen(dest);
       patchExtra(dest, (prev) => {
-        const chat = withEchoedUser(prev.chat, text, "u-local", at);
+        const chat = echoUserOnce(prev.chat, text, "u-local", at);
         extraChatRef.current[dest] = chat;
         return { ...prev, chat, draft: "", busy: true, atBottom: true };
       });
@@ -1450,7 +1620,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const agentId = paneAgent(dest);
         await ensureAgent(agentId);
         if (pane.cwd) await setWorkspace(pane.cwd, pane.sessionId);
-        await rpc("session/prompt", { sessionId: pane.sessionId, prompt: [{ type: "text", text: acpText }] }, { dest, agentId });
+        const blocks = await acpPromptBlocks(acpText, pane.cwd || "", agentId);
+        await rpc("session/prompt", { sessionId: pane.sessionId, prompt: blocks }, { dest, agentId });
         startedRef.current = markStarted(startedRef.current, pane.sessionId);
         if (wrapInjected) {
           const next = markInjected(injectedRef.current, pane.sessionId, true);
@@ -1460,8 +1631,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       } catch (e) {
         if (shouldKeepBusyForNewerPrompt(extraGen, promptGen.current[dest] ?? 0)) return;
         if (!shouldClearBusyAfterPromptCatch(e)) return;
-        patchExtra(dest, (prev) => ({ ...prev, busy: false }));
-        d.showToast(String(e));
+        patchExtra(dest, (prev) => ({ ...prev, busy: false, draft: text }));
+        d.showToast(friendlyError(e));
       }
       return;
     }
@@ -1469,12 +1640,20 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const blocked = blockedSendToast(agentId);
     if (blocked) {
       d.showToast(blocked);
+      // Restore composer so an accidentally-typed long prompt is not lost.
+      d.setDraft(text);
       return;
+    }
+    if (depsRef.current.promptHistoryRef) {
+      depsRef.current.promptHistoryRef.current = recordPromptHistory(
+        depsRef.current.promptHistoryRef.current,
+        text,
+      );
     }
     const firstTurn = !chat.items.some((item) => item.kind === "user");
     echoedUser.current = true;
     setChat((prev) => {
-      const next = withEchoedUser(prev, text, "u-local", Date.now());
+      const next = echoUserOnce(prev, text, "u-local", Date.now());
       chatRef.current = next;
       return next;
     });
@@ -1516,7 +1695,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         mainGen = promptGen.current[MAIN_PANE] ?? mainGen;
       }
       if (d.cwd) await setWorkspace(d.cwd, sid);
-      const promptWait = rpc("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: acpText }] }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
+      const blocks = await acpPromptBlocks(acpText, d.cwd || d.inboxCwd || "", paneAgent(MAIN_PANE));
+      const promptWait = rpc("session/prompt", { sessionId: sid, prompt: blocks }, { dest: "main", agentId: paneAgent(MAIN_PANE) });
       sendInFlightRef.current = false;
       await promptWait;
       drafts = writeDraft(drafts, sid, "");
@@ -1533,8 +1713,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (!shouldClearBusyAfterPromptCatch(e)) return;
       busyRef.current = false;
       setBusy(false);
-      d.showToast(String(e));
-      setChat((prev) => withPromptFail(prev, String(e), Date.now()));
+      d.showToast(friendlyError(e));
+      setChat((prev) => withPromptFail(prev, friendlyError(e), Date.now()));
     } finally {
       sendInFlightRef.current = false;
     }

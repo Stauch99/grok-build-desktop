@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveRunStatus, mainPaneIsBusy } from "./run-status";
+import { deriveRunStatus, mainPaneIsBusy, shouldWatchDisplayedSession } from "./run-status";
 
 describe("run status model", () => {
   it("uses deterministic priority for attention and lifecycle states", () => {
@@ -29,5 +29,14 @@ describe("mainPaneIsBusy", () => {
     expect(mainPaneIsBusy({ busy: true, sessionId: null, runningSessionId: null })).toBe(true);
     expect(mainPaneIsBusy({ busy: true, sessionId: "a", runningSessionId: null })).toBe(true);
     expect(mainPaneIsBusy({ busy: true, sessionId: null, runningSessionId: "a" })).toBe(true);
+  });
+});
+
+describe("shouldWatchDisplayedSession", () => {
+  it("does not settle or hang-watch a different session than the one still running", () => {
+    expect(shouldWatchDisplayedSession({ boundSessionId: "b", runningSessionId: "a" })).toBe(false);
+    expect(shouldWatchDisplayedSession({ boundSessionId: "a", runningSessionId: "a" })).toBe(true);
+    expect(shouldWatchDisplayedSession({ boundSessionId: "a", runningSessionId: null })).toBe(true);
+    expect(shouldWatchDisplayedSession({ boundSessionId: null, runningSessionId: "a" })).toBe(true);
   });
 });

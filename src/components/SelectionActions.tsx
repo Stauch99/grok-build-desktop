@@ -51,6 +51,9 @@ export function SelectionActions({ state: stateProp, viewport, locale, onRewrite
       <button type="button" onClick={() => void copy()}>
         {copied ? t("selection.copied") : t("selection.copy")}
       </button>
+      <button type="button" onClick={() => document.getSelection()?.removeAllRanges()} aria-label={t("common.close")}>
+        {t("common.close")}
+      </button>
     </div>
   );
 }

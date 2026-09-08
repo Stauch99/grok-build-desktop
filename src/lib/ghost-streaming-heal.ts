@@ -1,6 +1,6 @@
 import type { ChatItem, ChatState } from "./chat";
 
-/** Wait this long after optimistic send before treating Host-absent as a ghost. */
+/** Wait this long after optimistic send if session/prompt never left the client. */
 export const GHOST_STREAMING_GRACE_MS = 45_000;
 
 /** Poll while a pre-token echoed user is showing. */
@@ -14,7 +14,7 @@ export type GhostTurn = {
 export type GhostStreamingEvidence = {
   busy: boolean;
   pendingPermission: boolean;
-  /** True until session/prompt is written. A hung result waiter must still be healable. */
+  /** True until session/prompt is written. Thinking after write is not a ghost. */
   sendInFlight: boolean;
   turnStartedAt: number | null;
   nowMs: number;
@@ -30,7 +30,7 @@ export function findOptimisticGhostTurn(items: ChatItem[]): GhostTurn | null {
 }
 
 export function shouldHealGhostStreaming(e: GhostStreamingEvidence): boolean {
-  if (!e.busy || e.sendInFlight || e.pendingPermission) return false;
+  if (!e.busy || !e.sendInFlight || e.pendingPermission) return false;
   if (e.turnStartedAt == null) return false;
   const grace = e.graceMs ?? GHOST_STREAMING_GRACE_MS;
   if (e.nowMs - e.turnStartedAt < grace) return false;

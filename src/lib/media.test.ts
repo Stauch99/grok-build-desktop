@@ -70,4 +70,15 @@ describe("rewriteLocalMediaHtml", () => {
     );
     expect(html).toContain('src="https://example.com/a.png"');
   });
+
+  it("embeds a preview for an @-mentioned paste image", () => {
+    const html = rewriteLocalMediaHtml(
+      `<a class="file-link" href="@/Users/foxie/.grok/sessions/pastes/1-image.png">@/Users/foxie/.grok/sessions/pastes/1-image.png</a>`,
+      "/work/proj",
+      toSrc,
+    );
+    expect(html).toContain('src="asset:///Users/foxie/.grok/sessions/pastes/1-image.png"');
+    expect(html).not.toContain('src="asset:///work/proj/@/');
+    expect(html).not.toContain('src=""');
+  });
 });

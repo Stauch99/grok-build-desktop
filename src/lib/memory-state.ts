@@ -12,6 +12,10 @@ export type MemoryState = {
   lastStatus: MemoryStatus | null;
   lastError: string | null;
   lastDreamAgentId: AgentId | null;
+  tagline: string | null;
+  taglineAt: number | null;
+  pendingSinceDeep: { sessions: number; mcpBatches: number } | null;
+  dailySeenDay: string | null;
 };
 
 export function emptyMemoryState(): MemoryState {
@@ -25,8 +29,22 @@ export function emptyMemoryState(): MemoryState {
     lastStatus: null,
     lastError: null,
     lastDreamAgentId: null,
+    tagline: null,
+    taglineAt: null,
+    pendingSinceDeep: null,
+    dailySeenDay: null,
   };
 }
+
+function parsePendingSinceDeep(raw: unknown): { sessions: number; mcpBatches: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const sessions = typeof row.sessions === "number" ? row.sessions : 0;
+  const mcpBatches = typeof row.mcpBatches === "number" ? row.mcpBatches : 0;
+  return { sessions, mcpBatches };
+}
+
+const TAGLINE_MAX_CHARS = 80;
 
 export function parseMemoryState(raw: unknown): MemoryState {
   const base = emptyMemoryState();
@@ -34,6 +52,7 @@ export function parseMemoryState(raw: unknown): MemoryState {
   const row = raw as Record<string, unknown>;
   const status = row.lastStatus;
   const agent = row.lastDreamAgentId;
+  const tagline = typeof row.tagline === "string" ? row.tagline.trim().slice(0, TAGLINE_MAX_CHARS) : "";
   return {
     lastDeepAt: typeof row.lastDeepAt === "number" ? row.lastDeepAt : null,
     lastScanAt: typeof row.lastScanAt === "number" ? row.lastScanAt : null,
@@ -44,5 +63,11 @@ export function parseMemoryState(raw: unknown): MemoryState {
     lastStatus: status === "ok" || status === "failed" || status === "running" || status === "blocked-login" ? status : null,
     lastError: typeof row.lastError === "string" ? row.lastError : null,
     lastDreamAgentId: typeof agent === "string" && isAgentId(agent) ? agent : null,
+    tagline: tagline || null,
+    taglineAt: typeof row.taglineAt === "number" ? row.taglineAt : null,
+    pendingSinceDeep: parsePendingSinceDeep(row.pendingSinceDeep),
+    dailySeenDay: typeof row.dailySeenDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.dailySeenDay)
+      ? row.dailySeenDay
+      : null,
   };
 }

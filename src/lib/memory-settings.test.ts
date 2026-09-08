@@ -1,21 +1,43 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_THRESHOLD_SESSIONS } from "./memory-gates";
 import { canSaveDreamAgent, parseMemorySettings } from "./memory-settings";
 
 describe("parseMemorySettings", () => {
-  it("defaults to inject on, dreaming on, grok", () => {
+  it("defaults to inject on, dreaming on, grok, and default threshold", () => {
     expect(parseMemorySettings(undefined)).toEqual({
       injectUserMemory: true,
       dreamingEnabled: true,
       dreamAgentId: "grok",
+      dreamThresholdSessions: DEFAULT_THRESHOLD_SESSIONS,
+      memoryMcpEnabled: true,
+      memoryDisplayName: "",
     });
   });
 
-  it("keeps a logged-in claude runner", () => {
-    expect(parseMemorySettings({ injectUserMemory: false, dreamingEnabled: false, dreamAgentId: "claude" })).toEqual({
-      injectUserMemory: false,
-      dreamingEnabled: false,
-      dreamAgentId: "claude",
-    });
+  it("keeps a logged-in claude runner and custom threshold", () => {
+    expect(
+      parseMemorySettings({
+        injectUserMemory: false,
+        dreamingEnabled: false,
+        dreamAgentId: "claude",
+        dreamThresholdSessions: 12,
+      }),
+      ).toEqual({
+        injectUserMemory: false,
+        dreamingEnabled: false,
+        dreamAgentId: "claude",
+        dreamThresholdSessions: 12,
+        memoryMcpEnabled: true,
+        memoryDisplayName: "",
+      });
+  });
+
+  it("clamps out-of-range thresholds", () => {
+    expect(parseMemorySettings({ dreamThresholdSessions: 1 }).dreamThresholdSessions).toBe(4);
+    expect(parseMemorySettings({ dreamThresholdSessions: 99 }).dreamThresholdSessions).toBe(20);
+    expect(parseMemorySettings({ dreamThresholdSessions: "bad" }).dreamThresholdSessions).toBe(
+      DEFAULT_THRESHOLD_SESSIONS,
+    );
   });
 
   it("rejects an unknown agent id", () => {

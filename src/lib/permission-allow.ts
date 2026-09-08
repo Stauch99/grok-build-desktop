@@ -11,6 +11,21 @@ export function allowKey(sessionId: string, toolName: string): AllowKey {
   return `${sessionId}::${toolName}`;
 }
 
+/** Durable grant: same agent + project + tool, survives restarts. */
+export function grantKey(agentId: string, cwd: string, toolName: string): string {
+  return `${agentId}::${cwd}::${toolName}`;
+}
+
+export function parseGrantKey(key: string): { agentId: string; cwd: string; tool: string } | null {
+  const parts = key.split("::");
+  if (parts.length < 3) return null;
+  const agentId = parts[0] ?? "";
+  const tool = parts[parts.length - 1] ?? "";
+  const cwd = parts.slice(1, -1).join("::");
+  if (!agentId || !cwd || !tool) return null;
+  return { agentId, cwd, tool };
+}
+
 /** Prefer toolKind; otherwise first whitespace token of title. */
 export function parseToolName(title: string, toolKind?: string): string {
   const kind = toolKind?.trim();
@@ -23,8 +38,13 @@ export function shouldSkipPermission(
   allowed: Set<string>,
   sessionId: string | null | undefined,
   toolName: string,
+  grant?: { agentId: string; cwd: string },
 ): boolean {
-  if (!sessionId || !toolName) return false;
+  if (!toolName) return false;
+  if (grant?.agentId && grant.cwd && allowed.has(grantKey(grant.agentId, grant.cwd, toolName))) {
+    return true;
+  }
+  if (!sessionId) return false;
   return allowed.has(allowKey(sessionId, toolName));
 }
 
@@ -43,6 +63,17 @@ export function allowForSession(
 ): Set<string> {
   const next = new Set(allowed);
   if (sessionId && toolName) next.add(allowKey(sessionId, toolName));
+  return next;
+}
+
+export function allowForGrant(
+  allowed: Set<string>,
+  agentId: string,
+  cwd: string,
+  toolName: string,
+): Set<string> {
+  const next = new Set(allowed);
+  if (agentId && cwd && toolName) next.add(grantKey(agentId, cwd, toolName));
   return next;
 }
 

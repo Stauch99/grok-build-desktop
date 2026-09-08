@@ -1,6 +1,7 @@
 import { agentChipLabel } from "./agent-chip";
 import type { AgentId } from "./agent-id";
 import type { AuthKind } from "./auth-kind";
+import { tr } from "./i18n-bridge";
 
 export type AgentDoctor = {
   agentId: AgentId;
@@ -47,8 +48,8 @@ export function agentSendBlockReason(
 ): string | null {
   const row = doctors.find((d) => d.agentId === agentId);
   if (!row) return null;
-  if (!row.binary) return `${agentChipLabel(agentId)} 未安装`;
-  if (!row.authPresent) return `${agentChipLabel(agentId)} 未登录`;
+  if (!row.binary) return tr("doctor.notInstalled", { agent: agentChipLabel(agentId) });
+  if (!row.authPresent) return tr("doctor.notLoggedIn", { agent: agentChipLabel(agentId) });
   return null;
 }
 
@@ -75,7 +76,7 @@ export function emptyDoctor(id: AgentId, userHome: string): AgentDoctor {
   };
 }
 
-export type EmptyDoctorKind = "hidden" | "cli" | "auth" | "project";
+export type EmptyDoctorKind = "hidden" | "cli" | "auth" | "project" | "ready";
 
 /** First-run empty thread: gate on the selected agent, not grok. */
 export function emptyDoctorKind(opts: {
@@ -87,5 +88,5 @@ export function emptyDoctorKind(opts: {
   if (doctor && !doctor.binary) return "cli";
   if (doctor && !doctor.authPresent) return "auth";
   if (!cwd && projectCount === 0) return "project";
-  return "hidden";
+  return "ready";
 }

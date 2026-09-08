@@ -42,8 +42,13 @@ export type WebuiSnapshot = {
   injectUserMemory?: boolean;
   dreamingEnabled?: boolean;
   dreamAgentId?: AgentId;
+  dreamThresholdSessions?: number;
+  memoryMcpEnabled?: boolean;
+  memoryDisplayName?: string;
   lastAgent?: AgentId;
   manualProjects?: boolean;
+  sounds?: boolean;
+  allowedTools?: string[];
 };
 
 export function buildWebuiState(snapshot: WebuiSnapshot, partial: WebuiState = {}): WebuiState {

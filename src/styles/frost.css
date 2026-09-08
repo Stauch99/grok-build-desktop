@@ -58,3 +58,7 @@
 :root[data-theme-family="frost"] .perm-opt {
   border-radius: 999px;
 }
+:root[data-theme-family="frost"] .growth-paper {
+  box-shadow: 0 0 0 1px var(--line);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { millerPath, millerPush, millerRoot, nestPaths } from "./miller";
+import { millerPath, millerPop, millerPush, millerRoot, nestPaths } from "./miller";
 
 describe("miller", () => {
   it("starts at the workspace root", () => {
@@ -10,6 +10,12 @@ describe("miller", () => {
     const stack = millerPush(millerRoot("/tmp/proj"), { path: "/tmp/proj/src", name: "src" });
     expect(millerPath(stack)).toBe("/tmp/proj/src");
     expect(stack).toHaveLength(2);
+  });
+
+  it("pops back to the parent and stops at root", () => {
+    const deep = millerPush(millerRoot("/tmp/proj"), { path: "/tmp/proj/src", name: "src" });
+    expect(millerPath(millerPop(deep))).toBe("/tmp/proj");
+    expect(millerPop(millerRoot("/tmp/proj"))).toEqual(millerRoot("/tmp/proj"));
   });
 });
 

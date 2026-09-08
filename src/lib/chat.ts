@@ -1,7 +1,9 @@
 import { parseAcpRecord } from "./acp-events";
+import type { AgentId } from "./agent-id";
 import { stickyToolName } from "./subagent";
 import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
+import { tr } from "./i18n-bridge";
 
 export type { Mode } from "./mode";
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled";
@@ -14,6 +16,8 @@ export type ItemTime = {
   at?: number;
   /** ms since epoch of the last chunk appended to this item. */
   until?: number;
+  /** Which CLI produced this item, when known. */
+  agentId?: AgentId;
 };
 
 export type ChatItem =
@@ -54,6 +58,8 @@ export type ApplyOptions = {
   now?: number;
   /** Disk replay: missing clocks must not glue adjacent user turns. */
   hydrate?: boolean;
+  /** Tag new items with the pane's agent. */
+  agentId?: AgentId;
 };
 
 /** User chunks closer than this belong to one streamed message, not a new turn. */
@@ -135,9 +141,9 @@ export function workRunLabel(items: WorkItem[]): string {
   const thoughts = items.filter((i) => i.kind === "thought").length;
   const tools = items.filter((i) => i.kind === "tool").length;
   const parts: string[] = [];
-  if (thoughts) parts.push(`${thoughts} 段思考`);
-  if (tools) parts.push(`${tools} 次调用`);
-  return parts.join(" · ") || "工作";
+  if (thoughts) parts.push(tr("work.thoughts", { n: thoughts }));
+  if (tools) parts.push(tr("work.calls", { n: tools }));
+  return parts.join(" · ") || tr("work.default");
 }
 
 export function workRunMeta(items: WorkItem[]): string | undefined {
@@ -161,12 +167,22 @@ export function liveWorkStatus(items: ChatItem[]): string {
     const it = items[i];
     if (it.kind === "tool" && (it.status === "in_progress" || it.status === "pending")) {
       if (isWorkflowToolTitle(it.title)) continue;
-      return it.title || it.toolKind || "调用中";
+      return it.title || it.toolKind || tr("work.calling");
     }
-    if (it.kind === "thought") return "思考中";
+    if (it.kind === "thought") return tr("work.thinking");
     if (it.kind === "assistant" || it.kind === "user") break;
   }
-  return "工作中";
+  return tr("work.working");
+}
+
+/** Latest user prompt before this item, for retrying a failed tool. */
+export function lastUserTextBefore(items: ChatItem[], itemId: string): string | null {
+  let last: string | null = null;
+  for (const it of items) {
+    if (it.id === itemId) break;
+    if (it.kind === "user" && it.text.trim()) last = it.text;
+  }
+  return last;
 }
 
 /** Items after the latest user message — the in-flight turn, or empty while waiting. */
@@ -245,13 +261,13 @@ export function assistantCopyReady(
 
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}秒`;
+  if (s < 60) return tr("elapsed.sec", { n: s });
   const m = Math.floor(s / 60);
   const r = s % 60;
-  if (m < 60) return r ? `${m}分${r}秒` : `${m}分`;
+  if (m < 60) return r ? tr("elapsed.minSec", { n: m, s: r }) : tr("elapsed.min", { n: m });
   const h = Math.floor(m / 60);
   const rest = m % 60;
-  return rest ? `${h}小时${rest}分` : `${h}小时`;
+  return rest ? tr("elapsed.hourMin", { n: h, m: rest }) : tr("elapsed.hour", { n: h });
 }
 
 function usageFromUpdate(
@@ -303,7 +319,7 @@ function asStatus(v: unknown, fallback: ToolStatus): ToolStatus {
   return TOOL_STATUS.includes(v as ToolStatus) ? (v as ToolStatus) : fallback;
 }
 
-export function toolLabel(update: Record<string, unknown>, fallback = "工具调用"): string {
+export function toolLabel(update: Record<string, unknown>, fallback = tr("tool.call")): string {
   const titled = String(update.title ?? "").trim();
   if (titled && titled !== "undefined") return titled;
   const kind = String(update.kind ?? update.toolName ?? "").trim();
@@ -405,7 +421,7 @@ export function applyChatUpdate(
       if (last?.kind === "user" && shouldMergeUserChunk(last, at, mergeOpts)) {
         items[items.length - 1] = { ...last, text: last.text + text, until: at };
       } else {
-        items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
+        items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at, agentId: opts.agentId });
       }
       return { ...state, items, nextId };
     }
@@ -417,7 +433,7 @@ export function applyChatUpdate(
       if (last?.kind === "assistant") {
         items[items.length - 1] = { ...last, text: last.text + text, until: at };
       } else {
-        items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
+        items.push({ kind: "assistant", id: nid("a"), text, at, until: at, agentId: opts.agentId });
       }
       return { ...state, items, nextId };
     }
@@ -429,7 +445,7 @@ export function applyChatUpdate(
       if (last?.kind === "thought") {
         items[items.length - 1] = { ...last, text: last.text + text, until: at };
       } else {
-        items.push({ kind: "thought", id: nid("t"), text, at, until: at });
+        items.push({ kind: "thought", id: nid("t"), text, at, until: at, agentId: opts.agentId });
       }
       return { ...state, items, nextId };
     }
@@ -467,6 +483,7 @@ export function applyChatUpdate(
           diff,
           at,
           until: at,
+          agentId: opts.agentId,
         });
       }
       const artifacts = mergeArtifacts(state.artifacts, update, diff);
@@ -501,6 +518,7 @@ export function applyChatUpdate(
               size: usage.size,
               at,
               until: at,
+              agentId: opts.agentId,
             },
           ];
           return { ...state, items, nextId, usage };

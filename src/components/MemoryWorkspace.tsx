@@ -2,6 +2,7 @@ import { useState } from "react";
 import { openPath, readTextFile, writeAllowedText } from "../api";
 import { IconEdit } from "../icons";
 import { t, type Locale } from "../lib/i18n";
+import { friendlyError } from "../lib/error-copy";
 import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { MemoryDreamPane } from "./MemoryDreamPane";
 import { MemoryEditor } from "./MemoryEditor";
@@ -86,7 +87,7 @@ function DocRow({
       setEditing(true);
       setNote(null);
     } catch (e) {
-      setNote(String(e));
+      setNote(friendlyError(e));
     }
   }
 
@@ -97,7 +98,7 @@ function DocRow({
       setSaved(text);
       setNote(t(locale, "toast.saved"));
     } catch (e) {
-      setNote(String(e));
+      setNote(friendlyError(e));
     }
   }
 

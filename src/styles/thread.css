@@ -464,9 +464,6 @@
 .work-run-head:hover .work-run-text {
   color: color-mix(in srgb, var(--text) 64%, transparent);
 }
-.work-run.live .work-run-head:hover .work-run-text {
-  color: inherit;
-}
 .work-run-head:focus { outline: none; }
 .work-run-head:focus-visible {
   outline: 1px solid var(--line-strong);
@@ -513,14 +510,6 @@
   color: var(--faint);
   white-space: nowrap;
 }
-.work-run.live .work-run-head:hover .shimmer-text {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-}
-.work-run.live .work-run-ico {
-  color: var(--text);
-}
-.work-run.live .work-run-bar,
 .work-run.open .work-run-bar {
   border-bottom-color: transparent;
 }
@@ -542,6 +531,7 @@
 }
 .work-run-stop:hover { background: var(--bg-hover); }
 .work-run .work-timeline { margin-top: 2px; }
+.work-run.live .work-timeline { margin-top: 0; }
 .work-timeline {
   position: relative;
   --spine-x: 11px;
@@ -549,6 +539,8 @@
   max-width: 100%;
   overflow-x: hidden;
 }
+.work-timeline:has(.spine-slot ~ .spine-slot)::before,
+.work-timeline:has(.spine-slot ~ .work-live)::before,
 .work-timeline:has(.spine-row ~ .spine-row)::before,
 .work-timeline:has(.spine-row ~ .work-live)::before {
   content: "";
@@ -559,6 +551,19 @@
   width: 1px;
   background: var(--line);
   pointer-events: none;
+}
+.spine-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  align-items: end;
+  overflow: hidden;
+  animation: spine-slot 720ms var(--ease-in-out) backwards;
+}
+.spine-slot > .spine-row {
+  min-height: 0;
+  overflow: hidden;
+  align-content: end;
+  animation: spine-fade 720ms var(--ease-in-out) both;
 }
 .spine-row,
 .work-live {
@@ -693,18 +698,16 @@
   align-items: center;
   cursor: pointer;
   padding: 6px 0 8px;
+  animation: spine-enter 480ms var(--ease) both;
 }
 .work-live .spine-head { padding-top: 0; }
-.work-live .spine-ico,
-.spine-row.live .spine-ico {
-  color: var(--text);
-}
-.spine-row.live .spine-verb.shimmer-text,
-.work-live .spine-verb.shimmer-text {
-  display: inline;
-}
 .work-live .spine-verb {
   font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+.work-live .spine-verb.shimmer-text {
+  display: inline-block;
+  color: var(--muted);
 }
 .work-live:hover .spine-verb:not(.shimmer-text) {
   color: color-mix(in srgb, var(--text) 64%, transparent);
@@ -741,6 +744,21 @@
 @keyframes spine-enter {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spine-slot {
+  from { grid-template-rows: 0fr; }
+  to { grid-template-rows: 1fr; }
+}
+@keyframes spine-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spine-tick {
+  from { opacity: 0.35; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.spine-row.tick .spine-verb {
+  animation: spine-tick var(--dur) var(--ease);
 }
 .fold.open > * { animation: spine-enter var(--dur) var(--ease); }
 

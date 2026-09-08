@@ -39,18 +39,21 @@ describe("shouldHealGhostStreaming", () => {
   const base = {
     busy: true,
     pendingPermission: false,
-    sendInFlight: false,
+    sendInFlight: true,
     turnStartedAt: 0,
     nowMs: GHOST_STREAMING_GRACE_MS,
     items: [user("u1", "hello")],
   };
 
-  it("heals a busy echoed user after the grace window when send is not in flight", () => {
+  it("heals only while session/prompt has not left the client", () => {
     expect(shouldHealGhostStreaming(base)).toBe(true);
   });
 
-  it("does not heal during in-flight IPC or before grace", () => {
-    expect(shouldHealGhostStreaming({ ...base, sendInFlight: true })).toBe(false);
+  it("does not cancel a live thinking turn after the prompt was written", () => {
+    expect(shouldHealGhostStreaming({ ...base, sendInFlight: false })).toBe(false);
+  });
+
+  it("does not heal before grace, when idle, or while a permission card is up", () => {
     expect(shouldHealGhostStreaming({ ...base, nowMs: GHOST_STREAMING_GRACE_MS - 1 })).toBe(false);
     expect(shouldHealGhostStreaming({ ...base, busy: false })).toBe(false);
     expect(shouldHealGhostStreaming({ ...base, pendingPermission: true })).toBe(false);

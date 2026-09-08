@@ -25,7 +25,7 @@ describe("shortcuts table", () => {
   it("includes close-pane as Mod+W", () => {
     expect(DEFAULT_SHORTCUTS.find((r) => r.id === "close-pane")).toEqual({
       id: "close-pane",
-      action: "关闭窗格",
+      action: "shortcut.closePane",
       defaultBinding: "Mod+W",
     });
   });
@@ -33,7 +33,7 @@ describe("shortcuts table", () => {
   it("includes review as Mod+.", () => {
     expect(DEFAULT_SHORTCUTS.find((r) => r.id === "review")).toEqual({
       id: "review",
-      action: "Dashboard",
+      action: "shortcut.review",
       defaultBinding: "Mod+.",
     });
     expect(matchBinding("Mod+.", { key: ".", metaKey: true, ctrlKey: false, shiftKey: false })).toBe(true);

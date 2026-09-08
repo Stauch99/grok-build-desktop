@@ -324,6 +324,15 @@ export function Sidebar({
         ? sessionRoot
         : sessionRoot?.querySelector<HTMLButtonElement>("button.title") ?? null;
     const index = current ? rows.indexOf(current) : 0;
+    if (e.key === " " || e.key === "Spacebar") {
+      const id = sessionRoot instanceof HTMLElement ? sessionRoot.dataset.sessionRow : undefined;
+      if (id) {
+        e.preventDefault();
+        modsRef.current = { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey };
+        applySelection(id);
+      }
+      return;
+    }
     const nav = sessionTreeNav(e.key, {
       index,
       count: rows.length,

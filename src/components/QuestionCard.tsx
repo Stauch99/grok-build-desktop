@@ -7,14 +7,23 @@ export type QuestionCardProps = {
   title: string;
   options: QuestionOption[];
   onPick: (id: string) => void;
+  onCustomAnswer?: (text: string) => void;
 };
 
 /**
  * Structured AskUserQuestion options. Digits 1–9 pick a row.
+ * A custom text entry allows answering when the preset choices don't fit.
  */
-export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
+export function QuestionCard({ title, options, onPick, onCustomAnswer }: QuestionCardProps) {
   const t = useT();
   const [index, setIndex] = useState(0);
+  const [customText, setCustomText] = useState("");
+
+  const submitCustom = () => {
+    const trimmed = customText.trim();
+    if (!trimmed) return;
+    onCustomAnswer?.(trimmed);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (/^[1-9]$/.test(e.key)) {
@@ -76,6 +85,34 @@ export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
           );
         })}
       </div>
+      {onCustomAnswer ? (
+        <form
+          className="perm-custom-row"
+          style={{ marginTop: "10px", display: "flex", gap: "6px" }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitCustom();
+          }}
+        >
+          <input
+            type="text"
+            className="input"
+            style={{ flex: 1, fontSize: "13px", padding: "4px 8px" }}
+            placeholder={t("question.freeText")}
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+          <button
+            type="submit"
+            className="secondary-btn small"
+            disabled={!customText.trim()}
+            style={{ fontSize: "12px", padding: "4px 10px" }}
+          >
+            {t("question.freeSend")}
+          </button>
+        </form>
+      ) : null}
     </div>
   );
 }

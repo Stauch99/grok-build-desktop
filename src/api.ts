@@ -9,6 +9,7 @@ import {
 import type { AcpRecord } from "./lib/acp-events";
 import type { AgentId } from "./lib/agent-id";
 import { acpMessageFromEvent, resolveStartAgentId, stderrFromAcpEvent } from "./lib/acp-host";
+import { unwrapAcpEvent } from "./lib/acp-event-tag";
 
 export type SessionSummary = {
   id: string;
@@ -81,9 +82,14 @@ export type WebuiState = {
   injectUserMemory?: boolean;
   dreamingEnabled?: boolean;
   dreamAgentId?: AgentId;
+  dreamThresholdSessions?: number;
+  memoryMcpEnabled?: boolean;
+  memoryDisplayName?: string;
   lastAgent?: AgentId;
   /** After this flag is set, the project list is only folders the user added. */
   manualProjects?: boolean;
+  sounds?: boolean;
+  allowedTools?: string[];
 };
 
 export type WorkspaceEntry = {
@@ -148,7 +154,7 @@ export type JsonRpc = {
 
 export const doctor = () => invoke<DoctorInfo>("doctor");
 export const startAgent = (agentId?: AgentId) =>
-  invoke<{ ok: boolean; grok?: string; agentId?: string }>("start_agent", {
+  invoke<{ ok: boolean; grok?: string; agentId?: string; generation?: number }>("start_agent", {
     agentId: resolveStartAgentId(agentId),
   });
 export const setWorkspace = (cwd: string, sessionId?: string | null) =>
@@ -192,6 +198,53 @@ export type MemoryHostPatch = {
 export const readMemoryHost = () => invoke<MemoryHostSnapshot>("read_memory_host");
 export const writeMemoryHost = (patch: MemoryHostPatch) =>
   invoke<void>("write_memory_host", { patch });
+
+export type MemoryEventKind =
+  | "dream_sweep"
+  | "promote"
+  | "mcp_append"
+  | "memory_inject"
+  | "session_new"
+  | "dream_enable"
+  | "mcp_register";
+
+export type MemoryEventRow = {
+  at: number;
+  kind: string;
+  agent?: string | null;
+  count?: number | null;
+  bytes?: number | null;
+  prompts?: number | null;
+  inChars?: number | null;
+  outChars?: number | null;
+};
+
+export const appendMemoryEvent = (event: MemoryEventRow) =>
+  invoke<void>("append_memory_event", { event });
+export const readMemoryEvents = () => invoke<MemoryEventRow[]>("read_memory_events");
+
+export type MemoryActivityDay = {
+  day: string;
+  dailyLines: number;
+  mcpAppends: number;
+  newSessions: number;
+  promoted: number;
+  memBytes: number;
+};
+export type MemoryActivitySnapshot = {
+  days: MemoryActivityDay[];
+  earliestDay: string | null;
+};
+export const readMemoryActivity = () => invoke<MemoryActivitySnapshot>("memory_activity");
+
+export type MemoryMcpStatus = {
+  path: string;
+  executable: boolean;
+  registered: boolean;
+};
+export const installMemoryMcp = () => invoke<MemoryMcpStatus>("install_memory_mcp");
+export const memoryMcpStatus = () => invoke<MemoryMcpStatus>("memory_mcp_status");
+
 export const openPath = (path: string) => invoke<void>("open_path", { path });
 export const openReviewPath = (path: string, allowRoot: string) => invoke<void>("open_review_path", { path, allowRoot });
 export type SessionUpdates = {
@@ -280,6 +333,13 @@ export const savePasteBytes = (bytes: number[], ext: string, name?: string) =>
     ext,
     name: name ?? null,
   });
+export const readAttachmentB64 = (path: string, allowRoot?: string | null) =>
+  invoke<{ path: string; mime: string; data: string; bytes: number }>("read_attachment_b64", {
+    path,
+    allowRoot: allowRoot ?? null,
+  });
+export const copyPasteIntoWorkspace = (path: string, cwd: string) =>
+  invoke<{ path: string }>("copy_paste_into_workspace", { path, cwd });
 export const importDroppedFile = (path: string) =>
   invoke<{ path: string; bytes: number; name: string; kind?: "file" | "dir" }>("import_dropped_file", { path });
 export const statAttachment = (path: string, allowRoot?: string | null) =>
@@ -435,9 +495,16 @@ export const onAcpStderr = (handler: (line: string, agentId: AgentId) => void): 
     const { line, agentId } = stderrFromAcpEvent(e.payload);
     handler(line, agentId);
   });
-export const onAgentExit = (handler: (agentId: AgentId) => void): Promise<UnlistenFn> =>
+export type AgentExitPayload =
+  | { stopped: true }
+  | { code?: number | null; signal?: number | null; uptimeMs?: number }
+  | null;
+export const onAgentExit = (
+  handler: (agentId: AgentId, payload: AgentExitPayload, generation: number) => void,
+): Promise<UnlistenFn> =>
   listen<unknown>("agent-exit", (e) => {
-    handler(acpMessageFromEvent(e.payload).agentId);
+    const ev = unwrapAcpEvent(e.payload);
+    handler(ev.agentId, (ev.payload ?? null) as AgentExitPayload, ev.generation);
   });
 
 export { doctorAll, installMarketplaceSkill } from "./lib/workbench-api";

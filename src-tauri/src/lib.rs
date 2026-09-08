@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,7 +23,9 @@ mod cli_bridge;
 mod marketplace;
 mod mcp_import;
 mod mcp_toml;
+mod memory_events;
 mod memory_host;
+mod memory_mcp;
 mod mock_acp;
 mod proxy;
 mod rpc_allowlist;
@@ -42,10 +44,13 @@ use cli_bridge::{
     list_file_tree, list_imagine_artifacts, list_models_text, list_session_spills,
     open_in_terminal, patch_compat, patch_skills_disabled, read_config_text, read_managed_config,
     read_models_cache, read_token_turns, read_usage_history, run_grok, run_grok_stream,
-    save_paste_bytes, set_hide_on_close, set_notify_target, stat_attachment, trust_folder,
-    watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
+    copy_paste_into_workspace, read_attachment_b64, save_paste_bytes, set_hide_on_close,
+    set_notify_target, stat_attachment, trust_folder, watch_workspace, workspace_mtime,
+    write_allowed_text, write_config_text, write_hook_file,
 };
+use memory_events::{append_memory_event, memory_activity, read_memory_events};
 use memory_host::{read_memory_host, write_memory_host};
+use memory_mcp::{install_memory_mcp, memory_mcp_status};
 use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 
 pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
@@ -78,12 +83,11 @@ impl Serialize for AppError {
 pub(crate) type AppResult<T> = Result<T, AppError>;
 
 struct AgentSession {
-    child: Child,
-    tx: mpsc::Sender<String>,
+    pub(crate) child: Child,
+    pub(crate) tx: mpsc::Sender<String>,
+    pub(crate) generation: u64,
     #[allow(dead_code)]
-    generation: u64,
-    #[allow(dead_code)]
-    agent_id: AgentId,
+    pub(crate) agent_id: AgentId,
 }
 
 pub(crate) struct AppState {
@@ -261,6 +265,80 @@ mod grok_asset_tests {
         assert_eq!(row.title, "未命名会话");
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn parse_summary_keeps_untitled_subagent_without_a_user_turn() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-summary-subagent-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            r#"{
+              "info": { "id": "child-1", "cwd": "/work" },
+              "session_summary": "",
+              "session_kind": "subagent",
+              "parent_session_id": "parent-1"
+            }"#,
+        )
+        .unwrap();
+        let row = parse_summary(&dir.join("summary.json")).expect("untitled subagent");
+        assert_eq!(row.id, "child-1");
+        assert_eq!(row.session_kind.as_deref(), Some("subagent"));
+        assert_eq!(row.parent_session_id.as_deref(), Some("parent-1"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn attach_subagent_parents_synthesizes_child_dropped_from_scan() {
+        let root = std::env::temp_dir().join(format!(
+            "grok-attach-subagent-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let parent_dir = root.join("parent-1");
+        std::fs::create_dir_all(parent_dir.join("subagents").join("child-1")).unwrap();
+        std::fs::write(
+            parent_dir.join("subagents").join("child-1").join("meta.json"),
+            r#"{
+              "child_session_id": "child-1",
+              "subagent_id": "child-1",
+              "parent_session_id": "parent-1",
+              "description": "Write lectures 6 and 7",
+              "tool_use_id": "call_spawn_1"
+            }"#,
+        )
+        .unwrap();
+        let mut rows = vec![SessionSummary {
+            id: "parent-1".into(),
+            agent_id: "grok".into(),
+            cwd: "/work".into(),
+            title: "main".into(),
+            model: None,
+            agent_name: None,
+            updated_at: "2026-09-07T00:00:00Z".into(),
+            created_at: "2026-09-07T00:00:00Z".into(),
+            num_messages: 3,
+            dir: Some(parent_dir.to_string_lossy().into_owned()),
+            session_kind: None,
+            parent_session_id: None,
+            last_turn_summary: None,
+            last_turn_summary_prompt_id: None,
+            tool_use_id: None,
+        }];
+        attach_subagent_parents(&mut rows);
+        assert_eq!(rows.len(), 2);
+        let child = rows.iter().find(|r| r.id == "child-1").expect("synthesized child");
+        assert_eq!(child.parent_session_id.as_deref(), Some("parent-1"));
+        assert_eq!(child.session_kind.as_deref(), Some("subagent"));
+        assert_eq!(child.title, "Write lectures 6 and 7");
+        assert_eq!(child.tool_use_id.as_deref(), Some("call_spawn_1"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 pub(crate) fn dirs_home() -> PathBuf {
@@ -292,9 +370,18 @@ pub(crate) fn resolve_grok() -> Option<PathBuf> {
 }
 
 pub(crate) fn is_blocked_path(path: &Path) -> bool {
+    let home = dirs_home();
+    // Mirrors the assetProtocol deny list in tauri.conf.json so the IPC
+    // command surface cannot read what the asset protocol forbids.
     let denied = [
-        dirs_home().join(".ssh"),
-        dirs_home().join(".gnupg"),
+        home.join(".ssh"),
+        home.join(".gnupg"),
+        home.join(".aws"),
+        home.join(".config"),
+        home.join(".kube"),
+        home.join(".netrc"),
+        home.join(".npmrc"),
+        home.join("Library").join("Keychains"),
         grok_home().join("auth.json"),
     ];
     denied.iter().any(|d| path.starts_with(d) || path == d)
@@ -455,13 +542,14 @@ async fn stop_agent_inner(state: &AppState) {
 async fn doctor() -> DoctorInfo {
     let grok_path = resolve_grok();
     let grok_version = if let Some(path) = &grok_path {
-        Command::new(path)
-            .arg("--version")
-            .output()
-            .await
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
+        let fut = Command::new(path).arg("--version").output();
+        match tokio::time::timeout(std::time::Duration::from_secs(3), fut).await {
+            Ok(Ok(output)) => String::from_utf8(output.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            _ => None,
+        }
     } else {
         None
     };
@@ -678,7 +766,7 @@ async fn start_agent(
         .take()
         .ok_or_else(|| AppError::Message("agent stdin missing".into()))?;
 
-    spawn_reader(app, stdout, stderr, tx.clone(), generation, id);
+    spawn_reader(app.clone(), stdout, stderr, tx.clone(), generation, id);
     spawn_writer(stdin, rx);
     state.children.lock().await.insert(
         id,
@@ -688,6 +776,13 @@ async fn start_agent(
             generation,
             agent_id: id,
         },
+    );
+    crate::acp_loop::spawn_exit_watcher(
+        app,
+        state.inner().clone(),
+        id,
+        generation,
+        std::time::Instant::now(),
     );
 
     let mut result = json!({
@@ -781,7 +876,16 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
         .filter(|s| !s.is_empty())
         .unwrap_or("未命名会话")
         .to_string();
-    if title == "未命名会话" && !grok_has_user_turn(path.parent()?) {
+    let session_kind = value
+        .get("session_kind")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let parent_session_id = value
+        .get("parent_session_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let is_subagent = session_kind.as_deref() == Some("subagent") || parent_session_id.is_some();
+    if title == "未命名会话" && !is_subagent && !grok_has_user_turn(path.parent()?) {
         return None;
     }
     Some(SessionSummary {
@@ -818,14 +922,8 @@ fn parse_summary(path: &Path) -> Option<SessionSummary> {
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
         dir: path.parent().map(|p| p.to_string_lossy().into_owned()),
-        session_kind: value
-            .get("session_kind")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        parent_session_id: value
-            .get("parent_session_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        session_kind,
+        parent_session_id,
         last_turn_summary: value
             .get("last_turn_summary")
             .and_then(|v| v.as_str())
@@ -897,9 +995,28 @@ fn jsonl_has_user_message_chunk(path: &Path) -> bool {
     false
 }
 
-fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
-    let mut child_to_parent: HashMap<String, String> = HashMap::new();
-    for s in summaries.iter() {
+struct GrokSubagentLink {
+    child_id: String,
+    parent_id: String,
+    title: Option<String>,
+    tool_use_id: Option<String>,
+}
+
+fn grok_meta_tool_use_id(value: &Value) -> Option<String> {
+    value
+        .get("toolUseId")
+        .or_else(|| value.get("tool_use_id"))
+        .or_else(|| value.get("tool_call_id"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn grok_subagent_links(summaries: &[SessionSummary]) -> Vec<GrokSubagentLink> {
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+    for s in summaries {
         let Some(dir) = s.dir.as_ref() else { continue };
         let sub = Path::new(dir).join("subagents");
         let Ok(rd) = std::fs::read_dir(&sub) else {
@@ -916,23 +1033,93 @@ fn attach_subagent_parents(summaries: &mut [SessionSummary]) {
             let child = v
                 .get("child_session_id")
                 .or_else(|| v.get("subagent_id"))
-                .and_then(|x| x.as_str());
-            let parent = v.get("parent_session_id").and_then(|x| x.as_str());
-            if let (Some(child), Some(parent)) = (child, parent) {
-                child_to_parent.insert(child.to_string(), parent.to_string());
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let parent = v
+                .get("parent_session_id")
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let Some(child_id) = child else { continue };
+            let parent_id = parent.unwrap_or(s.id.as_str()).to_string();
+            if !seen.insert(child_id.to_string()) {
+                continue;
             }
+            let title = v
+                .get("description")
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            links.push(GrokSubagentLink {
+                child_id: child_id.to_string(),
+                parent_id,
+                title,
+                tool_use_id: grok_meta_tool_use_id(&v),
+            });
         }
     }
+    links
+}
+
+fn attach_subagent_parents(summaries: &mut Vec<SessionSummary>) {
+    let links = grok_subagent_links(summaries);
+    let by_child: HashMap<String, &GrokSubagentLink> =
+        links.iter().map(|link| (link.child_id.clone(), link)).collect();
     for s in summaries.iter_mut() {
+        let Some(link) = by_child.get(&s.id) else {
+            continue;
+        };
         if s.parent_session_id.is_none() {
-            if let Some(p) = child_to_parent.get(&s.id) {
-                s.parent_session_id = Some(p.clone());
-            }
+            s.parent_session_id = Some(link.parent_id.clone());
         }
-        if s.session_kind.is_none() && child_to_parent.contains_key(&s.id) {
+        if s.session_kind.is_none() {
             s.session_kind = Some("subagent".into());
         }
+        if s.tool_use_id.is_none() {
+            s.tool_use_id = link.tool_use_id.clone();
+        }
+        if (s.title == "未命名会话" || s.title == s.id) && link.title.is_some() {
+            s.title = link.title.clone().unwrap_or(s.title.clone());
+        }
     }
+    let existing: HashSet<String> = summaries.iter().map(|s| s.id.clone()).collect();
+    let mut extras = Vec::new();
+    for link in &links {
+        if existing.contains(&link.child_id) {
+            continue;
+        }
+        let Some(parent) = summaries.iter().find(|s| s.id == link.parent_id) else {
+            continue;
+        };
+        let child_dir = parent.dir.as_ref().and_then(|dir| {
+            Path::new(dir)
+                .parent()
+                .map(|cwd_root| cwd_root.join(&link.child_id).to_string_lossy().into_owned())
+        });
+        extras.push(SessionSummary {
+            id: link.child_id.clone(),
+            agent_id: parent.agent_id.clone(),
+            cwd: parent.cwd.clone(),
+            title: link
+                .title
+                .clone()
+                .unwrap_or_else(|| "未命名会话".into()),
+            model: parent.model.clone(),
+            agent_name: parent.agent_name.clone(),
+            updated_at: parent.updated_at.clone(),
+            created_at: parent.created_at.clone(),
+            num_messages: 1,
+            dir: child_dir,
+            session_kind: Some("subagent".into()),
+            parent_session_id: Some(link.parent_id.clone()),
+            last_turn_summary: None,
+            last_turn_summary_prompt_id: None,
+            tool_use_id: link.tool_use_id.clone(),
+        });
+    }
+    summaries.extend(extras);
 }
 
 struct SessionsDirCache {
@@ -1422,7 +1609,8 @@ async fn upsert_toml_mcp(
         .ok_or_else(|| AppError::Message("unknown kind".into()))?;
     tokio::task::spawn_blocking(move || {
         let text = crate::agents_files::read_agents_file_text(&path);
-        let next = crate::mcp_toml::upsert_mcp_servers_toml(&text, &name, &command, &args);
+        let next = crate::mcp_toml::upsert_mcp_servers_toml(&text, &name, &command, &args)
+            .map_err(AppError::Message)?;
         crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
     })
     .await
@@ -1443,7 +1631,7 @@ async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
         .ok_or_else(|| AppError::Message("unknown kind".into()))?;
     tokio::task::spawn_blocking(move || {
         let text = crate::agents_files::read_agents_file_text(&path);
-        let next = crate::mcp_toml::remove_mcp_servers_toml(&text, &name);
+        let next = crate::mcp_toml::remove_mcp_servers_toml(&text, &name).map_err(AppError::Message)?;
         crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
     })
     .await
@@ -1600,10 +1788,12 @@ async fn inspect_brief(state: State<'_, Arc<AppState>>, cwd: Option<String>) -> 
             cmd.current_dir(dir);
         }
     }
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?;
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => return Err(AppError::Message(e.to_string())),
+        Err(_) => return Err(AppError::Message("grok inspect 超时（20s），请稍后重试".into())),
+    };
     let parsed: Value = serde_json::from_slice(&output.stdout).unwrap_or(json!({}));
     Ok(parsed)
 }
@@ -2522,11 +2712,13 @@ async fn read_cli_settings() -> AppResult<Value> {
 pub(crate) fn ensure_table<'a>(
     doc: &'a mut toml_edit::DocumentMut,
     key: &str,
-) -> &'a mut toml_edit::Table {
+) -> AppResult<&'a mut toml_edit::Table> {
     if !doc.contains_key(key) {
         doc[key] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-    doc[key].as_table_mut().expect("table")
+    doc[key].as_table_mut().ok_or_else(|| {
+        AppError::Message(format!("配置里 {key} 不是表，请先修正 config.toml 再试"))
+    })
 }
 
 pub(crate) fn reject_oversized_config_text(text: &str) -> AppResult<()> {
@@ -2546,28 +2738,28 @@ pub(crate) fn apply_cli_patch(doc: &mut toml_edit::DocumentMut, patch: &Value) -
         }
     }
     if let Some(v) = patch.get("model").and_then(|v| v.as_str()) {
-        ensure_table(doc, "models")["default"] = toml_edit::value(v);
+        ensure_table(doc, "models")?["default"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("effort").and_then(|v| v.as_str()) {
-        ensure_table(doc, "models")["default_reasoning_effort"] = toml_edit::value(v);
+        ensure_table(doc, "models")?["default_reasoning_effort"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("permissionMode").and_then(|v| v.as_str()) {
-        ensure_table(doc, "ui")["permission_mode"] = toml_edit::value(v);
+        ensure_table(doc, "ui")?["permission_mode"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("yolo").and_then(|v| v.as_bool()) {
-        ensure_table(doc, "ui")["yolo"] = toml_edit::value(v);
+        ensure_table(doc, "ui")?["yolo"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("showThinking").and_then(|v| v.as_bool()) {
-        ensure_table(doc, "ui")["show_thinking_blocks"] = toml_edit::value(v);
+        ensure_table(doc, "ui")?["show_thinking_blocks"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("telemetry").and_then(|v| v.as_bool()) {
-        ensure_table(doc, "features")["telemetry"] = toml_edit::value(v);
+        ensure_table(doc, "features")?["telemetry"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("memory").and_then(|v| v.as_bool()) {
-        ensure_table(doc, "memory")["enabled"] = toml_edit::value(v);
+        ensure_table(doc, "memory")?["enabled"] = toml_edit::value(v);
     }
     if let Some(v) = patch.get("compactPercent").and_then(|v| v.as_i64()) {
-        ensure_table(doc, "session")["auto_compact_threshold_percent"] =
+        ensure_table(doc, "session")?["auto_compact_threshold_percent"] =
             toml_edit::value(v.clamp(50, 95));
     }
     if let Some(arr) = patch.get("mcp").and_then(|v| v.as_array()) {
@@ -3233,6 +3425,10 @@ pub fn run_mock_acp_stdio() {
     crate::mock_acp::run_mock_acp_stdio();
 }
 
+pub fn run_memory_mcp_stdio() {
+    crate::memory_mcp::run_stdio();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -3315,6 +3511,8 @@ pub fn run() {
             write_config_text,
             write_allowed_text,
             save_paste_bytes,
+            copy_paste_into_workspace,
+            read_attachment_b64,
             import_dropped_file,
             stat_attachment,
             git_log,
@@ -3356,7 +3554,12 @@ pub fn run() {
             read_usage_history,
             read_token_turns,
             read_memory_host,
-            write_memory_host
+            write_memory_host,
+            append_memory_event,
+            read_memory_events,
+            memory_activity,
+            install_memory_mcp,
+            memory_mcp_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

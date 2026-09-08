@@ -30,6 +30,7 @@ import { Markdown } from "./Markdown";
 import { HtmlArtifactPreview } from "./HtmlArtifactPreview";
 import { PreviewTabs } from "./PreviewTabs";
 import { useT } from "../lib/locale-context";
+import { friendlyError } from "../lib/error-copy";
 
 export type PreviewPaneProps = {
   path: string | null;
@@ -460,7 +461,7 @@ export function PreviewPane({
                     .then((res) => {
                       setBlameText(res.ok ? res.text.trim() : res.stderr.trim() || t("preview.blameFail"));
                     })
-                    .catch((e) => setBlameText(String(e)));
+                    .catch((e) => setBlameText(friendlyError(e)));
                 }
               : undefined
           }

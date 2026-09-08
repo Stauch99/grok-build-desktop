@@ -15,6 +15,7 @@ import {
 import { emptyChat, type ChatItem, type ChatState } from "../lib/chat";
 import { canMoveInboxSession, sameCwd } from "../lib/inbox";
 import { t, type Locale } from "../lib/i18n";
+import { friendlyError } from "../lib/error-copy";
 import {
   MAIN_PANE,
   applyDrop,
@@ -329,7 +330,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     try {
       await setWorkspace(path);
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -350,7 +351,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
       applySessionUnion(d.diskSessionsRef.current, d.inboxCwd, next);
       await selectProject(dir);
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     } finally {
       d.setPicking(false);
     }
@@ -373,7 +374,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     try {
       await setWorkspace(path);
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -412,7 +413,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
       applySessionUnion(dropDiskSession(d.diskSessionsRef.current, s.id), d.inboxCwd);
       await refreshAllSessions();
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -455,7 +456,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
       await d.resumeSession(row);
       d.showToast(t(d.locale, "toast.movedToProject"));
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     }
   }
 
@@ -514,6 +515,19 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   async function openSession(s: SessionSummary) {
     const d = depsRef.current;
     s = sessionToOpen(s, d.allSessionsRef.current);
+    if (s.parentSessionId) {
+      const parent = s.parentSessionId;
+      d.setCollapsedIds((prev) => {
+        if (!prev.has(parent)) return prev;
+        const next = new Set(prev);
+        next.delete(parent);
+        return next;
+      });
+      d.setExpandedIds((prev) => {
+        if (prev.has(parent)) return prev;
+        return new Set(prev).add(parent);
+      });
+    }
     const existing = paneOfSession(liveBindings(), s.id);
     const planned = planOpenSession({
       session: s,
@@ -602,7 +616,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
       await d.startSession(dir);
       d.showToast(t(d.locale, "toast.newWorktreeSession", { name: basename(dir) }));
     } catch (e) {
-      d.showToast(String(e));
+      d.showToast(friendlyError(e));
     } finally {
       d.setWorktreeBusy(false);
     }

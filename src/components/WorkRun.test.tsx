@@ -25,8 +25,10 @@ describe("WorkRun", () => {
       { kind: "tool", id: "1", title: "Read a.ts", toolKind: "read", status: "completed" },
     ]);
     expect(html).toContain("使用 1 个工具，操作结果：a.ts");
+    expect(html).toContain("work-run-bar");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("secret-thought-body");
+    expect(html).not.toContain("work-live");
   });
 
   it("marks failures on the header without expanding", () => {
@@ -36,38 +38,50 @@ describe("WorkRun", () => {
     expect(html).toContain("work-run failed");
     expect(html).toContain("1 个失败");
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("work-run-bar");
   });
 
-  it("marks a live run with motion, not the settled 思考了 recap", () => {
+  it("opens the live spine instead of the grey recap bar", () => {
     const html = render([{ kind: "thought", id: "t", text: "secret-thought-body" }], {
       busy: true,
       startedAt: Date.now() - 12_500,
+      onStop: () => {},
     });
     expect(html).toContain("work-run live");
-    expect(html).toContain("dot-matrix");
-    expect(html).toContain("shimmer-text");
-    expect(html).toContain("12.5s");
+    expect(html).toContain("work-timeline");
+    expect(html).toContain("work-live");
+    expect(html).toContain("工作了 12s");
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('aria-label="思考中"');
-    expect(html).not.toContain("思考了");
+    expect(html).not.toContain("work-run-bar");
+    expect(html).not.toContain("work-run-stop");
+    expect(html).not.toContain("dot-matrix");
+    expect(html).toContain("shimmer-text");
     expect(html).not.toContain("secret-thought-body");
+    expect(html).not.toContain("使用");
+    expect(html).not.toContain("过一遍");
   });
 
   it("stays live when a tool is still in flight even if busy was cleared", () => {
-    const html = render([
-      { kind: "tool", id: "1", title: "Read a.ts", toolKind: "read", status: "in_progress" },
-    ]);
+    const html = render(
+      [{ kind: "tool", id: "1", title: "Read a.ts", toolKind: "read", status: "in_progress" }],
+      { onStop: () => {} },
+    );
     expect(html).toContain("work-run live");
-    expect(html).toContain("shimmer-text");
+    expect(html).toContain("work-timeline");
+    expect(html).toContain("work-live");
+    expect(html).not.toContain("work-run-bar");
     expect(html).not.toContain("使用 1 个工具");
+    expect(html).toContain("shimmer-text");
   });
 
-  it("puts stop on the live header so the composer dock can stay quiet", () => {
+  it("puts stop on the trailing working-for line so the composer dock can stay quiet", () => {
     const html = render([{ kind: "thought", id: "t", text: "…" }], {
       busy: true,
       onStop: () => {},
     });
-    expect(html).toContain("work-run-stop");
-    expect(html).toContain('aria-label="停止"');
+    expect(html).toContain("work-live");
+    expect(html).toContain("停止 · 工作中");
+    expect(html).not.toContain("work-run-stop");
+    expect(html).not.toContain('aria-label="停止"');
   });
 });

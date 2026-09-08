@@ -271,7 +271,7 @@ fn patch_kimi_toml(text: &str, model: Option<&str>, effort: Option<&str>) -> App
         doc["default_model"] = toml_edit::value(model);
     }
     if let Some(effort) = effort {
-        crate::ensure_table(&mut doc, "thinking")["effort"] = toml_edit::value(effort);
+        crate::ensure_table(&mut doc, "thinking")?["effort"] = toml_edit::value(effort);
     }
     Ok(doc.to_string())
 }

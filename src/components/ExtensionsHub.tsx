@@ -30,6 +30,7 @@ import {
   type SkillScope,
 } from "../lib/inspect";
 import { t, type Locale } from "../lib/i18n";
+import { friendlyError } from "../lib/error-copy";
 import { IconGrokClose } from "../grok-icons";
 import { IconFinder, IconRefresh } from "../icons";
 import { hubEmptyKind } from "../lib/hub-empty";
@@ -62,6 +63,7 @@ import {
   syncHubMcpServer,
 } from "../lib/workbench-api";
 import { HUB_TABS, type HubTab } from "../lib/commands";
+import { isMemoryMcpName } from "../lib/memory-mcp";
 
 export type ExtensionsHubProps = {
   open: boolean;
@@ -180,7 +182,7 @@ export function ExtensionsHub({
       setMarketFailed((market.code ?? 0) !== 0 && !market.stdout.trim());
       setMarketText(market.stdout || market.stderr);
     } catch (e) {
-      setNote(String(e));
+      setNote(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -257,7 +259,7 @@ export function ExtensionsHub({
       }
       await load();
     } catch (e) {
-      setNote(String(e));
+      setNote(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -350,7 +352,7 @@ export function ExtensionsHub({
                   const file = await readTextFile(path);
                   setSkillPreview({ path: file.path, text: file.text });
                 } catch (e) {
-                  setNote(String(e));
+                  setNote(friendlyError(e));
                 }
               }}
               onToggle={(name, off) => {
@@ -710,19 +712,23 @@ function McpTab({
           const badge = badgeKey ? t(locale, badgeKey) : mcpSourceBadge(s);
           const tools = doctor[s.name]?.tools ?? s.tools ?? [];
           const scope = row?.scope || s.scope || "user";
+          const builtin = isMemoryMcpName(s.name);
           return (
             <li key={s.name} className="hub-row">
               <div className="hub-row-main">
                 <strong>{s.name}</strong>
                 <span className="hub-meta">
-                  {health} · {s.transport || "stdio"} · {scope === "project" ? t(locale, "hub.source.project") : t(locale, "hub.scope.user")} · {badge}
+                  {health} · {s.transport || "stdio"} · {scope === "project" ? t(locale, "hub.source.project") : t(locale, "hub.scope.user")} · {builtin ? t(locale, "hub.mcpBuiltin") : badge}
                   {tools.length ? ` · ${t(locale, "hub.nTools", { n: tools.length })}` : ""}
                 </span>
               </div>
               <div className="hub-row-side">
-                <button type="button" className="btn ghost" onClick={() => onOauth(s.name)}>
-                  {t(locale, "hub.diagnose")}
-                </button>
+                {!builtin ? (
+                  <button type="button" className="btn ghost" onClick={() => onOauth(s.name)}>
+                    {t(locale, "hub.diagnose")}
+                  </button>
+                ) : null}
+                {!builtin ? (
                 <button
                   type="button"
                   className={`btn ghost${isArmed(confirm, `mcp-rm:${s.name}`, Date.now()) ? " armed" : ""}`}
@@ -730,6 +736,7 @@ function McpTab({
                 >
                   {dangerCaption(confirm, `mcp-rm:${s.name}`, t(locale, "hub.deleteName", { name: s.name }), t(locale, "hub.deleteAgain", { name: s.name }))}
                 </button>
+                ) : null}
                 <button
                   type="button"
                   className={`toggle ${enabled ? "on" : ""}`}

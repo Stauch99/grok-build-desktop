@@ -105,6 +105,29 @@ describe("liveRosterFromTools", () => {
     expect(live[0]?.id).toBe("01a0787b-8ce7-7253-9afb-f0f8c55334c5");
     expect(isLiveRosterId(live[0]?.id ?? "")).toBe(false);
   });
+
+  it("keeps a completed Grok spawn in the roster once subagent_id is known", () => {
+    const live = liveRosterFromTools(
+      [
+        tool({
+          id: "c1",
+          title: "Write lectures",
+          toolName: "spawn_subagent",
+          status: "completed",
+          detail: "subagent_id: 01a078d3-8771-7443-aa04-05c384fd1de9",
+        }),
+      ],
+      {
+        agentId: "grok",
+        parentSessionId: "parent",
+        cwd: "/work",
+        nowIso: "2026-08-31T11:00:00.000Z",
+      },
+    );
+    expect(live).toHaveLength(1);
+    expect(live[0]?.id).toBe("01a078d3-8771-7443-aa04-05c384fd1de9");
+    expect(live[0]?.parentSessionId).toBe("parent");
+  });
 });
 
 describe("mergeLiveRoster", () => {

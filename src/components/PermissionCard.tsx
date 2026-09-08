@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { isAllowOption, pickAllowOption, type PermissionOption } from "../lib/permission-allow";
 import { t, type Locale } from "../lib/i18n";
+import { useLocale } from "../lib/locale-context";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
 import { rejectCountdownLabel, secondsUntilReject } from "../lib/permission-queue";
 
@@ -44,13 +45,16 @@ export function PermissionCard({
   onAlwaysAllow,
   timedOut,
   timeoutNotice,
-  locale = "zh",
+  locale,
   receivedAt,
 }: PermissionCardProps) {
+  const ctxLocale = useLocale();
+  const loc = locale ?? ctxLocale;
   const [index, setIndex] = useState(0);
   const [remember, setRemember] = useState(false);
   const [mountedAt] = useState(() => Date.now());
   const [now, setNow] = useState(mountedAt);
+  const [expanded, setExpanded] = useState(!timedOut);
   const startedAt = receivedAt ?? mountedAt;
 
   useEffect(() => {
@@ -69,6 +73,17 @@ export function PermissionCard({
   const left = timedOut ? 0 : secondsUntilReject(startedAt, now);
   const showTimeoutNotice = timedOut || left <= 0;
   const pickCtx: PermissionPickContext = { options, remember, timedOut, onPick, onAlwaysAllow };
+
+  if (timedOut && !expanded) {
+    const mins = Math.max(1, Math.round((now - startedAt) / 60_000));
+    return (
+      <div className="permission is-folded" role="status">
+        <button type="button" className="btn ghost" onClick={() => setExpanded(true)}>
+          {t(loc, "perm.waited", { mins })} · {t(loc, "perm.expand")}
+        </button>
+      </div>
+    );
+  }
 
   const allowOnce = () => {
     if (remember) {
@@ -112,11 +127,11 @@ export function PermissionCard({
       id="permission-card"
       tabIndex={0}
       role="group"
-      aria-label={t(locale, "perm.title")}
+      aria-label={t(loc, "perm.title")}
       data-keys="1-9,ArrowUp,ArrowDown,Enter"
       onKeyDown={onKeyDown}
     >
-      <h4>{t(locale, "perm.title")}</h4>
+      <h4>{t(loc, "perm.title")}</h4>
       <div className="permission-cmd" data-tip={title}>{title}</div>
       {showTimeoutNotice ? (
         <p className="permission-timeout" role="status">
@@ -125,9 +140,9 @@ export function PermissionCard({
       ) : (
         <>
           <p className="permission-hint" role="status">
-            {rejectCountdownLabel(left, locale)}
+            {rejectCountdownLabel(left, loc)}
           </p>
-          <p className="permission-hint">{t(locale, "perm.hint")}</p>
+          <p className="permission-hint">{t(loc, "perm.hint")}</p>
         </>
       )}
       <label className="permission-hint">
@@ -137,7 +152,7 @@ export function PermissionCard({
           onChange={(e) => setRemember(e.target.checked)}
         />
         {" "}
-        {t(locale, "perm.remember")}
+        {t(loc, "perm.remember")}
       </label>
       <div className="opts">
         {options.map((opt, i) => {
@@ -164,7 +179,7 @@ export function PermissionCard({
           data-always-allow="true"
           onClick={allowOnce}
         >
-          {t(locale, "perm.allowOnce")}
+          {t(loc, remember ? "perm.alwaysBtn" : "perm.allowOnce")}
         </button>
       </div>
     </div>

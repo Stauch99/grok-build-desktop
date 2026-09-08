@@ -180,4 +180,60 @@ describe("workbench-api", () => {
     expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
     expect(invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp")).toHaveLength(2);
   });
+
+  it("ensureMemoryMcp installs the sidecar, pins catalog, and syncs or strips lives", async () => {
+    const { ensureMemoryMcp } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
+      if (cmd === "install_memory_mcp") {
+        return Promise.resolve({ path: "/tmp/memory-mcp", executable: true, registered: false });
+      }
+      if (cmd === "read_agents_file") {
+        if (args?.kind === "mcp-json") return Promise.resolve(JSON.stringify({ servers: [] }));
+        return Promise.resolve("{}");
+      }
+      return Promise.resolve(undefined);
+    });
+    await ensureMemoryMcp(true);
+    const catalogWrite = invoke.mock.calls.find(
+      (c) => c[0] === "write_agents_file" && (c[1] as { kind: string }).kind === "mcp-json",
+    );
+    expect(String((catalogWrite?.[1] as { text: string }).text)).toContain("grok-build-memory");
+    expect(invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp")).toHaveLength(2);
+
+    invoke.mockClear();
+    invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
+      if (cmd === "install_memory_mcp") {
+        return Promise.resolve({ path: "/tmp/memory-mcp", executable: true, registered: true });
+      }
+      if (cmd === "read_agents_file") {
+        if (args?.kind === "mcp-json") {
+          return Promise.resolve(
+            JSON.stringify({
+              servers: [{ name: "grok-build-memory", transport: "stdio", commandOrUrl: "/tmp/memory-mcp" }],
+            }),
+          );
+        }
+        return Promise.resolve("{}");
+      }
+      return Promise.resolve(undefined);
+    });
+    await ensureMemoryMcp(false);
+    expect(invoke.mock.calls.filter((c) => c[0] === "remove_toml_mcp")).toHaveLength(2);
+  });
+
+  it("ensureMemoryMcp does not write an empty command into live CLI configs", async () => {
+    const { ensureMemoryMcp } = await import("./workbench-api");
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === "install_memory_mcp") {
+        return Promise.reject(new Error("memory-mcp binary not found"));
+      }
+      if (cmd === "memory_mcp_status") {
+        return Promise.resolve({ path: "", executable: false, registered: false });
+      }
+      return Promise.resolve("{}");
+    });
+    await ensureMemoryMcp(true);
+    expect(invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp")).toHaveLength(0);
+    expect(invoke.mock.calls.filter((c) => c[0] === "write_agents_file")).toHaveLength(0);
+  });
 });

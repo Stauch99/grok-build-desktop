@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { notify, sendRaw } from "../api";
+import { notify, sendRaw, setNotifyTarget } from "../api";
 import { findAlwaysOption, parseToolName, pickAllowOption, shouldAutoApprovePermission, shouldSkipPermission } from "../lib/permission-allow";
 import { permissionReplyAgent } from "../lib/permission-agent";
 import {
@@ -18,6 +18,7 @@ import { requestPermissionKind, type PermissionPane } from "../lib/permission-vi
 import { freshPermissionEvents, isSessionFocused, notifyText, shouldNotify } from "../lib/notify";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
 import { recordLocalEvent } from "../lib/telemetry";
+import { playNeedsYou } from "../lib/sound";
 
 export type PermissionQueue = {
   permissions: QueuedPermission[];
@@ -41,6 +42,8 @@ export function usePermissionQueue(opts: {
   titleForSessionRef: React.MutableRefObject<(sessionId: string | null) => string>;
   telemetry?: boolean;
   onTimeoutNotice?: () => void;
+  soundsRef?: React.MutableRefObject<boolean>;
+  cwdForSession?: (sessionId: string | null) => string;
 }): PermissionQueue {
   const telemetry = opts.telemetry ?? false;
   const telemetryRef = useRef(telemetry);
@@ -113,7 +116,10 @@ export function usePermissionQueue(opts: {
       const kind = requestPermissionKind(request);
       const sid = request.sessionId || opts.sessionId;
       const tool = parseToolName(request.title, request.toolKind);
-      const skip = shouldAutoApprovePermission(yolo, kind) || shouldSkipPermission(opts.allowedTools, sid, tool);
+      const skip = shouldAutoApprovePermission(yolo, kind) || shouldSkipPermission(opts.allowedTools, sid, tool, {
+        agentId: request.agentId,
+        cwd: opts.cwdForSession?.(sid) ?? "",
+      });
       if (!skip) continue;
       const pick = findAlwaysOption(request.options) ?? pickAllowOption(request.options);
       if (pick) void answerPermission(request, pick);
@@ -126,9 +132,11 @@ export function usePermissionQueue(opts: {
       if (shouldAutoApprovePermission(opts.yolo === true, requestPermissionKind(request))) continue;
       const sessionFocused = isSessionFocused(opts.focusedSessionIdRef.current, request.sessionId);
       if (!shouldNotify({ reason: "permission", windowFocused: opts.focusedRef.current, sessionFocused })) continue;
+      if (request.sessionId) void setNotifyTarget(request.sessionId);
       const sessionTitle = opts.titleForSessionRef.current(request.sessionId ?? null) || opts.currentTitleRef.current;
       const { title, body } = notifyText("permission", sessionTitle, request.title);
       void notify(title, body);
+      if (opts.soundsRef?.current) playNeedsYou();
     }
   }, [permissions, opts.focusedRef, opts.focusedSessionIdRef, opts.currentTitleRef, opts.titleForSessionRef, opts.yolo]);
 

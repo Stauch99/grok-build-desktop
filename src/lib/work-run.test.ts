@@ -3,6 +3,7 @@ import type { ThreadBlock, WorkItem } from "./chat";
 import {
   LIVE_PHRASE_TICKS,
   formatLiveElapsed,
+  formatWorkedElapsed,
   liveTool,
   liveWorkBlockId,
   visibleWorkItems,
@@ -244,6 +245,13 @@ describe("formatLiveElapsed", () => {
   it("uses tenths of a second in mono-friendly units", () => {
     expect(formatLiveElapsed(12_500)).toBe("12.5s");
     expect(formatLiveElapsed(65_200)).toBe("1m 5.2s");
+  });
+});
+
+describe("formatWorkedElapsed", () => {
+  it("uses whole seconds like Working for 4m 4s", () => {
+    expect(formatWorkedElapsed(12_500)).toBe("12s");
+    expect(formatWorkedElapsed(244_000)).toBe("4m 4s");
   });
 });
 

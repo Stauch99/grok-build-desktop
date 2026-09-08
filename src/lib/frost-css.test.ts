@@ -53,6 +53,34 @@ describe("spine enter motion", () => {
     expect(kf).toMatch(/translateY/);
     expect(kf).not.toMatch(/height|margin|padding/);
   });
+
+  it("animates new spine rows and count ticks instead of snapping", () => {
+    const src = cssFile("src/styles/thread.css");
+    expect(src).toMatch(/\.spine-slot\s*\{[^}]*animation:\s*spine-slot/);
+    expect(src).toMatch(/\.spine-slot\s*>\s*\.spine-row\s*\{[^}]*animation:\s*spine-fade/);
+    expect(src).toMatch(/\.spine-row\.tick \.spine-verb\s*\{[^}]*animation:\s*spine-tick/);
+    const slot = src.match(/@keyframes spine-slot\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(slot).toMatch(/grid-template-rows:\s*0fr/);
+    expect(slot).toMatch(/grid-template-rows:\s*1fr/);
+    expect(slot).not.toMatch(/opacity/);
+    expect(src).toMatch(/\.spine-slot\s*\{[^}]*align-items:\s*end/);
+    expect(src).toMatch(/\.spine-slot\s*>\s*\.spine-row\s*\{[^}]*align-content:\s*end/);
+    const fade = src.match(/@keyframes spine-fade\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(fade).toMatch(/opacity:\s*0/);
+    expect(fade).toMatch(/opacity:\s*1/);
+    expect(fade).toMatch(/translateY\(\s*[1-9]/);
+    expect(fade).not.toMatch(/translateY\(\s*-/);
+    expect(src).toMatch(/spine-fade\s+[\d.]+ms/);
+    expect(src).toMatch(/spine-slot\s+[\d.]+ms/);
+    const fadeMs = Number(src.match(/spine-fade\s+(\d+(?:\.\d+)?)ms/)?.[1] ?? 0);
+    const slotMs = Number(src.match(/spine-slot\s+(\d+(?:\.\d+)?)ms/)?.[1] ?? 0);
+    expect(fadeMs).toBeGreaterThanOrEqual(400);
+    expect(slotMs).toBeGreaterThanOrEqual(700);
+    expect(src).toMatch(/spine-slot\s+\d+(?:\.\d+)?ms\s+var\(--ease-in-out\)/);
+    const tick = src.match(/@keyframes spine-tick\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(tick).toMatch(/opacity/);
+    expect(tick).toMatch(/translateY/);
+  });
 });
 
 describe("streaming surface and tool chip hover", () => {

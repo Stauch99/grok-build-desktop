@@ -8,6 +8,7 @@ import { visibleSessions, partitionPinned } from "./session-chrome";
 import { agentIdOfSession } from "./session-agent";
 import type { SessionStatus } from "./session-status";
 import { basename } from "./text";
+import { tr } from "./i18n-bridge";
 import { EMPTY_PROJECT_GROUPS, groupBandId, groupIdFor, type ProjectGroupState } from "./project-groups";
 
 export const INBOX_PIN = "inbox";
@@ -219,9 +220,9 @@ export type SidebarSection = {
 export type SidebarBandId = "pin" | "projects" | "inbox";
 
 export const SIDEBAR_BAND_LABEL: Record<SidebarBandId, string> = {
-  pin: "置顶",
-  projects: "项目",
-  inbox: "独立对话",
+  pin: "sidebar.pin",
+  projects: "sidebar.projects",
+  inbox: "sidebar.inbox",
 };
 
 export type SidebarBand = {
@@ -258,7 +259,7 @@ export function groupSidebarBands(sections: readonly SidebarSection[]): SidebarB
       } else {
         out.push({
           id: section.band,
-          label: isSidebarBandId(section.band) ? SIDEBAR_BAND_LABEL[section.band] : (section.groupLabel ?? section.label),
+          label: isSidebarBandId(section.band) ? tr(SIDEBAR_BAND_LABEL[section.band]) : (section.groupLabel ?? section.label),
           sections: [section],
         });
       }
@@ -287,18 +288,18 @@ export type BuildSidebarOpts = {
 };
 
 const TIME_META: Record<TimeBucket, { id: string; label: string }> = {
-  today: { id: "today", label: "今天" },
-  yesterday: { id: "yesterday", label: "昨天" },
-  week: { id: "week", label: "近 7 天" },
-  month: { id: "month", label: "近 30 天" },
-  older: { id: "older", label: "更早" },
+  today: { id: "today", label: "sidebar.bandToday" },
+  yesterday: { id: "yesterday", label: "sidebar.bandYesterday" },
+  week: { id: "week", label: "sidebar.bandWeek" },
+  month: { id: "month", label: "sidebar.bandMonth" },
+  older: { id: "older", label: "sidebar.bandOlder" },
 };
 
 const STATUS_META: Record<"needs-you" | "working" | "unread" | "other", { id: string; label: string }> = {
-  "needs-you": { id: "needs-you", label: "需要你" },
-  working: { id: "working", label: "运行中" },
-  unread: { id: "unread", label: "未查看" },
-  other: { id: "other", label: "其他" },
+  "needs-you": { id: "needs-you", label: "sidebar.bandNeedsYou" },
+  working: { id: "working", label: "sidebar.bandWorking" },
+  unread: { id: "unread", label: "sidebar.bandUnread" },
+  other: { id: "other", label: "sidebar.bandOther" },
 };
 
 function sortSessions(
@@ -337,7 +338,7 @@ function eligibleSessions(opts: BuildSidebarOpts): SessionSummary[] {
 function toRow(opts: BuildSidebarOpts, session: SessionSummary, indent: 0 | 1): SidebarRow {
   const loc = projectForSession(session.cwd, opts.projects, opts.inboxCwd);
   const projectPath = loc.inbox ? null : loc.path;
-  const subtitle = loc.inbox ? "独立对话" : basename(loc.path);
+  const subtitle = loc.inbox ? tr("sidebar.inbox") : basename(loc.path);
   const projectPinned = loc.inbox
     ? opts.pinnedProjects.includes(INBOX_PIN)
     : opts.pinnedProjects.some((p) => sameCwd(p, loc.path));
@@ -368,7 +369,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
   if (pinned.length) {
     sections.push({
       id: "pin",
-      label: "置顶",
+      label: tr("sidebar.pin"),
       kind: "pin",
       band: "pin",
       rows: sortSessions(pinned, opts.prefs.ordering, opts.titles, opts.preview).map((session) => toRow(opts, session, 0)),
@@ -457,7 +458,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
     if (inboxRows.length) {
       sections.push({
         id: "inbox",
-        label: "独立对话",
+        label: tr("sidebar.inbox"),
         kind: "inbox",
         band: "inbox",
         rows: sortSessions(inboxRows, opts.prefs.ordering, opts.titles, opts.preview).map((session) => toRow(opts, session, 0)),
@@ -480,7 +481,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
       const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles, opts.preview));
       sections.push({
         id: TIME_META[key].id,
-        label: TIME_META[key].label,
+        label: tr(TIME_META[key].label),
         kind: "time",
         rows: flat.map(({ session, indent }) => toRow(opts, session, indent)),
       });
@@ -501,7 +502,7 @@ export function buildSidebarSections(opts: BuildSidebarOpts): SidebarSection[] {
     const flat = flattenForks(sortSessions(rows, opts.prefs.ordering, opts.titles, opts.preview));
     sections.push({
       id: STATUS_META[key].id,
-      label: STATUS_META[key].label,
+      label: tr(STATUS_META[key].label),
       kind: "status",
       rows: flat.map(({ session, indent }) => toRow(opts, session, indent)),
     });

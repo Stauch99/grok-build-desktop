@@ -15,7 +15,10 @@ function snapshot(): TextSelectionState | null {
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
   const anchor = sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement;
   const focus = sel.focusNode instanceof Element ? sel.focusNode : sel.focusNode?.parentElement;
-  if (!anchor?.closest(".msg.assistant") || !focus?.closest(".msg.assistant")) return null;
+  if (!anchor || !focus) return null;
+  const inMsg = (el: Element) =>
+    !!el.closest(".msg, .turn-user, .fold, .tool-result, .compact-card");
+  if (!inMsg(anchor) || !inMsg(focus)) return null;
   const text = sel.toString().trim();
   if (!text) return null;
   const r = sel.getRangeAt(0).getBoundingClientRect();

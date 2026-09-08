@@ -6,7 +6,7 @@ import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
 import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
 import { ImagineGallery } from "./ImagineGallery";
-import { MemoryWorkspace } from "./MemoryWorkspace";
+import { MemoryGrowthPage } from "./memory-growth/MemoryGrowthPage";
 import { ParallelSubagents, type ParallelSubagentItem } from "./ParallelSubagents";
 import { TokenChart } from "./TokenChart";
 
@@ -46,6 +46,10 @@ export type ExtraOverlayProps = {
   corpus?: string | null;
   onDreamNow?: () => void;
   userMdPath?: string;
+  dreamsMdPath?: string;
+  tagline?: string | null;
+  displayName?: string;
+  onOpenMemorySettings?: () => void;
   usagePoints: { at: number; used: number; size: number }[];
   usageDays: 7 | 30;
   onUsageDays: (d: 7 | 30) => void;
@@ -53,7 +57,8 @@ export type ExtraOverlayProps = {
 };
 
 /**
- * Extra pages that actually list files or sessions. Slash-only doors stay on the CLI.
+ * Extra pages. Memory opens from Settings so it stays reachable when the
+ * composer is blocked.
  */
 export function ExtraOverlay({
   page,
@@ -74,6 +79,10 @@ export function ExtraOverlay({
   corpus = null,
   onDreamNow,
   userMdPath,
+  dreamsMdPath,
+  tagline = null,
+  displayName = "",
+  onOpenMemorySettings,
   usagePoints,
   usageDays,
   onUsageDays,
@@ -116,18 +125,22 @@ export function ExtraOverlay({
           {page === "dashboard" ? <DashboardPanel sessions={dashboard} onOpen={onOpenSession} /> : null}
           {page === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} /> : null}
           {page === "memory" ? (
-            <MemoryWorkspace
-              memoryPath={memoryPath}
-              agentsPath={agentsPath}
-              cwd={cwd}
-              onOpen={onOpenPath}
-              onEdit={onOpenPath}
+            <MemoryGrowthPage
+              locale={locale}
+              displayName={displayName}
+              tagline={tagline}
               diary={diary}
               status={status}
               corpus={corpus}
-              onDreamNow={onDreamNow}
-              onOpenUserMd={userMdPath ? () => onOpenPath(userMdPath) : undefined}
-              locale={locale}
+              onDreamNow={onDreamNow ?? (() => {})}
+              userMdPath={userMdPath}
+              dreamsMdPath={dreamsMdPath}
+              memoryPath={memoryPath}
+              agentsPath={agentsPath}
+              cwd={cwd}
+              onOpenPath={onOpenPath}
+              onOpenSettings={onOpenMemorySettings}
+              extraOpen
             />
           ) : null}
           {page === "usage" ? (

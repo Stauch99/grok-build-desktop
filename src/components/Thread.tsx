@@ -13,9 +13,11 @@ import {
 import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "react-window";
 import { openPath } from "../api";
 import { applySearchHit, waitForSelector } from "../lib/search-hit";
+import { agentChipLabel } from "../lib/agent-chip";
 import {
   assistantCopyReady,
   groupWorkRuns,
+  lastUserTextBefore,
   trailingWorkStartedAt,
   type ChatItem,
   type ChatState,
@@ -158,7 +160,12 @@ export function Fold({
       : undefined;
   return (
     <div className={`fold ${open ? "open" : ""}`}>
-      <button type="button" className="fold-head" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="fold-head"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
         <span className="fold-chev"><IconChevron size={12} /></span>
         <span className="fold-label">{label}</span>
         {meta ? <span className={metaClass}>{meta}</span> : null}
@@ -180,6 +187,8 @@ export const ChatRow = memo(function ChatRow({
   onForkTurn,
   onPreviewPath,
   highlightQuery,
+  retryText,
+  onDraftUser,
 }: {
   item: ChatItem;
   dark: boolean;
@@ -194,6 +203,8 @@ export const ChatRow = memo(function ChatRow({
   onInspectTool?: (item: Extract<ChatItem, { kind: "tool" }>) => void;
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
+  retryText?: string | null;
+  onDraftUser?: (text: string) => void;
 }) {
   const t = useT();
   const openPathAbs = (p: string) => {
@@ -264,15 +275,50 @@ export const ChatRow = memo(function ChatRow({
   if (item.kind === "plan") {
     return (
       <Fold label={t("thread.plan")}>
-        {item.entries.map((e, i) => (
-          <div key={`${e.content}-${i}`}>{e.content}</div>
-        ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          {item.entries.map((e, i) => (
+            <div
+              key={`${e.content}-${i}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                opacity: e.status === "completed" ? 0.6 : 1,
+              }}
+            >
+              <span
+                style={{
+                  width: "14px",
+                  height: "14px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "11px",
+                  borderRadius: "3px",
+                  border: "1px solid var(--border, #ccc)",
+                  color: e.status === "completed" ? "var(--brand, #10a37f)" : "transparent",
+                }}
+                aria-hidden
+              >
+                {e.status === "completed" ? "✓" : ""}
+              </span>
+              <span
+                style={{
+                  textDecoration: e.status === "completed" ? "line-through" : undefined,
+                }}
+              >
+                {e.content}
+              </span>
+            </div>
+          ))}
+        </div>
       </Fold>
     );
   }
   if (item.kind === "compact") {
     return (
       <article className="compact-card" aria-label={t("thread.compact")}>
+        {item.agentId ? <span className="hub-meta">{agentChipLabel(item.agentId)}</span> : null}
         <strong>{item.phase === "completed" ? t("thread.compactDone") : t("thread.compactStart")}</strong>
         {item.used != null && item.size != null ? (
           <span className="hub-meta">{item.used} / {item.size}</span>
@@ -282,15 +328,29 @@ export const ChatRow = memo(function ChatRow({
   }
   const stat = diffStatLabel(item.diff);
   const toolLabel = `${item.title || item.toolKind || t("tool.call")}${stat ? ` ${stat}` : ""}`;
+  const isFail = item.status === "failed";
   return (
-    <Fold label={toolLabel} meta={item.status}>
+    <Fold
+      label={toolLabel}
+      meta={item.agentId ? `${agentChipLabel(item.agentId)} · ${item.status}` : item.status}
+    >
       <ToolResult
         title={item.title}
         toolKind={item.toolKind}
         status={item.status}
-        detail={undefined}
+        detail={item.detail}
         diff={item.diff}
         onOpenPath={openPathAbs}
+        onRetry={
+          isFail && onResendUser && retryText
+            ? () => onResendUser(retryText)
+            : undefined
+        }
+        onDraft={
+          isFail && onDraftUser && retryText
+            ? () => onDraftUser(retryText)
+            : undefined
+        }
       />
     </Fold>
   );
@@ -309,7 +369,6 @@ type ThreadRowCtx = {
   lastWorkId: string | null;
   liveInTimeline: boolean;
   liveRow: ReactNode;
-  liveTick: number;
   liveStartedAt?: number;
   busy: boolean;
   items: ChatItem[];
@@ -320,6 +379,7 @@ type ThreadRowCtx = {
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
   onCancel: () => void;
+  onDraftUser?: (text: string) => void;
 };
 
 function userTurnsBefore(blocks: ThreadBlock[], index: number): number {
@@ -353,7 +413,6 @@ function ThreadBlockView({
     sessionModel,
     lastWorkId,
     liveRow,
-    liveTick,
     liveStartedAt,
     items,
     busy,
@@ -364,6 +423,7 @@ function ThreadBlockView({
     onPreviewPath,
     highlightQuery,
     onCancel,
+    onDraftUser,
   } = ctx;
   const copyFor = (id: string) => assistantCopyReady(items, id, busy);
   if (block.kind === "work") {
@@ -377,9 +437,16 @@ function ThreadBlockView({
         cwd={cwd}
         live={runBusy ? liveRow : null}
         onInspectTool={onInspectTool}
+        onRetry={(tool) => {
+          const text = lastUserTextBefore(items, tool.id);
+          if (text) onResendUser?.(text);
+        }}
+        onDraft={(tool) => {
+          const text = lastUserTextBefore(items, tool.id);
+          if (text) onDraftUser?.(text);
+        }}
         onStop={runBusy ? onCancel : undefined}
         runId={block.id}
-        tick={runBusy ? liveTick : 0}
         startedAt={runBusy ? liveStartedAt : undefined}
       />
     );
@@ -422,6 +489,9 @@ function ThreadBlockView({
       onForkTurn={onForkTurn}
       onInspectTool={onInspectTool}
       onPreviewPath={onPreviewPath}
+          highlightQuery={highlightQuery}
+          retryText={item.kind === "tool" ? lastUserTextBefore(items, item.id) : null}
+          onDraftUser={onDraftUser}
     />
   );
 }
@@ -467,6 +537,7 @@ export type ThreadColumnProps = {
   pinToLatest?: boolean;
   sessionId?: string | null;
   loading?: boolean;
+  onDraftUser?: (text: string) => void;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -497,6 +568,7 @@ export function ThreadColumn({
   pinToLatest = false,
   sessionId = null,
   loading = false,
+  onDraftUser,
 }: ThreadColumnProps) {
   const t = useT();
   const [tocHover, setTocHover] = useState<{
@@ -507,7 +579,6 @@ export function ThreadColumn({
   const [tocActive, setTocActive] = useState<string | null>(null);
   const wasVirtualRef = useRef(false);
   const anchorIndexRef = useRef(0);
-  const [liveTick, setLiveTick] = useState(0);
   const liveClock = useRef({ announced: "", lastAt: 0 });
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
@@ -517,7 +588,8 @@ export function ThreadColumn({
   const lastWorkId = liveWorkBlockId(blocks, { busy, showThinking });
   const liveInTimeline = lastWorkId != null;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
-  const liveRow = busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
+  const liveRow =
+    busy || lastWorkId ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} /> : null;
   const rowCtx = useMemo(
     (): ThreadRowCtx => ({
       paneId,
@@ -529,7 +601,6 @@ export function ThreadColumn({
       lastWorkId,
       liveInTimeline,
       liveRow,
-      liveTick,
       liveStartedAt,
       busy,
       items: chat.items,
@@ -540,6 +611,7 @@ export function ThreadColumn({
       onPreviewPath,
       highlightQuery,
       onCancel,
+      onDraftUser,
     }),
     [
       paneId,
@@ -551,7 +623,6 @@ export function ThreadColumn({
       lastWorkId,
       liveInTimeline,
       liveRow,
-      liveTick,
       liveStartedAt,
       busy,
       chat.items,
@@ -562,6 +633,7 @@ export function ThreadColumn({
       onPreviewPath,
       highlightQuery,
       onCancel,
+      onDraftUser,
     ],
   );
   const listActive = virtualize && !empty;
@@ -650,12 +722,6 @@ export function ThreadColumn({
     root.querySelectorAll("[data-turn-id]").forEach((el) => obs.observe(el));
     return () => obs.disconnect();
   }, [listActive, blocks, turns.length, chatRef, listRef]);
-
-  useEffect(() => {
-    if (!busy) return;
-    const id = window.setInterval(() => setLiveTick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [busy]);
 
   useEffect(() => {
     const latest = latestAssistantText(chat.items);

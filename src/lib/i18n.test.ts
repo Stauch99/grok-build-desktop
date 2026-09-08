@@ -100,6 +100,11 @@ describe("i18n", () => {
     expect(t("zh", "confirm.deleteGroupBody", { name: "工作" })).toContain("工作");
     expect(t("zh", "extra.dashboard")).toBe("会话总览");
     expect(t("en", "extra.dashboard")).toBe("Sessions");
+    expect(t("zh", "extra.memory")).toBe("记忆");
+    expect(t("zh", "settings.openMemory")).toBe("打开成长记忆");
+    expect(t("en", "settings.openMemory")).toBe("Open growth memory");
+    expect(t("zh", "settings.memoryTab")).toBe("记忆");
+    expect(t("en", "settings.memoryTab")).toBe("Memory");
     expect(t("zh", "pane.splitRight")).toBe("向右拆开");
     expect(t("en", "pane.reveal")).toBe("Reveal");
     expect(t("zh", "pane.tooSmall")).toBe("这里放不下");

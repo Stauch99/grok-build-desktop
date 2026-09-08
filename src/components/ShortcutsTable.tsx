@@ -31,7 +31,7 @@ export function ShortcutsTable({ overrides, onChange }: ShortcutsTableProps) {
         {DEFAULT_SHORTCUTS.map((row) => (
           <tr key={row.id} className={conflicts.includes(row.id) ? "is-conflict" : undefined}>
             <td>
-              <label htmlFor={`shortcut-${row.id}`}>{row.action}</label>
+              <label htmlFor={`shortcut-${row.id}`}>{t(row.action)}</label>
             </td>
             <td>
               <input
@@ -39,7 +39,7 @@ export function ShortcutsTable({ overrides, onChange }: ShortcutsTableProps) {
                 readOnly
                 value={bindingFor(overrides, row.id)}
                 placeholder={t("shortcut.recordHint")}
-                aria-label={row.action}
+                aria-label={t(row.action)}
                 aria-invalid={conflicts.includes(row.id) || undefined}
                 aria-describedby={conflicts.includes(row.id) ? `shortcut-conflict-${row.id}` : undefined}
                 onKeyDown={(e) => {

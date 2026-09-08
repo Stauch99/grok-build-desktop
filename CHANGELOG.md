@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-08
+
+### Added
+
+- Growth memory page: tagline, intimacy/growth heatmap, diary + timeline, and a 4–20 session sweep threshold.
+- `memory-mcp` stdio sidecar (`grok-build-memory`) so any MCP CLI can read memory and append daily notes; Settings can revoke the four live CLI registrations.
+- Hang recover banner after a busy turn goes quiet with nothing in flight (resend / restore draft / wait).
+- Header jobs menu to inspect and stop in-flight work.
+
+### Fixed
+
+- Ghost-heal no longer cancels a live turn that is still thinking after `session/prompt` was written.
+- Grok subagent sessions nest under the parent in the sidebar and open from the header catalog.
+- Queued follow-ups stay as their own bubbles: leftover IME Enter no longer glues the next line into the same send, and a queued prompt appears in the thread immediately.
+- Pasted images are copied into the project and sent as ACP `resource`/`image` blocks, not only as `@path` text.
+
 ## [0.6.2] - 2026-09-07
 
 ### Added

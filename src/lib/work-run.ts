@@ -31,17 +31,19 @@ const KEYWORD_SKIP = new Set([
   "exitplanmode",
 ]);
 
-const ARIA_VERB: Record<Locale, Record<ToolClass, string>> = {
-  zh: TOOL_VERB,
-  en: {
-    bash: "Running",
-    read: "Reading",
-    edit: "Editing",
-    search: "Searching",
-    write: "Writing",
-    other: "Calling",
-  },
+const EN_ARIA_VERB: Record<ToolClass, string> = {
+  bash: "Running",
+  read: "Reading",
+  edit: "Editing",
+  search: "Searching",
+  write: "Writing",
+  other: "Calling",
 };
+
+function ariaVerb(locale: Locale, kind: ToolClass): string {
+  if (locale === "en") return EN_ARIA_VERB[kind];
+  return t(locale, TOOL_VERB[kind]);
+}
 
 export type WorkRunCopy = {
   text: string;
@@ -187,9 +189,9 @@ function liveCopy(items: WorkItem[], runId: string, tick: number, locale: Locale
     const kind = classifyTool(tool.title, tool.toolKind);
     const detail = toolDetailFromTitle(tool.title, kind).trim();
     const verb = pickPhrase(WORK_RUN_VERBS[locale], runId, tick);
-    const ariaVerb = ARIA_VERB[locale][kind];
+    const ariaVerbLabel = ariaVerb(locale, kind);
     const text = `${detail ? `${verb} · ${detail}` : verb}${fail}`;
-    const ariaLabel = `${t(locale, "workRun.ariaTool", { verb: ariaVerb, detail }).trim()}${fail}`;
+    const ariaLabel = `${t(locale, "workRun.ariaTool", { verb: ariaVerbLabel, detail }).trim()}${fail}`;
     return { text, ariaLabel, failed };
   }
   const idle = pickPhrase(WORK_RUN_IDLE[locale], runId, tick);
@@ -204,6 +206,13 @@ export function formatLiveElapsed(ms: number): string {
   const total = Math.max(0, ms) / 1000;
   if (total < 60) return `${total.toFixed(1)}s`;
   return `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+}
+
+/** Quiet working-for line: `12s`, `4m 4s`. */
+export function formatWorkedElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  return `${Math.floor(total / 60)}m ${total % 60}s`;
 }
 
 export function workRunIsLive(opts: { items: WorkItem[]; busy?: boolean }): boolean {

@@ -7,6 +7,7 @@ import {
   IconRefresh,
   IconSearch,
   IconSidebar,
+  IconBook,
   IconThumbDown,
   IconThumbUp,
   IconTodoBusy,
@@ -22,6 +23,7 @@ export const IconGrokMore = IconMore;
 export const IconGrokSearch = IconSearch;
 export const IconGrokPlus = IconPlus;
 export const IconGrokClose = IconClose;
+export const IconGrokMemory = IconBook;
 export { IconTodoOff, IconTodoOn, IconTodoBusy, IconThumbUp as IconGrokThumbUp, IconThumbDown as IconGrokThumbDown };
 
 /** Sidebar collapse. `mirror` puts the rail on the right. */

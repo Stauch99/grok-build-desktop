@@ -59,7 +59,7 @@ pub fn write_at(root: &Path, patch: WritePatch) -> Result<(), String> {
     Ok(())
 }
 
-fn memory_root() -> PathBuf {
+pub(crate) fn memory_root() -> PathBuf {
     crate::agents_paths::workbench_home_from(
         &crate::dirs_home(),
         std::env::var("ACP_WORKBENCH_HOME").ok().as_deref(),
@@ -78,7 +78,7 @@ pub fn write_memory_host(patch: WritePatch) -> Result<(), String> {
     write_at(&memory_root(), patch)
 }
 
-fn is_ymd(day: &str) -> bool {
+pub(crate) fn is_ymd(day: &str) -> bool {
     let b = day.as_bytes();
     b.len() == 10
         && b[4] == b'-'
@@ -88,14 +88,14 @@ fn is_ymd(day: &str) -> bool {
         && b[8..].iter().all(u8::is_ascii_digit)
 }
 
-fn daily_rel(day: &str) -> Result<PathBuf, String> {
+pub(crate) fn daily_rel(day: &str) -> Result<PathBuf, String> {
     if !is_ymd(day) {
         return Err("invalid daily day".into());
     }
     Ok(PathBuf::from("daily").join(format!("{day}.md")))
 }
 
-fn resolve_under(root: &Path, rel: &Path) -> Result<PathBuf, String> {
+pub(crate) fn resolve_under(root: &Path, rel: &Path) -> Result<PathBuf, String> {
     if rel.is_absolute() {
         return Err("path escapes memory root".into());
     }
@@ -117,7 +117,7 @@ fn resolve_under(root: &Path, rel: &Path) -> Result<PathBuf, String> {
     Ok(joined)
 }
 
-fn read_capped(path: &Path) -> Result<String, String> {
+pub(crate) fn read_capped(path: &Path) -> Result<String, String> {
     match std::fs::read(path) {
         Ok(bytes) if bytes.len() > MAX_FILE_BYTES => Err("file exceeds 64 KiB size limit".into()),
         Ok(bytes) => String::from_utf8(bytes).map_err(|e| e.to_string()),
@@ -126,7 +126,7 @@ fn read_capped(path: &Path) -> Result<String, String> {
     }
 }
 
-fn write_capped(path: &Path, text: &str) -> Result<(), String> {
+pub(crate) fn write_capped(path: &Path, text: &str) -> Result<(), String> {
     if text.len() > MAX_FILE_BYTES {
         return Err("file exceeds 64 KiB size limit".into());
     }
@@ -140,7 +140,7 @@ fn write_capped(path: &Path, text: &str) -> Result<(), String> {
 }
 
 /// UTC calendar day. Commands use this; unit tests always pass an explicit `day`.
-fn today_stamp() -> String {
+pub(crate) fn today_stamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())

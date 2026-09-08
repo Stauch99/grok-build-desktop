@@ -1,22 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { WorkItem } from "../lib/chat";
-import { formatLiveElapsed, workRunCopy, workRunIsLive } from "../lib/work-run";
-import { useLocale, useT } from "../lib/locale-context";
-import { IconLight, IconStop } from "../icons";
-import { DotMatrix } from "./DotMatrix";
-import { WorkTimeline } from "./WorkTimeline";
-
-function useLiveElapsed(active: boolean, startedAt?: number) {
-  const [now, setNow] = useState(() => Date.now());
-  const ticking = active && startedAt != null;
-  useEffect(() => {
-    if (!ticking) return;
-    const id = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(id);
-  }, [ticking]);
-  if (!ticking || startedAt == null) return null;
-  return formatLiveElapsed(now - startedAt);
-}
+import { workRunCopy, workRunIsLive } from "../lib/work-run";
+import { useLocale } from "../lib/locale-context";
+import { IconLight } from "../icons";
+import { WorkLiveRow, WorkTimeline } from "./WorkTimeline";
 
 export function WorkRun({
   items,
@@ -25,8 +12,8 @@ export function WorkRun({
   live,
   onInspectTool,
   onStop,
-  runId,
-  tick = 0,
+  onRetry,
+  onDraft,
   startedAt,
 }: {
   items: WorkItem[];
@@ -35,56 +22,51 @@ export function WorkRun({
   live?: ReactNode;
   onInspectTool?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
   onStop?: () => void;
+  onRetry?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
+  onDraft?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
   runId: string;
   tick?: number;
   startedAt?: number;
 }) {
   const locale = useLocale();
-  const t = useT();
   const [open, setOpen] = useState(false);
   const running = workRunIsLive({ items, busy });
-  const copy = workRunCopy({ items, busy: running, runId, tick, locale });
-  const elapsed = useLiveElapsed(running, startedAt);
+  const expanded = running || open;
+  const copy = workRunCopy({ items, locale });
+  const liveNode =
+    running ? (live ?? (onStop ? <WorkLiveRow startedAt={startedAt} onStop={onStop} /> : null)) : null;
   return (
     <div
-      className={`work-cluster work-run${copy.failed ? " failed" : ""}${running ? " live" : ""}${open ? " open" : ""}`}
+      className={`work-cluster work-run${copy.failed ? " failed" : ""}${running ? " live" : ""}${expanded ? " open" : ""}`}
       aria-busy={running || undefined}
     >
-      <div className="work-run-bar">
-        <button
-          type="button"
-          className="work-run-head"
-          aria-expanded={open}
-          aria-label={copy.ariaLabel}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span className="work-run-ico" aria-hidden>
-            {running ? <DotMatrix /> : <IconLight size={18} />}
-          </span>
-          <span className="work-run-text">
-            <span className={running ? "shimmer-text" : undefined}>{copy.text}</span>
-            {elapsed ? <span className="work-run-elapsed">{elapsed}</span> : null}
-          </span>
-        </button>
-        {running && onStop ? (
+      {running ? null : (
+        <div className="work-run-bar">
           <button
             type="button"
-            className="work-run-stop"
-            onClick={onStop}
-            data-tip={t("thread.stop")}
-            aria-label={t("thread.stop")}
+            className="work-run-head"
+            aria-expanded={open}
+            aria-label={copy.ariaLabel}
+            onClick={() => setOpen((v) => !v)}
           >
-            <IconStop size={16} />
+            <span className="work-run-ico" aria-hidden>
+              <IconLight size={18} />
+            </span>
+            <span className="work-run-text">
+              <span>{copy.text}</span>
+            </span>
           </button>
-        ) : null}
-      </div>
-      {open ? (
+        </div>
+      )}
+      {expanded ? (
         <WorkTimeline
           items={items}
           busy={running}
           cwd={cwd}
-          live={running ? live : null}
+          live={liveNode}
           onInspectTool={onInspectTool}
+          onRetry={onRetry}
+          onDraft={onDraft}
         />
       ) : null}
     </div>

@@ -55,6 +55,23 @@ describe("resolveSubagentSession", () => {
     expect(found?.id).toBe("child-disk");
   });
 
+  it("opens a Grok disk child by subagent_id in the tool detail", () => {
+    const child = session({
+      id: "01a078d3-8771-7443-aa04-05c384fd1de9",
+      parentSessionId: "parent",
+      sessionKind: "subagent",
+      title: "CS329A Lectures 6–7 HTML Pages",
+      agentId: "grok",
+    });
+    const found = resolveSubagentSession(
+      "spawn",
+      [session({ id: "parent" }), child],
+      { parentSessionId: "parent", agentId: "grok" },
+      "Subagent started in background.\nsubagent_id: 01a078d3-8771-7443-aa04-05c384fd1de9",
+    );
+    expect(found?.id).toBe(child.id);
+  });
+
   it("returns null when nothing matches", () => {
     expect(
       resolveSubagentSession("missing", [session({ id: "parent" })], {
@@ -108,6 +125,38 @@ describe("subagentChips", () => {
     );
     expect(chips).toEqual([
       { id: "toolu_1", name: "Agent", status: "running", sessionId: null },
+    ]);
+  });
+
+  it("marks a Grok child openable from spawn detail even without toolUseId", () => {
+    const chips = subagentChips(
+      [
+        {
+          kind: "tool",
+          id: "spawn",
+          title: "spawn_subagent writer",
+          status: "completed",
+          detail: "subagent_id: child-1",
+        },
+      ],
+      [
+        session({
+          id: "child-1",
+          parentSessionId: "parent",
+          sessionKind: "subagent",
+          title: "Write lectures 6 and 7",
+          agentId: "grok",
+        }),
+      ],
+      { parentSessionId: "parent", agentId: "grok" },
+    );
+    expect(chips).toEqual([
+      {
+        id: "spawn",
+        name: "Write lectures 6 and 7",
+        status: "completed",
+        sessionId: "child-1",
+      },
     ]);
   });
 

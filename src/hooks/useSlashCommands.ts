@@ -7,6 +7,7 @@ import { snapModelChange } from "../lib/agent-models";
 import { shouldSendSessionModelSlash } from "../lib/session-agent";
 import type { CommandDef, HubTab } from "../lib/commands";
 import { parseRenameArgs } from "../lib/commands";
+import { friendlyError } from "../lib/error-copy";
 import { t, type Locale } from "../lib/i18n";
 import type { Mode } from "../lib/mode";
 import { modeLabel, shouldSendModeSlash, slashForMode } from "../lib/mode";
@@ -58,6 +59,7 @@ export type SlashCommandDeps = {
   persist: (partial: WebuiState) => void;
   showToast: (msg: string) => void;
   setMode: (mode: Mode) => void;
+  setPendingMode?: (mode: Mode | null) => void;
   setModel: (model: string) => void;
   modelPickedRef: React.MutableRefObject<boolean>;
   setEffort: (effort: string) => void;
@@ -105,7 +107,8 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
       ? !!(d.extraPanes[dest]?.sessionId && d.readyRef.current)
       : !!(d.sessionIdRef.current && d.readyRef.current && !d.loadingSession);
     if (live && paneBusy) {
-      if (next !== "yolo") d.showToast(t(d.locale, "mode.nextTurn"));
+      d.setPendingMode?.(next);
+      d.showToast(t(d.locale, "mode.queued", { mode: modeLabel(next, d.locale) }));
       return;
     }
     if (live) {
@@ -120,7 +123,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
             return { ...prev, [dest]: { ...cur, busy: false } };
           });
         } else d.setBusy(false);
-        d.showToast(String(e));
+        d.showToast(friendlyError(e));
       }
       return;
     }
@@ -143,7 +146,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
           d.showToast(t(d.locale, "toast.modelDefaultKept", { session: d.sessionModel }));
         }
       })
-      .catch((e) => d.showToast(String(e)));
+      .catch((e) => d.showToast(friendlyError(e)));
   }
 
   function applySessionModel(next: string) {
@@ -167,7 +170,7 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
           d.setCli((prev) => (prev ? { ...prev, effort: next } : prev));
         }
       })
-      .catch((e) => d.showToast(String(e)));
+      .catch((e) => d.showToast(friendlyError(e)));
     if (d.selectedAgentId === "claude" && d.sessionIdRef.current && d.readyRef.current) {
       void d.sendPrompt(`/effort ${next}`);
     }

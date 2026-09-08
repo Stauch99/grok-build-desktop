@@ -65,7 +65,7 @@ Grok Build Desktop is that place. It speaks [Agent Client Protocol](https://agen
 - **Live turn** — streaming text, thoughts, plans, classified tool calls, permission cards
 - **Workbench chrome** — explorer, preview (Markdown + Mermaid), Git status / history / commit, review rail
 - **One Skills / MCP plane** — canonical store is `~/.agents`, then synced into each enabled CLI
-- **Honest empty states** — if a CLI has no analog (hooks, personas, imagine), the UI says so instead of faking it
+- **Growth memory** — a workbench journal, heatmap, and a stdio MCP server (`grok-build-memory`) so any CLI can read USER.md and append daily notes
 
 What it is **not**: a full IDE, a browser web UI, or a replacement for `git`, `lldb`, or your `$EDITOR`.
 
@@ -113,6 +113,22 @@ npm run tauri build
 ```
 
 macOS artifacts land in `src-tauri/target/release/bundle/macos/` and `dmg/`.
+
+## Memory MCP (any CLI)
+
+The workbench copies a `memory-mcp` sidecar to `~/.acp-workbench/bin/` and registers `grok-build-memory` into Grok / Kimi / Claude / Codex when **Settings → Allow CLIs to read and write memory** is on. Other MCP clients can attach the same stdio server:
+
+```json
+{
+  "mcpServers": {
+    "grok-build-memory": {
+      "command": "/Users/YOU/.acp-workbench/bin/memory-mcp"
+    }
+  }
+}
+```
+
+Tools: `memory_get`, `memory_recall`, `memory_append`, `memory_timeline`, `memory_forget`. Appends go to `daily/`; only the desktop dream sweep writes `USER.md`.
 
 ## Architecture in one picture
 

@@ -18,8 +18,10 @@ export function liveRosterFromTools(
   const out: SessionSummary[] = [];
   for (const item of items) {
     if (item.kind !== "tool") continue;
-    if (subagentStatusFromItem(item, opts.agentId) !== "running") continue;
+    const status = subagentStatusFromItem(item, opts.agentId);
+    if (!status) continue;
     const childId = childSessionIdFromToolDetail(item.detail);
+    if (status !== "running" && !childId) continue;
     out.push({
       id: childId ?? liveRosterId(opts.agentId, item.id),
       parentSessionId: opts.parentSessionId,

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  attentionCount,
   busySessionIds,
   clearUnread,
   deriveStatus,
@@ -136,12 +135,3 @@ describe("busySessionIds", () => {
   });
 });
 
-describe("attentionCount", () => {
-  it("counts errors plus a live permission prompt", () => {
-    expect(attentionCount({ s1: "error", s2: "done", s3: "error" }, "s9")).toBe(3);
-  });
-
-  it("does not count plain completions", () => {
-    expect(attentionCount({ s1: "done", s2: "done" }, null)).toBe(0);
-  });
-});

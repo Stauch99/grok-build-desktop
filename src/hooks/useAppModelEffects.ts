@@ -15,6 +15,7 @@ import {
   readUsageHistory,
   setBadge,
   setHideOnClose,
+  setNotifyTarget,
   setWorkspace,
   windowFocused,
   type SessionSummary,
@@ -29,8 +30,10 @@ import { paneNeedsCloseConfirm } from "../lib/app-hotkeys";
 import { tapDanger } from "../lib/confirm";
 import { dequeue } from "../lib/prompt-queue";
 import { isSessionFocused, notifyText, shouldMarkUnread, shouldNotify } from "../lib/notify";
-import { countNeedsYou } from "../lib/session-badge";
+import { countAttention } from "../lib/session-badge";
+import { playTurnDone } from "../lib/sound";
 import { persistReviewOpen } from "../lib/review-rail";
+import { friendlyError } from "../lib/error-copy";
 import { fitLayout } from "../lib/layout";
 import { situationAutoCollapse } from "../lib/shell-ia";
 import { shouldPollBilling } from "../lib/auth-kind";
@@ -48,6 +51,7 @@ import type { QueuedPermission } from "../lib/permission-queue";
 import { useAppHotkeys } from "./useAppHotkeys";
 import { useSessionHotkeys } from "./useSessionHotkeys";
 import { hydrateWebuiState } from "./hydrate-webui";
+import { ensureMemoryMcp } from "../lib/workbench-api";
 import type { useAppModelState } from "./useAppModelState";
 import type { useAppWorkspace } from "./useAppWorkspace";
 import type { useAcpSession, ExtraPaneState } from "./useAcpSession";
@@ -103,7 +107,7 @@ export function useAppModelEffects(d: EffectsDeps) {
     ) {
       return;
     }
-    void acp.ensureAgent(s.selectedAgentId).catch((e) => d.showToast(String(e)));
+    void acp.ensureAgent(s.selectedAgentId).catch((e) => d.showToast(friendlyError(e)));
   }, [s.selectedAgentId, acp.sessionId, d.doctorsReady, d.sendBlocked]);
 
   useEffect(() => {
@@ -169,6 +173,7 @@ export function useAppModelEffects(d: EffectsDeps) {
   useEffect(() => {
     let off: (() => void) | undefined;
     void onNotifyOpen((sid) => {
+      void setNotifyTarget(null);
       const row = [...s.inboxSessions, ...s.sessions].find((x) => x.id === sid);
       if (row) void ws.openSession(row);
       window.setTimeout(() => {
@@ -295,6 +300,8 @@ export function useAppModelEffects(d: EffectsDeps) {
       });
     }
     if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+      if (s.soundsRef.current) playTurnDone();
+      if (finishedId) void setNotifyTarget(finishedId);
       const { title, body } = notifyText(
         "turn-done",
         s.titleForSessionRef.current(finishedId),
@@ -328,6 +335,8 @@ export function useAppModelEffects(d: EffectsDeps) {
         });
       }
       if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+        if (s.soundsRef.current) playTurnDone();
+        if (pane.sessionId) void setNotifyTarget(pane.sessionId);
         const { title, body } = notifyText(
           "turn-done",
           s.titleForSessionRef.current(pane.sessionId),
@@ -473,11 +482,16 @@ export function useAppModelEffects(d: EffectsDeps) {
       setArchived: s.setArchived,
       setSessionDrafts: s.setSessionDrafts,
       setEnterSends: s.setEnterSends,
+      setSounds: s.setSounds,
+      setAllowedTools: s.setAllowedTools,
       setAutoArchiveDays: s.setAutoArchiveDays,
       setSteerByDefault: s.setSteerByDefault,
       setInjectUserMemory: s.setInjectUserMemory,
       setDreamingEnabled: s.setDreamingEnabled,
       setDreamAgentId: s.setDreamAgentId,
+      setDreamThresholdSessions: s.setDreamThresholdSessions,
+      setMemoryMcpEnabled: s.setMemoryMcpEnabled,
+      setMemoryDisplayName: s.setMemoryDisplayName,
       setLocale: s.setLocale,
       setThemeFamily: s.setThemeFamily,
       setAccentId: s.setAccentId,
@@ -498,6 +512,11 @@ export function useAppModelEffects(d: EffectsDeps) {
       setSettingsHydrated: s.setSettingsHydrated,
     });
   }, []);
+
+  useEffect(() => {
+    if (!s.settingsHydrated) return;
+    void ensureMemoryMcp(s.memoryMcpEnabled).catch(() => undefined);
+  }, [s.settingsHydrated, s.memoryMcpEnabled]);
 
   const billingInflight = useRef(false);
   const refreshBillingRef = useRef<() => Promise<void>>(async () => {});
@@ -576,7 +595,7 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [view.currentTitle]);
 
   useEffect(() => {
-    void setBadge(countNeedsYou(d.allSessions.map((row) => view.statusFor(row.id))));
+    void setBadge(countAttention(d.allSessions.map((row) => view.statusFor(row.id))));
   }, [d.allSessions, view.statusFor]);
 
   useAppHotkeys({

@@ -29,6 +29,7 @@ export type PackAppModelInput = {
   reviewCwd: string;
   allSessions: SessionSummary[];
   answerPermission: (req: QueuedPermission, optionId: string) => Promise<void>;
+  cancelPermission: (req: QueuedPermission) => Promise<void>;
   refreshInspect: (dir?: string) => Promise<void>;
   openHub: (tab?: "skills" | "mcp" | "marketplace" | "hooks") => void;
   openReview: (action: Parameters<ReviewController["openReview"]>[0]) => void;
@@ -182,6 +183,7 @@ export function packAppModel(p: PackAppModelInput) {
     collapsedIds: s.collapsedIds,
     setCollapsedIds: s.setCollapsedIds,
     setAllowedTools: s.setAllowedTools,
+    allowedTools: s.allowedTools,
     workspaceEntries: s.workspaceEntries,
     memoryChanges: s.memoryChanges,
     setMemoryChanges: s.setMemoryChanges,
@@ -206,6 +208,12 @@ export function packAppModel(p: PackAppModelInput) {
     dreamingEnabled: s.dreamingEnabled,
     setDreamingEnabled: s.setDreamingEnabled,
     dreamAgentId: s.dreamAgentId,
+    dreamThresholdSessions: s.dreamThresholdSessions,
+    setDreamThresholdSessions: s.setDreamThresholdSessions,
+    memoryMcpEnabled: s.memoryMcpEnabled,
+    setMemoryMcpEnabled: s.setMemoryMcpEnabled,
+    memoryDisplayName: s.memoryDisplayName,
+    setMemoryDisplayName: s.setMemoryDisplayName,
     setDreamAgentId: s.setDreamAgentId,
     doctors: s.doctors,
     unread: s.unread,
@@ -259,6 +267,7 @@ export function packAppModel(p: PackAppModelInput) {
     gitWorktrees: git.worktrees,
     refreshGit: git.refresh,
     answerPermission: p.answerPermission,
+    cancelPermission: p.cancelPermission,
     refreshInspect: p.refreshInspect,
     openHub: p.openHub,
     openReview: p.openReview,
@@ -325,6 +334,7 @@ export function packAppModel(p: PackAppModelInput) {
     mainPermission: view.mainPermission,
     mainPermissionView: view.mainPermissionView,
     panePermissions: view.panePermissions,
+    timedOutByPane: view.timedOutByPane,
     takeover: view.takeover,
     hero: view.hero,
     turnFiles: view.turnFiles,
@@ -345,8 +355,18 @@ export function packAppModel(p: PackAppModelInput) {
     dreamStatus: dream.status,
     dreamCorpus: dream.corpus,
     dreamUserMdPath: dream.userMdPath,
+    dreamDreamsMdPath: dream.dreamsMdPath,
+    dreamTagline: dream.tagline,
     onDreamNow: dream.onDreamNow,
     profileUpdated: dream.profileUpdated,
     dismissProfileUpdated: dream.dismissProfileUpdated,
+    sounds: s.sounds,
+    setSounds: s.setSounds,
+    pendingMode: s.pendingMode,
+    setPendingMode: s.setPendingMode,
+    promptHistoryRef: s.promptHistoryRef,
+    promptHistoryPosRef: s.promptHistoryPosRef,
+    stallRecover: s.stallRecover,
+    setStallRecover: s.setStallRecover,
   };
 }

@@ -1,8 +1,8 @@
+import type { DreamIo } from "./memory-dream";
 import type { AcpRecord } from "./acp-events";
 import type { AgentId } from "./agent-id";
 import { memoryCursorKey } from "./memory-clock";
 import { isDreamSession } from "./memory-dream-acp";
-import type { DreamIo } from "./memory-dream";
 import { filterIngestTurns, formatDailyFile, parseDailyFile, type IngestTurn } from "./memory-ingest";
 import { isHarnessUserText } from "./chat";
 import { asRecord, textFromContent } from "./text";
@@ -58,20 +58,6 @@ export function grokTurnsFromUpdates(rows: AcpRecord[], meta: GrokTurnMeta): Ing
 export function skipDreamIngestPage(page: { sessionId: string; cwd: string }, memoryRoot: string): boolean {
   if (memoryRoot && page.cwd === memoryRoot) return true;
   return isDreamSession(page.sessionId);
-}
-
-export function lightDailyOrIngest(modelText: string, ingestedDaily: string): string {
-  return parseDailyFile(modelText).length > 0 ? modelText : ingestedDaily;
-}
-
-export async function finishLightAfterPrompt(
-  live: DreamIo,
-  ingested: DreamIo,
-  modelText: Promise<string>,
-): Promise<{ dailyMd: string }> {
-  const text = await modelText;
-  live.state = { ...live.state, cursors: { ...ingested.state.cursors } };
-  return { dailyMd: lightDailyOrIngest(text, ingested.dailyMd) };
 }
 
 export function applyGrokIngest(

@@ -17,6 +17,7 @@ import {
   workRunLabel,
   workRunMeta,
   trailingWorkStartedAt,
+  lastUserTextBefore,
 } from "./chat";
 
 function upd(sessionUpdate: string, extra: Record<string, unknown> = {}) {
@@ -584,5 +585,19 @@ describe("formatElapsed", () => {
     expect(formatElapsed(12_000)).toBe("12秒");
     expect(formatElapsed(65_000)).toBe("1分5秒");
     expect(formatElapsed(3600_000)).toBe("1小时");
+  });
+});
+
+describe("lastUserTextBefore", () => {
+  it("returns the latest user prompt before a failed tool", () => {
+    const items: import("./chat").ChatItem[] = [
+      { kind: "user", id: "u1", text: "first" },
+      { kind: "tool", id: "t1", title: "Read", status: "completed" },
+      { kind: "user", id: "u2", text: "retry me" },
+      { kind: "tool", id: "t2", title: "Edit", status: "failed" },
+    ];
+    expect(lastUserTextBefore(items, "t2")).toBe("retry me");
+    expect(lastUserTextBefore(items, "t1")).toBe("first");
+    expect(lastUserTextBefore(items, "u1")).toBeNull();
   });
 });

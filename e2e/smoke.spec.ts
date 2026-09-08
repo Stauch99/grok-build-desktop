@@ -67,7 +67,18 @@ test.describe("desktop chrome smoke", () => {
     await installTauriStub(page);
     await page.goto("/");
     await expect(page.locator("#root")).toBeVisible();
+    await expect(page.locator(".composer textarea")).toBeVisible();
     await page.waitForTimeout(800);
+    const aligned = await page.evaluate(() => {
+      const ta = document.querySelector(".composer textarea");
+      const send = document.querySelector(".send-btn");
+      if (!(ta instanceof HTMLElement) || !(send instanceof HTMLElement)) return null;
+      const a = ta.getBoundingClientRect();
+      const b = send.getBoundingClientRect();
+      return Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2);
+    });
+    expect(aligned).not.toBeNull();
+    expect(aligned!).toBeLessThan(2);
     const root = page.locator("#root");
     await expect(root).not.toHaveText(/^\s*$/);
     const shot = await page.screenshot({ fullPage: true });

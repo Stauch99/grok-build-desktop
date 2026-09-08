@@ -1,15 +1,16 @@
+import { tr } from "./i18n-bridge";
 import { diffLines } from "./diff";
 import type { ChatItem, WorkItem } from "./chat";
 
 export type ToolClass = "bash" | "read" | "edit" | "search" | "write" | "other";
 
 export const TOOL_VERB: Record<ToolClass, string> = {
-  bash: "运行命令",
-  read: "读取",
-  edit: "编辑",
-  search: "搜索",
-  write: "写入",
-  other: "调用",
+  bash: "tool.verb.bash",
+  read: "tool.verb.read",
+  edit: "tool.verb.edit",
+  search: "tool.verb.search",
+  write: "tool.verb.write",
+  other: "tool.verb.other",
 };
 
 const TITLE_PREFIX: Record<ToolClass, RegExp> = {
@@ -64,7 +65,7 @@ export function toolDetailFromTitle(title: string, kind: ToolClass): string {
 /** One-line timeline copy: muted verb + fainter detail. */
 export function toolLineCopy(title: string, toolKind?: string): { verb: string; detail: string } {
   const kind = classifyTool(title, toolKind);
-  return { verb: TOOL_VERB[kind], detail: toolDetailFromTitle(title, kind) };
+  return { verb: tr(TOOL_VERB[kind]), detail: toolDetailFromTitle(title, kind) };
 }
 
 export function bashTools(items: ChatItem[]): Extract<ChatItem, { kind: "tool" }>[] {
@@ -102,6 +103,7 @@ const COMPRESS_VERB: Record<CompressClass, string> = {
 
 export function compressClass(item: WorkItem): CompressClass | null {
   if (item.kind !== "tool") return null;
+  if (item.status === "pending" || item.status === "in_progress") return null;
   const kind = classifyTool(item.title, item.toolKind);
   if (kind === "other") return "call";
   if (kind === "write") return null;
@@ -109,7 +111,7 @@ export function compressClass(item: WorkItem): CompressClass | null {
 }
 
 export function compressLabel(cls: CompressClass, n: number): string {
-  return `${COMPRESS_VERB[cls]} ${n} 次`;
+  return tr("tool.compressN", { verb: tr(COMPRESS_VERB[cls]), n });
 }
 
 /** Consecutive same-class tools collapse to one row when there are two or more. */

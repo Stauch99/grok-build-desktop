@@ -11,6 +11,9 @@ export type EmptyStateProps = {
   onInbox?: () => void;
   onCopyLogin?: (text: string) => void;
   onBrowseWorkspace?: () => void;
+  lastPrompt?: string | null;
+  onUseLastPrompt?: (text: string) => void;
+  onUseExample?: (text: string) => void;
 };
 
 type Step =
@@ -31,6 +34,9 @@ export function EmptyState({
   onInbox,
   onCopyLogin,
   onBrowseWorkspace,
+  lastPrompt,
+  onUseLastPrompt,
+  onUseExample,
 }: EmptyStateProps) {
   const t = useT();
   const kind = emptyDoctorKind({ doctor, cwd, projectCount });
@@ -48,6 +54,25 @@ export function EmptyState({
     title = t("empty.authMissing", { agent: agentLabel });
     steps.push({ kind: "text", text: t("empty.authHint", { cmd: hint ?? "" }) });
     if (onCopyLogin && hint) steps.push({ kind: "ghost", label: t("empty.copyLogin"), onClick: () => onCopyLogin(hint) });
+  } else if (kind === "ready") {
+    title = t("empty.ready");
+    steps.push({ kind: "text", text: t("empty.readyHint") });
+    const last = lastPrompt?.trim();
+    if (last && onUseLastPrompt) {
+      steps.push({
+        kind: "primary",
+        label: t("empty.lastPrompt", { text: last.slice(0, 40) }),
+        onClick: () => onUseLastPrompt(last),
+      });
+    }
+    if (onUseExample) {
+      steps.push({
+        kind: "ghost",
+        label: t("empty.example"),
+        onClick: () => onUseExample(t("empty.example")),
+      });
+    }
+    if (onBrowseWorkspace) steps.push({ kind: "ghost", label: t("empty.browse"), onClick: onBrowseWorkspace });
   } else {
     title = t("empty.noProject");
     steps.push({ kind: "primary", label: t("empty.pickProject"), onClick: onPickProject });

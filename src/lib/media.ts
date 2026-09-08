@@ -84,9 +84,11 @@ export function rewriteLocalMediaHtml(
       if (!path || seen.has(path)) return full;
       const kind = mediaKind(path);
       if (!kind) return full;
+      const src = toSrc(path);
+      if (!src) return full;
       seen.add(path);
-      if (kind === "video") return `${full}${mediaTag(kind, toSrc(path), basename(path))}`;
-      return full.replace(/<\/a>$/i, `${mediaTag(kind, toSrc(path), basename(path))}</a>`);
+      if (kind === "video") return `${full}${mediaTag(kind, src, basename(path))}`;
+      return full.replace(/<\/a>$/i, `${mediaTag(kind, src, basename(path))}</a>`);
     });
   return rewritten;
 }

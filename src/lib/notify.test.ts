@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  badgeCount,
   isSessionFocused,
   notifyText,
   shouldMarkUnread,
@@ -121,16 +120,6 @@ describe("notifyText", () => {
 
   it("falls back when the title is blank", () => {
     expect(notifyText("turn-done", "   ").body).toBe("会话");
-  });
-});
-
-describe("badgeCount", () => {
-  it("adds permissions and unseen completions", () => {
-    expect(badgeCount(1, 2)).toBe(3);
-  });
-
-  it("clamps negatives away", () => {
-    expect(badgeCount(-3, 0)).toBe(0);
   });
 });
 

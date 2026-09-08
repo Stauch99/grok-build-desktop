@@ -12,9 +12,18 @@ const composer = readFileSync(join(root, "../components/Composer.tsx"), "utf8");
 describe("composer IME enter", () => {
   it("ignores Enter while composing and after compositionend", () => {
     expect(composer).toContain("imeBlocksEnter");
+    expect(composer).toContain("imeEnterShouldPreventDefault");
     expect(composer).toContain("onCompositionStart");
     expect(composer).toContain("onCompositionEnd");
     expect(composer).toContain("e.nativeEvent.isComposing");
+  });
+
+  it("clears the box after a successful send so a rejected send keeps the draft", () => {
+    expect(composer).toMatch(/function dispatchSend[\s\S]*const ok = send\(text\)[\s\S]*if \(ok === false\) return[\s\S]*onChange\(""\)/);
+  });
+
+  it("cycles slash and mention menus with Tab", () => {
+    expect(composer).toMatch(/if \(e\.key === "Tab" && \(slashOn \|\| mentionOn\)\)/);
   });
 });
 

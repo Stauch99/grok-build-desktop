@@ -11,6 +11,7 @@ import {
   type WebuiState,
 } from "../api";
 import { normalizeLocale, type Locale } from "../lib/i18n";
+import { friendlyError } from "../lib/error-copy";
 import type { InspectReport } from "../lib/inspect";
 import { loadWidth, PREVIEW, SIDEBAR } from "../lib/layout";
 import { parseMemorySettings } from "../lib/memory-settings";
@@ -62,6 +63,9 @@ export type HydrateWebuiDeps = {
   setInjectUserMemory: (value: boolean) => void;
   setDreamingEnabled: (value: boolean) => void;
   setDreamAgentId: (id: AgentId) => void;
+  setDreamThresholdSessions: (n: number) => void;
+  setMemoryMcpEnabled: (value: boolean) => void;
+  setMemoryDisplayName: (value: string) => void;
   setLocale: (locale: Locale) => void;
   setThemeFamily: (family: "default" | "paper" | "ink" | "frost") => void;
   setAccentId: (id: AccentId) => void;
@@ -70,6 +74,8 @@ export type HydrateWebuiDeps = {
   setDefaultRail: (rail: "tasks" | "changes" | "context") => void;
   setShortcuts: (shortcuts: Record<string, string>) => void;
   setUnread: (unread: UnreadMap) => void;
+  setSounds: (value: boolean) => void;
+  setAllowedTools: Dispatch<SetStateAction<Set<string>>>;
   setSidebarWidth: (width: number) => void;
   setPreviewWidth: (width: number) => void;
   setSidebarList: Dispatch<SetStateAction<SidebarListPrefs>>;
@@ -152,6 +158,9 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     d.setInjectUserMemory(memory.injectUserMemory);
     d.setDreamingEnabled(memory.dreamingEnabled);
     d.setDreamAgentId(memory.dreamAgentId);
+    d.setDreamThresholdSessions(memory.dreamThresholdSessions);
+    d.setMemoryMcpEnabled(memory.memoryMcpEnabled);
+    d.setMemoryDisplayName(memory.memoryDisplayName);
     d.setLocale(normalizeLocale(state.locale));
     if (state.themeFamily === "paper" || state.themeFamily === "ink" || state.themeFamily === "default" || state.themeFamily === "frost") {
       d.setThemeFamily(state.themeFamily);
@@ -160,6 +169,10 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     const persistedDensity = (state as WebuiState & { density?: string }).density;
     if (persistedDensity === "compact" || persistedDensity === "comfortable") d.setDensity(persistedDensity);
     if (typeof state.hideToTray === "boolean") d.setHideToTray(state.hideToTray);
+    if (typeof state.sounds === "boolean") d.setSounds(state.sounds);
+    if (Array.isArray(state.allowedTools)) {
+      d.setAllowedTools(new Set(state.allowedTools.filter((k) => typeof k === "string")));
+    }
     if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
       d.setDefaultRail(state.defaultRail);
       d.hydrateReview({ defaultTab: state.defaultRail });
@@ -188,7 +201,7 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     if (initial) d.setCwd(initial);
     void d.refreshInspect(initial || inbox);
   } catch (e) {
-    d.showToast(String(e));
+    d.showToast(friendlyError(e));
   } finally {
     d.setSettingsHydrated(true);
   }

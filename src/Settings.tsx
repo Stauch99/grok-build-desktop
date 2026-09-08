@@ -7,6 +7,7 @@ import {
   trustFolder,
   type CliSettings,
   type DoctorInfo,
+  memoryMcpStatus,
 } from "./api";
 import { DoctorsOverview } from "./components/DoctorsOverview";
 import { MenuSelect } from "./components/MenuSelect";
@@ -32,6 +33,9 @@ import { IconGrokSearch } from "./grok-icons";
 import { AccentSwatches } from "./components/AccentSwatches";
 import { DEFAULT_ACCENT_ID, type AccentId } from "./lib/accent";
 import brandLogoUrl from "./assets/brand-logo.png";
+import { friendlyError } from "./lib/error-copy";
+import { parseGrantKey } from "./lib/permission-allow";
+import { basename } from "./lib/text";
 import { agentChipLabel } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
 import type { AgentDoctor } from "./lib/agent-doctor";
@@ -40,7 +44,7 @@ import { nextDreamAgent } from "./lib/memory-settings-ui";
 import { doctorAll } from "./lib/workbench-api";
 import { readLocalEvents, resetLocalEvents } from "./lib/telemetry";
 
-type TabId = "overview" | "appearance" | "chat" | "extensions" | "usage" | "about";
+type TabId = "overview" | "appearance" | "chat" | "memory" | "extensions" | "usage" | "about";
 
 type Props = {
   theme: "light" | "dark";
@@ -66,6 +70,13 @@ type Props = {
   onDreamingEnabled?: (v: boolean) => void;
   dreamAgentId?: string;
   onDreamAgentId?: (id: string) => void;
+  dreamThresholdSessions?: number;
+  memoryMcpEnabled?: boolean;
+  onMemoryMcpEnabled?: (v: boolean) => void;
+  memoryDisplayName?: string;
+  onMemoryDisplayName?: (v: string) => void;
+  onOpenMemory?: () => void;
+  onDreamThresholdSessions?: (n: number) => void;
   dreamAgentOptions?: { id: string; label: string }[];
   locale?: Locale;
   onLocale?: (l: Locale) => void;
@@ -89,8 +100,12 @@ type Props = {
   agentConnecting?: boolean;
   agentDisconnected?: boolean;
   onRestartAgent?: () => void;
-  focusSection?: "shortcuts" | null;
+  focusSection?: "shortcuts" | "memory" | null;
   onConsumedFocus?: () => void;
+  sounds?: boolean;
+  onSounds?: (v: boolean) => void;
+  allowedTools?: string[];
+  onRevokeTool?: (key: string) => void;
 };
 
 function ChoiceSwitch({
@@ -156,6 +171,13 @@ export function SettingsPanel({
   onDreamingEnabled,
   dreamAgentId = DEFAULT_MEMORY_SETTINGS.dreamAgentId,
   onDreamAgentId,
+  dreamThresholdSessions = DEFAULT_MEMORY_SETTINGS.dreamThresholdSessions,
+  onDreamThresholdSessions,
+  memoryMcpEnabled = DEFAULT_MEMORY_SETTINGS.memoryMcpEnabled,
+  onMemoryMcpEnabled,
+  memoryDisplayName = DEFAULT_MEMORY_SETTINGS.memoryDisplayName,
+  onMemoryDisplayName,
+  onOpenMemory,
   dreamAgentOptions,
   locale = "zh",
   onLocale,
@@ -181,6 +203,10 @@ export function SettingsPanel({
   onRestartAgent,
   focusSection = null,
   onConsumedFocus,
+  sounds = false,
+  onSounds,
+  allowedTools = [],
+  onRevokeTool,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -195,12 +221,21 @@ export function SettingsPanel({
   } | null>(null);
   const [trustConfirm, setTrustConfirm] = useState<ConfirmState | null>(null);
   const [doctors, setDoctors] = useState<AgentDoctor[]>([]);
+  const [memMcp, setMemMcp] = useState<{ executable: boolean; registered: boolean } | null>(null);
 
   useEffect(() => {
     void doctorAll().then(setDoctors).catch(() => setDoctors([]));
+    void memoryMcpStatus()
+      .then((s) => setMemMcp({ executable: s.executable, registered: s.registered }))
+      .catch(() => setMemMcp({ executable: false, registered: false }));
   }, []);
 
   useEffect(() => {
+    if (focusSection === "memory") {
+      setTab("memory");
+      onConsumedFocus?.();
+      return;
+    }
     if (focusSection !== "shortcuts") return;
     setTab("chat");
     const node = document.getElementById("settings-shortcuts");
@@ -221,7 +256,7 @@ export function SettingsPanel({
       await patchCliSettings(partial);
       setNote(stateAuthorityExplanation("patchCliSettings"));
     } catch (e) {
-      setNote(String(e));
+      setNote(friendlyError(e));
       onCli(cli);
     } finally {
       setBusy(false);
@@ -240,6 +275,7 @@ export function SettingsPanel({
     { id: "overview", label: t(locale, "settings.overview") },
     { id: "appearance", label: t(locale, "settings.appearance") },
     { id: "chat", label: t(locale, "settings.chat") },
+    { id: "memory", label: t(locale, "settings.memoryTab") },
     { id: "extensions", label: t(locale, "settings.extensions") },
     { id: "usage", label: t(locale, "settings.usage") },
     { id: "about", label: t(locale, "settings.about") },
@@ -277,7 +313,7 @@ export function SettingsPanel({
 
   const sendDesc = hay("settings.sendKey", "Enter 发送或 ⌘Enter Enter send");
   const steerDesc = hay("settings.steer", "排队到轮末或不打断正在跑的这一轮 立即改向 Queue steer");
-  const shortcutDesc = DEFAULT_SHORTCUTS.map((row) => `${row.action} ${row.defaultBinding}`).join(" ");
+  const shortcutDesc = DEFAULT_SHORTCUTS.map((row) => `${t(locale, row.action)} ${row.defaultBinding}`).join(" ");
   const chatSend = show(sendDesc);
   const chatSteer = show(steerDesc);
   const chatArchive = show(hay("settings.archive"));
@@ -292,6 +328,16 @@ export function SettingsPanel({
       t("en", "settings.dreamingEnabled"),
       t("zh", "settings.dreamAgentId"),
       t("en", "settings.dreamAgentId"),
+      t("zh", "settings.memoryMcp"),
+      t("en", "settings.memoryMcp"),
+      t("zh", "settings.memoryDisplayName"),
+      t("en", "settings.memoryDisplayName"),
+      t("zh", "settings.openMemory"),
+      t("en", "settings.openMemory"),
+      t("zh", "extra.memory"),
+      t("en", "extra.memory"),
+      t("zh", "settings.memoryTab"),
+      t("en", "settings.memoryTab"),
     ].join(" "),
   );
   const chatTelemetry = show(hay("settings.telemetry"));
@@ -300,10 +346,12 @@ export function SettingsPanel({
   const chatPermission = show(hay("settings.permission"), permissionModeHint(cli?.permissionMode ?? "ask", locale));
   const chatYolo = show(hay("settings.yolo"));
   const chatShortcuts = show(hay("settings.shortcuts"), shortcutDesc);
-  const chatComposer = chatSend || chatSteer;
-  const chatSession = chatArchive || chatThinking || chatCompact || chatMemory;
+  const chatSound = show(hay("settings.sound"), hay("settings.soundHint"));
+  const chatAllowed = show(hay("settings.allowedTools"), hay("settings.allowedToolsHint"));
+  const chatComposer = chatSend || chatSteer || chatSound;
+  const chatSession = chatArchive || chatThinking || chatCompact;
   const chatModelCard = chatModel || chatEffort;
-  const chatPerms = chatPermission || chatYolo;
+  const chatPerms = chatPermission || chatYolo || chatAllowed;
   const chatHas =
     chatComposer || chatSession || chatTelemetry || chatModelCard || chatPerms || chatShortcuts;
 
@@ -386,6 +434,17 @@ export function SettingsPanel({
                             <p>{t(locale, "settings.mcpEnabledCount", { n: mcpCount })}</p>
                           </div>
                         ) : null}
+                        {overviewMcp ? (
+                          <div className="set-row">
+                            <label>{t(locale, "health.memoryMcp")}</label>
+                            <p>
+                              {memMcp?.executable
+                                ? t(locale, "health.memoryMcpOk")
+                                : t(locale, "health.memoryMcpMissing")}
+                              {memMcp?.registered ? " · catalog" : ""}
+                            </p>
+                          </div>
+                        ) : null}
                         {doctorNote ? <p className="hint">{doctorNote}</p> : null}
                         <DoctorsOverview doctors={doctors} onCopied={() => setNote(t(locale, "toast.copied"))} />
                         {overviewAgent ? (
@@ -445,7 +504,7 @@ export function SettingsPanel({
                                 onRefreshHealth?.();
                                 setNote(t(locale, "trust.done"));
                               } catch (e) {
-                                setNote(String(e));
+                                setNote(friendlyError(e));
                               }
                             })();
                           }}
@@ -479,7 +538,7 @@ export function SettingsPanel({
                                 onInboxCwd(next);
                                 setNote(t(locale, "settings.inboxNoted"));
                               } catch (e) {
-                                setNote(String(e));
+                                setNote(friendlyError(e));
                               }
                             })();
                           }}
@@ -496,7 +555,7 @@ export function SettingsPanel({
                                 onInboxCwd(next);
                                 setNote(t(locale, "settings.inboxReset"));
                               } catch (e) {
-                                setNote(String(e));
+                                setNote(friendlyError(e));
                               }
                             })();
                           }}
@@ -678,6 +737,22 @@ export function SettingsPanel({
                           />
                         </div>
                       ) : null}
+                      {chatSound ? (
+                        <div className="set-row">
+                          <div>
+                            <label>{t(locale, "settings.sound")}</label>
+                            <p className="set-hint">{t(locale, "settings.soundHint")}</p>
+                          </div>
+                          <button
+                            type="button"
+                            className={`toggle ${sounds ? "on" : ""}`}
+                            onClick={() => onSounds?.(!sounds)}
+                            aria-pressed={sounds}
+                          >
+                            <i />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {chatSession ? (
@@ -718,51 +793,6 @@ export function SettingsPanel({
                             onChange={(e) => void patch({ compactPercent: Number(e.target.value) })}
                           />
                         </div>
-                      ) : null}
-                      {chatMemory ? (
-                        <>
-                          <div className="set-row">
-                            <label>{t(locale, "settings.memory")}</label>
-                            <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
-                              <i />
-                            </button>
-                          </div>
-                          <div className="set-row">
-                            <label>{t(locale, "settings.injectUserMemory")}</label>
-                            <button
-                              type="button"
-                              className={`toggle ${injectUserMemory ? "on" : ""}`}
-                              disabled={!onInjectUserMemory}
-                              onClick={() => onInjectUserMemory?.(!injectUserMemory)}
-                            >
-                              <i />
-                            </button>
-                          </div>
-                          <div className="set-row">
-                            <label>{t(locale, "settings.dreamingEnabled")}</label>
-                            <button
-                              type="button"
-                              className={`toggle ${dreamingEnabled ? "on" : ""}`}
-                              disabled={!onDreamingEnabled}
-                              onClick={() => onDreamingEnabled?.(!dreamingEnabled)}
-                            >
-                              <i />
-                            </button>
-                          </div>
-                          <div className="set-stack">
-                            <label>{t(locale, "settings.dreamAgentId")}</label>
-                            <MenuSelect
-                              ariaLabel={t(locale, "settings.dreamAgentId")}
-                              value={dreamAgentId}
-                              options={pickerOptions.map((o) => ({ value: o.id, label: o.label }))}
-                              disabled={!onDreamAgentId}
-                              onChange={(next) => {
-                                const id = nextDreamAgent(next, loggedInDreamAgents);
-                                if (id) onDreamAgentId?.(id);
-                              }}
-                            />
-                          </div>
-                        </>
                       ) : null}
                     </div>
                   ) : null}
@@ -878,6 +908,32 @@ export function SettingsPanel({
                           </button>
                         </div>
                       ) : null}
+                      {chatAllowed ? (
+                        <div className="set-stack">
+                          <label>{t(locale, "settings.allowedTools")}</label>
+                          <p className="set-hint">{t(locale, "settings.allowedToolsHint")}</p>
+                          {allowedTools.length === 0 ? (
+                            <p className="hint">{t(locale, "settings.allowedToolsEmpty")}</p>
+                          ) : (
+                            <ul className="set-list">
+                              {allowedTools.map((key) => {
+                                const grant = parseGrantKey(key);
+                                const label = grant
+                                  ? `${isAgentId(grant.agentId) ? agentChipLabel(grant.agentId) : grant.agentId} · ${basename(grant.cwd)} · ${grant.tool}`
+                                  : key;
+                                return (
+                                  <li key={key} className="set-row">
+                                    <span data-tip={key}>{label}</span>
+                                    <button type="button" className="btn ghost" onClick={() => onRevokeTool?.(key)}>
+                                      {t(locale, "perm.revoke")}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {chatShortcuts ? (
@@ -893,6 +949,95 @@ export function SettingsPanel({
                   ) : null}
                 </>
               )}
+            </section>
+          )}
+
+          {tab === "memory" && (
+            <section className="set-block">
+              <h3>{t(locale, "settings.memoryTab")}</h3>
+              {searching && !chatMemory ? emptyCopy : chatMemory ? (
+                <div className="set-card">
+                  {onOpenMemory ? (
+                    <div className="set-actions">
+                      <button type="button" className="btn" onClick={onOpenMemory}>
+                        {t(locale, "settings.openMemory")}
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="set-row">
+                    <label>{t(locale, "settings.memory")}</label>
+                    <button type="button" className={`toggle ${cli?.memory ? "on" : ""}`} onClick={() => void patch({ memory: !cli?.memory })}>
+                      <i />
+                    </button>
+                  </div>
+                  <div className="set-row">
+                    <label>{t(locale, "settings.injectUserMemory")}</label>
+                    <button
+                      type="button"
+                      className={`toggle ${injectUserMemory ? "on" : ""}`}
+                      disabled={!onInjectUserMemory}
+                      onClick={() => onInjectUserMemory?.(!injectUserMemory)}
+                    >
+                      <i />
+                    </button>
+                  </div>
+                  <div className="set-row">
+                    <label>{t(locale, "settings.dreamingEnabled")}</label>
+                    <button
+                      type="button"
+                      className={`toggle ${dreamingEnabled ? "on" : ""}`}
+                      disabled={!onDreamingEnabled}
+                      onClick={() => onDreamingEnabled?.(!dreamingEnabled)}
+                    >
+                      <i />
+                    </button>
+                  </div>
+                  <div className="set-stack">
+                    <label>{t(locale, "settings.dreamAgentId")}</label>
+                    <MenuSelect
+                      ariaLabel={t(locale, "settings.dreamAgentId")}
+                      value={dreamAgentId}
+                      options={pickerOptions.map((o) => ({ value: o.id, label: o.label }))}
+                      disabled={!onDreamAgentId}
+                      onChange={(next) => {
+                        const id = nextDreamAgent(next, loggedInDreamAgents);
+                        if (id) onDreamAgentId?.(id);
+                      }}
+                    />
+                  </div>
+                  <div className="set-stack">
+                    <label>{t(locale, "settings.dreamThreshold", { n: dreamThresholdSessions })}</label>
+                    <input
+                      type="range"
+                      min={4}
+                      max={20}
+                      value={dreamThresholdSessions}
+                      disabled={!onDreamThresholdSessions}
+                      onChange={(e) => onDreamThresholdSessions?.(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="set-row">
+                    <label>{t(locale, "settings.memoryMcp")}</label>
+                    <button
+                      type="button"
+                      className={`toggle ${memoryMcpEnabled ? "on" : ""}`}
+                      disabled={!onMemoryMcpEnabled}
+                      onClick={() => onMemoryMcpEnabled?.(!memoryMcpEnabled)}
+                    >
+                      <i />
+                    </button>
+                  </div>
+                  <p className="hint">{t(locale, "settings.memoryMcpHint")}</p>
+                  <div className="set-stack">
+                    <label>{t(locale, "settings.memoryDisplayName")}</label>
+                    <input
+                      value={memoryDisplayName}
+                      placeholder={t(locale, "memory.growth.titleDefault")}
+                      onChange={(e) => onMemoryDisplayName?.(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </section>
           )}
 

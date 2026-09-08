@@ -19,7 +19,8 @@ describe("runDreamSweep", () => {
       trigger: "manual",
       enabled: true,
       now: 10,
-      newSessionCount: 1,
+      pendingMaterial: 1,
+      thresholdSessions: 8,
       dreamAgentId: "grok",
       loggedIn: [],
       io: io(),
@@ -29,17 +30,23 @@ describe("runDreamSweep", () => {
     expect(r.io.state.lastStatus).toBe("blocked-login");
   });
 
-  it("runs three phases and commits a sourced USER.md", async () => {
+  it("runs gather then main and commits USER.md + tagline", async () => {
     const runPhase: PhaseRunner = async (phase) => {
-      if (phase === "light") return { dailyMd: "# 2026-08-30\n- [grok | s1 | /p | user_utterance] hi\n" };
-      if (phase === "rem") return { dreamsMd: "## 2026-08-30\nhello\n" };
-      return { userMd: "# You\n- likes tests\n- prefers dark mode Source: grok · s1\n" };
+      if (phase === "gather") {
+        return { dailyMd: "# 2026-08-30\n- [grok | s1 | /p | user_pref] loves vim\n" };
+      }
+      return {
+        dreamsMd: "## 2026-08-30\nhello\n",
+        userMd: "# You\n- likes tests\n- loves vim Source: grok · s1\n",
+        tagline: "专为 Rust 打造的工作台",
+      };
     };
     const r = await runDreamSweep({
       trigger: "manual",
       enabled: true,
       now: 50,
-      newSessionCount: 1,
+      pendingMaterial: 1,
+      thresholdSessions: 8,
       dreamAgentId: "grok",
       loggedIn,
       io: io(),
@@ -48,20 +55,25 @@ describe("runDreamSweep", () => {
     expect(r.started).toBe(true);
     expect(r.io.state.lastStatus).toBe("ok");
     expect(r.io.state.lockOwner).toBe(null);
-    expect(r.io.userMd.includes("prefers dark mode")).toBe(true);
+    expect(r.io.userMd.includes("loves vim")).toBe(true);
+    expect(r.io.state.tagline).toBe("专为 Rust 打造的工作台");
+    expect(r.io.state.taglineAt).toBe(50);
+    expect(r.io.state.pendingSinceDeep).toEqual({ sessions: 0, mcpBatches: 0 });
+    expect(r.io.state.dailySeenDay).toBe("2026-08-30");
   });
 
-  it("rolls back USER.md and notes 未晋升", async () => {
+  it("rolls back USER.md and notes 未晋升 when rewrite is rejected", async () => {
     const r = await runDreamSweep({
       trigger: "manual",
       enabled: true,
       now: 50,
-      newSessionCount: 1,
+      pendingMaterial: 1,
+      thresholdSessions: 8,
       dreamAgentId: "grok",
       loggedIn,
       io: io(),
       runPhase: async (phase) => {
-        if (phase === "deep") return { userMd: "# You\n" };
+        if (phase === "main") return { userMd: "# You\n" };
         return {};
       },
     });

@@ -1,5 +1,6 @@
 import type { AgentId } from "./agent-id";
 import { canChangeSelectedAgent } from "./session-agent";
+import { tr } from "./i18n-bridge";
 
 export function agentChipDisabled(hasOpenSession: boolean): boolean {
   return !canChangeSelectedAgent(hasOpenSession);
@@ -14,9 +15,9 @@ export function agentChipClassName(id: AgentId, value: AgentId): string {
 }
 
 export function connectingBannerText(id: AgentId): string {
-  return `正在连接 ${agentChipLabel(id)} agent…`;
+  return tr("connecting.banner", { agent: agentChipLabel(id) });
 }
 
 export function restartAgentBannerText(id: AgentId): string {
-  return `重启 ${agentChipLabel(id)} agent`;
+  return tr("connecting.restart", { agent: agentChipLabel(id) });
 }

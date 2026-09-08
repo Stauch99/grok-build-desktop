@@ -120,7 +120,7 @@ describe("emptyDoctorKind", () => {
         cwd: "/repo",
         projectCount: 1,
       }),
-    ).toBe("hidden");
+    ).toBe("ready");
   });
 });
 

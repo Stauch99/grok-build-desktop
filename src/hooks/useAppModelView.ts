@@ -5,12 +5,12 @@ import { skillSlashCommands, type InspectReport } from "../lib/inspect";
 import { recapIdentity, shouldShowSessionRecap } from "../lib/session-recap";
 import { liveBusyIds, runningChildSessionIds } from "../lib/live-roster";
 import { lastTurnFiles } from "../lib/turn-files";
-import { headerJobs } from "../lib/jobs-header";
+import { windowJobs } from "../lib/jobs-header";
 import { agentHealth } from "../lib/agent-health";
 import { bashTools } from "../lib/tool-render";
 import { deriveRunStatus, mainPaneIsBusy } from "../lib/run-status";
 import { derivePermissionView } from "../lib/permission-view";
-import { selectPanePermissions, type QueuedPermission } from "../lib/permission-queue";
+import { selectPanePermissions, selectTimedOutPermissions, type QueuedPermission } from "../lib/permission-queue";
 import { deriveReviewTabs, reconcileReviewTab, type ReviewTab } from "../lib/review-rail";
 import { stallNote } from "../lib/stall";
 import { paneComposerTakeover, heroLayout } from "../lib/shell-ia";
@@ -226,6 +226,7 @@ export function useAppModelView(input: AppModelViewInput) {
     extraPanes: input.extraPaneList,
   };
   const panePermissions = selectPanePermissions(input.permissions, permissionContext);
+  const timedOutByPane = selectTimedOutPermissions(input.permissions, permissionContext);
   const mainPermission = panePermissions.main;
   const mainPermissionView = derivePermissionView({ ...permissionContext, request: mainPermission });
   const mainPaneBusy = mainPaneIsBusy({
@@ -257,7 +258,18 @@ export function useAppModelView(input: AppModelViewInput) {
     bashCount: terminalTools.length,
   });
   const reconciledReviewTab = reconcileReviewTab(input.reviewTab, reviewTabs, input.defaultRail);
-  const jobs = headerJobs(input.chat.items);
+  const jobs = useMemo(
+    () =>
+      windowJobs([
+        { paneId: MAIN_PANE, sessionId: input.sessionId, items: input.chat.items },
+        ...Object.entries(input.extraPanes).map(([paneId, pane]) => ({
+          paneId,
+          sessionId: pane.sessionId,
+          items: pane.chat.items,
+        })),
+      ]),
+    [input.chat.items, input.sessionId, input.extraPanes],
+  );
   const catalog = input.subagentCards;
   const goal = input.goalView?.text ?? null;
   const health = agentHealth({ ready: input.ready, connecting: input.connecting, sawExit: input.sawExit });
@@ -310,6 +322,7 @@ export function useAppModelView(input: AppModelViewInput) {
     memoryPath,
     agentsMdPath,
     panePermissions,
+    timedOutByPane,
     mainPermission,
     mainPermissionView,
     mainPaneBusy,

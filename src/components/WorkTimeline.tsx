@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { openPath } from "../api";
-import { formatElapsed, type WorkItem } from "../lib/chat";
+import type { WorkItem } from "../lib/chat";
 import { thoughtLineLabel } from "../lib/time";
 import { classifyTool, compressLabel, compressTimeline, toolLineCopy } from "../lib/tool-render";
-import { liveTool } from "../lib/work-run";
+import { formatWorkedElapsed, liveTool } from "../lib/work-run";
 import {
   IconEdit,
   IconFileSearch,
@@ -11,11 +11,12 @@ import {
   IconFolder,
   IconLight,
   IconSearch,
+  IconSpark,
   IconTerminal,
 } from "../icons";
-import { DotMatrix } from "./DotMatrix";
 import { ToolResult } from "./ToolResult";
 import { useT } from "../lib/locale-context";
+import { useBriefMotion } from "../lib/motion";
 
 function ToolIcon({ kind }: { kind: ReturnType<typeof classifyTool> }) {
   const size = 18;
@@ -47,6 +48,7 @@ function SpineRow({
   body?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const tick = useBriefMotion(label);
   const canOpen = expandable && body != null;
   const interactive = canOpen || !!onActivate;
   const activate = () => {
@@ -54,22 +56,24 @@ function SpineRow({
     else onActivate?.();
   };
   return (
-    <div className={`spine-row${open ? " open" : ""}${failed ? " failed" : ""}${live ? " live" : ""}`}>
-      <span className="spine-ico">{icon}</span>
-      {interactive ? (
-        <button
-          type="button"
-          className="spine-head"
-          aria-expanded={canOpen ? open : undefined}
-          aria-label={label}
-          onClick={activate}
-        >
-          {children}
-        </button>
-      ) : (
-        <div className="spine-head static">{children}</div>
-      )}
-      {open && body ? <div className="spine-body">{body}</div> : null}
+    <div className="spine-slot">
+      <div className={`spine-row${open ? " open" : ""}${failed ? " failed" : ""}${live ? " live" : ""}${tick ? " tick" : ""}`}>
+        <span className="spine-ico">{icon}</span>
+        {interactive ? (
+          <button
+            type="button"
+            className="spine-head"
+            aria-expanded={canOpen ? open : undefined}
+            aria-label={label}
+            onClick={activate}
+          >
+            {children}
+          </button>
+        ) : (
+          <div className="spine-head static">{children}</div>
+        )}
+        {open && body ? <div className="spine-body">{body}</div> : null}
+      </div>
     </div>
   );
 }
@@ -82,8 +86,15 @@ export function WorkLiveRow({
   onStop: () => void;
 }) {
   const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
   const label =
-    startedAt != null ? t("timeline.worked", { elapsed: formatElapsed(Date.now() - startedAt) }) : t("timeline.working");
+    startedAt != null
+      ? t("timeline.worked", { elapsed: formatWorkedElapsed(now - startedAt) })
+      : t("timeline.working");
   return (
     <button
       type="button"
@@ -93,7 +104,7 @@ export function WorkLiveRow({
       onClick={onStop}
     >
       <span className="spine-ico" aria-hidden>
-        <DotMatrix />
+        <IconSpark size={18} />
       </span>
       <span className="spine-head static">
         <span className="spine-verb shimmer-text">{label}</span>
@@ -108,12 +119,16 @@ export function WorkTimeline({
   cwd = "",
   live,
   onInspectTool,
+  onRetry,
+  onDraft,
 }: {
   items: WorkItem[];
   busy?: boolean;
   cwd?: string;
   live?: ReactNode;
   onInspectTool?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
+  onRetry?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
+  onDraft?: (item: Extract<WorkItem, { kind: "tool" }>) => void;
 }) {
   const last = items[items.length - 1];
   const currentTool = busy ? liveTool(items) : undefined;
@@ -131,7 +146,7 @@ export function WorkTimeline({
     return (
       <SpineRow
         key={item.id}
-        icon={live ? <DotMatrix /> : <ToolIcon kind={kind} />}
+        icon={<ToolIcon kind={kind} />}
         expandable={hasBody}
         failed={item.status === "failed" || item.status === "cancelled"}
         live={live}
@@ -146,11 +161,17 @@ export function WorkTimeline({
               detail={item.detail}
               diff={item.diff}
               onOpenPath={openPathAbs}
+              onRetry={
+                item.status === "failed" && onRetry ? () => onRetry(item) : undefined
+              }
+              onDraft={
+                item.status === "failed" && onDraft ? () => onDraft(item) : undefined
+              }
             />
           ) : null
         }
       >
-        <span className={`spine-verb${live ? " shimmer-text" : ""}`}>{verb}</span>
+        <span className="spine-verb">{verb}</span>
         {detail ? (
           <span className="spine-detail" data-tip={detail}>
             {detail}
@@ -172,13 +193,13 @@ export function WorkTimeline({
             return (
               <SpineRow
                 key={item.id}
-                icon={liveThought ? <DotMatrix /> : <IconLight size={18} />}
+                icon={<IconLight size={18} />}
                 expandable={!!text}
                 live={liveThought}
                 label={verb}
                 body={text ? <div className="thought">{item.text}</div> : null}
               >
-                <span className={`spine-verb${liveThought ? " shimmer-text" : ""}`}>{verb}</span>
+                <span className="spine-verb">{verb}</span>
               </SpineRow>
             );
           }
@@ -186,14 +207,14 @@ export function WorkTimeline({
         }
         const label = compressLabel(row.cls, row.items.length);
         const failed = row.items.some((t) => t.status === "failed" || t.status === "cancelled");
-        const live = !!currentTool && row.items.some((t) => t.id === currentTool.id);
+        const liveGroup = !!currentTool && row.items.some((t) => t.id === currentTool.id);
         return (
           <SpineRow
             key={row.items[0].id}
-            icon={live ? <DotMatrix /> : <ToolIcon kind={row.cls === "call" ? "other" : row.cls} />}
+            icon={<ToolIcon kind={row.cls === "call" ? "other" : row.cls} />}
             expandable
             failed={failed}
-            live={live}
+            live={liveGroup}
             label={label}
             body={
               <div className="spine-group">
@@ -215,11 +236,11 @@ export function WorkTimeline({
               </div>
             }
           >
-            <span className={`spine-verb${live ? " shimmer-text" : ""}`}>{label}</span>
+            <span className="spine-verb">{label}</span>
           </SpineRow>
         );
       })}
-      {currentTool || (busy && last?.kind === "thought") ? null : live}
+      {live}
     </div>
   );
 }

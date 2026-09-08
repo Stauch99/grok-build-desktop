@@ -38,6 +38,14 @@ import { DEFAULT_MEMORY_SETTINGS } from "../lib/memory-settings";
 import type { ExtraPaneState } from "./useAcpSession";
 import type { AppConfirm } from "./useAppWorkspace";
 
+/** A turn that stopped producing output long enough to offer manual recovery. */
+export type StallRecover = {
+  dest: string;
+  sessionId: string | null;
+  text: string;
+  quietMs: number;
+};
+
 const FALLBACK_CATALOG = emptyCatalog("grok");
 
 export function useAppModelState() {
@@ -133,7 +141,7 @@ export function useAppModelState() {
   const [projectGroups, setProjectGroups] = useState<ProjectGroupState>(EMPTY_PROJECT_GROUPS);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [sessionTokens, setSessionTokens] = useState<Record<string, number>>({});
-  const [settingsFocus, setSettingsFocus] = useState<"shortcuts" | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<"shortcuts" | "memory" | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [allowedTools, setAllowedTools] = useState<Set<string>>(() => new Set());
@@ -153,9 +161,23 @@ export function useAppModelState() {
   const [queue, setQueue] = useState<QueueState>(emptyQueue);
   const [focused, setFocused] = useState(true);
   const [steerByDefault, setSteerByDefault] = useState(false);
+  const [sounds, setSounds] = useState(false);
+  const soundsRef = useRef(false);
+  soundsRef.current = sounds;
+  const [pendingMode, setPendingMode] = useState<Mode | null>(null);
+  const pendingModeRef = useRef<Mode | null>(null);
+  pendingModeRef.current = pendingMode;
+  const promptHistoryRef = useRef<string[]>([]);
+  const promptHistoryPosRef = useRef(-1);
+  const [stallRecover, setStallRecover] = useState<StallRecover | null>(null);
   const [injectUserMemory, setInjectUserMemory] = useState(DEFAULT_MEMORY_SETTINGS.injectUserMemory);
   const [dreamingEnabled, setDreamingEnabled] = useState(DEFAULT_MEMORY_SETTINGS.dreamingEnabled);
   const [dreamAgentId, setDreamAgentId] = useState<AgentId>(DEFAULT_MEMORY_SETTINGS.dreamAgentId);
+  const [dreamThresholdSessions, setDreamThresholdSessions] = useState(
+    DEFAULT_MEMORY_SETTINGS.dreamThresholdSessions,
+  );
+  const [memoryMcpEnabled, setMemoryMcpEnabled] = useState(DEFAULT_MEMORY_SETTINGS.memoryMcpEnabled);
+  const [memoryDisplayName, setMemoryDisplayName] = useState(DEFAULT_MEMORY_SETTINGS.memoryDisplayName);
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [unread, setUnread] = useState<UnreadMap>({});
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR.initial);
@@ -232,7 +254,11 @@ export function useAppModelState() {
     mruOpen, setMruOpen, planFile, setPlanFile, goalView, setGoalView, goalSessionRef, rules, setRules,
     rewindTarget, setRewindTarget, worktreeBusy, setWorktreeBusy, queue, setQueue, focused, setFocused,
     steerByDefault, setSteerByDefault, injectUserMemory, setInjectUserMemory, dreamingEnabled, setDreamingEnabled,
-    dreamAgentId, setDreamAgentId, settingsHydrated, setSettingsHydrated, unread, setUnread,
+    dreamAgentId, setDreamAgentId, dreamThresholdSessions, setDreamThresholdSessions,
+    memoryMcpEnabled, setMemoryMcpEnabled, memoryDisplayName, setMemoryDisplayName,
+    settingsHydrated, setSettingsHydrated, unread, setUnread,
+    sounds, setSounds, soundsRef, pendingMode, setPendingMode, pendingModeRef,
+    promptHistoryRef, promptHistoryPosRef, stallRecover, setStallRecover,
     sidebarWidth, setSidebarWidth, previewWidth, setPreviewWidth, winWidth, setWinWidth,
     chatEl, extraChatEls, composerRef, extraComposerRefs, focusedPermissionPaneRef, titleInputRef,
     focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, focusedSessionIdRef, titlesRef, titleForSessionRef, lastActivityRef, queueRef, persistRef,

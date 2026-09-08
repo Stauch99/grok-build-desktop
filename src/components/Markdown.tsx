@@ -1,8 +1,9 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { lazy, memo, Suspense, type MouseEventHandler } from "react";
+import { lazy, memo, Suspense, useId, type MouseEventHandler } from "react";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { memoizeMarkdown } from "../lib/markdown-cache";
-import { renderMd, splitAssistantBlocks } from "../lib/markdown";
+import { splitAssistantBlocks } from "../lib/markdown";
+import { renderLiveMarkdownThrottled } from "../lib/live-markdown-cache";
 
 const MermaidBlock = lazy(() => import("./MermaidBlock"));
 
@@ -29,11 +30,14 @@ export const Markdown = memo(function Markdown({
   onClick,
   live = false,
 }: MarkdownProps) {
+  const blockId = useId();
   const blocks = splitAssistantBlocks(text);
   const roots = assetRoots(cwd, "");
   const toSrc = (path: string) => safeFileSrc(path, roots, convertFileSrc) ?? "";
-  const htmlFor = (md: string) =>
-    live ? renderMd(md, cwd, toSrc) : memoizeMarkdown(md, cwd, toSrc);
+  const htmlFor = (md: string, idx: number) =>
+    live
+      ? renderLiveMarkdownThrottled(`${blockId}-${idx}`, md, cwd, toSrc)
+      : memoizeMarkdown(md, cwd, toSrc);
   return (
     <div className={className} data-live={live ? "" : undefined} onClick={onClick}>
       {blocks.map((b, i) =>
@@ -53,7 +57,7 @@ export const Markdown = memo(function Markdown({
         ) : (
           <div
             key={`md-${i}`}
-            dangerouslySetInnerHTML={{ __html: htmlFor(b.text) }}
+            dangerouslySetInnerHTML={{ __html: htmlFor(b.text, i) }}
           />
         ),
       )}

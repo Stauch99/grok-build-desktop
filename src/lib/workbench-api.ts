@@ -4,7 +4,13 @@ import { acpMessageFromEvent } from "./acp-host";
 import type { AgentId } from "./agent-id";
 import type { AgentDoctor } from "./agent-doctor";
 import type { AgentModelSource } from "./agent-models";
-import { parseMcpJson, stringifyMcpJson, type McpServer } from "./agents-store";
+import {
+  parseMcpJson,
+  stringifyMcpJson,
+  type McpServer,
+} from "./agents-store";
+import { MEMORY_MCP_NAME, memoryMcpServer } from "./memory-mcp";
+import { installMemoryMcp, memoryMcpStatus, type MemoryMcpStatus } from "../api";
 import { nextClaudeLiveText, nextKimiLiveText } from "./mcp-hub-sync";
 import { removeMcpCatalog, upsertMcpCatalog } from "./mcp-live-paths";
 
@@ -97,6 +103,30 @@ async function stripHubMcpFromLives(name: string): Promise<void> {
   await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [], [name]));
   await removeTomlMcp("grok-toml", name);
   await removeTomlMcp("codex-toml", name);
+}
+
+export async function ensureMemoryMcp(enabled: boolean): Promise<MemoryMcpStatus> {
+  let status: MemoryMcpStatus;
+  try {
+    status = await installMemoryMcp();
+  } catch {
+    status = await memoryMcpStatus().catch(() => ({
+      path: "",
+      executable: false,
+      registered: false,
+    }));
+  }
+  const path = status.path?.trim() ?? "";
+  if (!path || !status.executable) {
+    if (!enabled) await disableHubMcpServer(MEMORY_MCP_NAME);
+    return { ...status, path, executable: false, registered: false };
+  }
+  const server = memoryMcpServer(path);
+  const catalog = upsertMcpCatalog(parseMcpJson(safeJson(await readAgentsFile("mcp-json"))), server);
+  await writeAgentsFile("mcp-json", stringifyMcpJson(catalog));
+  if (enabled) await syncHubMcpServer(server);
+  else await disableHubMcpServer(MEMORY_MCP_NAME);
+  return { ...status, path, registered: enabled };
 }
 
 export function onTaggedAcpRequest(

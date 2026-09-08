@@ -25,6 +25,7 @@ export type ComposerChipsProps = {
   onToggleModel: () => void;
   onPickModel: (next: string) => void;
   onOpenSettings: () => void;
+  pendingMode?: Mode | null;
 };
 
 function ModeIcon({ mode }: { mode: Mode }) {
@@ -53,6 +54,7 @@ export function ComposerChips({
   onToggleModel,
   onPickModel,
   onOpenSettings,
+  pendingMode,
 }: ComposerChipsProps) {
   const t = useT();
   const locale = useLocale();
@@ -68,7 +70,7 @@ export function ComposerChips({
           type="button"
           className={`mode-chip${mode === "yolo" ? " yolo" : ""}`}
           aria-label={`${modeLabel(mode, locale)} · ${t("composer.mode")}`}
-          data-tip={modeLabel(mode, locale)}
+          data-tip={pendingMode ? t("composer.modeQueued", { mode: modeLabel(pendingMode, locale) }) : modeLabel(mode, locale)}
           aria-expanded={modeOpen}
           onClick={onToggleMode}
         >

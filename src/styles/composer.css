@@ -38,7 +38,7 @@
 :root[data-density="compact"] .composer { padding: 6px 8px; }
 .composer-main {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
 }
 .composer textarea {
@@ -49,9 +49,9 @@
   outline: none;
   resize: none;
   box-sizing: border-box;
-  min-height: calc(var(--md-size, 15px) * 1.5);
+  min-height: 24px;
   max-height: 200px;
-  padding: 3px 0;
+  padding: 0;
   overflow-y: auto;
   background: transparent;
   font-size: var(--md-size, 15px);

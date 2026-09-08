@@ -33,10 +33,8 @@ describe("PermissionCard timeout", () => {
         timeoutNotice: "许可仍在等待，不会自动拒绝。",
       }),
     );
-    expect(html).toContain("许可仍在等待，不会自动拒绝。");
-    const buttons = html.match(/<button\b[^>]*>/g) ?? [];
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((tag) => !/\bdisabled\b/.test(tag))).toBe(true);
+    expect(html).toMatch(/已等待/);
+    expect(html).toMatch(/点击继续处理/);
   });
 
   it("keeps the command text in a tooltip so a two-line clamp can hide the rest", () => {
@@ -63,5 +61,17 @@ describe("QuestionCard title", () => {
       }),
     );
     expect(html).toMatch(/<h4[^>]*data-tip="Execute a huge script/);
+  });
+
+  it("renders a custom answer field when onCustomAnswer is provided", () => {
+    const html = renderToStaticMarkup(
+      createElement(QuestionCard, {
+        title: "Pick one",
+        options: [{ id: "a", label: "A" }],
+        onPick: () => {},
+        onCustomAnswer: () => {},
+      }),
+    );
+    expect(html).toMatch(/自定义回答/);
   });
 });

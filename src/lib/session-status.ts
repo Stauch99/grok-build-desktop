@@ -6,6 +6,7 @@
  * notification delivery is measurably lossy, a badge on the row is not.
  * So `unread` is persisted and only cleared when you actually open the session.
  */
+import { tr } from "./i18n-bridge";
 export type SessionStatus = "working" | "needs-you" | "done" | "error" | "idle";
 
 /** Persisted in `~/.grok/webui.json`. Only terminal states are stored. */
@@ -48,15 +49,16 @@ export function busySessionIds(opts: {
 }
 
 const LABELS: Record<SessionStatus, string> = {
-  working: "运行中",
-  "needs-you": "等你确认",
-  done: "已完成，未查看",
-  error: "出错，未查看",
+  working: "status.working",
+  "needs-you": "status.needsYou",
+  done: "status.doneUnread",
+  error: "status.errorUnread",
   idle: "",
 };
 
 export function statusLabel(status: SessionStatus): string {
-  return LABELS[status];
+  const key = LABELS[status];
+  return key ? tr(key) : "";
 }
 
 /** Sort weight: what costs you most by waiting comes first. */
@@ -109,8 +111,3 @@ export function loadUnread(raw: unknown): UnreadMap {
   return out;
 }
 
-/** How many sessions are actively asking for the user. Drives the dock badge. */
-export function attentionCount(unread: UnreadMap, awaitingId: string | null): number {
-  const errors = Object.values(unread).filter((k) => k === "error").length;
-  return errors + (awaitingId ? 1 : 0);
-}

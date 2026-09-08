@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headerJobs } from "./jobs-header";
+import { headerJobs, windowJobs } from "./jobs-header";
 import { goalFromPlan } from "./goal-bar";
 import { subagentCatalog } from "./subagent-tree";
 import type { ChatItem, PlanEntry } from "./chat";
@@ -11,7 +11,9 @@ describe("headerJobs", () => {
       { kind: "tool", id: "t2", title: "spawn_subagent researcher", status: "in_progress" },
       { kind: "tool", id: "t3", title: "read", status: "completed" },
     ];
-    expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
+    expect(headerJobs(items)).toEqual([
+      { id: "t1", title: "bash ls", status: "in_progress", paneId: "main", sessionId: null },
+    ]);
   });
 
   it("excludes Claude Task tools from the jobs header", () => {
@@ -19,7 +21,9 @@ describe("headerJobs", () => {
       { kind: "tool", id: "t1", title: "bash ls", status: "in_progress" },
       { kind: "tool", id: "t2", title: "Task: 中文技巧", status: "in_progress" },
     ];
-    expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
+    expect(headerJobs(items)).toEqual([
+      { id: "t1", title: "bash ls", status: "in_progress", paneId: "main", sessionId: null },
+    ]);
   });
 
   it("excludes Grok spawn tools after the title becomes the description", () => {
@@ -47,7 +51,65 @@ describe("headerJobs", () => {
       },
       { kind: "tool", id: "t1", title: "bash ls", status: "in_progress" },
     ];
-    expect(headerJobs(items)).toEqual([{ id: "t1", title: "bash ls", status: "in_progress" }]);
+    expect(headerJobs(items)).toEqual([
+      { id: "t1", title: "bash ls", status: "in_progress", paneId: "main", sessionId: null },
+    ]);
+  });
+
+  it("keeps a leftover [bg] poll when it is the only live job", () => {
+    const items: ChatItem[] = [
+      {
+        kind: "tool",
+        id: "p2",
+        title: "[bg] python3 -m http.server",
+        toolName: "get_command_or_subagent_output",
+        status: "in_progress",
+      },
+    ];
+    expect(headerJobs(items)).toEqual([
+      {
+        id: "p2",
+        title: "[bg] python3 -m http.server",
+        status: "in_progress",
+        paneId: "main",
+        sessionId: null,
+      },
+    ]);
+  });
+
+  it("tags jobs with the pane they belong to", () => {
+    const items: ChatItem[] = [{ kind: "tool", id: "t1", title: "bash ls", status: "in_progress" }];
+    expect(headerJobs(items, { paneId: "split", sessionId: "s-split" })).toEqual([
+      { id: "t1", title: "bash ls", status: "in_progress", paneId: "split", sessionId: "s-split" },
+    ]);
+  });
+});
+
+describe("windowJobs", () => {
+  it("lists live jobs from every pane in the window", () => {
+    expect(
+      windowJobs([
+        {
+          paneId: "main",
+          sessionId: "s-main",
+          items: [{ kind: "tool", id: "t1", title: "[bg] python3 -m http.server", status: "in_progress" }],
+        },
+        {
+          paneId: "split",
+          sessionId: "s-split",
+          items: [{ kind: "tool", id: "t2", title: "bash pnpm test", status: "pending" }],
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "t1",
+        title: "[bg] python3 -m http.server",
+        status: "in_progress",
+        paneId: "main",
+        sessionId: "s-main",
+      },
+      { id: "t2", title: "bash pnpm test", status: "pending", paneId: "split", sessionId: "s-split" },
+    ]);
   });
 });
 

@@ -5,15 +5,15 @@ export type ShortcutRow = {
 };
 
 export const DEFAULT_SHORTCUTS: ShortcutRow[] = [
-  { id: "palette", action: "命令面板", defaultBinding: "Mod+K" },
-  { id: "new-chat", action: "新对话", defaultBinding: "Mod+N" },
-  { id: "settings", action: "设置", defaultBinding: "Mod+," },
-  { id: "hub", action: "扩展中心", defaultBinding: "Mod+L" },
-  { id: "focus-composer", action: "聚焦输入", defaultBinding: "Mod+J" },
-  { id: "review", action: "Dashboard", defaultBinding: "Mod+." },
-  { id: "close-pane", action: "关闭窗格", defaultBinding: "Mod+W" },
-  { id: "cancel", action: "取消本轮", defaultBinding: "Escape" },
-  { id: "mode", action: "切换模式", defaultBinding: "Shift+Tab" },
+  { id: "palette", action: "shortcut.palette", defaultBinding: "Mod+K" },
+  { id: "new-chat", action: "shortcut.newChat", defaultBinding: "Mod+N" },
+  { id: "settings", action: "shortcut.settings", defaultBinding: "Mod+," },
+  { id: "hub", action: "shortcut.hub", defaultBinding: "Mod+L" },
+  { id: "focus-composer", action: "shortcut.focusComposer", defaultBinding: "Mod+J" },
+  { id: "review", action: "shortcut.review", defaultBinding: "Mod+." },
+  { id: "close-pane", action: "shortcut.closePane", defaultBinding: "Mod+W" },
+  { id: "cancel", action: "shortcut.cancel", defaultBinding: "Escape" },
+  { id: "mode", action: "shortcut.mode", defaultBinding: "Ctrl+Shift+Tab" },
 ];
 
 export function bindingFor(

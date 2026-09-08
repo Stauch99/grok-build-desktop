@@ -14,6 +14,7 @@ import { catalogFromSource, emptyCatalog, effortsForModel } from "../lib/agent-m
 import { parseInspect } from "../lib/inspect";
 import { MAIN_PANE } from "../lib/pane-tree";
 import { persistReviewOpen } from "../lib/review-rail";
+import { friendlyError } from "../lib/error-copy";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
 import { sessionsWithLiveRoster } from "../lib/live-roster";
 import { isTextPreviewable } from "../lib/preview";
@@ -63,6 +64,7 @@ export function useAppModel() {
     doctors: s.doctors,
     locale: s.locale,
     settingsHydrated: s.settingsHydrated,
+    thresholdSessions: s.dreamThresholdSessions,
     showToast,
   });
 
@@ -111,6 +113,8 @@ export function useAppModel() {
     injectUserMemory: s.injectUserMemory,
     userMd: dream.userMd,
     doctors: s.doctors,
+    setStallRecover: s.setStallRecover,
+    promptHistoryRef: s.promptHistoryRef,
   });
 
   const doctorsReady = s.doctors.length > 0;
@@ -167,6 +171,9 @@ export function useAppModel() {
     injectUserMemory: s.injectUserMemory,
     dreamingEnabled: s.dreamingEnabled,
     dreamAgentId: s.dreamAgentId,
+    dreamThresholdSessions: s.dreamThresholdSessions,
+    memoryMcpEnabled: s.memoryMcpEnabled,
+    memoryDisplayName: s.memoryDisplayName,
     unread: s.unread,
     sidebarWidth: s.sidebarWidth,
     previewWidth: s.previewWidth,
@@ -183,6 +190,8 @@ export function useAppModel() {
     sidebarList: s.sidebarList,
     lastAgent: s.selectedAgentId,
     manualProjects: s.manualProjects,
+    sounds: s.sounds,
+    allowedTools: [...s.allowedTools],
   });
   s.persistRef.current = persist;
   s.persistReviewOpened.current = () => persist(persistReviewOpen(true));
@@ -214,6 +223,14 @@ export function useAppModel() {
     focusedSessionIdRef: s.focusedSessionIdRef,
     currentTitleRef: s.currentTitleRef,
     titleForSessionRef: s.titleForSessionRef,
+    soundsRef: s.soundsRef,
+    cwdForSession: (sid) => {
+      if (sid && sid === acp.sessionId) return s.cwd;
+      for (const pane of Object.values(s.extraPanes)) {
+        if (pane.sessionId === sid) return pane.cwd;
+      }
+      return s.cwd;
+    },
     telemetry: !!s.cli?.telemetry,
     onTimeoutNotice: () => showToast(permissionTimeoutNotice()),
   });
@@ -443,6 +460,7 @@ export function useAppModel() {
     persist,
     showToast,
     setMode: s.setMode,
+    setPendingMode: s.setPendingMode,
     setModel: s.setModel,
     modelPickedRef: s.modelPickedRef,
     setEffort: s.setEffort,
@@ -466,6 +484,14 @@ export function useAppModel() {
     beginEditTitle: ws.beginEditTitle,
     onDreamNow: dream.onDreamNow,
   });
+
+  useEffect(() => {
+    if (acp.busy) return;
+    const pending = s.pendingModeRef.current;
+    if (!pending) return;
+    s.setPendingMode(null);
+    void slash.applyMode(pending);
+  }, [acp.busy]);
 
   const palette = useCommandPalette({
     sources: {
@@ -564,6 +590,7 @@ export function useAppModel() {
     reviewCwd,
     allSessions,
     answerPermission,
+    cancelPermission,
     refreshInspect,
     openHub,
     openReview,
@@ -585,7 +612,7 @@ export function useAppModel() {
           return;
         }
         if (shouldWarmupOnChipSelect()) await acp.ensureAgent(id);
-      })().catch((e) => showToast(String(e)));
+      })().catch((e) => showToast(friendlyError(e)));
     },
   });
 }

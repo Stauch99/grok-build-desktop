@@ -1,4 +1,5 @@
 import { t, type Locale } from "./i18n";
+import { tr } from "./i18n-bridge";
 import { derivePermissionView, type PermissionViewInput } from "./permission-view";
 import type { AgentId } from "./agent-id";
 import { asRecord } from "./text";
@@ -63,7 +64,24 @@ export function selectPanePermissions(queue: QueuedPermission[], context: Permis
   for (const request of queue) {
     const pane = derivePermissionView({ ...context, request }).pane;
     if (pane && result[pane] === undefined) result[pane] = null;
-    if (pane && !result[pane]) result[pane] = request;
+    if (pane && !result[pane] && !request.timedOut) result[pane] = request;
+  }
+  return result;
+}
+
+/** Timed-out cards stay visible as folded items and must not occupy the active slot. */
+export function selectTimedOutPermissions(
+  queue: QueuedPermission[],
+  context: PermissionContext,
+): Record<string, QueuedPermission[]> {
+  const result: Record<string, QueuedPermission[]> = { main: [], split: [] };
+  for (const pane of context.extraPanes ?? []) result[pane.id] = [];
+  for (const request of queue) {
+    if (!request.timedOut) continue;
+    const pane = derivePermissionView({ ...context, request }).pane;
+    if (!pane) continue;
+    if (!result[pane]) result[pane] = [];
+    result[pane].push(request);
   }
   return result;
 }
@@ -94,7 +112,7 @@ export function permissionFromAcpRequest(
     .map((o) => ({ optionId: String(o.optionId), name: String(o.name), kind: String(o.kind ?? "") }));
   return {
     rpcId: msg.id,
-    title: String(tool.title || "需要许可"),
+    title: String(tool.title || tr("run.permission")),
     toolKind: String(tool.kind ?? tool.toolKind ?? ""),
     options,
     sessionId: typeof params.sessionId === "string" ? params.sessionId : null,

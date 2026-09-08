@@ -19,7 +19,7 @@ describe("release gates", () => {
   it("keeps a changelog and checksums tagged releases", () => {
     expect(existsSync(join(root, "CHANGELOG.md"))).toBe(true);
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
-    expect(changelog).toMatch(/## \[0\.6\.2]/);
+    expect(changelog).toMatch(/## \[0\.6\.3]/);
     const release = readFileSync(join(root, ".github/workflows/release.yml"), "utf8");
     expect(release).toMatch(/SHA256SUMS/);
   });

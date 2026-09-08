@@ -2,7 +2,12 @@ import type { SessionSummary } from "../api";
 import type { AgentId } from "./agent-id";
 import type { ChatItem } from "./chat";
 import { isLiveRosterId, liveRosterId } from "./live-roster";
-import { subagentDisplayName, subagentStatusFromItem, type SubagentStatus } from "./subagent";
+import {
+  childSessionIdFromToolDetail,
+  subagentDisplayName,
+  subagentStatusFromItem,
+  type SubagentStatus,
+} from "./subagent";
 
 export function subagentCatalog(
   items: ChatItem[],
@@ -23,8 +28,14 @@ export function resolveSubagentSession(
   toolId: string,
   sessions: SessionSummary[],
   opts: { parentSessionId: string | null; agentId: AgentId },
+  detail?: string | null,
 ): SessionSummary | null {
   const parent = opts.parentSessionId;
+  const fromDetail = childSessionIdFromToolDetail(detail);
+  if (fromDetail) {
+    const byId = sessions.find((s) => s.id === fromDetail);
+    if (byId) return byId;
+  }
   if (parent) {
     const child = sessions.find((s) => s.parentSessionId === parent && s.toolUseId === toolId);
     if (child) return child;
@@ -44,8 +55,12 @@ export function subagentChips(
   sessions: SessionSummary[],
   opts: { parentSessionId: string | null; agentId: AgentId },
 ): SubagentChipModel[] {
+  const detailByTool = new Map<string, string | undefined>();
+  for (const it of items) {
+    if (it.kind === "tool") detailByTool.set(it.id, it.detail);
+  }
   const chips = subagentCatalog(items, opts.agentId).map((row) => {
-    const session = resolveSubagentSession(row.id, sessions, opts);
+    const session = resolveSubagentSession(row.id, sessions, opts, detailByTool.get(row.id));
     const title = session?.title?.trim();
     const named = title && title !== session?.id ? title : row.name;
     const sessionId = session && !isLiveRosterId(session.id) ? session.id : null;

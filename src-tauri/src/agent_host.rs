@@ -224,7 +224,6 @@ impl<T> AgentPool<T> {
         self.inner.get(&id)
     }
 
-    #[cfg(test)]
     pub(crate) fn get_mut(&mut self, id: AgentId) -> Option<&mut T> {
         self.inner.get_mut(&id)
     }

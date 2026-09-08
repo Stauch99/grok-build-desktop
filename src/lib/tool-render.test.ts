@@ -165,6 +165,17 @@ describe("compressTimeline", () => {
     expect(compressLabel("search", 2)).toBe("搜索 2 次");
   });
 
+  it("keeps an in-flight tool as its own row so the live line does not snap into a count", () => {
+    const items: WorkItem[] = [
+      tool("r1", "Read a.ts", "read"),
+      { ...tool("r2", "Read b.ts", "read"), status: "in_progress" },
+    ];
+    expect(compressTimeline(items)).toEqual([
+      { kind: "item", item: items[0] },
+      { kind: "item", item: items[1] },
+    ]);
+  });
+
   it("does not fold across thoughts or a different compress class", () => {
     const thought: WorkItem = { kind: "thought", id: "t1", text: "hmm" };
     const items: WorkItem[] = [

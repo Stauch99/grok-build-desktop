@@ -1,9 +1,11 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { t, type Locale } from "./i18n";
+import { setBridgeLocale } from "./i18n-bridge";
 
 const LocaleContext = createContext<Locale>("zh");
 
 export function LocaleProvider({ locale, children }: { locale: Locale; children: ReactNode }) {
+  setBridgeLocale(locale);
   return <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>;
 }
 

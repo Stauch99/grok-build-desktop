@@ -10,6 +10,12 @@ export function millerPush(stack: MillerColumn[], next: MillerColumn): MillerCol
   return [...stack, next];
 }
 
+/** Drop the last column so the picker can walk back to a parent. */
+export function millerPop(stack: MillerColumn[]): MillerColumn[] {
+  if (stack.length <= 1) return stack;
+  return stack.slice(0, -1);
+}
+
 export function millerPath(stack: MillerColumn[]): string {
   return stack[stack.length - 1]?.path ?? "";
 }

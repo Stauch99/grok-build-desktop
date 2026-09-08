@@ -5,6 +5,7 @@ import { usageHoverLines, usageRingDash, usageRingPercents, type UsageSplit } fr
 export type UsageRingProps = {
   usage: UsageSplit;
   compactPercent?: number;
+  onCompact?: (pct: number) => void;
 };
 
 const RING_SIZE = 14;
@@ -12,17 +13,26 @@ const RING_RADIUS = 5;
 
 /**
  * Window fill as a quiet ring. Hover for used / size / percent.
+ * Clicking triggers a compact prompt when context usage is high.
  */
-export function UsageRing({ usage, compactPercent = 85 }: UsageRingProps) {
+export function UsageRing({ usage, compactPercent = 85, onCompact }: UsageRingProps) {
   const locale = useLocale();
   const p = usageRingPercents(usage);
   const tone = usageTone(p.used, compactPercent);
   const lines = usageHoverLines(usage, locale);
   const { circumference, dash } = usageRingDash(p.used, RING_RADIUS);
   const label = lines[0] ?? "";
+  const canCompact = !!onCompact && p.used >= compactPercent;
 
   return (
-    <span className={`usage-chip usage-chip-${tone}`} tabIndex={0} aria-label={label}>
+    <button
+      type="button"
+      className={`usage-chip usage-chip-${tone}${canCompact ? " clickable" : ""}`}
+      tabIndex={0}
+      aria-label={label}
+      onClick={canCompact ? () => onCompact(p.used ?? compactPercent) : undefined}
+      style={{ background: "none", border: "none", padding: 0, cursor: canCompact ? "pointer" : "default" }}
+    >
       <svg className="usage-ring" width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} aria-hidden>
         <circle className="usage-ring-track" cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_RADIUS} />
         {dash > 0 ? (
@@ -41,6 +51,6 @@ export function UsageRing({ usage, compactPercent = 85 }: UsageRingProps) {
           <span key={l}>{l}</span>
         ))}
       </span>
-    </span>
+    </button>
   );
 }

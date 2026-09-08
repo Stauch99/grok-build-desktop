@@ -79,6 +79,16 @@ describe("composer dock stack", () => {
     expect(thread).toMatch(/onStop=\{runBusy \? onCancel/);
   });
 
+  it("turns the header jobs chip into a stop-and-inspect menu for the window", () => {
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app).toMatch(/<JobsMenu/);
+    expect(app).toMatch(/onStop=\{stopJob\}/);
+    const view = readFileSync(join(root, "src/hooks/useAppModelView.ts"), "utf8");
+    expect(view).toMatch(/windowJobs\(/);
+    const sheet = css("src/styles.css");
+    expect(sheet).toMatch(/\.chip-menu\.jobs-menu \.jobs-stop/);
+  });
+
   it("stacks capsules in a column above the input", () => {
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.composer-dock\s*\{[^}]*flex-direction:\s*column/);
@@ -205,6 +215,8 @@ describe("composer prompt", () => {
     expect(ta).not.toMatch(/min-height:\s*42px/);
     expect(sheet).toMatch(/\.send-btn\s*\{[^}]*width:\s*24px/);
     expect(sheet).toMatch(/\.send-btn\s*\{[^}]*height:\s*24px/);
+    expect(sheet).toMatch(/\.composer-main\s*\{[^}]*align-items:\s*center/);
+    expect(sheet).not.toMatch(/\.composer-main\s*\{[^}]*align-items:\s*flex-end/);
 
     const chips = sheet.match(/\.composer-chips\s*\{[^}]+\}/)?.[0];
     expect(chips).toMatch(/margin:\s*0/);
@@ -624,5 +636,64 @@ describe("round-3 remaining wiring", () => {
     expect(toast).toMatch(/resumeToast/);
     const app = readFileSync(join(root, "src/App.tsx"), "utf8");
     expect(app).toMatch(/onMouseEnter=\{pauseToast\}/);
+  });
+});
+
+describe("memory growth chrome", () => {
+  it("opens growth memory from settings, not a sidebar book", () => {
+    const sidebar = readFileSync(join(root, "src/components/Sidebar.tsx"), "utf8");
+    expect(sidebar).not.toMatch(/IconGrokMemory/);
+    expect(sidebar).not.toMatch(/onMemory/);
+    const account = readFileSync(join(root, "src/components/AccountMenu.tsx"), "utf8");
+    expect(account).not.toMatch(/onMemory/);
+    expect(account).not.toMatch(/extra\.memory/);
+    const settings = readFileSync(join(root, "src/Settings.tsx"), "utf8");
+    expect(settings).toMatch(/id: "memory"/);
+    expect(settings).toMatch(/tab === "memory"/);
+    expect(settings).toMatch(/settings\.memoryTab/);
+    expect(settings).toMatch(/settings\.openMemory/);
+    const chatPane = settings.slice(settings.indexOf('{tab === "chat"'), settings.indexOf('{tab === "memory"'));
+    expect(chatPane).not.toMatch(/settings\.openMemory/);
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(app).toMatch(/onOpenMemory=\{\(\) => \{/);
+    expect(app).not.toMatch(/onMemory=\{\(\) => setExtraPage\("memory"\)\}/);
+  });
+
+  it("stretches the year heatmap across the pane with square cells", () => {
+    const sheet = css("src/styles/overlays.css");
+    expect(sheet).toMatch(/\.growth-heat-grid\s*\{[^}]*repeat\(53,\s*minmax\(0,\s*1fr\)/);
+    expect(sheet).toMatch(/\.growth-heat-cell\s*\{[^}]*aspect-ratio:\s*1/);
+    expect(sheet).not.toMatch(/\.growth-heat-cell\s*\{[^}]*width:\s*10px/);
+    const frost = css("src/styles/frost.css");
+    expect(frost).not.toMatch(/\.growth-heat-cell[\s\S]{0,80}border-radius:\s*99px/);
+  });
+
+  it("keeps the heatmap inside the pane without a horizontal scrollbar", () => {
+    const sheet = css("src/styles/overlays.css");
+    const heat = sheet.match(/\.growth-heat\s*\{[^}]+\}/)?.[0];
+    expect(heat).toMatch(/overflow-x:\s*hidden/);
+    expect(heat).not.toMatch(/overflow-x:\s*auto/);
+    expect(sheet).toMatch(/\.growth-heat-cell\s*\{[^}]*min-width:\s*0/);
+    expect(sheet).toMatch(/\.growth-heat-months span\s*\{[^}]*text-align:\s*right/);
+    const extra = css("src/styles/hub.css");
+    expect(extra).toMatch(/\.extra-dialog \.settings-body[\s\S]{0,220}overflow-x:\s*hidden/);
+  });
+
+  it("opens the more menu as a floating .menu popover", () => {
+    const header = readFileSync(join(root, "src/components/memory-growth/GrowthHeader.tsx"), "utf8");
+    expect(header).toMatch(/className="menu"/);
+    expect(header).toMatch(/IconGrokMore/);
+    const page = readFileSync(join(root, "src/components/memory-growth/MemoryGrowthPage.tsx"), "utf8");
+    expect(page).not.toMatch(/className="growth-menu"/);
+    const sheet = css("src/styles/overlays.css");
+    expect(sheet).toMatch(/\.growth-menu-wrap \.menu\s*\{[^}]*position:\s*absolute/);
+  });
+
+  it("uses the settings choice-switch for intimacy vs growth", () => {
+    const src = readFileSync(join(root, "src/components/memory-growth/GrowthToggle.tsx"), "utf8");
+    expect(src).toMatch(/className="choice-switch"/);
+    expect(src).toMatch(/role="radiogroup"/);
+    expect(src).toMatch(/role="radio"/);
+    expect(src).not.toMatch(/role="tab"/);
   });
 });

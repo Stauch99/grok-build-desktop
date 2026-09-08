@@ -10,6 +10,7 @@ import {
   secondsUntilReject,
   selectPanePermissions,
   selectShortcutPermission,
+  selectTimedOutPermissions,
   type QueuedPermission,
 } from "./permission-queue";
 const request = (rpcId: string, sessionId: string, agentId: QueuedPermission["agentId"] = "grok"): QueuedPermission => ({ rpcId, sessionId, title: rpcId, options: [{ optionId: "allow", name: "Allow" }], receivedAt: 1, timedOut: false, agentId });
@@ -67,6 +68,32 @@ describe("permission queue", () => {
     expect(next[0]?.rpcId).toBe("m");
     expect(next[0]?.timedOut).toBe(true);
     expect(removePermission(queue, request("m", "main"))).toHaveLength(0);
+  });
+
+  it("does not let a timed-out card block the next request in the pane", () => {
+    const timed = { ...request("old", "main"), timedOut: true };
+    const next = request("new", "main");
+    const selected = selectPanePermissions([timed, next], {
+      mainSessionId: "main",
+      runningMainSessionId: "main",
+      splitSessionId: null,
+      mainBusy: true,
+      splitBusy: false,
+    });
+    expect(selected.main?.rpcId).toBe("new");
+  });
+
+  it("lists timed-out cards separately so they can fold without blocking", () => {
+    const timed = { ...request("old", "main"), timedOut: true };
+    const next = request("new", "main");
+    const context = {
+      mainSessionId: "main",
+      runningMainSessionId: "main",
+      splitSessionId: null,
+      mainBusy: true,
+      splitBusy: false,
+    };
+    expect(selectTimedOutPermissions([timed, next], context).main.map((r) => r.rpcId)).toEqual(["old"]);
   });
 });
 

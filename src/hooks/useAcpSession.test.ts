@@ -13,6 +13,7 @@ import {
   shouldDropUpdateAfterAgentExit,
   ignoreAcpHistoryDuringResume,
   isAgentReady,
+  shouldHonorAgentExit,
   isPromptStopResult,
   paneAgentForEvent,
   resumeOnSessionAgent,
@@ -26,6 +27,7 @@ import {
   stderrToastText,
   targetAgentId,
   withEchoedUser,
+  echoUserOnce,
   withPromptFail,
   isAbandonedPromptError,
   abandonPendingForDest,
@@ -123,6 +125,22 @@ describe("withEchoedUser", () => {
     expect(prev.items).toHaveLength(0);
     expect(next.items).toEqual([{ kind: "user", id: "u-local-1", text: "hello", at: 42 }]);
     expect(next.nextId).toBe(prev.nextId + 1);
+  });
+});
+
+describe("echoUserOnce", () => {
+  it("does not duplicate the same user bubble when the queue later flushes", () => {
+    const echoed = withEchoedUser(emptyChat(), "咋停了", "u-queue", 1);
+    expect(echoUserOnce(echoed, "咋停了", "u-local", 2)).toBe(echoed);
+  });
+
+  it("appends a second prompt as its own bubble", () => {
+    const first = withEchoedUser(emptyChat(), "咋停了", "u-queue", 1);
+    const next = echoUserOnce(first, "进度如何呀？卡住了。", "u-queue", 2);
+    expect(next.items.map((it) => (it.kind === "user" ? it.text : ""))).toEqual([
+      "咋停了",
+      "进度如何呀？卡住了。",
+    ]);
   });
 });
 
@@ -248,6 +266,22 @@ describe("per-agent ready", () => {
     const ready: Partial<Record<AgentId, boolean>> = { grok: true };
     expect(isAgentReady(ready, "grok")).toBe(true);
     expect(isAgentReady(ready, "kimi")).toBe(false);
+  });
+});
+
+describe("shouldHonorAgentExit", () => {
+  it("ignores every exit while a new spawn is still in start_agent", () => {
+    expect(shouldHonorAgentExit({ spawning: true, liveGeneration: 1, eventGeneration: 1 })).toBe(false);
+    expect(shouldHonorAgentExit({ spawning: true, liveGeneration: 0, eventGeneration: 2 })).toBe(false);
+  });
+
+  it("ignores a replaced generation after the new boot owns the slot", () => {
+    expect(shouldHonorAgentExit({ spawning: false, liveGeneration: 3, eventGeneration: 2 })).toBe(false);
+  });
+
+  it("honors the live generation once spawn has returned", () => {
+    expect(shouldHonorAgentExit({ spawning: false, liveGeneration: 3, eventGeneration: 3 })).toBe(true);
+    expect(shouldHonorAgentExit({ spawning: false, liveGeneration: 0, eventGeneration: 0 })).toBe(true);
   });
 });
 
@@ -426,6 +460,14 @@ describe("resumeSession tree chrome", () => {
   });
 });
 
+describe("main-pane settle while another session is on screen", () => {
+  it("does not idle the running turn from the displayed transcript", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/shouldWatchDisplayedSession\(\{[\s\S]*boundSessionId: sessionIdRef\.current/);
+    expect(src).toMatch(/if \(watchingMain\) \{/);
+  });
+});
+
 describe("createAcpSession sidebar", () => {
   it("drops leftover usage when the bound session id changes", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
@@ -447,5 +489,28 @@ describe("createAcpSession sidebar", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).toMatch(/sessionNewMeta\(agentId, depsRef\.current\.mode === "yolo", depsRef\.current\.model\)/);
     expect(src).toMatch(/model: d\.model/);
+  });
+});
+
+describe("queuePrompt echo", () => {
+  it("inserts a user bubble when a prompt is queued during a live turn", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/function queuePrompt[\s\S]*echoUserOnce\(prev, text, "u-queue"/);
+  });
+});
+
+describe("ACP image prompt", () => {
+  it("remembers initialize promptCapabilities and sends prepared blocks", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/promptCapabilitiesFromInitialize\(initializeResult\)/);
+    expect(src).toMatch(/prepareAcpPrompt\(/);
+    expect(src).toMatch(/prompt: blocks/);
+    expect(src).not.toMatch(/prompt: \[\{ type: "text", text: acpText \}\]/);
+  });
+
+  it("echoes the composer @path text, not the rewritten workspace paste", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/echoUserOnce\(prev\.chat, text, "u-local"/);
+    expect(src).toMatch(/echoUserOnce\(prev, text, "u-local"/);
   });
 });

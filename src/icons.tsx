@@ -5,6 +5,7 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconBulb,
+  IconBook2,
   IconChartBar,
   IconCheck as TablerCheck,
   IconChevronDown,
@@ -107,6 +108,7 @@ export const IconEdit = wrap(IconPencil, 14);
 export const IconFilter = wrap(TablerFilter);
 export const IconTerminal = wrap(IconTerminal2);
 export const IconLight = wrap(IconBulb);
+export const IconBook = wrap(IconBook2, 18);
 export const IconRobot = wrap(TablerRobot, 14);
 export const IconShieldCheck = wrap(TablerShieldCheck, 14);
 export const IconFileSearch = wrap(TablerFileSearch);
