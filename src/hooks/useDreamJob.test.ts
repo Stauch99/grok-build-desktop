@@ -44,4 +44,15 @@ describe("useDreamJob persist wiring", () => {
     expect(src).toContain("selectDreamInput(lookback, day)");
     expect(src).not.toContain("selectDreamInput(dailyDays(");
   });
+
+  it("drains backlog with a bounded backfill loop on manual and first launch", () => {
+    expect(src).toContain("BACKFILL_MAX_SWEEPS");
+    expect(src).toContain("nextBackfillAction");
+    expect(src).toContain("backfillEligible");
+    expect(src).toContain("unconsumedPageCount");
+    expect(src).toContain('runSweep("launch")');
+    expect(src).toContain("lastDeepAt === null");
+    expect(src).toContain("stoppedEarly");
+    expect(src).not.toMatch(/result\.started \? 0 : pendingMaterial/);
+  });
 });

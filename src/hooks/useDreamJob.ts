@@ -13,6 +13,12 @@ import type { AgentId } from "../lib/agent-id";
 import { t, type Locale } from "../lib/i18n";
 import { friendlyError } from "../lib/error-copy";
 import { memoryCursorKey, localDayStamp } from "../lib/memory-clock";
+import {
+  BACKFILL_MAX_SWEEPS,
+  backfillEligible,
+  nextBackfillAction,
+  unconsumedPageCount,
+} from "../lib/memory-backfill";
 import { evaluateDreamGates, type DreamTrigger } from "../lib/memory-gates";
 import { parseDailyFile } from "../lib/memory-ingest";
 import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
@@ -225,7 +231,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     }
     const docs = await doctorAll().catch(() => [...o.doctors]);
     const loggedIn = loggedInAgentIds(docs);
-    const pages = await collectGrokPages(io, snap.memoryRoot);
+    let pages = await collectGrokPages(io, snap.memoryRoot);
     const newSessionCount =
       trigger === "manual" ? 0 : applyGrokIngest(io, pages, day, snap.memoryRoot, shards).newSessionCount;
     const mcpBatches = trigger === "manual" ? 0 : await mcpBatchesSince(io.state.lastDeepAt ?? 0);
@@ -236,88 +242,119 @@ export function useDreamJob(opts: DreamJobOpts) {
     const acp = { handle: null as Awaited<ReturnType<typeof openDreamAcp>> | null };
     const usage = { inChars: 0, outChars: 0, selected: 0 };
     let postIngest: DreamIo = io;
-    let shardsChanged = false;
+    const mayBackfill = backfillEligible(trigger, io.state.lastDeepAt);
+    let currentTrigger = trigger;
+    let sweepsDone = 0;
+    let stoppedEarly = false;
+    let pending = pendingMaterial;
+    let lastIo = io;
     try {
-      const result = await runDreamSweep({
-        trigger,
-        enabled: o.enabled,
-        now,
-        pendingMaterial,
-        thresholdSessions: o.thresholdSessions,
-        dreamAgentId: o.dreamAgentId,
-        loggedIn,
-        io,
-        runPhase: async (phase, current) => {
-          if (phase === "gather") {
-            const ingested = applyGrokIngest(current, pages, day, snap.memoryRoot, shards);
-            shardsChanged = !sameShards(shards, ingested.shards);
-            shards = ingested.shards;
-            postIngest = ingested.io;
-            await persistIngest({ day, shards: ingested.shards, state: ingested.io.state }).catch(() => undefined);
-            return { dailyMd: ingested.io.dailyMd, state: ingested.io.state };
-          }
-          const lookback = await loadLookbackDays(snap.memoryRoot, day, DREAM_LOOKBACK_DAYS, {
-            todayShards: shards,
-            todayFallback: current.dailyMd,
-          });
-          const selection = selectDreamInput(lookback, day);
-          usage.selected = selection.selected.length;
-          if (!acp.handle) {
-            await persistState(current.state);
-            acp.handle = await openDreamAcp({
-              agentId: o.dreamAgentId,
-              memoryRoot: snap.memoryRoot,
-              alreadyRunning: dreamAlreadyRunning(o.selectedAgentId, o.dreamAgentId),
+      while (sweepsDone < BACKFILL_MAX_SWEEPS) {
+        const sweepNow = Date.now();
+        const iterationBefore = io.userMd;
+        let shardsChanged = false;
+        let iterationStoppedEarly = false;
+        const result = await runDreamSweep({
+          trigger: currentTrigger,
+          enabled: o.enabled,
+          now: sweepNow,
+          pendingMaterial: currentTrigger === "manual" ? 0 : pendingMaterial,
+          thresholdSessions: o.thresholdSessions,
+          dreamAgentId: o.dreamAgentId,
+          loggedIn,
+          io,
+          runPhase: async (phase, current) => {
+            if (phase === "gather") {
+              const ingested = applyGrokIngest(current, pages, day, snap.memoryRoot, shards);
+              iterationStoppedEarly = ingested.stoppedEarly;
+              shardsChanged = !sameShards(shards, ingested.shards);
+              shards = ingested.shards;
+              postIngest = ingested.io;
+              await persistIngest({ day, shards: ingested.shards, state: ingested.io.state }).catch(() => undefined);
+              return { dailyMd: ingested.io.dailyMd, state: ingested.io.state };
+            }
+            const lookback = await loadLookbackDays(snap.memoryRoot, day, DREAM_LOOKBACK_DAYS, {
+              todayShards: shards,
+              todayFallback: current.dailyMd,
             });
-          }
-          const prompt = mainPrompt(current, selection.selected);
-          usage.inChars = prompt.length;
-          const text = await acp.handle.prompt(prompt);
-          usage.outChars = text.length;
-          const parsed = parseMainOutput(text);
-          return {
-            userMd: parsed.userMd ?? undefined,
-            dreamsMd: parsed.diary ? appendDreamsAppendix(current.dreamsMd, parsed.diary) : undefined,
-            tagline: parsed.tagline ?? undefined,
-          };
-        },
-      });
-      postIngest = result.io;
-      if (result.io.state.lastStatus === "failed" || !result.started) {
-        await persistState(result.io.state);
-      } else {
-        if (shardsChanged) await persistIngest({ day, shards, state: result.io.state });
-        await persistDreamFiles({
-          userMd: result.io.userMd,
-          dreamsMd: result.io.dreamsMd,
-          state: result.io.state,
+            const selection = selectDreamInput(lookback, day);
+            usage.selected = selection.selected.length;
+            if (!acp.handle) {
+              await persistState(current.state);
+              acp.handle = await openDreamAcp({
+                agentId: o.dreamAgentId,
+                memoryRoot: snap.memoryRoot,
+                alreadyRunning: dreamAlreadyRunning(o.selectedAgentId, o.dreamAgentId),
+              });
+            }
+            const prompt = mainPrompt(current, selection.selected);
+            usage.inChars = prompt.length;
+            const text = await acp.handle.prompt(prompt);
+            usage.outChars = text.length;
+            const parsed = parseMainOutput(text);
+            return {
+              userMd: parsed.userMd ?? undefined,
+              dreamsMd: parsed.diary ? appendDreamsAppendix(current.dreamsMd, parsed.diary) : undefined,
+              tagline: parsed.tagline ?? undefined,
+            };
+          },
         });
-      }
-      if (result.started) {
-        const deltaBytes = Math.max(0, result.io.userMd.length - beforeUser.length);
-        await recordEvent({
-          at: now,
-          kind: "dream_sweep",
-          agent: o.dreamAgentId,
-          prompts: 1,
-          inChars: usage.inChars,
-          outChars: usage.outChars,
-          count: usage.selected,
-          bytes: deltaBytes,
-        });
-        if (result.io.userMd !== beforeUser) {
-          await recordEvent({
-            at: now,
-            kind: "promote",
-            agent: o.dreamAgentId,
-            count: 1,
-            bytes: deltaBytes,
+        postIngest = result.io;
+        lastIo = result.io;
+        io = result.io;
+        stoppedEarly = iterationStoppedEarly;
+        pending = unconsumedPageCount(pages, result.io.state.cursors, result.io.state.forgotten);
+        sweepsDone += 1;
+        if (result.io.state.lastStatus === "failed" || !result.started) {
+          await persistState(result.io.state);
+        } else {
+          if (shardsChanged) await persistIngest({ day, shards, state: result.io.state });
+          await persistDreamFiles({
+            userMd: result.io.userMd,
+            dreamsMd: result.io.dreamsMd,
+            state: result.io.state,
           });
         }
+        if (result.started) {
+          const deltaBytes = Math.max(0, result.io.userMd.length - iterationBefore.length);
+          await recordEvent({
+            at: sweepNow,
+            kind: "dream_sweep",
+            agent: o.dreamAgentId,
+            prompts: 1,
+            inChars: usage.inChars,
+            outChars: usage.outChars,
+            count: usage.selected,
+            bytes: deltaBytes,
+          });
+          if (result.io.userMd !== iterationBefore) {
+            await recordEvent({
+              at: sweepNow,
+              kind: "promote",
+              agent: o.dreamAgentId,
+              count: 1,
+              bytes: deltaBytes,
+            });
+          }
+        }
+        if (
+          !mayBackfill ||
+          !result.started ||
+          nextBackfillAction({
+            sweepsDone,
+            stoppedEarly,
+            pending,
+            lastReason: result.reason,
+          }) === "stop"
+        ) {
+          break;
+        }
+        currentTrigger = "manual";
+        io = { ...result.io, state: { ...result.io.state, lastScanAt: null } };
+        pages = await collectGrokPages(io, snap.memoryRoot);
       }
-      const pending = result.started ? 0 : pendingMaterial;
-      applyIo(result.io, snap.memoryRoot, pending, shards);
-      setProfileUpdated(result.started && result.io.userMd !== beforeUser);
+      applyIo(lastIo, snap.memoryRoot, pending, shards);
+      setProfileUpdated(lastIo.userMd !== beforeUser);
     } catch (e) {
       const failed: DreamIo = {
         ...postIngest,
@@ -342,8 +379,15 @@ export function useDreamJob(opts: DreamJobOpts) {
   useEffect(() => {
     if (!opts.settingsHydrated || catchUpTried.current) return;
     catchUpTried.current = true;
-    void refreshFromHost().catch(() => undefined);
-  }, [opts.settingsHydrated, refreshFromHost]);
+    void (async () => {
+      try {
+        const loaded = await refreshFromHost();
+        if (loaded.io.state.lastDeepAt === null) await runSweep("launch");
+      } catch {
+        /* best-effort */
+      }
+    })();
+  }, [opts.settingsHydrated, refreshFromHost, runSweep]);
 
   // Accumulation trigger: cheap pre-check on the clock only, then let the
   // real gate (with fresh material counts) decide inside runSweep.
