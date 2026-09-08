@@ -1,5 +1,6 @@
 import type { AgentId } from "./agent-id";
 import { isAgentId } from "./agent-id";
+import { DREAM_LINE_MAX_CHARS } from "./memory-weight";
 
 export type IngestKind = "user_pref" | "user_utterance" | "agent_commitment";
 export type IngestTurn = {
@@ -39,8 +40,18 @@ export function filterIngestTurns(turns: IngestTurn[], forgotten: readonly strin
   return out;
 }
 
+export function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+export function clipDailyText(text: string, maxChars = DREAM_LINE_MAX_CHARS): string {
+  return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
 export function formatDailyFile(day: string, lines: DailyLine[]): string {
-  const body = lines.map((l) => `- [${l.agentId} | ${l.sessionId} | ${l.cwd} | ${l.kind}] ${l.text}`).join("\n");
+  const body = lines
+    .map((l) => `- [${l.agentId} | ${l.sessionId} | ${l.cwd} | ${l.kind}] ${clipDailyText(l.text)}`)
+    .join("\n");
   return `# ${day}\n${body}\n`;
 }
 

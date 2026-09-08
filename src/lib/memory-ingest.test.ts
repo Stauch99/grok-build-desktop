@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterIngestTurns, formatDailyFile, looksLikeSecret, parseDailyFile } from "./memory-ingest";
+import { filterIngestTurns, formatDailyFile, looksLikeSecret, parseDailyFile, utf8Bytes } from "./memory-ingest";
+import { DREAM_LINE_MAX_CHARS } from "./memory-weight";
 
 describe("looksLikeSecret", () => {
   it("flags key-shaped strings", () => {
@@ -37,5 +38,19 @@ describe("daily file", () => {
 
   it("parseDailyFile is empty for untagged model prose", () => {
     expect(parseDailyFile("# 2026-08-30\njust a summary of the day\n")).toEqual([]);
+  });
+
+  it("clips a long utterance to DREAM_LINE_MAX_CHARS", () => {
+    const text = "x".repeat(20_000);
+    const lines = [{ agentId: "grok" as const, sessionId: "s1", cwd: "/p", kind: "user_utterance" as const, text }];
+    const file = formatDailyFile("2026-09-08", lines);
+    expect(file).toContain("x".repeat(DREAM_LINE_MAX_CHARS));
+    expect(file).not.toContain("x".repeat(DREAM_LINE_MAX_CHARS + 1));
+  });
+});
+
+describe("utf8Bytes", () => {
+  it("utf8Bytes counts CJK as three bytes each", () => {
+    expect(utf8Bytes("中")).toBe(3);
   });
 });
