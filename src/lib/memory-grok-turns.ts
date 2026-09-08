@@ -3,7 +3,15 @@ import type { AcpRecord } from "./acp-events";
 import type { AgentId } from "./agent-id";
 import { memoryCursorKey } from "./memory-clock";
 import { isDreamSession } from "./memory-dream-acp";
-import { filterIngestTurns, formatDailyFile, parseDailyFile, type IngestTurn } from "./memory-ingest";
+import {
+  clipDailyText,
+  filterIngestTurns,
+  MEMORY_FILE_MAX_BYTES,
+  utf8Bytes,
+  type DailyLine,
+  type IngestTurn,
+} from "./memory-ingest";
+import { DAILY_MAX_SHARDS } from "./memory-paths";
 import { isHarnessUserText } from "./chat";
 import { asRecord, textFromContent } from "./text";
 
@@ -60,16 +68,33 @@ export function skipDreamIngestPage(page: { sessionId: string; cwd: string }, me
   return isDreamSession(page.sessionId);
 }
 
+function emptyDailyShard(day: string): string {
+  return `# ${day}\n`;
+}
+
+function formatDailyLine(line: DailyLine): string {
+  return `- [${line.agentId} | ${line.sessionId} | ${line.cwd} | ${line.kind}] ${clipDailyText(line.text)}\n`;
+}
+
+function shardFits(shard: string, lineText: string): boolean {
+  return utf8Bytes(shard + lineText) <= MEMORY_FILE_MAX_BYTES;
+}
+
 export function applyGrokIngest(
   io: DreamIo,
   pages: GrokIngestPage[],
   day: string,
   memoryRoot = "",
-): { io: DreamIo; newSessionCount: number } {
+): { io: DreamIo; newSessionCount: number; shards: Record<number, string>; stoppedEarly: boolean } {
   const forgotten = new Set(io.state.forgotten);
   const cursors = { ...io.state.cursors };
-  const lines = [];
+  const shards: Record<number, string> = {
+    1: io.dailyMd ? (io.dailyMd.endsWith("\n") ? io.dailyMd : `${io.dailyMd}\n`) : emptyDailyShard(day),
+  };
+  let index = 1;
   let newSessionCount = 0;
+  let stoppedEarly = false;
+
   for (const page of pages) {
     if (forgotten.has(page.sessionId)) continue;
     if (skipDreamIngestPage(page, memoryRoot)) continue;
@@ -79,10 +104,30 @@ export function applyGrokIngest(
       cwd: page.cwd,
     });
     const kept = filterIngestTurns(turns, io.state.forgotten);
-    if (kept.length > 0) newSessionCount += 1;
-    lines.push(...kept);
+
+    let allFit = true;
+    for (const line of kept) {
+      const formatted = formatDailyLine(line);
+      while (index <= DAILY_MAX_SHARDS) {
+        if (shards[index] == null) shards[index] = emptyDailyShard(day);
+        if (shardFits(shards[index], formatted)) break;
+        index += 1;
+      }
+      if (index > DAILY_MAX_SHARDS) {
+        allFit = false;
+        break;
+      }
+      shards[index] += formatted;
+    }
+
+    if (!allFit) {
+      stoppedEarly = true;
+      break;
+    }
     cursors[memoryCursorKey("grok", page.sessionId)] = page.nextByte;
+    if (kept.length) newSessionCount += 1;
   }
-  const dailyMd = formatDailyFile(day, [...parseDailyFile(io.dailyMd), ...lines]);
-  return { io: { ...io, dailyMd, state: { ...io.state, cursors } }, newSessionCount };
+
+  const dailyMd = shards[1];
+  return { io: { ...io, dailyMd, state: { ...io.state, cursors } }, newSessionCount, shards, stoppedEarly };
 }

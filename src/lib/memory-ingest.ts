@@ -40,6 +40,8 @@ export function filterIngestTurns(turns: IngestTurn[], forgotten: readonly strin
   return out;
 }
 
+export const MEMORY_FILE_MAX_BYTES = 64 * 1024;
+
 export function utf8Bytes(text: string): number {
   return new TextEncoder().encode(text).length;
 }
