@@ -30,6 +30,18 @@ describe("useDreamJob persist wiring", () => {
   it("loads numbered daily shards and feeds them to selectDreamInput", () => {
     expect(src).toContain("dailyShardPath(memoryRoot, day, index)");
     expect(src).toContain("DAILY_MAX_SHARDS");
-    expect(src).toContain("selectDreamInput(dailyDays(shards, day, current.dailyMd), day)");
+    expect(src).toContain("DREAM_LOOKBACK_DAYS");
+    expect(src).toContain("loadLookbackDays");
+    expect(src).toContain("selectDreamInput(lookback, day)");
+  });
+
+  it("gather merges ingest into today's shards then main uses lookback", () => {
+    const gatherStart = src.indexOf('if (phase === "gather")');
+    const gather = src.slice(gatherStart, src.indexOf("const lookback"));
+    expect(gather).toContain("applyGrokIngest(current, pages, day, snap.memoryRoot, shards)");
+    expect(gather).toContain("shards = ingested.shards");
+    expect(src).toContain("todayShards: shards");
+    expect(src).toContain("selectDreamInput(lookback, day)");
+    expect(src).not.toContain("selectDreamInput(dailyDays(");
   });
 });

@@ -18,6 +18,7 @@ import { parseDailyFile } from "../lib/memory-ingest";
 import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
 import { runDreamSweep, type DreamIo } from "../lib/memory-dream";
 import { applyGrokIngest, skipDreamIngestPage, type GrokIngestPage } from "../lib/memory-grok-turns";
+import { DREAM_LOOKBACK_DAYS, loadLookbackDays } from "../lib/memory-daily-read";
 import { persistDreamFiles, persistIngest, persistState } from "../lib/memory-host-persist";
 import { dailyMdPath, dailyShardPath, DAILY_MAX_SHARDS, dreamsMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
 import { mainPrompt, parseMainOutput } from "../lib/memory-phase-prompt";
@@ -87,19 +88,6 @@ async function ioFromHost(
     },
     shards,
   };
-}
-
-function dailyDays(
-  shards: Record<number, string>,
-  day: string,
-  fallbackDailyMd: string,
-): { lines: ReturnType<typeof parseDailyFile>; day: string }[] {
-  const indexes = Object.keys(shards)
-    .map(Number)
-    .filter((index) => Number.isInteger(index) && index >= 1)
-    .sort((a, b) => a - b);
-  if (!indexes.length) return [{ lines: parseDailyFile(fallbackDailyMd), day }];
-  return indexes.map((index) => ({ lines: parseDailyFile(shards[index] ?? ""), day }));
 }
 
 function sameShards(a: Record<number, string>, b: Record<number, string>): boolean {
@@ -268,7 +256,11 @@ export function useDreamJob(opts: DreamJobOpts) {
             await persistIngest({ day, shards: ingested.shards, state: ingested.io.state }).catch(() => undefined);
             return { dailyMd: ingested.io.dailyMd, state: ingested.io.state };
           }
-          const selection = selectDreamInput(dailyDays(shards, day, current.dailyMd), day);
+          const lookback = await loadLookbackDays(snap.memoryRoot, day, DREAM_LOOKBACK_DAYS, {
+            todayShards: shards,
+            todayFallback: current.dailyMd,
+          });
+          const selection = selectDreamInput(lookback, day);
           usage.selected = selection.selected.length;
           if (!acp.handle) {
             await persistState(current.state);
