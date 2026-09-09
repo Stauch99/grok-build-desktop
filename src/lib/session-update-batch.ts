@@ -7,6 +7,16 @@ const FLUSH_NOW = new Set([
   "auto_compact_completed",
 ]);
 
+export function sessionUpdateKind(params: Record<string, unknown>): string {
+  const update = params.update ? asRecord(params.update) : params;
+  return String(update.sessionUpdate ?? "");
+}
+
+export function sessionUpdateState(params: Record<string, unknown>): string {
+  const update = params.update ? asRecord(params.update) : params;
+  return String(update.state ?? update.sessionState ?? "").toLowerCase();
+}
+
 export function foldSessionUpdates(
   prev: ChatState,
   batch: Record<string, unknown>[],
@@ -17,8 +27,9 @@ export function foldSessionUpdates(
 }
 
 export function shouldFlushSessionUpdateNow(params: Record<string, unknown>): boolean {
-  const update = params.update ? asRecord(params.update) : params;
-  return FLUSH_NOW.has(String(update.sessionUpdate ?? ""));
+  const kind = sessionUpdateKind(params);
+  if (kind === "state_update") return sessionUpdateState(params) === "idle";
+  return FLUSH_NOW.has(kind);
 }
 
 /** Resume working chrome when the agent produces work after the UI had gone idle. */
@@ -28,6 +39,10 @@ export function shouldResumeBusyOnSessionUpdate(
 ): boolean {
   const update = params.update ? asRecord(params.update) : params;
   const kind = String(update.sessionUpdate ?? "");
+  if (kind === "state_update") {
+    const state = sessionUpdateState(params);
+    return state === "running" || state === "requires_action" || state === "requires-action";
+  }
   if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") return true;
   if (kind !== "tool_call" && kind !== "tool_call_update") return false;
   const title = String(update.title ?? "");
@@ -55,7 +70,11 @@ export function shouldClearBusyOnSessionUpdate(
   items?: ChatItem[],
 ): boolean {
   const update = params.update ? asRecord(params.update) : params;
-  if (String(update.sessionUpdate ?? "") !== "turn_completed") return false;
+  const kind = String(update.sessionUpdate ?? "");
+  if (kind === "state_update") return sessionUpdateState(params) === "idle";
+  if (kind !== "turn_completed") return false;
+  const stop = String(update.stop_reason ?? update.stopReason ?? "").toLowerCase();
+  if (stop === "cancelled" || stop === "canceled") return true;
   if (items && turnHasOpenTools(items)) return false;
   return true;
 }

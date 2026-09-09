@@ -38,6 +38,12 @@ describe("shouldClearBusyOnSessionUpdate", () => {
     expect(shouldClearBusyOnSessionUpdate(kind("turn_completed"))).toBe(true);
     expect(shouldClearBusyOnSessionUpdate(chunk("pong"))).toBe(false);
     expect(shouldClearBusyOnSessionUpdate(kind("auto_compact_completed"))).toBe(false);
+    expect(shouldClearBusyOnSessionUpdate({ update: { sessionUpdate: "state_update", state: "idle" } })).toBe(
+      true,
+    );
+    expect(shouldClearBusyOnSessionUpdate({ update: { sessionUpdate: "state_update", state: "running" } })).toBe(
+      false,
+    );
   });
 
   it("does not idle on turn_completed while a tool is still running", () => {
@@ -59,12 +65,24 @@ describe("shouldClearBusyOnSessionUpdate", () => {
         { kind: "assistant" as const, id: "a", text: "done" },
       ]),
     ).toBe(true);
+    expect(
+      shouldClearBusyOnSessionUpdate(
+        { update: { sessionUpdate: "turn_completed", stop_reason: "cancelled" } },
+        [
+          { kind: "user" as const, id: "u", text: "go" },
+          { kind: "tool" as const, id: "t1", title: "Bash", status: "in_progress" as const },
+        ],
+      ),
+    ).toBe(true);
   });
 });
 
 describe("shouldResumeBusyOnSessionUpdate", () => {
   it("re-enters working on live work after the UI had gone idle", () => {
     expect(shouldResumeBusyOnSessionUpdate(chunk("more"))).toBe(true);
+    expect(shouldResumeBusyOnSessionUpdate({ update: { sessionUpdate: "state_update", state: "running" } })).toBe(
+      true,
+    );
     expect(shouldResumeBusyOnSessionUpdate(kind("tool_call"))).toBe(true);
     expect(
       shouldResumeBusyOnSessionUpdate({ update: { sessionUpdate: "tool_call_update", status: "in_progress" } }),
@@ -103,6 +121,7 @@ describe("shouldFlushSessionUpdateNow", () => {
     expect(shouldFlushSessionUpdateNow(kind("turn_completed"))).toBe(true);
     expect(shouldFlushSessionUpdateNow(kind("auto_compact_started"))).toBe(true);
     expect(shouldFlushSessionUpdateNow(kind("auto_compact_completed"))).toBe(true);
+    expect(shouldFlushSessionUpdateNow({ update: { sessionUpdate: "state_update", state: "idle" } })).toBe(true);
   });
 
   it("keeps token chunks on the animation frame", () => {

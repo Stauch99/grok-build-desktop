@@ -36,6 +36,7 @@ export type AppModelViewInput = {
   locale: Locale;
   busy: boolean;
   runningSessionId: string | null;
+  liveTurnIds?: readonly string[];
   extraPanes: Record<string, ExtraPaneState>;
   allSessions: SessionSummary[];
   awaitingId: string | null;
@@ -90,11 +91,12 @@ export function useAppModelView(input: AppModelViewInput) {
       busy: input.busy,
       sessionId: input.sessionId,
       runningSessionId: input.runningSessionId,
+      runningIds: input.liveTurnIds,
       extraPanes: Object.values(input.extraPanes),
       liveRosterIds: liveBusyIds(input.allSessions),
       runningChildIds: runningChildSessionIds(input.chat.items),
     });
-  }, [input.busy, input.sessionId, input.runningSessionId, input.extraPanes, input.allSessions, input.chat.items]);
+  }, [input.busy, input.sessionId, input.runningSessionId, input.liveTurnIds, input.extraPanes, input.allSessions, input.chat.items]);
 
   const statusFor = useCallback(
     (id: string): SessionStatus => deriveStatus({ id, busyIds, awaitingId: input.awaitingId, unread: input.unread }),

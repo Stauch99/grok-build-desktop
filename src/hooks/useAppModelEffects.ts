@@ -26,9 +26,10 @@ import { sessionTokensAfterLiveUsage } from "../lib/sidebar-list";
 import { applyAccent } from "../lib/accent";
 import { t, type Locale } from "../lib/i18n";
 import { MAIN_PANE, leafIds } from "../lib/pane-tree";
+import { paneTurnIsLive, runningSessionIds } from "../lib/acp-turn";
 import { paneNeedsCloseConfirm } from "../lib/app-hotkeys";
 import { tapDanger } from "../lib/confirm";
-import { dequeue } from "../lib/prompt-queue";
+import { dequeue, putSessionQueue } from "../lib/prompt-queue";
 import { isSessionFocused, notifyText, shouldMarkUnread, shouldNotify } from "../lib/notify";
 import { countAttention } from "../lib/session-badge";
 import { playTurnDone } from "../lib/sound";
@@ -275,46 +276,40 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [s.extraPanes]);
 
   useEffect(() => {
+    const finishedId = acp.lastFinishedSessionRef.current;
+    if (finishedId) {
+      acp.lastFinishedSessionRef.current = null;
+      const started = s.busyStartRef.current;
+      const elapsedMs = started == null ? 0 : Date.now() - started;
+      void d.refreshGit();
+      const sessionFocused = isSessionFocused(s.focusedSessionIdRef.current, finishedId);
+      const windowFocused = s.focusedRef.current;
+      if (shouldMarkUnread(windowFocused, sessionFocused)) {
+        s.setUnread((prev) => {
+          const next = markUnread(prev, finishedId, "done");
+          if (next !== prev) d.persist({ unread: next });
+          return next;
+        });
+      }
+      if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+        if (s.soundsRef.current) playTurnDone();
+        void setNotifyTarget(finishedId);
+        const { title, body } = notifyText(
+          "turn-done",
+          s.titleForSessionRef.current(finishedId),
+          formatElapsed(elapsedMs),
+        );
+        void notify(title, body);
+      }
+    }
     if (acp.busy) {
       if (s.busyStartRef.current === null) s.busyStartRef.current = Date.now();
       s.setMainBusyAt((t) => t ?? Date.now());
       return;
     }
-    if (acp.pendingPrompt.current === MAIN_PANE) {
-      s.busyStartRef.current = null;
-      s.setMainBusyAt(null);
-      return;
-    }
-    const started = s.busyStartRef.current;
-    const finishedId = acp.runningSessionIdRef.current;
-    s.busyStartRef.current = null;
     s.setMainBusyAt(null);
-    acp.runningSessionIdRef.current = null;
-    acp.setRunningSessionId(null);
-    if (started === null) return;
-    const elapsedMs = Date.now() - started;
-    void d.refreshGit();
-    const sessionFocused = isSessionFocused(s.focusedSessionIdRef.current, finishedId);
-    const windowFocused = s.focusedRef.current;
-    if (finishedId && shouldMarkUnread(windowFocused, sessionFocused)) {
-      const id = finishedId;
-      s.setUnread((prev) => {
-        const next = markUnread(prev, id, "done");
-        if (next !== prev) d.persist({ unread: next });
-        return next;
-      });
-    }
-    if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
-      if (s.soundsRef.current) playTurnDone();
-      if (finishedId) void setNotifyTarget(finishedId);
-      const { title, body } = notifyText(
-        "turn-done",
-        s.titleForSessionRef.current(finishedId),
-        formatElapsed(elapsedMs),
-      );
-      void notify(title, body);
-    }
-  }, [acp.busy, d.refreshGit]);
+    if (runningSessionIds(acp.turnsRef.current).length === 0) s.busyStartRef.current = null;
+  }, [acp.busy, acp.runningSessionId, acp.liveTurnIds, d.refreshGit]);
 
   useEffect(() => {
     const idle = Object.entries(s.extraPanes).filter(([, pane]) => !pane.busy);
@@ -380,6 +375,7 @@ export function useAppModelEffects(d: EffectsDeps) {
 
   useEffect(() => {
     s.queueRef.current = s.queue;
+    s.sessionQueuesRef.current = putSessionQueue(s.sessionQueuesRef.current, acp.sessionIdRef.current, s.queue);
   }, [s.queue]);
 
   useEffect(() => {
@@ -611,7 +607,12 @@ export function useAppModelEffects(d: EffectsDeps) {
       s.rewindTarget != null,
     canClosePane: leafIds(s.paneTree).length > 1,
     allowCancel:
-      s.focusedPaneId === MAIN_PANE ? acp.busy : !!s.extraPanes[s.focusedPaneId]?.busy,
+      s.focusedPaneId === MAIN_PANE
+        ? acp.busy
+        : paneTurnIsLive(acp.turnsRef.current, {
+            pane: s.focusedPaneId,
+            sessionId: s.extraPanes[s.focusedPaneId]?.sessionId ?? null,
+          }),
     telemetry: !!s.cli?.telemetry,
     handlers: {
       palette: () => d.palette.setOpen(true),
@@ -631,7 +632,13 @@ export function useAppModelEffects(d: EffectsDeps) {
       "close-pane": () => {
         const paneId = s.focusedPaneIdRef.current;
         const extra = s.extraPanesRef.current[paneId];
-        const paneBusy = paneId === MAIN_PANE ? acp.busy : !!extra?.busy;
+        const paneBusy =
+          paneId === MAIN_PANE
+            ? acp.busy
+            : paneTurnIsLive(acp.turnsRef.current, {
+                pane: paneId,
+                sessionId: extra?.sessionId ?? null,
+              });
         const paneDraft = paneId === MAIN_PANE ? s.draft : extra?.draft ?? "";
         if (paneNeedsCloseConfirm({ busy: paneBusy, draft: paneDraft })) {
           s.setAppConfirm({
@@ -648,7 +655,13 @@ export function useAppModelEffects(d: EffectsDeps) {
       cancel: () => {
         const paneId = s.focusedPaneIdRef.current;
         const extra = s.extraPanesRef.current[paneId];
-        const paneBusy = paneId === MAIN_PANE ? acp.busy : !!extra?.busy;
+        const paneBusy =
+          paneId === MAIN_PANE
+            ? acp.busy
+            : paneTurnIsLive(acp.turnsRef.current, {
+                pane: paneId,
+                sessionId: extra?.sessionId ?? null,
+              });
         const dest = paneId === MAIN_PANE ? MAIN_PANE : paneId;
         if (!paneBusy) return;
         const tapped = tapDanger(s.cancelArmRef.current, "cancel-turn", Date.now());

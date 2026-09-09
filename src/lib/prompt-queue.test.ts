@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { dequeue, editQueued, emptyQueue, enqueue, queueLabel, removeQueued, reorderQueue, tryEnqueue } from "./prompt-queue";
+import {
+  dequeue,
+  editQueued,
+  emptyQueue,
+  enqueue,
+  getSessionQueue,
+  putSessionQueue,
+  queueLabel,
+  removeQueued,
+  reorderQueue,
+  swapSessionQueue,
+  tryEnqueue,
+} from "./prompt-queue";
 
 describe("enqueue", () => {
   it("appends with an incrementing id", () => {
@@ -117,5 +129,43 @@ describe("queueLabel", () => {
 
   it("counts the queue", () => {
     expect(queueLabel(enqueue(emptyQueue(), "one"))).toBe("已排队 1 条");
+  });
+});
+
+describe("session queues", () => {
+  it("keeps each session's waiting prompts when focus moves", () => {
+    const a = enqueue(emptyQueue(), "for session A");
+    const swapped = swapSessionQueue({
+      queues: {},
+      fromId: "session-a",
+      toId: "session-b",
+      fromQueue: a,
+    });
+    expect(getSessionQueue(swapped.queues, "session-a").items.map((q) => q.text)).toEqual(["for session A"]);
+    expect(swapped.displayed.items).toEqual([]);
+    expect(getSessionQueue(swapped.queues, "session-b").items).toEqual([]);
+  });
+
+  it("restores a parked queue when that session is focused again", () => {
+    const first = swapSessionQueue({
+      queues: {},
+      fromId: "session-a",
+      toId: "session-b",
+      fromQueue: enqueue(emptyQueue(), "stay on A"),
+    });
+    const back = swapSessionQueue({
+      queues: first.queues,
+      fromId: "session-b",
+      toId: "session-a",
+      fromQueue: emptyQueue(),
+    });
+    expect(back.displayed.items.map((q) => q.text)).toEqual(["stay on A"]);
+  });
+
+  it("drops empty queues from the map", () => {
+    const parked = putSessionQueue({}, "session-a", enqueue(emptyQueue(), "temp"));
+    expect(getSessionQueue(parked, "session-a").items).toHaveLength(1);
+    expect(getSessionQueue(putSessionQueue(parked, "session-a", emptyQueue()), "session-a").items).toEqual([]);
+    expect(Object.keys(putSessionQueue(parked, "session-a", emptyQueue()))).toEqual([]);
   });
 });

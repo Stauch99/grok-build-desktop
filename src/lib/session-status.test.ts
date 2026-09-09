@@ -134,6 +134,27 @@ describe("busySessionIds", () => {
       }),
     ).toEqual([]);
   });
+
+  it("keeps a background session working while the open pane is idle", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: "run",
+      }),
+    ).toEqual(["run"]);
+  });
+
+  it("includes every live lease id, not only the primary", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: "run",
+        runningIds: ["run", "other"],
+      }),
+    ).toEqual(["run", "other"]);
+  });
 });
 
 describe("sidebarWorkingIds", () => {

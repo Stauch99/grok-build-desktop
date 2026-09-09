@@ -23,6 +23,8 @@ import {
   chatAfterBoundSessionChange,
   emptyChat,
   itemsAfterLastUser,
+  lastTurnCompletedStopReason,
+  foldTurnStopCursor,
   shouldKeepSessionUpdate,
   shouldClearBusyOnSettledChat,
   type ChatState,
@@ -40,7 +42,7 @@ import { sameCwd } from "../lib/inbox";
 import { shouldDropAcpEvent } from "../lib/acp-host";
 import type { AgentId } from "../lib/agent-id";
 import type { Mode } from "../lib/mode";
-import { tryEnqueue, emptyQueue, dequeue, type QueueState } from "../lib/prompt-queue";
+import { tryEnqueue, emptyQueue, dequeue, putSessionQueue, swapSessionQueue, type QueueState, type SessionQueues } from "../lib/prompt-queue";
 import { agentChipLabel } from "../lib/agent-chip";
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
@@ -48,6 +50,7 @@ import { getDraft, setDraft as writeDraft, resumeComposerDraft, isStaleSentDraft
 import { isLiveRosterId } from "../lib/live-roster";
 import { agentIdForPaneDest, agentIdOfSession, planOpenSession, selectedAgentAfterOpen, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
+import { shouldWatchDisplayedSession } from "../lib/run-status";
 import {
   afterInitializeFetchSessionList,
   flagsAfterWarmup,
@@ -73,7 +76,22 @@ import {
 import { classifyAgentExit } from "../lib/agent-exit";
 import { friendlyError } from "../lib/error-copy";
 import { recordPromptHistory } from "../lib/prompt-history";
-import { shouldWatchDisplayedSession } from "../lib/run-status";
+import {
+  bindTurnSession,
+  emptyTurnStore,
+  endCatchUpTurn,
+  endTurn,
+  endTurnsForAgent,
+  markTurnCancelling,
+  paneTurnIsLive,
+  primaryRunningId,
+  runningSessionIds,
+  shouldAbandonTurnOnSend,
+  shouldDropLiveUpdate,
+  startTurn,
+  turnForSession,
+  type AcpTurnStore,
+} from "../lib/acp-turn";
 
 const MAIN_PANE = "main";
 const agentBoots: Partial<Record<AgentId, Promise<void>>> = {};
@@ -162,6 +180,65 @@ export function sessionUpdateDest(
   return fallbackPane;
 }
 
+/** A cancelled/finished turn must release the prompt waiter even if that session is off-screen. */
+export function shouldReleasePromptOnDroppedUpdate(opts: {
+  dest: SessionUpdateDest;
+  params: Record<string, unknown>;
+  sessionId: string | null;
+  runningSessionId: string | null;
+  boundSessionId: string | null;
+}): boolean {
+  if (opts.dest !== "drop") return false;
+  if (!shouldClearBusyOnSessionUpdate(opts.params)) return false;
+  const sid = opts.sessionId;
+  if (!sid) return false;
+  return opts.runningSessionId === sid || opts.boundSessionId === sid;
+}
+
+/** After abandoning a zombie in-flight prompt, the follow-up send must go out. */
+export function shouldBlockSendWhileBusy(opts: { busy: boolean; justAbandonedInFlight: boolean }): boolean {
+  if (opts.justAbandonedInFlight) return false;
+  return opts.busy;
+}
+
+/** A leftover session/prompt waiter must not block the queue once the pane is idle. */
+export function shouldHoldComposerQueue(opts: { pendingPrompt: boolean; busy: boolean }): boolean {
+  return opts.pendingPrompt && opts.busy;
+}
+
+export function shouldScanTranscriptForStopReason(opts: {
+  busy: boolean;
+  knownStopReason: string | null | undefined;
+}): boolean {
+  return opts.busy && opts.knownStopReason == null;
+}
+
+/** Opening a cancelled (or already-idle) session must release the composer lock. */
+export function shouldUnlockComposerOnResume(opts: {
+  lastStopReason: string | null | undefined;
+  userAfterLastStop?: boolean;
+  pendingPrompt: boolean;
+  busy: boolean;
+}): boolean {
+  const stop = (opts.lastStopReason ?? "").toLowerCase();
+  if ((stop === "cancelled" || stop === "canceled") && !opts.userAfterLastStop) return true;
+  return opts.pendingPrompt && !opts.busy;
+}
+
+/** Historical turn_completed during session/load must not close a still-open prompt. */
+export function shouldApplyReplayTerminal(opts: {
+  ignoreReplay: boolean;
+  updateSessionId: string | null;
+  displayedSessionId: string | null;
+  pendingPrompt: boolean;
+}): boolean {
+  if (!opts.ignoreReplay) return true;
+  const forDisplayed =
+    opts.updateSessionId == null || opts.updateSessionId === opts.displayedSessionId;
+  if (forDisplayed && opts.pendingPrompt) return false;
+  return true;
+}
+
 export function withEchoedUser(chat: ChatState, text: string, idPrefix: string, at: number): ChatState {
   return {
     ...chat,
@@ -200,16 +277,29 @@ export function isAbandonedPromptError(e: unknown): boolean {
   return e instanceof Error && e.message === "prompt-abandoned";
 }
 
+export function waiterMatchesSession(
+  waiterSid: string | undefined,
+  opts?: { sessionId?: string | null },
+): boolean {
+  if (!opts || !("sessionId" in opts)) return true;
+  if (opts.sessionId == null) return !waiterSid;
+  return waiterSid === opts.sessionId;
+}
+
 export function abandonPendingForDest(
   pendingRpc: Map<number, { reject: (e: Error) => void }>,
   pendingDest: Map<number, string>,
   dest: string,
+  opts?: { sessionId?: string | null; pendingSession?: Map<number, string> },
 ): void {
   for (const [id, pane] of [...pendingDest.entries()]) {
     if (pane !== dest) continue;
+    const waiterSid = opts?.pendingSession?.get(id);
+    if (!waiterMatchesSession(waiterSid, opts)) continue;
     pendingRpc.get(id)?.reject(new Error("prompt-abandoned"));
     pendingRpc.delete(id);
     pendingDest.delete(id);
+    opts?.pendingSession?.delete(id);
   }
 }
 
@@ -217,9 +307,13 @@ export function destHasPendingPrompt(
   pendingRpc: Map<number, { method?: string }>,
   pendingDest: Map<number, string>,
   dest: string,
+  opts?: { sessionId?: string | null; pendingSession?: Map<number, string> },
 ): boolean {
   for (const [id, pane] of pendingDest) {
-    if (pane === dest && pendingRpc.get(id)?.method === "session/prompt") return true;
+    if (pane !== dest || pendingRpc.get(id)?.method !== "session/prompt") continue;
+    const waiterSid = opts?.pendingSession?.get(id);
+    if (!waiterMatchesSession(waiterSid, opts)) continue;
+    return true;
   }
   return false;
 }
@@ -232,7 +326,7 @@ export function shouldIdleAfterPromptRpc(opts: {
 }
 
 export function shouldSettlePaneBusy(opts: { settled: boolean; pendingPrompt: boolean }): boolean {
-  return opts.settled;
+  return opts.settled && !opts.pendingPrompt;
 }
 
 export function cancelTargetSessionId(
@@ -367,7 +461,6 @@ export function extraPanesAfterAgentStderr(
     }
     next[id] = {
       ...pane,
-      busy: false,
       chat: notice ? withPromptFail(pane.chat, notice, now) : pane.chat,
     };
     changed = true;
@@ -424,6 +517,7 @@ export type AcpSessionDeps = {
   steerByDefault: boolean;
   setSessionDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   queueRef: React.MutableRefObject<QueueState>;
+  sessionQueuesRef: React.MutableRefObject<SessionQueues>;
   setQueue: React.Dispatch<React.SetStateAction<QueueState>>;
   onLocalSlash: (cmd: CommandDef, rest: string, dest: PaneDest) => Promise<void>;
   onCancelPermission: (target: PaneDest) => Promise<void>;
@@ -452,6 +546,9 @@ export type AcpSession = {
   busyRef: React.MutableRefObject<boolean>;
   echoedUser: React.MutableRefObject<boolean>;
   pendingPrompt: React.MutableRefObject<PaneDest | null>;
+  turnsRef: React.MutableRefObject<AcpTurnStore>;
+  liveTurnIds: string[];
+  lastFinishedSessionRef: React.MutableRefObject<string | null>;
   rpc: (method: string, params: unknown, opts?: { timeoutMs?: number; dest?: PaneDest; agentId?: AgentId }) => Promise<unknown>;
   ensureAgent: (agentId?: AgentId) => Promise<void>;
   adoptSession: (id: string | null) => void;
@@ -483,18 +580,23 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const [chat, setChat] = useState<ChatState>(emptyChat);
   const [busy, setBusy] = useState(false);
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
+  const [liveTurnIds, setLiveTurnIds] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
 
   const sessionIdRef = useRef<string | null>(null);
   const runningSessionIdRef = useRef<string | null>(null);
+  const loadingSessionRef = useRef(false);
   const readyRef = useRef(false);
   const readyByAgentRef = useRef<Partial<Record<AgentId, boolean>>>({});
   const busyRef = useRef(false);
   const sendInFlightRef = useRef(false);
   const turnStartedAtRef = useRef<number | null>(null);
   const pendingRpc = useRef(new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string }>());
+  const pendingSession = useRef(new Map<number, string>());
+  const turnsRef = useRef(emptyTurnStore());
+  const lastFinishedSessionRef = useRef<string | null>(null);
   const echoedUser = useRef(false);
   const lastSentRef = useRef("");
   const promptGen = useRef<Record<string, number>>({});
@@ -515,7 +617,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const drainRef = useRef<() => void>(() => {});
   const depsRef = useRef(deps);
   depsRef.current = deps;
-  busyRef.current = busy;
   const chatRef = useRef(chat);
   chatRef.current = chat;
   const extraChatRef = useRef<Record<string, ChatState>>({});
@@ -554,16 +655,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           chatRef.current = next;
           return next;
         });
-        busyRef.current = false;
-        setBusy(false);
         echoedUser.current = false;
         turnStartedAtRef.current = null;
-        pendingPrompt.current = null;
-        abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
-        const sid = cancelTargetSessionId(runningSessionIdRef.current, sessionIdRef.current);
+        const sid = sessionIdRef.current;
         if (sid) {
           void sendRaw(sessionCancelNotification(sid), paneAgent(MAIN_PANE)).catch(() => {});
         }
+        idleMainComposer({ abandonPrompt: true, sessionId: sid });
         d.setDraft(ghostTurn.restoreComposerText);
         const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, ghostTurn.restoreComposerText);
         d.setSessionDrafts(drafts);
@@ -590,11 +688,15 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
                 seenAssistantAt: seenAssistantAtRef.current,
                 lastActivityAt: depsRef.current.lastActivityRef.current,
               }),
-            pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE),
+            pendingPrompt: destHasPendingPrompt(
+              pendingRpc.current,
+              pendingDest.current,
+              MAIN_PANE,
+              promptWaiterOpts(sessionIdRef.current),
+            ),
           })
         ) {
-          busyRef.current = false;
-          setBusy(false);
+          idleMainComposer();
         }
       }
       for (const [id, pane] of Object.entries(depsRef.current.extraPanes)) {
@@ -607,10 +709,20 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
               items: pane.chat.items,
               lastActivityAt: extraActivityRef.current[id],
             }),
-            pendingPrompt: destHasPendingPrompt(pendingRpc.current, pendingDest.current, id),
+            pendingPrompt: destHasPendingPrompt(
+              pendingRpc.current,
+              pendingDest.current,
+              id,
+              promptWaiterOpts(pane.sessionId),
+            ),
           })
         ) {
-          patchExtra(id, (prev) => ({ ...prev, busy: false }));
+          if (pane.sessionId) turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId });
+          else turnsRef.current = endCatchUpTurn(turnsRef.current, id);
+          patchExtra(id, (prev) => ({
+            ...prev,
+            busy: paneTurnIsLive(turnsRef.current, { pane: id, sessionId: pane.sessionId ?? null }),
+          }));
         }
       }
     };
@@ -723,28 +835,35 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function adoptSession(id: string | null) {
     const prev = sessionIdRef.current;
     if (id !== prev) {
-      abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
-      pendingPrompt.current = null;
       setChat((chat) => chatAfterBoundSessionChange(chat, prev, id));
+      const d = depsRef.current;
+      const swapped = swapSessionQueue({
+        queues: d.sessionQueuesRef.current,
+        fromId: prev,
+        toId: id,
+        fromQueue: d.queueRef.current,
+      });
+      d.sessionQueuesRef.current = swapped.queues;
+      d.queueRef.current = swapped.displayed;
+      d.setQueue(swapped.displayed);
     }
     sessionIdRef.current = id;
     setSessionId(id);
+    syncMainBusyFromTurns();
   }
 
   function clearMainComposer() {
     if (!shouldUnbindBeforeNewChat()) return;
-    const sid = runningSessionIdRef.current || sessionIdRef.current;
+    const sid = sessionIdRef.current;
     const agentId = paneAgent(MAIN_PANE);
     if (shouldCancelAcpOnNewChat() && sid) {
       void sendRaw(sessionCancelNotification(sid), agentId).catch(() => {});
     }
-    abandonPendingForDest(pendingRpc.current, pendingDest.current, "main");
+    abandonPendingForDest(pendingRpc.current, pendingDest.current, "main", promptWaiterOpts(sid));
     pendingPrompt.current = null;
+    if (sid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sid });
+    turnsRef.current = endCatchUpTurn(turnsRef.current, MAIN_PANE);
     adoptSession(null);
-    runningSessionIdRef.current = null;
-    setRunningSessionId(null);
-    busyRef.current = false;
-    setBusy(false);
     bindMainAgent(selectedAgentIdRef.current);
     setChat(emptyChat());
     depsRef.current.setDraft("");
@@ -755,28 +874,108 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     return blockedAgentToast(agentId, depsRef.current.doctors);
   }
 
+  function promptWaiterOpts(sessionId: string | null | undefined) {
+    return { sessionId: sessionId ?? null, pendingSession: pendingSession.current };
+  }
+
+  function syncMainBusyFromTurns() {
+    const live = paneTurnIsLive(turnsRef.current, {
+      pane: MAIN_PANE,
+      sessionId: sessionIdRef.current,
+    });
+    busyRef.current = live;
+    setBusy(live);
+    const primary = primaryRunningId(turnsRef.current, sessionIdRef.current);
+    runningSessionIdRef.current = primary;
+    setRunningSessionId(primary);
+    setLiveTurnIds(runningSessionIds(turnsRef.current));
+  }
+
   function bumpPromptGen(dest: string): number {
     const next = (promptGen.current[dest] ?? 0) + 1;
     promptGen.current[dest] = next;
     return next;
   }
 
+  function abandonPendingForAgent(agentId: AgentId) {
+    for (const [id, pane] of [...pendingDest.current.entries()]) {
+      const waiterSid = pendingSession.current.get(id);
+      const turn = waiterSid
+        ? turnForSession(turnsRef.current, waiterSid)
+        : turnsRef.current.turns.find((item) => item.pane === pane && item.sessionId == null);
+      if (turn?.agentId !== agentId) continue;
+      pendingRpc.current.get(id)?.reject(new Error("prompt-abandoned"));
+      pendingRpc.current.delete(id);
+      pendingDest.current.delete(id);
+      pendingSession.current.delete(id);
+    }
+  }
+
+  function destTurnIsLive(dest: PaneDest): boolean {
+    if (dest === MAIN_PANE) {
+      return paneTurnIsLive(turnsRef.current, { pane: MAIN_PANE, sessionId: sessionIdRef.current });
+    }
+    const pane = depsRef.current.extraPanes[dest];
+    return paneTurnIsLive(turnsRef.current, { pane: dest, sessionId: pane?.sessionId ?? null });
+  }
+
   function beginMainRun(sid: string) {
-    bumpPromptGen(MAIN_PANE);
-    runningSessionIdRef.current = sid;
-    setRunningSessionId(sid);
-    busyRef.current = true;
-    setBusy(true);
+    const gen = bumpPromptGen(MAIN_PANE);
+    turnsRef.current = startTurn(turnsRef.current, {
+      sessionId: sid,
+      pane: MAIN_PANE,
+      generation: gen,
+      agentId: paneAgent(MAIN_PANE),
+    });
+    syncMainBusyFromTurns();
   }
 
   function drainComposerQueue() {
     const d = depsRef.current;
-    if (destHasPendingPrompt(pendingRpc.current, pendingDest.current, MAIN_PANE)) return;
+    if (
+      shouldHoldComposerQueue({
+        pendingPrompt: destHasPendingPrompt(
+          pendingRpc.current,
+          pendingDest.current,
+          MAIN_PANE,
+          promptWaiterOpts(sessionIdRef.current),
+        ),
+        busy: paneTurnIsLive(turnsRef.current, { pane: MAIN_PANE, sessionId: sessionIdRef.current }),
+      })
+    ) {
+      return;
+    }
     const { next, rest } = dequeue(d.queueRef.current);
     if (!next) return;
     d.setQueue(rest);
     d.queueRef.current = rest;
     void sendPrompt(next.text, MAIN_PANE);
+  }
+
+  function idleMainComposer(opts?: { abandonPrompt?: boolean; sessionId?: string | null }) {
+    const sid = opts && "sessionId" in opts ? opts.sessionId : sessionIdRef.current;
+    if (sid) lastFinishedSessionRef.current = sid;
+    if (opts?.abandonPrompt) {
+      abandonPendingForDest(
+        pendingRpc.current,
+        pendingDest.current,
+        MAIN_PANE,
+        promptWaiterOpts(sid ?? null),
+      );
+    }
+    if (sid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sid });
+    else turnsRef.current = endCatchUpTurn(turnsRef.current, MAIN_PANE);
+    if (pendingPrompt.current === MAIN_PANE && (!sid || sid === sessionIdRef.current)) {
+      pendingPrompt.current = null;
+    }
+    syncMainBusyFromTurns();
+    if (
+      !ignoreReplay.current &&
+      !loadingSessionRef.current &&
+      !paneTurnIsLive(turnsRef.current, { pane: MAIN_PANE, sessionId: sessionIdRef.current })
+    ) {
+      queueMicrotask(() => drainComposerQueue());
+    }
   }
 
   async function rpc(
@@ -787,12 +986,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const agentId = targetAgentId(opts?.agentId, selectedAgentIdRef.current);
     const id = await nextRpcId();
     if (opts?.dest) pendingDest.current.set(id, opts.dest);
+    const rec = asRecord(params);
+    const sid = typeof rec.sessionId === "string" ? rec.sessionId : "";
+    if (sid) pendingSession.current.set(id, sid);
     const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
     return new Promise((resolve, reject) => {
       pendingRpc.current.set(id, { resolve, reject, method });
       void sendRaw({ jsonrpc: "2.0", id, method, params }, agentId).catch((e) => {
         pendingRpc.current.delete(id);
         pendingDest.current.delete(id);
+        pendingSession.current.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
       });
       if (timeoutMs > 0) {
@@ -800,6 +1003,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           if (pendingRpc.current.has(id)) {
             pendingRpc.current.delete(id);
             pendingDest.current.delete(id);
+            pendingSession.current.delete(id);
             reject(new Error(t(depsRef.current.locale ?? "zh", "acp.timeout", { method })));
           }
         }, timeoutMs);
@@ -900,30 +1104,31 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const hadLiveWaiter = !!waiter || pendingDest.current.has(id);
       const method = waiter?.method;
       const dest = pendingDest.current.get(id) ?? pendingPrompt.current;
+      const waiterSid = pendingSession.current.get(id) ?? null;
       if (waiter) {
         pendingRpc.current.delete(id);
         if (msg.error) waiter.reject(new Error(msg.error.message || "rpc error"));
         else waiter.resolve(msg.result);
       }
       pendingDest.current.delete(id);
+      pendingSession.current.delete(id);
       if (
         shouldIdleAfterPromptRpc({
           clearOnResult:
             shouldClearBusyOnPromptResult(msg.result, hadLiveWaiter, method) ||
             shouldClearBusyOnPromptError(msg.error, hadLiveWaiter),
           otherPromptWaiters: dest
-            ? destHasPendingPrompt(pendingRpc.current, pendingDest.current, dest)
+            ? destHasPendingPrompt(pendingRpc.current, pendingDest.current, dest, promptWaiterOpts(waiterSid))
             : false,
         })
       ) {
-        if (dest && dest !== MAIN_PANE) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
-        else {
-          busyRef.current = false;
-          setBusy(false);
-        }
-        pendingPrompt.current = null;
+        if (dest && dest !== MAIN_PANE) {
+          if (waiterSid) turnsRef.current = endTurn(turnsRef.current, { sessionId: waiterSid });
+          else turnsRef.current = endCatchUpTurn(turnsRef.current, dest);
+          patchExtra(dest, (prev) => ({ ...prev, busy: false }));
+        } else idleMainComposer({ sessionId: waiterSid });
+        if (dest && pendingPrompt.current === dest) pendingPrompt.current = null;
         void d.onSessionsNeedRefresh();
-        if (!dest || dest === MAIN_PANE) drainComposerQueue();
       }
     }
     if (msg.method === "session/update" || msg.method === "_x.ai/session/update") {
@@ -931,8 +1136,45 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const sid = typeof params.sessionId === "string" ? params.sessionId : null;
       if (isDreamSession(sid)) return;
       const dest = sessionUpdateDest(sessionPaneMap(), sid);
+      const extra = dest !== MAIN_PANE && dest !== "drop";
+      const destKey = extra ? dest : MAIN_PANE;
+      const items = extra
+        ? extraChatRef.current[dest]?.items ?? d.extraPanes[dest]?.chat.items
+        : chatRef.current.items;
+      const terminal = shouldClearBusyOnSessionUpdate(params, items);
+      const action = shouldDropLiveUpdate({
+        dest,
+        ignoreReplay: extra ? !!ignoreExtraReplay.current[dest] : ignoreReplay.current,
+        terminal,
+      });
+      if (action === "ignore") return;
+      if (action === "terminal") {
+        const pendingForSid = destHasPendingPrompt(
+          pendingRpc.current,
+          pendingDest.current,
+          destKey,
+          promptWaiterOpts(sid),
+        );
+        const applyTerminal = shouldApplyReplayTerminal({
+          ignoreReplay: extra ? !!ignoreExtraReplay.current[dest] : ignoreReplay.current,
+          updateSessionId: sid,
+          displayedSessionId: extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current,
+          pendingPrompt: pendingForSid,
+        });
+        if (applyTerminal) {
+          if (extra) {
+            abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey, promptWaiterOpts(sid));
+            if (pendingPrompt.current === destKey) pendingPrompt.current = null;
+            if (sid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sid });
+            else turnsRef.current = endCatchUpTurn(turnsRef.current, destKey);
+            patchExtra(dest, (prev) => ({ ...prev, busy: false }));
+          } else {
+            idleMainComposer({ abandonPrompt: true, sessionId: sid });
+          }
+        }
+        if (dest === "drop" || ignoreReplay.current || (extra && ignoreExtraReplay.current[dest])) return;
+      }
       if (dest === "drop") return;
-      const extra = dest !== MAIN_PANE;
       const paneAgent = paneAgentForEvent(
         dest,
         mainAgentIdRef.current,
@@ -940,34 +1182,38 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       );
       if (shouldIgnoreAcpEvent(paneAgent, eventAgent)) return;
       if (shouldDropUpdateAfterAgentExit(readyByAgentRef.current, eventAgent)) return;
-      if (ignoreReplay.current && !extra) return;
-      if (extra && ignoreExtraReplay.current[dest]) return;
-      const destKey = extra ? dest : MAIN_PANE;
-      const items = extra
-        ? extraChatRef.current[dest]?.items ?? d.extraPanes[dest]?.chat.items
-        : chatRef.current.items;
       enqueueSessionUpdate(params, dest);
       if (shouldResumeBusyOnSessionUpdate(params, items)) {
-        if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: true }));
-        else {
-          busyRef.current = true;
-          setBusy(true);
-          if (sid) {
-            runningSessionIdRef.current = sid;
-            setRunningSessionId(sid);
-          }
+        const hasWaiter = destHasPendingPrompt(
+          pendingRpc.current,
+          pendingDest.current,
+          destKey,
+          promptWaiterOpts(sid),
+        );
+        const hasLease = sid ? !!turnForSession(turnsRef.current, sid) : false;
+        if (sid && hasWaiter && !hasLease) {
+          turnsRef.current = startTurn(turnsRef.current, {
+            sessionId: sid,
+            pane: destKey,
+            generation: promptGen.current[destKey] ?? 0,
+            agentId: extra ? d.extraPanes[dest]?.agentId : mainAgentIdRef.current,
+          });
+        }
+        if (hasWaiter || hasLease) {
+          if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: true }));
+          else syncMainBusyFromTurns();
         }
       }
-      if (
-        shouldClearBusyOnSessionUpdate(params, items) &&
-        !destHasPendingPrompt(pendingRpc.current, pendingDest.current, destKey)
-      ) {
-        if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
-        else {
-          busyRef.current = false;
-          setBusy(false);
+      if (terminal && action === "apply") {
+        if (extra) {
+          abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey, promptWaiterOpts(sid));
+          if (pendingPrompt.current === destKey) pendingPrompt.current = null;
+          if (sid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sid });
+          else turnsRef.current = endCatchUpTurn(turnsRef.current, destKey);
+          patchExtra(dest, (prev) => ({ ...prev, busy: false }));
+        } else {
+          idleMainComposer({ abandonPrompt: true, sessionId: sid });
         }
-        pendingPrompt.current = null;
       }
       if (shouldFlushSessionUpdateNow(params)) {
         const id = sid || (extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current);
@@ -993,9 +1239,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         if (toast) depsRef.current.showToast(toast);
         if (!shouldClearBusyOnAgentStderr(line)) return;
         if (!shouldIgnoreAcpEvent(mainAgentIdRef.current, eventAgent)) {
-          busyRef.current = false;
-          setBusy(false);
-          pendingPrompt.current = null;
           const notice = surfaceStderr(line);
           if (notice) setChat((prev) => withPromptFail(prev, notice, Date.now()));
         }
@@ -1021,28 +1264,30 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         const detail = classified.label;
         const at = Date.now();
         dropPendingUpdatesForAgent(eventAgent);
+        abandonPendingForAgent(eventAgent);
+        turnsRef.current = endTurnsForAgent(turnsRef.current, eventAgent);
+        syncMainBusyFromTurns();
         if (hitMain) {
           d.abortTurnIdle(MAIN_PANE);
-          abandonPendingForDest(pendingRpc.current, pendingDest.current, MAIN_PANE);
           const live = turnIsLive(chatRef.current, busyRef.current);
           if (live) {
-            const id = cancelTargetSessionId(runningSessionIdRef.current, sessionIdRef.current);
+            const id = sessionIdRef.current;
             if (id) d.setUnread((prev) => markUnread(prev, id, "error"));
             setChat((prev) => applyTurnCrash(prev, { busy: busyRef.current, detail, at }));
           }
           readyRef.current = false;
           setReady(false);
           d.setSawExit(true);
-          busyRef.current = false;
-          setBusy(false);
           setConnecting(false);
-          pendingPrompt.current = null;
+          if (pendingPrompt.current === MAIN_PANE) pendingPrompt.current = null;
         }
         if (hitExtra) {
           for (const [id, pane] of Object.entries(d.extraPanes)) {
             if (pane.agentId !== eventAgent) continue;
             d.abortTurnIdle(id);
-            abandonPendingForDest(pendingRpc.current, pendingDest.current, id);
+            abandonPendingForDest(pendingRpc.current, pendingDest.current, id, promptWaiterOpts(pane.sessionId));
+            if (pane.sessionId) turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId });
+            else turnsRef.current = endCatchUpTurn(turnsRef.current, id);
             if (pendingPrompt.current === id) pendingPrompt.current = null;
             const liveChat = extraChatRef.current[id] ?? pane.chat;
             if (turnIsLive(liveChat, pane.busy) && pane.sessionId) {
@@ -1125,6 +1370,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const meta = sessionNewMeta(agentId, depsRef.current.mode === "yolo", depsRef.current.model);
     const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }, { agentId }));
     const sid = sessionIdFromNewResult(result);
+    if (sessionIdRef.current && sessionIdRef.current !== sid) {
+      announceCreatedSession({ id: sid, cwd: work || ".", agentId, title });
+      return sid;
+    }
     bindMainAgent(agentId);
     adoptSession(sid);
     await setWorkspace(work || ".", sid);
@@ -1207,6 +1456,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       return;
     }
     try {
+      const prev = d.extraPanes[paneId];
+      if (prev?.sessionId) {
+        if (shouldCancelAcpOnNewChat()) {
+          void sendRaw(sessionCancelNotification(prev.sessionId), prev.agentId).catch(() => {});
+        }
+        abandonPendingForDest(pendingRpc.current, pendingDest.current, paneId, promptWaiterOpts(prev.sessionId));
+        turnsRef.current = endTurn(turnsRef.current, { sessionId: prev.sessionId });
+        turnsRef.current = endCatchUpTurn(turnsRef.current, paneId);
+        if (pendingPrompt.current === paneId) pendingPrompt.current = null;
+      }
       const agentId = selectedAgentIdRef.current;
       await ensureAgent(agentId);
       const inbox = d.inboxCwd && sameCwd(work, d.inboxCwd);
@@ -1267,6 +1526,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     echoedUser.current = false;
     d.setAtBottom(true);
     setLoadingSession(true);
+    loadingSessionRef.current = true;
     d.setSettingsOpen(false);
     d.lastActivityRef.current = Date.now();
     d.setUnread((prev) => {
@@ -1274,10 +1534,15 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (next !== prev) d.persist({ unread: next });
       return next;
     });
+    let lastStop: string | null = null;
+    let userAfterLastStop = false;
     try {
       const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null, s.dir);
       if (token !== loadGen.current) return;
       const next = applySessionPage(updateCursors.current, s.id, page);
+      const stopCursor = updateCursors.current.get(s.id);
+      lastStop = stopCursor?.lastTurnStopReason ?? lastTurnCompletedStopReason(page.rows);
+      userAfterLastStop = stopCursor?.userAfterLastStop ?? false;
       chatRef.current = next;
       setChat(next);
       const stored = getDraft(d.sessionDrafts, s.id);
@@ -1290,7 +1555,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id);
-      setLoadingSession(false);
       ignoreReplay.current = ignoreAcpHistoryDuringResume(page.rows.length);
       try {
         await resumeBoundSession(s);
@@ -1304,7 +1568,54 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (token !== loadGen.current) return;
       d.showToast(friendlyError(e));
     } finally {
-      if (token === loadGen.current) setLoadingSession(false);
+      if (token === loadGen.current) {
+        loadingSessionRef.current = false;
+        setLoadingSession(false);
+      }
+    }
+    if (token !== loadGen.current) return;
+    if (
+      shouldScanTranscriptForStopReason({
+        busy: busyRef.current,
+        knownStopReason: lastStop,
+      })
+    ) {
+      try {
+        const full = await readSessionUpdates(s.id, null, s.dir);
+        if (token !== loadGen.current) return;
+        const folded = foldTurnStopCursor(undefined, full.rows);
+        lastStop = folded.lastTurnStopReason;
+        userAfterLastStop = folded.userAfterLastStop;
+        const cursor = updateCursors.current.get(s.id);
+        if (cursor) {
+          updateCursors.current.set(s.id, {
+            ...cursor,
+            lastTurnStopReason: lastStop,
+            userAfterLastStop,
+          });
+        }
+      } catch {
+        /* best-effort unlock scan */
+      }
+    }
+    const pendingForOpened = destHasPendingPrompt(
+      pendingRpc.current,
+      pendingDest.current,
+      MAIN_PANE,
+      promptWaiterOpts(s.id),
+    );
+    if (
+      !pendingForOpened &&
+      shouldUnlockComposerOnResume({
+        lastStopReason: lastStop,
+        userAfterLastStop,
+        pendingPrompt: pendingForOpened,
+        busy: busyRef.current,
+      })
+    ) {
+      idleMainComposer({ abandonPrompt: true, sessionId: s.id });
+    } else if (!busyRef.current) {
+      queueMicrotask(() => drainComposerQueue());
     }
   }
 
@@ -1362,6 +1673,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const pane = depsRef.current.extraPanes[dest];
       if (!pane) return;
       const extraGen = bumpPromptGen(dest);
+      turnsRef.current = startTurn(turnsRef.current, {
+        sessionId: pane.sessionId,
+        pane: dest,
+        generation: extraGen,
+        agentId,
+      });
       patchExtra(dest, (prev) => ({ ...prev, busy: true }));
       try {
         await rpc(
@@ -1372,6 +1689,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       } catch (e) {
         if (shouldKeepBusyForNewerPrompt(extraGen, promptGen.current[dest] ?? 0)) return;
         if (!shouldClearBusyAfterPromptCatch(e)) return;
+        turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId, pane: dest });
         patchExtra(dest, (prev) => ({ ...prev, busy: false }));
       }
       return;
@@ -1467,6 +1785,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     d.queueRef.current = result.state;
     d.setQueue(result.state);
+    d.sessionQueuesRef.current = putSessionQueue(d.sessionQueuesRef.current, sessionIdRef.current, result.state);
     echoedUser.current = true;
     setChat((prev) => {
       const next = echoUserOnce(prev, text, "u-queue", at);
@@ -1492,7 +1811,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       d.showToast(blocked);
       return false;
     }
-    const paneBusy = dest !== MAIN_PANE ? !!d.extraPanes[dest]?.busy : busyRef.current;
+    const paneBusy = destTurnIsLive(dest);
     if (!paneBusy) {
       void sendPrompt(text, dest);
       return true;
@@ -1513,24 +1832,41 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   async function sendPrompt(text: string, dest: PaneDest = MAIN_PANE) {
     const d = depsRef.current;
     const extra = dest !== MAIN_PANE;
-    if (!text.trim() || loadingSession) return;
+    if (!text.trim()) return;
+    if (loadingSession && !extra) {
+      queuePrompt(text, dest);
+      return;
+    }
     const destKey = extra ? dest : MAIN_PANE;
-    if (destHasPendingPrompt(pendingRpc.current, pendingDest.current, destKey)) {
-      abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey);
-      pendingPrompt.current = null;
-      const sid = extra
-        ? d.extraPanes[dest]?.sessionId
-        : runningSessionIdRef.current || sessionIdRef.current;
-      if (sid) {
-        await sendRaw(sessionCancelNotification(sid), paneAgent(destKey)).catch(() => {});
+    const sendingSid = extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current;
+    const pendingForThis = destHasPendingPrompt(
+      pendingRpc.current,
+      pendingDest.current,
+      destKey,
+      promptWaiterOpts(sendingSid),
+    );
+    const justAbandonedInFlight =
+      pendingForThis &&
+      shouldAbandonTurnOnSend({ pendingSessionId: sendingSid, sendingSessionId: sendingSid });
+    if (justAbandonedInFlight) {
+      abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey, promptWaiterOpts(sendingSid));
+      if (pendingPrompt.current === destKey) pendingPrompt.current = null;
+      if (sendingSid) {
+        turnsRef.current = markTurnCancelling(turnsRef.current, { sessionId: sendingSid });
+        await sendRaw(sessionCancelNotification(sendingSid), paneAgent(destKey)).catch(() => {});
+        turnsRef.current = endTurn(turnsRef.current, { sessionId: sendingSid });
       }
       if (extra) patchExtra(dest, (prev) => ({ ...prev, busy: false }));
-      else {
-        busyRef.current = false;
-        setBusy(false);
-      }
+      else syncMainBusyFromTurns();
     }
-    if (extra ? d.extraPanes[dest]?.busy : busyRef.current) return;
+    if (
+      shouldBlockSendWhileBusy({
+        busy: destTurnIsLive(dest),
+        justAbandonedInFlight: !!justAbandonedInFlight,
+      })
+    ) {
+      return;
+    }
     if (!extra && text.startsWith("/")) {
       const name = text.split(/\s/)[0];
       const found = filterCommands(name, chat.commands).find((c) => c.name === name);
@@ -1578,6 +1914,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       echoedExtra.current[dest] = true;
       pendingPrompt.current = dest;
       const extraGen = bumpPromptGen(dest);
+      turnsRef.current = startTurn(turnsRef.current, {
+        sessionId: pane.sessionId,
+        pane: dest,
+        generation: extraGen,
+        agentId: extraAgent,
+      });
       patchExtra(dest, (prev) => {
         const chat = echoUserOnce(prev.chat, text, "u-local", at);
         extraChatRef.current[dest] = chat;
@@ -1606,6 +1948,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       } catch (e) {
         if (shouldKeepBusyForNewerPrompt(extraGen, promptGen.current[dest] ?? 0)) return;
         if (!shouldClearBusyAfterPromptCatch(e)) return;
+        turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId, pane: dest });
         patchExtra(dest, (prev) => ({ ...prev, busy: false, draft: text }));
         d.showToast(friendlyError(e));
       }
@@ -1640,11 +1983,17 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     d.setAtBottom(true);
     pendingPrompt.current = "main";
     const existing = sessionIdRef.current;
+    let sendSid = existing;
     if (existing) beginMainRun(existing);
     else {
-      bumpPromptGen(MAIN_PANE);
-      busyRef.current = true;
-      setBusy(true);
+      const gen = bumpPromptGen(MAIN_PANE);
+      turnsRef.current = startTurn(turnsRef.current, {
+        sessionId: null,
+        pane: MAIN_PANE,
+        generation: gen,
+        agentId: paneAgent(MAIN_PANE),
+      });
+      syncMainBusyFromTurns();
     }
     let mainGen = promptGen.current[MAIN_PANE] ?? 0;
     sendInFlightRef.current = true;
@@ -1654,6 +2003,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       let sid = sessionIdRef.current;
       if (!sid) {
         sid = await createAcpSession(d.cwd || d.inboxCwd || ".", titleFromUserText(text));
+        sendSid = sid;
+        turnsRef.current = bindTurnSession(turnsRef.current, MAIN_PANE, sid, paneAgent(MAIN_PANE));
+        syncMainBusyFromTurns();
       } else if (firstTurn) {
         announceCreatedSession({
           id: sid,
@@ -1666,6 +2018,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         drafts = writeDraft(writeDraft(drafts, existing, ""), sid, "");
         d.setSessionDrafts(drafts);
         d.persist({ drafts });
+        sendSid = sid;
         beginMainRun(sid);
         mainGen = promptGen.current[MAIN_PANE] ?? mainGen;
       }
@@ -1686,10 +2039,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     } catch (e) {
       if (shouldKeepBusyForNewerPrompt(mainGen, promptGen.current[MAIN_PANE] ?? 0)) return;
       if (!shouldClearBusyAfterPromptCatch(e)) return;
-      busyRef.current = false;
-      setBusy(false);
+      if (sendSid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sendSid });
+      else turnsRef.current = endCatchUpTurn(turnsRef.current, MAIN_PANE);
+      syncMainBusyFromTurns();
       d.showToast(friendlyError(e));
-      setChat((prev) => withPromptFail(prev, friendlyError(e), Date.now()));
+      if (sessionIdRef.current === sendSid || (!sendSid && !sessionIdRef.current)) {
+        setChat((prev) => withPromptFail(prev, friendlyError(e), Date.now()));
+      }
     } finally {
       sendInFlightRef.current = false;
     }
@@ -1708,19 +2064,21 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const sid =
       target !== MAIN_PANE
         ? d.extraPanes[target]?.sessionId
-        : cancelTargetSessionId(runningSessionIdRef.current, sessionIdRef.current);
+        : destTurnIsLive(MAIN_PANE)
+          ? sessionIdRef.current
+          : runningSessionIdRef.current;
     try {
+      if (sid) turnsRef.current = markTurnCancelling(turnsRef.current, { sessionId: sid });
       if (sid) await sendRaw({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: sid } }, paneAgent(target));
       await d.onCancelPermission(target);
     } finally {
       if (shouldKeepBusyForNewerPrompt(gen, promptGen.current[destKey] ?? 0)) return;
-      abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey);
+      abandonPendingForDest(pendingRpc.current, pendingDest.current, destKey, promptWaiterOpts(sid));
       if (pendingPrompt.current === destKey) pendingPrompt.current = null;
-      if (target !== MAIN_PANE) patchExtra(target, (prev) => ({ ...prev, busy: false }));
-      else {
-        busyRef.current = false;
-        setBusy(false);
-      }
+      if (target !== MAIN_PANE) {
+        if (sid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sid });
+        patchExtra(target, (prev) => ({ ...prev, busy: false }));
+      } else idleMainComposer({ abandonPrompt: true, sessionId: sid });
     }
   }
 
@@ -1754,6 +2112,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     busyRef,
     echoedUser,
     pendingPrompt,
+    turnsRef,
+    liveTurnIds,
+    lastFinishedSessionRef,
     rpc,
     ensureAgent,
     adoptSession,

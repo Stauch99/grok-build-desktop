@@ -1,4 +1,5 @@
 import { t, type Locale } from "./i18n";
+import { draftKey } from "./session-drafts";
 
 export type QueuedPrompt = { id: number; text: string };
 
@@ -70,4 +71,41 @@ export function editQueued(state: QueueState, id: number, text: string): QueueSt
   if (!next) return removeQueued(state, id);
   const items = state.items.map((q) => (q.id === id ? { ...q, text: next } : q));
   return { ...state, items };
+}
+
+export type SessionQueues = Record<string, QueueState>;
+
+export function getSessionQueue(
+  map: SessionQueues,
+  sessionId: string | null | undefined,
+): QueueState {
+  return map[draftKey(sessionId)] ?? emptyQueue();
+}
+
+export function putSessionQueue(
+  map: SessionQueues,
+  sessionId: string | null | undefined,
+  queue: QueueState,
+): SessionQueues {
+  const key = draftKey(sessionId);
+  if (queue.items.length === 0) {
+    if (!(key in map)) return map;
+    const next = { ...map };
+    delete next[key];
+    return next;
+  }
+  return { ...map, [key]: queue };
+}
+
+export function swapSessionQueue(opts: {
+  queues: SessionQueues;
+  fromId: string | null;
+  toId: string | null;
+  fromQueue: QueueState;
+}): { queues: SessionQueues; displayed: QueueState } {
+  if (opts.fromId === opts.toId) {
+    return { queues: putSessionQueue(opts.queues, opts.fromId, opts.fromQueue), displayed: opts.fromQueue };
+  }
+  const queues = putSessionQueue(opts.queues, opts.fromId, opts.fromQueue);
+  return { queues, displayed: getSessionQueue(queues, opts.toId) };
 }

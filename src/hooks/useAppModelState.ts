@@ -16,7 +16,7 @@ import { emptyCatalog, type AgentModelRow } from "../lib/agent-models";
 import type { InspectReport } from "../lib/inspect";
 import { MAIN_PANE, singlePane, type PaneNode, type Rect, type ResolvedDrop } from "../lib/pane-tree";
 import type { ConfirmState } from "../lib/confirm";
-import { emptyQueue, type QueueState } from "../lib/prompt-queue";
+import { emptyQueue, type QueueState, type SessionQueues } from "../lib/prompt-queue";
 import { PREVIEW, SIDEBAR } from "../lib/layout";
 import type { AgentDoctor } from "../lib/agent-doctor";
 import type { GoalView } from "../lib/goal-bar";
@@ -199,6 +199,7 @@ export function useAppModelState() {
   const titleForSessionRef = useRef<(sessionId: string | null) => string>(() => t(locale, "notify.session"));
   const lastActivityRef = useRef(Date.now());
   const queueRef = useRef<QueueState>(emptyQueue());
+  const sessionQueuesRef = useRef<SessionQueues>({});
   const persistRef = useRef<(partial: WebuiState) => void>(() => {});
   const doctorsRef = useRef<AgentDoctor[]>([]);
   doctorsRef.current = doctors;
@@ -261,7 +262,7 @@ export function useAppModelState() {
     promptHistoryRef, promptHistoryPosRef, stallRecover, setStallRecover,
     sidebarWidth, setSidebarWidth, previewWidth, setPreviewWidth, winWidth, setWinWidth,
     chatEl, extraChatEls, composerRef, extraComposerRefs, focusedPermissionPaneRef, titleInputRef,
-    focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, focusedSessionIdRef, titlesRef, titleForSessionRef, lastActivityRef, queueRef, persistRef,
+    focusedRef, busyStartRef, extraBusyStartRef, currentTitleRef, focusedSessionIdRef, titlesRef, titleForSessionRef, lastActivityRef, queueRef, sessionQueuesRef, persistRef,
     doctorsRef, refreshSessionsRef, acpListedRef, diskSessionsRef, allSessionsRef, onAcpSessionListRef, onSessionCreatedRef,
     reviewCloseRef, persistReviewOpened, runSlashRef, permissionCancelRef, workColRef,
     extraPanesRef, focusedPaneIdRef, paneTreeRef, paneDragRef,

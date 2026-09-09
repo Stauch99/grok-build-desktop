@@ -53,7 +53,7 @@ import { planOpenSession } from "../lib/session-agent";
 import { brandSessionList } from "../lib/session-list";
 import { menuPosition, type SessionMenuState } from "../SessionMenu";
 import { basename } from "../lib/text";
-import type { QueueState } from "../lib/prompt-queue";
+import { putSessionQueue, type QueueState, type SessionQueues } from "../lib/prompt-queue";
 import type { AgentId } from "../lib/agent-id";
 import type { ExtraPaneState } from "./useAcpSession";
 import {
@@ -143,6 +143,7 @@ export type AppWorkspaceDeps = {
   paneTreeRef: MutableRefObject<PaneNode>;
   focusedPaneIdRef: MutableRefObject<string>;
   queueRef: MutableRefObject<QueueState>;
+  sessionQueuesRef: MutableRefObject<SessionQueues>;
   composerRef: MutableRefObject<{ focus: () => void } | null>;
   extraComposerRefs: MutableRefObject<Record<string, { focus: () => void } | null>>;
   focusedPermissionPaneRef: MutableRefObject<string | null>;
@@ -246,6 +247,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     d.setAtBottom(extra.atBottom);
     d.setQueue(extra.queue);
     d.queueRef.current = extra.queue;
+    d.sessionQueuesRef.current = putSessionQueue(d.sessionQueuesRef.current, extra.sessionId, extra.queue);
     d.bindMainAgent(extra.agentId);
     d.setSelectedAgentIdPersist(extra.agentId);
   }

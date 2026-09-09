@@ -35,12 +35,20 @@ export function busySessionIds(opts: {
   busy: boolean;
   sessionId: string | null;
   runningSessionId: string | null;
+  runningIds?: readonly string[];
   extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
 }): string[] {
   const ids: string[] = [];
   if (opts.busy) {
     const id = opts.runningSessionId || opts.sessionId;
     if (id) ids.push(id);
+  } else if (opts.runningSessionId) {
+    ids.push(opts.runningSessionId);
+  }
+  if (opts.runningIds) {
+    for (const id of opts.runningIds) {
+      if (id && !ids.includes(id)) ids.push(id);
+    }
   }
   for (const pane of opts.extraPanes ?? []) {
     if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
@@ -53,6 +61,7 @@ export function sidebarWorkingIds(opts: {
   busy: boolean;
   sessionId: string | null;
   runningSessionId: string | null;
+  runningIds?: readonly string[];
   extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
   liveRosterIds?: string[];
   runningChildIds?: string[];

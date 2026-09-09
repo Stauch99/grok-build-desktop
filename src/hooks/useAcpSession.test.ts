@@ -19,6 +19,12 @@ import {
   resumeOnSessionAgent,
   sessionIdFromNewResult,
   sessionUpdateDest,
+  shouldReleasePromptOnDroppedUpdate,
+  shouldBlockSendWhileBusy,
+  shouldHoldComposerQueue,
+  shouldScanTranscriptForStopReason,
+  shouldUnlockComposerOnResume,
+  shouldApplyReplayTerminal,
   shouldClearBusyOnPromptError,
   shouldClearBusyAfterPromptCatch,
   shouldKeepBusyForNewerPrompt,
@@ -32,6 +38,7 @@ import {
   isAbandonedPromptError,
   abandonPendingForDest,
   destHasPendingPrompt,
+  waiterMatchesSession,
   shouldIdleAfterPromptRpc,
   shouldSettlePaneBusy,
   cancelTargetSessionId,
@@ -80,6 +87,157 @@ describe("sessionUpdateDest", () => {
     expect(sessionUpdateDest({}, "dream-sid")).toBe("drop");
     forgetDreamSession("dream-sid");
     expect(sessionUpdateDest({}, "dream-sid")).toBe("drop");
+  });
+});
+
+describe("shouldReleasePromptOnDroppedUpdate", () => {
+  const cancelled = { update: { sessionUpdate: "turn_completed", stopReason: "cancelled" } };
+
+  it("releases the waiter when the running session finishes off-screen", () => {
+    expect(
+      shouldReleasePromptOnDroppedUpdate({
+        dest: "drop",
+        params: cancelled,
+        sessionId: "s1",
+        runningSessionId: "s1",
+        boundSessionId: "s2",
+      }),
+    ).toBe(true);
+    expect(
+      shouldReleasePromptOnDroppedUpdate({
+        dest: "drop",
+        params: cancelled,
+        sessionId: "s1",
+        runningSessionId: null,
+        boundSessionId: "s1",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not release a live pane or a different session", () => {
+    expect(
+      shouldReleasePromptOnDroppedUpdate({
+        dest: "main",
+        params: cancelled,
+        sessionId: "s1",
+        runningSessionId: "s1",
+        boundSessionId: "s1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleasePromptOnDroppedUpdate({
+        dest: "drop",
+        params: cancelled,
+        sessionId: "s1",
+        runningSessionId: "s2",
+        boundSessionId: "s2",
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleasePromptOnDroppedUpdate({
+        dest: "drop",
+        params: { update: { sessionUpdate: "agent_thought_chunk" } },
+        sessionId: "s1",
+        runningSessionId: "s1",
+        boundSessionId: "s1",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldBlockSendWhileBusy", () => {
+  it("lets a follow-up send through after abandoning the cancelled prompt", () => {
+    expect(shouldBlockSendWhileBusy({ busy: true, justAbandonedInFlight: true })).toBe(false);
+    expect(shouldBlockSendWhileBusy({ busy: true, justAbandonedInFlight: false })).toBe(true);
+    expect(shouldBlockSendWhileBusy({ busy: false, justAbandonedInFlight: false })).toBe(false);
+  });
+});
+
+describe("shouldHoldComposerQueue", () => {
+  it("only holds the queue while a live prompt waiter is still busy", () => {
+    expect(shouldHoldComposerQueue({ pendingPrompt: true, busy: true })).toBe(true);
+    expect(shouldHoldComposerQueue({ pendingPrompt: true, busy: false })).toBe(false);
+    expect(shouldHoldComposerQueue({ pendingPrompt: false, busy: true })).toBe(false);
+  });
+});
+
+describe("shouldUnlockComposerOnResume", () => {
+  it("unlocks after a cancelled turn even if chrome is still busy", () => {
+    expect(
+      shouldUnlockComposerOnResume({
+        lastStopReason: "cancelled",
+        pendingPrompt: true,
+        busy: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUnlockComposerOnResume({
+        lastStopReason: "cancelled",
+        userAfterLastStop: true,
+        pendingPrompt: true,
+        busy: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUnlockComposerOnResume({
+        lastStopReason: "end_turn",
+        pendingPrompt: true,
+        busy: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUnlockComposerOnResume({
+        lastStopReason: null,
+        pendingPrompt: true,
+        busy: false,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldApplyReplayTerminal", () => {
+  it("keeps a live prompt lease when session/load replays turn_completed", () => {
+    expect(
+      shouldApplyReplayTerminal({
+        ignoreReplay: false,
+        updateSessionId: "a",
+        displayedSessionId: "a",
+        pendingPrompt: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldApplyReplayTerminal({
+        ignoreReplay: true,
+        updateSessionId: "a",
+        displayedSessionId: "a",
+        pendingPrompt: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldApplyReplayTerminal({
+        ignoreReplay: true,
+        updateSessionId: "a",
+        displayedSessionId: "a",
+        pendingPrompt: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldApplyReplayTerminal({
+        ignoreReplay: true,
+        updateSessionId: "a",
+        displayedSessionId: "b",
+        pendingPrompt: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldScanTranscriptForStopReason", () => {
+  it("scans disk when busy chrome has no remembered stop reason", () => {
+    expect(shouldScanTranscriptForStopReason({ busy: true, knownStopReason: null })).toBe(true);
+    expect(shouldScanTranscriptForStopReason({ busy: true, knownStopReason: "cancelled" })).toBe(false);
+    expect(shouldScanTranscriptForStopReason({ busy: true, knownStopReason: "" })).toBe(false);
+    expect(shouldScanTranscriptForStopReason({ busy: false, knownStopReason: null })).toBe(false);
   });
 });
 
@@ -175,6 +333,27 @@ describe("abandonPendingForDest", () => {
     expect(pending.has(2)).toBe(true);
     expect(isAbandonedPromptError(new Error("prompt-abandoned"))).toBe(true);
     expect(isAbandonedPromptError(new Error("rpc error"))).toBe(false);
+    expect(waiterMatchesSession("a", { sessionId: "a" })).toBe(true);
+    expect(waiterMatchesSession("a", { sessionId: "b" })).toBe(false);
+    expect(waiterMatchesSession("a", { sessionId: null })).toBe(false);
+    expect(waiterMatchesSession(undefined, { sessionId: null })).toBe(true);
+    expect(waiterMatchesSession("a")).toBe(true);
+  });
+
+  it("does not abandon a mapped waiter when targeting catch-up", () => {
+    const pending = new Map<number, { reject: (e: Error) => void }>();
+    const dest = new Map<number, string>([
+      [1, "main"],
+      [2, "main"],
+    ]);
+    const sessions = new Map<number, string>([[1, "a"]]);
+    const rejected: number[] = [];
+    pending.set(1, { reject: () => rejected.push(1) });
+    pending.set(2, { reject: () => rejected.push(2) });
+    abandonPendingForDest(pending, dest, "main", { sessionId: null, pendingSession: sessions });
+    expect(rejected).toEqual([2]);
+    expect(pending.has(1)).toBe(true);
+    expect(pending.has(2)).toBe(false);
   });
 });
 
@@ -187,8 +366,8 @@ describe("shouldIdleAfterPromptRpc", () => {
 });
 
 describe("shouldSettlePaneBusy", () => {
-  it("idles when the transcript has settled, even if session/prompt has not returned", () => {
-    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: true })).toBe(true);
+  it("does not idle chrome while a session/prompt waiter is still open", () => {
+    expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: true })).toBe(false);
     expect(shouldSettlePaneBusy({ settled: true, pendingPrompt: false })).toBe(true);
     expect(shouldSettlePaneBusy({ settled: false, pendingPrompt: false })).toBe(false);
     expect(shouldSettlePaneBusy({ settled: false, pendingPrompt: true })).toBe(false);
@@ -220,6 +399,37 @@ describe("destHasPendingPrompt", () => {
     expect(destHasPendingPrompt(pending, dest, "other")).toBe(false);
     pending.delete(1);
     expect(destHasPendingPrompt(pending, dest, "main")).toBe(false);
+  });
+
+  it("ignores a background session's waiter when sending on the open session", () => {
+    const pending = new Map<number, { method?: string }>([[1, { method: "session/prompt" }]]);
+    const dest = new Map<number, string>([[1, "main"]]);
+    const sessions = new Map<number, string>([[1, "a"]]);
+    expect(
+      destHasPendingPrompt(pending, dest, "main", { sessionId: "b", pendingSession: sessions }),
+    ).toBe(false);
+    expect(
+      destHasPendingPrompt(pending, dest, "main", { sessionId: "a", pendingSession: sessions }),
+    ).toBe(true);
+  });
+
+  it("treats an explicit null session as catch-up waiters only", () => {
+    const pending = new Map<number, { method?: string }>([
+      [1, { method: "session/prompt" }],
+      [2, { method: "session/prompt" }],
+    ]);
+    const dest = new Map<number, string>([
+      [1, "main"],
+      [2, "main"],
+    ]);
+    const sessions = new Map<number, string>([[1, "a"]]);
+    expect(
+      destHasPendingPrompt(pending, dest, "main", { sessionId: null, pendingSession: sessions }),
+    ).toBe(true);
+    pending.delete(2);
+    expect(
+      destHasPendingPrompt(pending, dest, "main", { sessionId: null, pendingSession: sessions }),
+    ).toBe(false);
   });
 });
 
@@ -363,7 +573,7 @@ describe("cross-agent stderr", () => {
       p2: extraPane({ agentId: "grok", busy: true }),
     };
     const next = extraPanesAfterAgentStderr(prev, "claude", "Authentication required", 9);
-    expect(next.split?.busy).toBe(false);
+    expect(next.split?.busy).toBe(true);
     expect(next.split?.chat.items[0]).toMatchObject({ status: "failed", detail: "Authentication required" });
     expect(next.p2?.busy).toBe(true);
     expect(next.p2?.chat.items).toHaveLength(0);
@@ -498,6 +708,14 @@ describe("queuePrompt echo", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).toMatch(/function queuePrompt[\s\S]*echoUserOnce\(prev, text, "u-queue"/);
   });
+
+  it("parks the main composer queue on the session that queued it", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/swapSessionQueue\(/);
+    expect(src).toMatch(/function adoptSession[\s\S]*swapSessionQueue\(/);
+    expect(src).toMatch(/paneTurnIsLive\(/);
+    expect(src).toMatch(/putSessionQueue\(/);
+  });
 });
 
 describe("ACP image prompt", () => {
@@ -519,12 +737,40 @@ describe("ACP image prompt", () => {
 describe("session working chrome", () => {
   it("resumes busy on live work and hard-idles from last activity, not a hung prompt", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/"sessionId" in opts/);
+    expect(src).not.toMatch(/opts\?\.sessionId \?\? sessionIdRef\.current \?\? runningSessionIdRef/);
+    expect(src).toMatch(/abandonPendingForAgent/);
+    expect(src).toMatch(/hasWaiter && !hasLease/);
+    expect(src).toMatch(/endTurnsForAgent/);
     expect(src).toMatch(/shouldResumeBusyOnSessionUpdate/);
     expect(src).toMatch(/lastActivityAt:/);
     expect(src).toMatch(/function drainComposerQueue/);
+    expect(src).toMatch(/shouldHoldComposerQueue/);
+    expect(src).toMatch(/shouldBlockSendWhileBusy/);
+    expect(src).toMatch(/shouldDropLiveUpdate/);
+    expect(src).toMatch(/shouldUnlockComposerOnResume/);
+    expect(src).toMatch(/shouldScanTranscriptForStopReason/);
+    expect(src).toMatch(/shouldClearBusyOnSessionUpdate\(params, items\)/);
+    expect(src).toMatch(/idleMainComposer\(\{ abandonPrompt: true, sessionId: sid \}\)/);
+    expect(src).not.toMatch(/function adoptSession[\s\S]{0,450}abandonPendingForDest/);
+    expect(src).not.toMatch(/function clearMainComposer[\s\S]{0,900}emptyTurnStore/);
+    expect(src).toMatch(/function clearMainComposer[\s\S]{0,900}endCatchUpTurn/);
+    expect(src).toMatch(/if \(loadingSession && !extra\) \{\s*queuePrompt/);
+    expect(src).toMatch(/async function cancelTurn[\s\S]{0,2000}idleMainComposer/);
+    expect(src).toMatch(/function idleMainComposer[\s\S]{0,1400}drainComposerQueue/);
+    expect(src).toMatch(
+      /shouldSettlePaneBusy\([\s\S]{0,800}idleMainComposer\(\)/,
+    );
+    expect(src).not.toMatch(
+      /shouldSettlePaneBusy\([\s\S]{0,800}idleMainComposer\(\{ abandonPrompt: true \}\)/,
+    );
     expect(src).not.toMatch(/setStallRecover/);
+    expect(src).toMatch(/shouldApplyReplayTerminal/);
     const effects = readFileSync(new URL("./useAppModelEffects.ts", import.meta.url), "utf8");
-    expect(effects).toMatch(/pendingPrompt\.current === MAIN_PANE/);
+    expect(effects).not.toMatch(/pendingPrompt\.current === MAIN_PANE/);
     expect(effects).not.toMatch(/dequeue\(s\.queueRef/);
+    expect(effects).toMatch(/acp\.runningSessionId/);
+    expect(effects).toMatch(/acp\.liveTurnIds/);
+    expect(effects).toMatch(/lastFinishedSessionRef\.current/);
   });
 });
