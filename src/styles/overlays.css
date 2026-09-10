@@ -6,11 +6,7 @@
   border-left: 3px solid var(--warn);
   border-radius: var(--radius-m);
   padding: 10px 12px;
-  animation: rise-in var(--dur) var(--ease), perm-pulse 900ms var(--ease) 1, spine-enter var(--dur) var(--ease);
-}
-@keyframes perm-pulse {
-  0%, 100% { box-shadow: none; }
-  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 35%, transparent); }
+  animation: rise-in var(--dur) var(--ease);
 }
 .permission h4 {
   margin: 0 0 6px;
@@ -208,6 +204,7 @@
   box-shadow: var(--shadow);
   padding: 4px;
   animation: menu-in var(--dur) var(--ease);
+  transform-origin: var(--menu-origin, top left);
 }
 .menu button {
   display: block;
@@ -240,6 +237,18 @@
   font-size: var(--ui-small);
   line-height: 1.4;
   box-shadow: var(--shadow);
+  animation: toast-in var(--dur) var(--ease);
+}
+.toast.toast-out {
+  animation: toast-out var(--dur-fast) var(--ease-in) forwards;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px); }
 }
 .toast-sep { color: var(--faint); }
 .toast-action {
@@ -271,7 +280,7 @@
 .palette-list::-webkit-scrollbar,
 .menu::-webkit-scrollbar,
 .mru-list::-webkit-scrollbar {
-  width: 2px;
+  width: 8px;
 }
 .chat::-webkit-scrollbar-track,
 .session-list::-webkit-scrollbar-track,
@@ -328,30 +337,19 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: none; }
 }
+@keyframes menu-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+.menu.menu-out,
+.chip-menu.menu-out {
+  animation: menu-out var(--dur-fast) var(--ease-in) forwards;
+}
 .pin-label {
   padding: 8px 8px 4px;
   font-size: 11px;
   color: var(--faint);
 }
-
-.memory-dock {
-  --memory-dock-hold: 3s;
-  --memory-dock-fade: 0.4s;
-  animation: memory-dock-fade calc(var(--memory-dock-hold) + var(--memory-dock-fade)) var(--ease) forwards;
-}
-@keyframes memory-dock-fade {
-  0%, 88% { opacity: 1; }
-  100% { opacity: 0; }
-}
-.memory-dock button {
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: var(--radius);
-}
-.memory-dock button:hover { background: var(--bg-hover); }
 
 .memory-inject-chip {
   width: min(100%, var(--thread, 680px));

@@ -454,6 +454,13 @@ pub(crate) fn trusted_workspace_for_hint(
                 return Err("caller workspace does not match trusted workspace".into());
             }
         }
+        if let Some(mem) = workbench_memory_root() {
+            if same_dir(&hinted, &mem) || is_under(&hinted, &mem) {
+                // Founding/dream files live under the workbench memory host, not the
+                // project cwd. Scope the write capability to that host only.
+                return Ok(mem);
+            }
+        }
         // Same folder (including macOS firmlink aliases), a worktree inside the
         // trusted root, or a parent git root while the trusted path is a session
         // worktree. Never expand the returned capability past `root`.
@@ -462,6 +469,11 @@ pub(crate) fn trusted_workspace_for_hint(
         }
     }
     Ok(root)
+}
+
+fn workbench_memory_root() -> Option<PathBuf> {
+    let mem = crate::memory_host::memory_root();
+    Some(mem.canonicalize().unwrap_or(mem))
 }
 
 pub(crate) fn trusted_desktop_root(
@@ -2026,6 +2038,7 @@ fn extra_agent_write_root(canon: &Path) -> bool {
         home.join(".agents"),
         grok_home().join("memory"),
         grok_home().join("skills"),
+        crate::memory_host::memory_root(),
     ];
     roots.iter().any(|root| {
         if let Ok(root) = root.canonicalize() {
@@ -3770,6 +3783,18 @@ mod final_review_tests {
         assert!(trusted_workspace_for_hint(Some(&root), Some("/")).is_err());
         assert!(trusted_workspace_for_hint(None, Some(root.to_str().unwrap())).is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn caller_hint_may_be_the_workbench_memory_host() {
+        let project = acp_path_root();
+        let mem = crate::memory_host::memory_root();
+        std::fs::create_dir_all(&mem).unwrap();
+        let hinted = mem.to_str().expect("memory root utf-8");
+        let got = trusted_workspace_for_hint(Some(&project), Some(hinted)).unwrap();
+        let want = mem.canonicalize().unwrap_or(mem);
+        assert_eq!(got, want);
+        let _ = std::fs::remove_dir_all(project);
     }
 
     #[test]

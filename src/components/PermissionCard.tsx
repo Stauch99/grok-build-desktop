@@ -132,7 +132,7 @@ export function PermissionCard({
       onKeyDown={onKeyDown}
     >
       <h4>{t(loc, "perm.title")}</h4>
-      <div className="permission-cmd" data-tip={title}>{title}</div>
+      <div className="permission-cmd">{title}</div>
       {showTimeoutNotice ? (
         <p className="permission-timeout" role="status">
           {timeoutNotice || permissionTimeoutNotice()}

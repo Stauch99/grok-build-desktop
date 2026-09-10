@@ -38,7 +38,7 @@ export type DoctorInfo = {
 
 export type WebuiState = {
   projects?: string[];
-  theme?: "light" | "dark";
+  theme?: "light" | "dark" | "system";
   model?: string;
   showThinking?: boolean;
   mode?: "agent" | "plan" | "yolo";
@@ -176,8 +176,6 @@ export const searchSessionText = (query: string, cwd?: string | null) =>
 export type TextFilePreview = { path: string; text: string; truncated: boolean };
 export const readTextFile = (path: string, allowRoot?: string | null) =>
   invoke<TextFilePreview>("read_text_file", { path, allowRoot: allowRoot ?? null });
-export type MemoryChangeRow = { path: string; mtime: number };
-export const listMemoryChanges = () => invoke<MemoryChangeRow[]>("list_memory_changes");
 
 export type MemoryHostSnapshot = {
   userMd: string;

@@ -7,17 +7,14 @@ const CHEVRON_DELAYS_MS = Array.from({ length: 9 }, (_, i) => {
 
 export function DotMatrix({
   className,
-  title,
   "aria-label": ariaLabel,
 }: {
   className?: string;
-  title?: string;
   "aria-label"?: string;
 }) {
   return (
     <span
       className={`dot-matrix${className ? ` ${className}` : ""}`}
-      data-tip={title}
       aria-label={ariaLabel}
       aria-hidden={ariaLabel ? undefined : true}
       role={ariaLabel ? "status" : undefined}

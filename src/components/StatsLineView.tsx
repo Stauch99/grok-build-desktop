@@ -17,7 +17,7 @@ export function StatsLineView({ stats, sessionTokens }: StatsLineViewProps) {
   };
   const tip = formatStatsFooterTip(payload, locale);
   return (
-    <span className="composer-meta" data-tip={tip} aria-label={tip}>
+    <span className="composer-meta" aria-label={tip}>
       <span className="composer-meta-text">
         {formatStatsFooter(payload, locale)}
       </span>

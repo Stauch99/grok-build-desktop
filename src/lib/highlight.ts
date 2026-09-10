@@ -45,6 +45,16 @@ export function highlight(text: string, lang: HighlightLang): HighlightToken[] {
   return tokenize(text, JS_KW, { line: "//", block: true, strings: ['"', "'", "`"] });
 }
 
+const HIGHLIGHT_WINDOW = 80_000;
+
+export function highlightWindow(text: string, lang: HighlightLang, maxChars = HIGHLIGHT_WINDOW): HighlightToken[] {
+  if (text.length <= maxChars) return highlight(text, lang);
+  const head = highlight(text.slice(0, maxChars), lang);
+  const tail = text.slice(maxChars);
+  if (!tail) return head;
+  return [...head, { text: tail, kind: "plain" }];
+}
+
 export function tokensToLines(tokens: HighlightToken[]): HighlightToken[][] {
   const lines: HighlightToken[][] = [[]];
   for (const tok of tokens) {

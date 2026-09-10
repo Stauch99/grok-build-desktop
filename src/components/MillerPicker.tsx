@@ -39,7 +39,7 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
       >
         <header className="settings-head">
           <strong>{t("miller.title")}</strong>
-          <button type="button" className="icon-btn" onClick={onClose} data-tip={t("common.close")} aria-label={t("common.close")}>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
             <IconClose size={16} />
           </button>
         </header>

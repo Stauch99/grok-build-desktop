@@ -89,10 +89,19 @@ export function WorkLiveRow({
 }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
+  const [visible, setVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  );
   useEffect(() => {
+    const onVis = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+  useEffect(() => {
+    if (!visible) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [visible]);
   const label =
     note ||
     (startedAt != null
@@ -103,11 +112,10 @@ export function WorkLiveRow({
       type="button"
       className={`work-live${note ? " stalled" : ""}`}
       aria-label={t("timeline.stopAria", { label })}
-      data-tip={t("thread.stop")}
       onClick={onStop}
     >
       <span className="spine-ico" aria-hidden>
-        <GrokBotIcon size={18} />
+        <GrokBotIcon size={18} animate={visible} />
       </span>
       <span className="spine-head static">
         <span className={`spine-verb${note ? "" : " shimmer-text"}`}>{label}</span>
@@ -176,7 +184,7 @@ export function WorkTimeline({
       >
         <span className="spine-verb">{verb}</span>
         {detail ? (
-          <span className="spine-detail" data-tip={detail}>
+          <span className="spine-detail">
             {detail}
           </span>
         ) : null}
@@ -229,7 +237,6 @@ export function WorkTimeline({
                       key={item.id}
                       type="button"
                       className="spine-sub"
-                      data-tip={line}
                       onClick={() => onInspectTool?.(item)}
                     >
                       <span className="spine-detail">{line}</span>

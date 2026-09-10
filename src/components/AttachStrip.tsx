@@ -81,7 +81,7 @@ export function AttachStrip({ items, onRemove, cwd = "", grokHome = "" }: Attach
                   <AttachKindIcon visual={visual} />
                 </div>
                 <div className="attach-body">
-                  <div className="attach-name" data-tip={item.path}>
+                  <div className="attach-name">
                     {item.name}
                   </div>
                   <div className="attach-meta">{attachmentMeta(item)}</div>

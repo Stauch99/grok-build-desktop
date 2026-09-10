@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "grok-build-webui"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "fs2",
  "notify",

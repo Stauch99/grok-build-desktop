@@ -58,7 +58,6 @@ function ExplorerNode({
             type="button"
             className="file-entry-main"
             aria-expanded={open}
-            data-tip={entry.path}
             onClick={() => onToggleDir(entry.path)}
           >
             <span className="explorer-twist" aria-hidden>
@@ -75,7 +74,6 @@ function ExplorerNode({
             <button
               type="button"
               className="file-open file-attach"
-              data-tip={t("session.attach")}
               aria-label={t("session.attach")}
               onClick={() => onAttach(entry.path, "dir")}
             >
@@ -85,7 +83,6 @@ function ExplorerNode({
           <button
             type="button"
             className="file-open file-finder"
-            data-tip={t("finder.open")}
             aria-label={t("finder.open")}
             onClick={() => onReveal(entry.path)}
           >

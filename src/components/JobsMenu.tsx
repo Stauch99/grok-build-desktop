@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { HeaderJob } from "../lib/jobs-header";
 import { useT } from "../lib/locale-context";
-import { IconStop } from "../icons";
+import { IconChecklist, IconStop } from "../icons";
 
 export type JobsMenuProps = {
   jobs: HeaderJob[];
@@ -43,12 +43,14 @@ export function JobsMenu({
     <div className="chip-wrap" ref={wrapRef}>
       <button
         type="button"
-        className="btn ghost"
+        className="icon-btn head-count-btn"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={t("jobs.count", { n: jobs.length })}
         onClick={onToggle}
       >
-        {t("jobs.count", { n: jobs.length })}
+        <IconChecklist size={16} />
+        <span className="head-count">{jobs.length}</span>
       </button>
       {open ? (
         <div className="chip-menu jobs-menu" role="menu">
@@ -71,7 +73,6 @@ export function JobsMenu({
                   className="jobs-stop"
                   role="menuitem"
                   onClick={() => onStop(job)}
-                  data-tip={t("thread.stop")}
                   aria-label={t("thread.stop")}
                 >
                   <IconStop size={16} />

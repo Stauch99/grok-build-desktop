@@ -12,13 +12,14 @@ export type CommandPaletteProps = {
   onPick: (id: string) => void;
   onSearch: (query: string) => void;
   onClose: () => void;
+  leaving?: boolean;
 };
 
 /**
  * ⌘K launcher over sessions, projects, slash commands and app actions.
  * Owns only its query and highlight; every action is resolved by id in App.
  */
-export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPaletteProps) {
+export function CommandPalette({ items, onPick, onSearch, onClose, leaving = false }: CommandPaletteProps) {
   const t = useT();
   const { overrides, mac } = useShortcutState();
   const paletteChord = formatBinding(bindingFor(overrides, "palette"), mac);
@@ -70,7 +71,7 @@ export function CommandPalette({ items, onPick, onSearch, onClose }: CommandPale
   return (
     <div
       ref={layerRef}
-      className="palette-layer"
+      className={`palette-layer${leaving ? " layer-out" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={t("palette.panelLabel")}

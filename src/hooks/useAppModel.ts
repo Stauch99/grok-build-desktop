@@ -16,7 +16,7 @@ import { MAIN_PANE } from "../lib/pane-tree";
 import { persistReviewOpen } from "../lib/review-rail";
 import { friendlyError } from "../lib/error-copy";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
-import { sessionsWithLiveRoster } from "../lib/live-roster";
+import { liveRosterFingerprint, sessionsWithLiveRoster } from "../lib/live-roster";
 import { isTextPreviewable } from "../lib/preview";
 import { agentSendBlockReason, blockedAgentToast } from "../lib/agent-doctor";
 import { subagentChips } from "../lib/subagent-tree";
@@ -66,6 +66,7 @@ export function useAppModel() {
     settingsHydrated: s.settingsHydrated,
     thresholdSessions: s.dreamThresholdSessions,
     showToast,
+    skillNames: s.inspect?.skills.map((sk) => sk.name) ?? [],
   });
 
   const acp = useAcpSession({
@@ -119,6 +120,7 @@ export function useAppModel() {
 
   const doctorsReady = s.doctors.length > 0;
   const sendBlocked = !!agentSendBlockReason(s.selectedAgentId, s.doctors);
+  const rosterKey = useMemo(() => liveRosterFingerprint(acp.chat.items), [acp.chat.items]);
   const allSessions = useMemo(() => {
     const base = [...s.inboxSessions, ...s.sessions];
     return sessionsWithLiveRoster(base, acp.chat.items, {
@@ -127,7 +129,7 @@ export function useAppModel() {
       cwd: s.cwd || "",
       nowIso: new Date().toISOString(),
     });
-  }, [s.inboxSessions, s.sessions, acp.chat.items, s.selectedAgentId, acp.sessionId, s.cwd]);
+  }, [s.inboxSessions, s.sessions, rosterKey, s.selectedAgentId, acp.sessionId, s.cwd]);
   s.allSessionsRef.current = allSessions;
 
   const focusedExtra = s.focusedPaneId !== MAIN_PANE ? s.extraPanes[s.focusedPaneId] : undefined;

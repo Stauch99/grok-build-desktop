@@ -2,7 +2,7 @@ import type { AgentId } from "./agent-id";
 import { isAgentId } from "./agent-id";
 import { DREAM_LINE_MAX_CHARS } from "./memory-weight";
 
-export type IngestKind = "user_pref" | "user_utterance" | "agent_commitment";
+export type IngestKind = "user_pref" | "user_utterance" | "agent_commitment" | "teach_episode";
 export type IngestTurn = {
   agentId: AgentId;
   sessionId: string;
@@ -65,7 +65,7 @@ export function parseDailyFile(text: string): DailyLine[] {
     const agentId = m[1].trim();
     const kind = m[4].trim();
     if (!isAgentId(agentId)) continue;
-    if (kind !== "user_pref" && kind !== "user_utterance" && kind !== "agent_commitment") continue;
+    if (kind !== "user_pref" && kind !== "user_utterance" && kind !== "agent_commitment" && kind !== "teach_episode") continue;
     out.push({
       agentId,
       sessionId: m[2].trim(),

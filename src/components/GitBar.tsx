@@ -30,7 +30,6 @@ export function GitChip({ status, onClick }: GitChipProps) {
   const t = useT();
   if (!status.isRepo) return null;
   const label = branchLabel(status);
-  const title = status.dirty > 0 ? t("git.dirty", { n: status.dirty }) : t("git.clean");
   const inner = (
     <span className="git-chip-inner">
       <IconBranch size={13} />
@@ -39,10 +38,10 @@ export function GitChip({ status, onClick }: GitChipProps) {
     </span>
   );
   if (!onClick) {
-    return <span className="git-chip" data-tip={title}>{inner}</span>;
+    return <span className="git-chip">{inner}</span>;
   }
   return (
-    <button type="button" className="git-chip" onClick={onClick} data-tip={title} aria-label={t("git.open")}>
+    <button type="button" className="git-chip" onClick={onClick} aria-label={t("git.open")}>
       {inner}
     </button>
   );
@@ -84,7 +83,6 @@ function GitActionMenu({
         type="button"
         className="git-chip"
         disabled={disabled}
-        data-tip={title}
         aria-label={title}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -303,7 +301,6 @@ export function GitBar({
         type="button"
         className="git-chip"
         disabled={!canCommit}
-        data-tip={t("git.commitHint")}
         onClick={() => void submit()}
       >
         <span className="git-chip-inner">{t("git.commit")}</span>
@@ -328,7 +325,6 @@ export function GitBar({
             type="button"
             className="git-chip"
             disabled={!canAddRemote}
-            data-tip={t("git.noRemote")}
             onClick={() => void submitRemote()}
           >
             <span className="git-chip-inner">{t("git.addRemote")}</span>
@@ -341,13 +337,6 @@ export function GitBar({
               type="button"
               className="git-chip"
               disabled={!pullOk}
-              data-tip={
-                kind === "publish"
-                  ? t("git.pullNeedPublish")
-                  : status.behind > 0
-                    ? t("git.behind", { n: status.behind })
-                    : t("git.pullHint")
-              }
               onClick={() => runRemote(onPull)}
             >
               <span className="git-chip-inner">
@@ -360,13 +349,6 @@ export function GitBar({
               type="button"
               className="git-chip"
               disabled={!pushOk}
-              data-tip={
-                kind === "publish"
-                  ? t("git.publishHint")
-                  : status.ahead > 0
-                    ? t("git.ahead", { n: status.ahead })
-                    : t("git.pushHint")
-              }
               onClick={() => runRemote(onPush)}
             >
               <span className="git-chip-inner">
@@ -401,7 +383,6 @@ export function GitBar({
           className="git-chip ghost"
           onClick={onNewWorktree}
           disabled={blocked}
-          data-tip={t("git.worktree")}
         >
           <span className="git-chip-inner">
             <IconGrokPlus size={14} />

@@ -52,6 +52,19 @@ describe("weightDailyLines", () => {
     expect(recencyFactor("2026-09-07", "2026-09-08")).toBe(1.0);
     expect(recencyFactor("2026-09-01", "2026-09-08")).toBe(0.8);
   });
+
+  it("ranks teach_episode above user_pref", () => {
+    const today = "2026-09-09";
+    const scored = weightDailyLines(
+      [
+        line("grok", "s1", "user_pref", "都动"),
+        line("grok", "s1", "teach_episode", "was: 保录 → now: 兜底"),
+      ],
+      today,
+      today,
+    );
+    expect(scored[1].score).toBeGreaterThan(scored[0].score);
+  });
 });
 
 describe("selectDreamInput", () => {

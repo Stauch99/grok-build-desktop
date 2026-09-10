@@ -89,33 +89,6 @@ test.describe("desktop chrome smoke", () => {
     }
   });
 
-  test("review close tooltip opens below the header instead of clipping at the window edge", async ({ page }) => {
-    await installTauriStub(page);
-    await page.goto("/");
-    await page.getByRole("button", { name: "Dashboard" }).first().click();
-    const close = page.locator(".review-head > .icon-btn[data-tip]");
-    await expect(close).toBeVisible();
-    await close.hover();
-    const pos = await close.evaluate((el) => {
-      const tip = getComputedStyle(el, "::after");
-      const rect = el.getBoundingClientRect();
-      return {
-        content: tip.content,
-        top: tip.top,
-        bottom: tip.bottom,
-        right: tip.right,
-        left: tip.left,
-        btnHeight: rect.height,
-        btnTop: rect.top,
-      };
-    });
-    expect(pos.content).toContain("关闭右侧栏");
-    expect(parseFloat(pos.top)).toBeGreaterThan(pos.btnHeight);
-    expect(parseFloat(pos.bottom)).toBeLessThan(0);
-    const shot = await page.screenshot();
-    await test.info().attach("review-close-tip", { body: shot, contentType: "image/png" });
-  });
-
   test("thread markdown uses system UI body and Noto Serif headings", async ({ page }) => {
     await installTauriStub(page);
     await page.goto("/");

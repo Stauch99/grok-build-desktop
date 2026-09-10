@@ -104,6 +104,17 @@ export function applyLiveParentExpand(
   return { collapsed, expanded };
 }
 
+export function liveRosterFingerprint(items: ChatItem[]): string {
+  let out = "";
+  for (const item of items) {
+    if (item.kind !== "tool") continue;
+    const status = subagentStatusFromItem(item);
+    if (!status) continue;
+    out += `${item.id}:${status}:${childSessionIdFromToolDetail(item.detail) ?? ""};`;
+  }
+  return out;
+}
+
 export function sessionsWithLiveRoster(
   base: SessionSummary[],
   items: ChatItem[],

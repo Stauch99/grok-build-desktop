@@ -31,6 +31,7 @@ import type { AgentId } from "../lib/agent-id";
 import { normalizeAccentId, type AccentId } from "../lib/accent";
 import type { AgentDoctor } from "../lib/agent-doctor";
 import type { Mode } from "../lib/mode";
+import { parseThemePref, type ThemePref } from "../lib/theme-pref";
 import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
 import type { Dispatch, SetStateAction } from "react";
 
@@ -50,7 +51,7 @@ export type HydrateWebuiDeps = {
   setMode: Dispatch<SetStateAction<Mode>>;
   setProjects: (paths: string[]) => void;
   setManualProjects: (value: boolean) => void;
-  setTheme: (theme: "light" | "dark") => void;
+  setTheme: (theme: ThemePref) => void;
   setChatWidth: (width: number) => void;
   setChatFontSize: (size: number) => void;
   setTitles: (titles: Record<string, string>) => void;
@@ -130,7 +131,8 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
         manualProjects: true,
       });
     }
-    if (state.theme === "dark" || state.theme === "light") d.setTheme(state.theme);
+    const themePref = parseThemePref(state.theme);
+    if (themePref) d.setTheme(themePref);
     if (typeof state.chatWidth === "number" && state.chatWidth >= 480 && state.chatWidth <= 1100) {
       d.setChatWidth(state.chatWidth);
     }

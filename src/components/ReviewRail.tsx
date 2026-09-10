@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { IconGrokClose } from "../grok-icons";
 import { IconBranch, IconChart, IconEye, IconFolder } from "../icons";
 import {
@@ -30,7 +30,7 @@ export type ReviewRailProps = {
   children: Partial<Record<ReviewTab, ReactNode>>;
 };
 
-export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, width, children }: ReviewRailProps) {
+export const ReviewRail = memo(function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, width, children }: ReviewRailProps) {
   const t = useT();
   const locale = useLocale();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -76,7 +76,6 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
                 id={`review-peer-${pane.id}`}
                 aria-selected={peer === pane.id}
                 aria-label={label}
-                data-tip={label}
                 onClick={() => selectPeer(pane.id)}
               >
                 <span className="review-pane-icon">{peerIcon(pane.id)}</span>
@@ -86,7 +85,7 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
             );
           })}
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label={t("rail.close")} data-tip={t("rail.close")}>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t("rail.close")}>
           <IconGrokClose size={16} />
         </button>
       </header>
@@ -107,4 +106,4 @@ export function ReviewRail({ activeTab, tabs, onTab, onClose, leaving = false, w
       </div>
     </aside>
   );
-}
+});

@@ -12,7 +12,7 @@ const RING_SIZE = 14;
 const RING_RADIUS = 5;
 
 /**
- * Window fill as a quiet ring. Hover for used / size / percent.
+ * Window fill as a quiet ring.
  * Clicking triggers a compact prompt when context usage is high.
  */
 export function UsageRing({ usage, compactPercent = 85, onCompact }: UsageRingProps) {
@@ -46,11 +46,6 @@ export function UsageRing({ usage, compactPercent = 85, onCompact }: UsageRingPr
           />
         ) : null}
       </svg>
-      <span className="usage-pop" role="tooltip">
-        {lines.map((l) => (
-          <span key={l}>{l}</span>
-        ))}
-      </span>
     </button>
   );
 }

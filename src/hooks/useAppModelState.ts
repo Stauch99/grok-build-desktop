@@ -29,7 +29,6 @@ import { EMPTY_PROJECT_GROUPS, type ProjectGroupState } from "../lib/project-gro
 import type { SessionMenuState } from "../SessionMenu";
 import type { ExtraPage } from "../components/ExtraOverlay";
 import type { ComposerHandle } from "../components/Composer";
-import type { MemoryChange } from "../lib/memory-dock";
 import type { WeeklyUsage } from "../lib/weekly-usage";
 import type { Mode } from "../lib/mode";
 import type { AgentId } from "../lib/agent-id";
@@ -37,6 +36,8 @@ import { DEFAULT_ACCENT_ID, type AccentId } from "../lib/accent";
 import { DEFAULT_MEMORY_SETTINGS } from "../lib/memory-settings";
 import type { ExtraPaneState } from "./useAcpSession";
 import type { AppConfirm } from "./useAppWorkspace";
+import { useResolvedTheme } from "./useResolvedTheme";
+import type { ThemePref } from "../lib/theme-pref";
 
 /** A turn that stopped producing output long enough to offer manual recovery. */
 export type StallRecover = {
@@ -49,7 +50,8 @@ export type StallRecover = {
 const FALLBACK_CATALOG = emptyCatalog("grok");
 
 export function useAppModelState() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<ThemePref>("light");
+  const resolvedTheme = useResolvedTheme(theme);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
   const [hubTab, setHubTab] = useState<HubTab>("skills");
@@ -148,8 +150,6 @@ export function useAppModelState() {
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
   const [extraMentionData, setExtraMentionData] = useState<Record<string, PaneMentionData>>({});
   const [dismissedRecap, setDismissedRecap] = useState<string | null>(null);
-  const [memoryChanges, setMemoryChanges] = useState<MemoryChange[]>([]);
-  const memoryBaseline = useRef<Record<string, number> | null>(null);
   const [searchHits, setSearchHits] = useState<SessionSearchHit[] | null>(null);
   const [mruOpen, setMruOpen] = useState(false);
   const [planFile, setPlanFile] = useState<PlanFile | null>(null);
@@ -230,7 +230,7 @@ export function useAppModelState() {
   paneDragRef.current = paneDrag;
 
   return {
-    theme, setTheme, settingsOpen, setSettingsOpen, hubOpen, setHubOpen, hubTab, setHubTab,
+    theme, setTheme, resolvedTheme, settingsOpen, setSettingsOpen, hubOpen, setHubOpen, hubTab, setHubTab,
     locale, setLocale, themeFamily, setThemeFamily, accentId, setAccentId, density, setDensity, hideToTray, setHideToTray,
     defaultRail, setDefaultRail, shortcuts, setShortcuts, inspect, setInspect, modelRows, setModelRows,
     effort, setEffort, effortReady, setEffortReady, extraPage, setExtraPage, imagineImages, setImagineImages,
@@ -251,7 +251,7 @@ export function useAppModelState() {
     projectGroups, setProjectGroups, openGroups, setOpenGroups, sessionTokens, setSessionTokens,
     settingsFocus, setSettingsFocus, expandedIds, setExpandedIds, collapsedIds, setCollapsedIds,
     allowedTools, setAllowedTools, workspaceEntries, setWorkspaceEntries, extraMentionData, setExtraMentionData,
-    dismissedRecap, setDismissedRecap, memoryChanges, setMemoryChanges, memoryBaseline, searchHits, setSearchHits,
+    dismissedRecap, setDismissedRecap, searchHits, setSearchHits,
     mruOpen, setMruOpen, planFile, setPlanFile, goalView, setGoalView, goalSessionRef, rules, setRules,
     rewindTarget, setRewindTarget, worktreeBusy, setWorktreeBusy, queue, setQueue, focused, setFocused,
     steerByDefault, setSteerByDefault, injectUserMemory, setInjectUserMemory, dreamingEnabled, setDreamingEnabled,

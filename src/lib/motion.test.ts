@@ -3,6 +3,7 @@ import { MOTION_MS, motionMs, prefersReducedMotion } from "./motion";
 
 describe("motionMs", () => {
   it("uses the CSS duration when matchMedia is missing", () => {
+    expect(MOTION_MS).toBe(160);
     expect(motionMs()).toBe(MOTION_MS);
     expect(prefersReducedMotion()).toBe(false);
   });

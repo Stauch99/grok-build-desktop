@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../lib/locale-context";
+import { usePresence } from "../lib/motion";
 
 export type AppModalProps = {
   open: boolean;
@@ -17,9 +18,10 @@ export type AppModalProps = {
 export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel }: AppModalProps) {
   const t = useT();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const { shown, leaving } = usePresence(open);
 
   useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     confirmRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -29,12 +31,12 @@ export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
+  }, [shown, onCancel]);
 
-  if (!open) return null;
+  if (!shown) return null;
 
   return (
-    <div className="palette-layer" role="presentation">
+    <div className={`palette-layer${leaving ? " layer-out" : ""}`} role="presentation">
       <div className="palette-backdrop" onClick={onCancel} />
       <div className="palette" role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
         <div className="palette-group" id="app-modal-title">

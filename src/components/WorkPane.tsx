@@ -21,7 +21,10 @@ export function WorkPane({
     <div
       className={`pane${focused ? " is-focused" : ""}${className ? ` ${className}` : ""}`}
       data-pane-id={paneId}
-      onPointerDown={onFocus}
+      onPointerDown={() => {
+        if (focused) return;
+        onFocus();
+      }}
       onFocusCapture={onFocus}
     >
       {children}

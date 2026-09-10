@@ -105,7 +105,9 @@ describe("composer dock stack", () => {
     expect(app).not.toMatch(/SubagentChipRow|SubagentCard/);
     expect(app).not.toMatch(/mcpInheritance/);
     const header = app.slice(app.indexOf("subagent.count"), app.indexOf("subagent.count") + 900);
-    expect(header).toMatch(/openSession/);
+    expect(header).toContain("openSession");
+    expect(header).toContain("IconHierarchy2");
+    expect(header).toContain('className="head-count"');
     const model = readFileSync(join(root, "src/hooks/useAppModel.ts"), "utf8");
     expect(model).toMatch(/subagentChips\(/);
     const sheet = css("src/styles.css");
@@ -295,15 +297,15 @@ describe("composer prompt", () => {
 });
 
 describe("composer context ring", () => {
-  it("draws a ring with no percent label and reveals copy on hover", () => {
+  it("draws a ring with no percent label", () => {
     const src = readFileSync(join(root, "src/components/UsageRing.tsx"), "utf8");
     expect(src).toMatch(/className="usage-ring"/);
     expect(src).not.toMatch(/usage-bar/);
     expect(src).not.toMatch(/\{p\.used\}%/);
+    expect(src).not.toMatch(/usage-pop/);
 
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.usage-ring-fill\s*\{[^}]*stroke:\s*currentColor/);
-    expect(sheet).toMatch(/\.usage-chip:hover \.usage-pop/);
   });
 });
 
@@ -366,6 +368,19 @@ describe("session list subagent chrome", () => {
   });
 });
 
+describe("pane pointer focus", () => {
+  it("does not refocus an already-focused pane on pointerdown", () => {
+    const src = readFileSync(join(root, "src/components/WorkPane.tsx"), "utf8");
+    expect(src).not.toMatch(/onPointerDown=\{onFocus\}/);
+    expect(src).toMatch(/if \(focused\) return/);
+  });
+
+  it("does not steal composer focus when the pane is already focused", () => {
+    const src = readFileSync(join(root, "src/hooks/useAppWorkspace.ts"), "utf8");
+    expect(src).toMatch(/shouldMoveComposerFocus/);
+  });
+});
+
 describe("tauri window drag capability", () => {
   it("allows startDragging for overlay titlebar regions", () => {
     const caps = readFileSync(join(root, "src-tauri/capabilities/default.json"), "utf8");
@@ -394,6 +409,7 @@ describe("workspace header window drag", () => {
     expect(src).toMatch(/className="workspace-head-drag"[^>]*data-tauri-drag-region/);
     expect(src).toMatch(/className="workspace-head-drag"[\s\S]{0,240}beginWindowDrag/);
     expect(src).not.toMatch(/className="workspace-head"[^>]*data-tauri-drag-region/);
+    expect(src).toMatch(/copyConversationBtn\([\s\S]{0,500}?IconGrokSidebar/);
 
     const sheet = css("src/styles/shell.css");
     const drag = sheet.match(/\.workspace-head-drag\s*\{[^}]+\}/)?.[0];
@@ -419,6 +435,8 @@ describe("git pane actions", () => {
     expect(src).toMatch(/worktrees=\{gitWorktrees\}/);
     expect(src).toMatch(/onCheckout=\{checkoutBranch\}/);
     expect(src).toMatch(/onSwitchWorktree=\{\(path\) => void switchWorktree\(path\)\}/);
+    expect(src).toMatch(/turnDiffItems=\{reviewItems\}/);
+    expect(src).not.toMatch(/<DiffSummary/);
   });
 
   it("opens git action menus downward so they stay inside the pane", () => {
@@ -430,10 +448,20 @@ describe("git pane actions", () => {
 });
 
 describe("chrome selection and focus", () => {
-  it("locks selection on the shell and restores it on conversation text", () => {
+  it("does not lock selection on .app, which ancestors the thread and composer", () => {
     const main = css("src/styles.css");
+    const app = main.match(/\.app\s*\{[^}]+\}/)?.[0] ?? "";
+    // WKWebView treats any ancestor `none` as blocking, so restoring `text` on
+    // `.chat` / textarea cannot make conversation or composer copyable.
+    expect(app).not.toMatch(/user-select:\s*none/);
+    expect(app).not.toMatch(/-webkit-user-select:\s*none/);
+    expect(main).toMatch(/input, textarea\s*\{[\s\S]{0,120}user-select:\s*text/);
+  });
+
+  it("locks selection on chrome only and keeps one conversation selection root", () => {
+    const sidebar = css("src/styles/sidebar.css");
     const thread = css("src/styles/thread.css");
-    expect(main).toMatch(/\.app\s*\{[^}]*user-select:\s*none/);
+    expect(sidebar).toMatch(/\.sidebar\s*\{[\s\S]{0,400}user-select:\s*none/);
     // One selection root on the thread column so WebKit can drag across <p> tags.
     expect(thread).toMatch(/\.chat\s*\{[\s\S]{0,400}user-select:\s*text/);
     expect(thread).not.toMatch(/\.thread \.msg[\s\S]{0,400}user-select:\s*text/);
@@ -442,7 +470,7 @@ describe("chrome selection and focus", () => {
   it("does not draw the accent ring on text fields", () => {
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.palette-input:focus-visible\s*\{[^}]*outline:\s*none/);
-    expect(sheet).not.toMatch(/:focus-visible\s*\{[^}]*outline:\s*1px solid var\(--accent\)/);
+    expect(sheet).not.toMatch(/(?:input|textarea|\.palette-input):focus-visible\s*\{[^}]*outline:\s*1px solid var\(--accent\)/);
   });
 });
 
@@ -572,10 +600,10 @@ describe("thread end reading pad", () => {
     expect(sheet).toMatch(/\.new-chat-hero \.thread::after\s*\{[^}]*display:\s*none/);
   });
 
-  it("fades the last 30px of the thread into the workspace", () => {
+  it("fades the last 16px of the thread into the workspace", () => {
     const sheet = css("src/styles/thread.css");
     const fade = sheet.match(/\.chat-shell::after\s*\{[^}]+\}/)?.[0];
-    expect(fade).toMatch(/height:\s*30px/);
+    expect(fade).toMatch(/height:\s*16px/);
     expect(fade).toMatch(/linear-gradient\(to bottom,\s*transparent,\s*var\(--bg\)\)/);
     expect(fade).toMatch(/pointer-events:\s*none/);
     expect(sheet).toMatch(/\.new-chat-hero \.chat-shell::after\s*\{[^}]*content:\s*none/);

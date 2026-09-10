@@ -16,8 +16,7 @@
 .composer-wrap .goal-bar,
 .composer-wrap .run-status-region,
 .composer-wrap .dock-capsule,
-.composer-wrap .wait-pill,
-.composer-wrap .memory-dock {
+.composer-wrap .wait-pill {
   width: min(100%, var(--thread, 680px));
 }
 .composer {
@@ -57,6 +56,8 @@
   font-size: var(--md-size, 15px);
   line-height: 1.5;
   color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .composer textarea::placeholder { color: var(--muted); }
 .composer-actions {
@@ -75,7 +76,7 @@
   flex: 0 0 auto;
   order: 1;
 }
-.composer-chips > * { animation: chip-in var(--dur) var(--ease); }
+.composer-chips > * { animation: none; }
 .composer-meta-row {
   display: flex;
   align-items: center;
@@ -152,10 +153,6 @@
   right: auto;
   bottom: calc(100% + 4px);
 }
-.composer-meta-row .usage-pop {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
 .composer-tools {
   width: min(100%, var(--thread, 680px));
   display: flex;
@@ -222,12 +219,6 @@
   margin-left: 8px;
 }
 .composer-wrap.composer-takeover .composer { display: none; }
-.composer-busy-hint {
-  margin: 4px auto 0;
-  max-width: var(--thread);
-  font-size: var(--md-size, 15px);
-  color: var(--muted);
-}
 .slash-badge {
   font-size: 10px;
   color: var(--faint);
@@ -259,6 +250,7 @@
   padding: 4px;
   z-index: 5;
   animation: menu-in var(--dur) var(--ease);
+  transform-origin: var(--menu-origin, top center);
 }
 .chip-menu button {
   display: flex;
@@ -592,5 +584,5 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.recap-card { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
-.recap-card:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.recap-card { transition: background-color var(--dur-fast) var(--ease); }
+.recap-card:hover { background: var(--bg-hover); }

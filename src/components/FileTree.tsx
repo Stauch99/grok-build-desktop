@@ -1,4 +1,5 @@
 import { useT } from "../lib/locale-context";
+import { windowedList } from "../lib/file-tree-window";
 
 export type FileTreeNode = { name: string; path: string; kind: "file" | "dir" };
 
@@ -28,13 +29,14 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
     : nodes;
   const dirs = visible.filter((n) => n.kind === "dir");
   const files = visible.filter((n) => n.kind === "file");
+  const dirPage = windowedList(dirs);
+  const filePage = windowedList(files);
 
   const renderRow = (node: FileTreeNode) => (
     <div className="file-row" key={node.path}>
       <button
         type="button"
         className="file-item"
-        data-tip={node.path}
         onClick={() => onPreview(node.path)}
       >
         {node.name}
@@ -42,7 +44,6 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
       <button
         type="button"
         className="btn ghost"
-        data-tip={t("file.joinChat")}
         onClick={() => onAddToChat(asMention(node.path))}
       >
         @
@@ -75,9 +76,11 @@ export function FileTree({ nodes, query, onQuery, onPreview, onAddToChat, onReve
       ) : (
         <div className="file-list">
           {dirs.length > 0 ? <div className="file-folder">{t("file.folders")}</div> : null}
-          {dirs.map(renderRow)}
+          {dirPage.shown.map(renderRow)}
+          {dirPage.hidden > 0 ? <p className="float-empty">{t("file.showMore", { n: dirPage.hidden })}</p> : null}
           {files.length > 0 ? <div className="file-folder">{t("file.files")}</div> : null}
-          {files.map(renderRow)}
+          {filePage.shown.map(renderRow)}
+          {filePage.hidden > 0 ? <p className="float-empty">{t("file.showMore", { n: filePage.hidden })}</p> : null}
         </div>
       )}
     </section>

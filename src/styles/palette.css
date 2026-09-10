@@ -10,6 +10,9 @@
   padding: 12vh 16px 16px;
   animation: fade-in var(--dur-fast) var(--ease);
 }
+.palette-layer.layer-out {
+  animation: fade-out var(--dur-fast) var(--ease-in) forwards;
+}
 .palette-backdrop {
   position: absolute;
   inset: 0;

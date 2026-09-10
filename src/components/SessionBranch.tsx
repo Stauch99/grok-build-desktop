@@ -34,14 +34,14 @@ function SessionLeading({
       <>
         <IconChat size={16} className="sess-chat" />
         {showStatusDot ? (
-          <span className={`sess-dot ${status}`} data-tip={label} aria-label={label} role="img" />
+          <span className={`sess-dot ${status}`} aria-label={label} role="img" />
         ) : null}
       </>
     );
   }
 
   if (showStatusDot) {
-    return <span className={`sess-dot ${status}`} data-tip={label} aria-label={label} role="img" />;
+    return <span className={`sess-dot ${status}`} aria-label={label} role="img" />;
   }
 
   return null;
@@ -170,7 +170,7 @@ export function SessionBranch({
             <span className={`sess-title${status === "working" ? " shimmer-text" : ""}`}>{displayTitle(s, titles)}</span>
             {subLine ? <span className="sess-sub">{subLine}</span> : null}
           </span>
-          <span className={pill.className} data-tip={pill.label} aria-label={pill.label} role="img">
+          <span className={pill.className} aria-label={pill.label} role="img">
             <AgentIcon id={pill.agentId} size={16} />
           </span>
         </button>

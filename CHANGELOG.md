@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-09-10
+
+### Added
+
+- Founding dream: one-shot Kimi K3 1M review of Grok and Claude history, with skill proposals on the growth page.
+- Nightly dreaming classifies teaching moments from real turns before the model call.
+- Sidebar collapse/expand motion (fade content, then shrink the slot) and overlay enter/exit for settings, extras, palette, and toasts.
+- Native window background matches `--bg` so the first paint does not flash white.
+
+### Changed
+
+- Streaming no longer rebuilds the sidebar on every token; session updates coalesce; the thread virtualizes after 24 rows.
+- Composer draft stays local while typing; the textarea no longer snaps through `height: 0`.
+- Dropped inherited `:root` color transitions and unused Inter; motion tokens are 80 / 160 / 240ms.
+- Review rail grows with a CSS variable during drag; git watcher applies one snapshot.
+
+### Removed
+
+- Sidebar memory dock; growth memory stays reachable from Settings.
+
 ## [0.6.4] - 2026-09-09
 
 ### Added

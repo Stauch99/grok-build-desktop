@@ -20,7 +20,6 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: PreviewTabsProp
             type="button"
             role="tab"
             aria-selected={tab.path === active}
-            data-tip={tab.path}
             onClick={() => onSelect(tab.path)}
           >
             {basename(tab.path)}
@@ -29,7 +28,6 @@ export function PreviewTabs({ tabs, active, onSelect, onClose }: PreviewTabsProp
             type="button"
             className="preview-tab-close"
             aria-label={t("preview.closeTab", { name: basename(tab.path) })}
-            data-tip={t("preview.closeTabTip")}
             onClick={() => onClose(tab.path)}
           >
             ×

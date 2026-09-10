@@ -30,6 +30,19 @@ describe("validateUserMdRewrite", () => {
     expect(budget.ok).toBe(false);
     if (!budget.ok) expect(budget.reason).toBe("budget");
   });
+
+  it("skipLoss allows replacing a short USER.md on first founding", () => {
+    const three = `# You
+- 继续
+- 都动
+- likes tests
+`;
+    const next = "# You\n- prefers pnpm Source: grok · s1\n";
+    const blocked = validateUserMdRewrite(three, next);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toBe("loss");
+    expect(validateUserMdRewrite(three, next, { skipLoss: true })).toEqual({ ok: true });
+  });
 });
 
 describe("applyUserMdRewrite", () => {
@@ -38,5 +51,20 @@ describe("applyUserMdRewrite", () => {
     expect(r.file).toBe(prev);
     expect(r.preimage).toBe(prev);
     expect("rejected" in r && r.rejected).toBe(true);
+  });
+
+  it("skipLoss commits a first-founding replacement that would trip 20% loss", () => {
+    const three = `# You
+- 继续
+- 都动
+- likes tests
+`;
+    const next = "# You\n- prefers pnpm Source: grok · s1\n";
+    const blocked = applyUserMdRewrite(three, next);
+    expect(blocked.rejected).toBe(true);
+    expect(blocked.file).toBe(three);
+    const r = applyUserMdRewrite(three, next, { skipLoss: true });
+    expect(r.rejected).toBeUndefined();
+    expect(r.file).toBe(next);
   });
 });

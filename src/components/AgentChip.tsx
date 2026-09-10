@@ -25,7 +25,6 @@ export function AgentChip({ hasOpenSession, value, onChange, open, onToggle }: A
         aria-label={`${t("agent.switchCli")}: ${agentChipLabel(value)}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        data-tip={agentChipLabel(value)}
         disabled={disabled}
         onClick={() => {
           if (disabled) return;

@@ -1,4 +1,5 @@
 import type { ChatItem } from "./chat";
+import { stripInjectedMemory } from "./memory-inject";
 import { clipSessionTitle } from "./session-title";
 
 export const SUMMARY_TURN_THRESHOLD = 10;
@@ -27,14 +28,17 @@ export function summarizeThread(items: ChatItem[]): string {
     }
   }
   const parts: string[] = [];
-  if (firstUser?.kind === "user" && firstUser.text) parts.push(clip(firstUser.text, 120));
+  if (firstUser?.kind === "user") {
+    const visible = stripInjectedMemory(firstUser.text);
+    if (visible) parts.push(clip(visible, 120));
+  }
   if (lastAssistant?.text) parts.push(clip(lastAssistant.text, 120));
   return parts.join("\n");
 }
 
 export function firstUserPreview(items: ChatItem[], n = 40): string {
   const first = items.find((item) => item.kind === "user");
-  return first?.kind === "user" ? clip(first.text, n) : "";
+  return first?.kind === "user" ? clip(stripInjectedMemory(first.text), n) : "";
 }
 
 export function liveSessionPreviews(

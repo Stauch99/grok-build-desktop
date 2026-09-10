@@ -5,7 +5,7 @@ import { LocaleProvider } from "../lib/locale-context";
 import { StatsLineView } from "./StatsLineView";
 
 describe("StatsLineView", () => {
-  it("shows dotted values and parks the labels on hover", () => {
+  it("shows dotted values without repeating labels in the visible line", () => {
     const html = renderToStaticMarkup(
       createElement(LocaleProvider, {
         locale: "zh",
@@ -15,7 +15,7 @@ describe("StatsLineView", () => {
         }),
       }),
     );
-    expect(html).toContain('data-tip="首字 300ms · 速率 50 tok/s · 已用 12.4k"');
+    expect(html).toContain('aria-label="首字 300ms · 速率 50 tok/s · 已用 12.4k"');
     expect(html).toMatch(/composer-meta-text">300ms · 50 tok\/s · 12\.4k</);
     expect(html).not.toMatch(/composer-meta-text">[^<]*首字/);
   });

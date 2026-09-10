@@ -7,6 +7,13 @@
   padding: 28px 16px;
   animation: fade-in var(--dur-fast) var(--ease);
 }
+.settings-layer.layer-out {
+  animation: fade-out var(--dur-fast) var(--ease-in) forwards;
+}
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 .settings-backdrop {
   position: absolute;
   inset: 0;

@@ -15,7 +15,7 @@ export function ManagedConfigView({ path, text, exists }: ManagedConfigViewProps
     <div>
       <h3>managed_config</h3>
       {exists ? (
-        <pre className="hub-preview" data-tip={path}>
+        <pre className="hub-preview" aria-label={path}>
           {text || t("managed.emptyText")}
         </pre>
       ) : (

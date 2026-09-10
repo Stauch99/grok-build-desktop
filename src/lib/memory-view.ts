@@ -11,14 +11,22 @@ const LABELS: Record<AgentId, string> = {
   codex: "Codex",
 };
 
+function headingDate(heading: string): string | null {
+  const exact = heading.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(exact)) return exact;
+  const founding = exact.match(/^大梦 · (\d{4}-\d{2}-\d{2})$/);
+  return founding?.[1] ?? null;
+}
+
 export function parseDreamsMd(text: string): DiaryEntry[] {
   const chunks = text.split(/^## /m).map((c) => c.trim()).filter(Boolean);
   const out: DiaryEntry[] = [];
   for (const chunk of chunks) {
     const nl = chunk.indexOf("\n");
-    const date = (nl < 0 ? chunk : chunk.slice(0, nl)).trim();
+    const heading = (nl < 0 ? chunk : chunk.slice(0, nl)).trim();
     const body = nl < 0 ? "" : chunk.slice(nl + 1).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) out.push({ date, body });
+    const date = headingDate(heading);
+    if (date) out.push({ date, body });
   }
   return out;
 }
@@ -36,6 +44,7 @@ export function corpusLine(lines: DailyLine[]): string | null {
 }
 
 export type OverlayStatus =
+  | { kind: "founding" }
   | { kind: "running" }
   | { kind: "failed" }
   | { kind: "blocked-login"; agentId: AgentId }
@@ -43,6 +52,7 @@ export type OverlayStatus =
   | { kind: "idle"; lastAt: number | null };
 
 export function overlayStatus(state: MemoryState, pendingSessions: number): OverlayStatus {
+  if (state.foundingStatus === "running") return { kind: "founding" };
   if (state.lastStatus === "running") return { kind: "running" };
   if (state.lastStatus === "blocked-login") return { kind: "blocked-login", agentId: state.lastDreamAgentId ?? "grok" };
   if (state.lastStatus === "failed") return { kind: "failed" };

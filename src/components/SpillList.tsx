@@ -17,7 +17,7 @@ export function SpillList({ paths, onOpen }: SpillListProps) {
       <h3>{t("spill.title")}</h3>
       <div className="file-list">
         {paths.map((p) => (
-          <button key={p} type="button" className="file-item" data-tip={p} onClick={() => onOpen(p)}>
+          <button key={p} type="button" className="file-item" onClick={() => onOpen(p)}>
             {basename(p)}
           </button>
         ))}

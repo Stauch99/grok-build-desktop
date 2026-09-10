@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
@@ -62,6 +62,7 @@ export type SidebarProps = {
   picking: boolean;
   statusFor: (id: string) => SessionStatus;
   collapsed?: boolean;
+  hiding?: boolean;
   width?: number;
   onToggleCollapsed?: () => void;
   signedIn: boolean;
@@ -91,7 +92,7 @@ function rowMetaMap(rows: SidebarRow[]): Map<string, SidebarRow> {
  * Navigate: which project, which session. Everything that configures the
  * agent lives in Settings, not here.
  */
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   sections,
   prefs,
   onPrefs,
@@ -126,6 +127,7 @@ export function Sidebar({
   picking,
   statusFor,
   collapsed = false,
+  hiding = false,
   onToggleCollapsed,
   signedIn,
   weeklyUsage = null,
@@ -417,7 +419,7 @@ export function Sidebar({
             <span className="folder-glyph" aria-hidden>
               {open ? <IconFolderOpen size={16} /> : <IconFolder size={16} />}
             </span>
-            <span className="pname" data-tip={section.projectPath ?? section.label}>
+            <span className="pname">
               {section.label}
             </span>
           </button>
@@ -425,7 +427,6 @@ export function Sidebar({
             type="button"
             className="project-new"
             aria-label={t("sidebar.newProjectSession")}
-            data-tip={t("sidebar.newProjectSession")}
             onClick={(e) => {
               e.stopPropagation();
               onNewProjectSession(path);
@@ -438,7 +439,6 @@ export function Sidebar({
             className="more"
             data-menu-trigger
             aria-label={t("sidebar.projectActions")}
-            data-tip={t("sidebar.projectActions")}
             onClick={(e) => {
               e.stopPropagation();
               openProjectMenu(path, pinned, e.currentTarget);
@@ -481,7 +481,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className={`sidebar${collapsed ? " rail" : ""}`}>
+    <aside className={`sidebar${collapsed ? " rail" : ""}${hiding ? " is-hiding" : ""}`}>
       <div className="side-traffic">
         <div
           className="side-traffic-drag"
@@ -491,56 +491,49 @@ export function Sidebar({
             beginWindowDrag();
           }}
         />
-        {collapsed ? null : (
-          <div className="side-actions">
-            <button
-              type="button"
-              className="icon-btn shortcut-host"
-              aria-label={t("sidebar.search")}
-              data-tip={t("sidebar.search")}
-              onClick={onSearch}
-            >
-              <IconGrokSearch size={18} />
-              <ShortcutKbd id="palette" />
-            </button>
-            {onToggleCollapsed ? (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label={t("sidebar.collapse")}
-                data-tip={t("sidebar.collapse")}
-                onClick={onToggleCollapsed}
-              >
-                <IconGrokSidebar size={18} />
-              </button>
-            ) : null}
-          </div>
-        )}
-      </div>
-
-      {collapsed ? (
-        <div className="rail-stack">
+        <div className="side-actions">
+          <button
+            type="button"
+            className="icon-btn shortcut-host"
+            aria-label={t("sidebar.search")}
+            onClick={onSearch}
+          >
+            <IconGrokSearch size={18} />
+            <ShortcutKbd id="palette" />
+          </button>
           {onToggleCollapsed ? (
             <button
               type="button"
               className="icon-btn"
-              aria-label={t("sidebar.expand")}
-              data-tip={t("sidebar.expand")}
+              aria-label={t("sidebar.collapse")}
               onClick={onToggleCollapsed}
             >
               <IconGrokSidebar size={18} />
             </button>
           ) : null}
-          <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.search")} data-tip={t("sidebar.search")} onClick={onSearch}>
-            <IconGrokSearch size={18} />
-            <ShortcutKbd id="palette" />
-          </button>
-          <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.newChat")} data-tip={t("sidebar.newChat")} onClick={onNewChat}>
-            <IconGrokPlus size={18} />
-            <ShortcutKbd id="new-chat" />
-          </button>
         </div>
-      ) : null}
+      </div>
+
+      <div className="rail-stack">
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t("sidebar.expand")}
+            onClick={onToggleCollapsed}
+          >
+            <IconGrokSidebar size={18} />
+          </button>
+        ) : null}
+        <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.search")} onClick={onSearch}>
+          <IconGrokSearch size={18} />
+          <ShortcutKbd id="palette" />
+        </button>
+        <button type="button" className="icon-btn shortcut-host" aria-label={t("sidebar.newChat")} onClick={onNewChat}>
+          <IconGrokPlus size={18} />
+          <ShortcutKbd id="new-chat" />
+        </button>
+      </div>
 
       <div className="side-content">
         <button type="button" className="new-task new-chat shortcut-host" onClick={onNewChat}>
@@ -560,7 +553,7 @@ export function Sidebar({
           <span className="session-glide" aria-hidden="true" />
           <div className="section-label ws-hits">
             {t("sidebar.searchResults")}
-            <button type="button" className="icon-btn" onClick={onClearHits} aria-label={t("sidebar.clearSearch")} data-tip={t("sidebar.clear")}>
+            <button type="button" className="icon-btn" onClick={onClearHits} aria-label={t("sidebar.clearSearch")}>
               <IconClose size={16} />
             </button>
           </div>
@@ -583,7 +576,6 @@ export function Sidebar({
           <button
             type="button"
             className="icon-btn"
-            data-tip={picking ? t("sidebar.pickingFolder") : t("sidebar.addProject")}
             aria-label={picking ? t("sidebar.pickingFolder") : t("sidebar.addProject")}
             disabled={picking}
             onClick={onAddProject}
@@ -726,7 +718,6 @@ export function Sidebar({
                     className="more"
                     data-menu-trigger
                     aria-label={t("sidebar.groupActions")}
-                    data-tip={t("sidebar.groupActions")}
                     onClick={(e) => {
                       e.stopPropagation();
                       setProjectMenu(null);
@@ -863,4 +854,4 @@ export function Sidebar({
       ) : null}
     </aside>
   );
-}
+});

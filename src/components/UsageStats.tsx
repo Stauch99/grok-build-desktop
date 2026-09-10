@@ -130,7 +130,7 @@ export function UsageStats() {
           />
         </div>
         <div className="usage-toolbar-range">
-          <button type="button" className="icon-btn" onClick={() => void load()} disabled={loading} data-tip={t("common.refresh")} aria-label={t("common.refresh")}>
+          <button type="button" className="icon-btn" onClick={() => void load()} disabled={loading} aria-label={t("common.refresh")}>
             <IconRefresh size={16} />
           </button>
           <MenuSelect
@@ -255,7 +255,7 @@ export function UsageStats() {
               {costRows.map((row) => (
                 <li key={row.id}>
                   <div className="usage-model-top">
-                    <span data-tip={row.id}>{row.id}</span>
+                    <span>{row.id}</span>
                     <strong className="usage-cost">{formatUsdFromTicks(row.ticks)}</strong>
                   </div>
                   <div className="usage-model-track" aria-hidden>

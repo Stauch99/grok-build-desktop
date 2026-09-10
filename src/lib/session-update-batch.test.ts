@@ -3,6 +3,7 @@ import { applyChatUpdate, emptyChat } from "./chat";
 import {
   foldSessionUpdates,
   scheduleSessionUpdateFlush,
+  SESSION_UPDATE_COALESCE_MS,
   shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
   shouldResumeBusyOnSessionUpdate,
@@ -131,40 +132,25 @@ describe("shouldFlushSessionUpdateNow", () => {
 });
 
 describe("scheduleSessionUpdateFlush", () => {
-  it("uses requestAnimationFrame when it exists", () => {
-    const frames: FrameRequestCallback[] = [];
-    const raf = vi.fn((cb: FrameRequestCallback) => {
-      frames.push(cb);
-      return 7;
-    });
-    vi.stubGlobal("requestAnimationFrame", raf);
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  it("coalesces onto a 32ms timeout", () => {
+    vi.useFakeTimers();
     const apply = vi.fn();
     scheduleSessionUpdateFlush(apply);
     expect(apply).not.toHaveBeenCalled();
-    expect(raf).toHaveBeenCalledTimes(1);
-    frames[0](0);
-    expect(apply).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
-  });
-
-  it("falls back to queueMicrotask when rAF is missing", async () => {
-    vi.stubGlobal("requestAnimationFrame", undefined);
-    const apply = vi.fn();
-    scheduleSessionUpdateFlush(apply);
+    vi.advanceTimersByTime(31);
     expect(apply).not.toHaveBeenCalled();
-    await Promise.resolve();
+    vi.advanceTimersByTime(1);
     expect(apply).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
-  it("cancel skips a scheduled flush", async () => {
-    vi.stubGlobal("requestAnimationFrame", undefined);
+  it("cancel skips a scheduled flush", () => {
+    vi.useFakeTimers();
     const apply = vi.fn();
     const cancel = scheduleSessionUpdateFlush(apply);
     cancel();
-    await Promise.resolve();
+    vi.advanceTimersByTime(SESSION_UPDATE_COALESCE_MS);
     expect(apply).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 });

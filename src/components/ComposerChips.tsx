@@ -69,8 +69,11 @@ export function ComposerChips({
         <button
           type="button"
           className={`mode-chip${mode === "yolo" ? " yolo" : ""}`}
-          aria-label={`${modeLabel(mode, locale)} · ${t("composer.mode")}`}
-          data-tip={pendingMode ? t("composer.modeQueued", { mode: modeLabel(pendingMode, locale) }) : modeLabel(mode, locale)}
+          aria-label={
+            pendingMode
+              ? t("composer.modeQueued", { mode: modeLabel(pendingMode, locale) })
+              : `${modeLabel(mode, locale)} · ${t("composer.mode")}`
+          }
           aria-expanded={modeOpen}
           onClick={onToggleMode}
         >
@@ -109,11 +112,6 @@ export function ComposerChips({
           className={`model-chip${differs ? " differs" : ""}`}
           aria-label={t("composer.switchModel")}
           aria-expanded={modelOpen}
-          data-tip={
-            differs
-              ? t("composer.modelSession", { session: sessionModel ?? "", model })
-              : t("composer.modelDefault")
-          }
           onClick={onToggleModel}
         >
           {modelLabels?.[sessionModel || model] || sessionModel || model} <IconChevron size={11} />
@@ -146,7 +144,6 @@ export function ComposerChips({
             type="button"
             className="effort-chip"
             aria-label={t("settings.effort")}
-            data-tip={t("composer.effortHint")}
             aria-expanded={effortOpen}
             onClick={onToggleEffort}
           >

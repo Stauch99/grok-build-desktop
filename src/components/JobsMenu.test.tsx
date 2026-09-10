@@ -43,7 +43,9 @@ describe("JobsMenu", () => {
       ],
       { sessionHint: { "s-split": "分屏会话" }, currentSessionId: "s-main" },
     );
-    expect(html).toContain("任务 2");
+    expect(html).toContain('aria-label="任务 2"');
+    expect(html).not.toContain("任务 2</");
+    expect(html).toContain("head-count");
     expect(html).toContain("[bg] python3 -m http.server");
     expect(html).toContain("bash pnpm test");
     expect(html).toContain("分屏会话");

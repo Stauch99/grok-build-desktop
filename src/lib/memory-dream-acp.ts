@@ -6,7 +6,13 @@ import { asRecord, textFromContent } from "./text";
 import { onTaggedAcpRequest } from "./workbench-api";
 
 const RPC_TIMEOUT_MS = 180_000;
-const PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
+export const NIGHTLY_PROMPT_TIMEOUT_MS = 10 * 60 * 1000;
+export const FOUNDING_PROMPT_TIMEOUT_MS = 45 * 60 * 1000;
+const PROMPT_TIMEOUT_MS = NIGHTLY_PROMPT_TIMEOUT_MS;
+
+export function foundingBootstrapPrompts(modelId: string): string[] {
+  return [`/model ${modelId}`, "/effort max"];
+}
 
 const dreamSessions = new Set<string>();
 const startedDreamAgents = new Set<AgentId>();
@@ -82,6 +88,7 @@ export async function openDreamAcp(opts: {
   agentId: AgentId;
   memoryRoot: string;
   alreadyRunning: boolean;
+  promptTimeoutMs?: number;
 }): Promise<DreamAcpHandle> {
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   let sessionId = "";
@@ -187,7 +194,11 @@ export async function openDreamAcp(opts: {
     sessionId,
     async prompt(text: string) {
       buffer = "";
-      await rpc("session/prompt", { sessionId, prompt: [{ type: "text", text }] }, PROMPT_TIMEOUT_MS);
+      await rpc(
+        "session/prompt",
+        { sessionId, prompt: [{ type: "text", text }] },
+        opts.promptTimeoutMs ?? PROMPT_TIMEOUT_MS,
+      );
       return unwrapFence(buffer);
     },
     async close() {

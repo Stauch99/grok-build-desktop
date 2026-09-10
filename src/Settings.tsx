@@ -16,6 +16,7 @@ import { EFFORT_OPTIONS, normalizeEffort } from "./lib/effort";
 import { CHAT_FONT_PRESETS, normalizeChatFontSize } from "./lib/chat-font";
 import { CHAT_WIDTH_PRESETS, normalizeChatWidth } from "./lib/chat-width";
 import { isDangerousTrustPath, localeSearchHay, LOCALE_CHOICES, t, type Locale } from "./lib/i18n";
+import type { ThemePref } from "./lib/theme-pref";
 import { permissionModeHint } from "./lib/permission-copy";
 import { APP_VERSION, UPDATE_INSTALLATION_COPY } from "./lib/product-copy";
 import { supportBundleText } from "./lib/support-bundle";
@@ -47,8 +48,8 @@ import { readLocalEvents, resetLocalEvents } from "./lib/telemetry";
 type TabId = "overview" | "appearance" | "chat" | "memory" | "extensions" | "usage" | "about";
 
 type Props = {
-  theme: "light" | "dark";
-  setTheme: (t: "light" | "dark") => void;
+  theme: ThemePref;
+  setTheme: (t: ThemePref) => void;
   chatWidth: number;
   setChatWidth: (n: number) => void;
   inboxCwd: string;
@@ -298,7 +299,10 @@ export function SettingsPanel({
   const overviewHealth = overviewCli || overviewLogin || overviewInspect || overviewMcp || overviewAgent;
   const overviewHas = overviewHealth || overviewInbox;
 
-  const appearanceDark = show(hay("settings.dark"));
+  const appearanceDark = show(
+    hay("settings.dark"),
+    `${hay("settings.themeLight")} ${hay("settings.themeDark")} ${hay("settings.themeSystem")} 浅色 深色 跟随系统 Light Dark System`,
+  );
   const appearanceFamily = show(hay("settings.themeFamily"), "默认 Paper 暖纸 Ink 高对比 Frost 冷灰 Default Warm High contrast Cool gray");
   const appearanceAccent = show(hay("settings.accent"), "蓝 橙 绿 紫 粉 青 Blue Orange Green Purple Pink Teal");
   const appearanceLocale = show(hay("settings.locale"), "简体中文 English 中文");
@@ -578,13 +582,22 @@ export function SettingsPanel({
                   {appearanceTheme ? (
                     <div className="set-card">
                       {appearanceDark ? (
-                        <div className="set-row">
-                          <div>
-                            <label>{t(locale, "settings.dark")}</label>
+                        <div className="set-stack">
+                          <label>{t(locale, "settings.dark")}</label>
+                          <div className="locale-switch" role="radiogroup" aria-label={t(locale, "settings.dark")}>
+                            {(["light", "dark", "system"] as const).map((id) => (
+                              <button
+                                key={id}
+                                type="button"
+                                role="radio"
+                                aria-checked={theme === id}
+                                className={theme === id ? "on" : undefined}
+                                onClick={() => setTheme(id)}
+                              >
+                                {t(locale, id === "light" ? "settings.themeLight" : id === "dark" ? "settings.themeDark" : "settings.themeSystem")}
+                              </button>
+                            ))}
                           </div>
-                          <button type="button" className={`toggle ${theme === "dark" ? "on" : ""}`} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
-                            <i />
-                          </button>
                         </div>
                       ) : null}
                       {appearanceFamily ? (
@@ -923,7 +936,7 @@ export function SettingsPanel({
                                   : key;
                                 return (
                                   <li key={key} className="set-row">
-                                    <span data-tip={key}>{label}</span>
+                                    <span>{label}</span>
                                     <button type="button" className="btn ghost" onClick={() => onRevokeTool?.(key)}>
                                       {t(locale, "perm.revoke")}
                                     </button>

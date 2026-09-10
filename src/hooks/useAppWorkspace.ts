@@ -16,6 +16,7 @@ import { emptyChat, type ChatItem, type ChatState } from "../lib/chat";
 import { canMoveInboxSession, sameCwd } from "../lib/inbox";
 import { t, type Locale } from "../lib/i18n";
 import { friendlyError } from "../lib/error-copy";
+import { shouldMoveComposerFocus } from "../lib/pane-focus";
 import {
   MAIN_PANE,
   applyDrop,
@@ -215,8 +216,10 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
 
   function focusPane(paneId: string) {
     const d = depsRef.current;
+    const stealComposer = shouldMoveComposerFocus(d.focusedPaneIdRef.current, paneId);
     d.setFocusedPaneId(paneId);
     d.focusedPermissionPaneRef.current = paneId;
+    if (!stealComposer) return;
     window.setTimeout(() => {
       if (paneId === MAIN_PANE) d.composerRef.current?.focus();
       else d.extraComposerRefs.current[paneId]?.focus();

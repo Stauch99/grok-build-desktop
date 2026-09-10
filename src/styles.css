@@ -6,7 +6,7 @@ body {
   color: var(--text);
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  text-rendering: geometricPrecision;
 }
 
 button, textarea, input, select { font: inherit; color: inherit; }
@@ -17,12 +17,10 @@ input, textarea {
 button {
   cursor: pointer;
   text-align: left;
-  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease);
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease;
 }
-button:active,
-.icon-btn:active,
-.session:active,
-.new-task:active {
+.send-btn:active,
+.btn.primary:active {
   transform: scale(0.97);
 }
 button:disabled { opacity: 0.35; cursor: default; }
@@ -61,27 +59,6 @@ button:disabled { opacity: 0.35; cursor: default; }
   50% { opacity: 0.4; }
 }
 
-[data-tip] { position: relative; }
-[data-tip]:hover::after,
-[data-tip]:focus-visible::after {
-  content: attr(data-tip);
-  position: absolute;
-  z-index: 30;
-  left: 50%;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  padding: 4px 8px;
-  border-radius: var(--radius);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  color: var(--text);
-  font-size: 11px;
-  line-height: 1.3;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .app {
   height: 100%;
   min-height: 0;
@@ -91,8 +68,18 @@ button:disabled { opacity: 0.35; cursor: default; }
   /* The sidebar divider is positioned against this grid. */
   position: relative;
   overflow: hidden;
-  user-select: none;
-  -webkit-user-select: none;
+}
+.app[data-sidebar-motion] .sidebar,
+.app[data-sidebar-motion] .workspace-stage {
+  will-change: transform;
+  pointer-events: none;
+}
+.app[data-sidebar-motion] .workspace-stage {
+  contain: layout paint;
+}
+:root.resizing .app,
+:root.resizing .app * {
+  transition: none !important;
 }
 [data-tauri-drag-region] { -webkit-app-region: drag; }
 [data-tauri-drag-region] button,
@@ -310,9 +297,6 @@ button:disabled { opacity: 0.35; cursor: default; }
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
-  .memory-dock {
-    animation: none !important;
-  }
   .spinner,
   .spinner::before,
   .spinner::after {
@@ -330,6 +314,12 @@ button:disabled { opacity: 0.35; cursor: default; }
     -webkit-text-fill-color: var(--text);
     background-image: none;
   }
+}
+:root[data-window-blur] .skeleton,
+:root[data-window-blur] .skeleton::after,
+:root[data-window-blur] .dot-matrix-cell,
+:root[data-window-blur] .shimmer-text {
+  animation-play-state: paused !important;
 }
 @keyframes spinner-pulse {
   50% { opacity: 0.35; }

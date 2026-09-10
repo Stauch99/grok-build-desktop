@@ -142,7 +142,6 @@ export function useAppModelView(input: AppModelViewInput) {
       input.projectGroups,
       input.archived,
       input.autoArchiveDays,
-      input.clock,
       input.sidebarList,
       input.titles,
       sessionPreviews,

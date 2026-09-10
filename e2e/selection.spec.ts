@@ -99,3 +99,58 @@ test("selecting assistant text opens the toolbar and rewrite prefills the compos
   await expect(composer).toHaveValue(/The quick brown fox/);
   await expect(composer).toHaveValue(/改写上面这段/);
 });
+
+test("computed styles keep chat and composer selectable", async ({ page }) => {
+  await installTauriStub(page);
+  await page.goto("/");
+  const chat = page.locator(".chat").first();
+  const composer = page.locator(".composer textarea").first();
+  await expect(chat).toBeVisible();
+  await expect(composer).toBeVisible();
+
+  const styles = await page.evaluate(() => {
+    const cs = (el: Element | null) => (el ? getComputedStyle(el) : null);
+    return {
+      app: cs(document.querySelector(".app"))?.userSelect ?? "",
+      chat: cs(document.querySelector(".chat"))?.userSelect ?? "",
+      textarea: cs(document.querySelector(".composer textarea"))?.userSelect ?? "",
+    };
+  });
+  expect(styles.app).not.toBe("none");
+  expect(styles.chat).toBe("text");
+  expect(styles.textarea).toBe("text");
+
+  await composer.fill("copy this draft");
+  await composer.evaluate((el: HTMLTextAreaElement) => {
+    el.focus();
+    el.select();
+  });
+  const selected = await composer.evaluate((el: HTMLTextAreaElement) =>
+    el.value.slice(el.selectionStart, el.selectionEnd),
+  );
+  expect(selected).toBe("copy this draft");
+});
+
+test("drag-selecting assistant text keeps the selection", async ({ page }) => {
+  await installTauriStub(page);
+  await page.goto("/");
+  await expect(page.locator(".chat").first()).toBeVisible();
+  await page.evaluate(() => {
+    document.querySelectorAll(".empty, .empty-hero").forEach((el) => el.remove());
+    const thread = document.querySelector(".thread");
+    if (!thread) throw new Error("no thread");
+    const msg = document.createElement("article");
+    msg.className = "msg assistant";
+    msg.innerHTML =
+      '<div class="md"><p id="sel-probe">The quick brown fox jumps over the lazy dog.</p></div>';
+    thread.appendChild(msg);
+  });
+  const box = await page.locator("#sel-probe").boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.move(box!.x + 8, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + Math.min(box!.width - 8, 180), box!.y + box!.height / 2, { steps: 16 });
+  await page.mouse.up();
+  const dragged = await page.evaluate(() => document.getSelection()?.toString() ?? "");
+  expect(dragged).toMatch(/quick brown|fox jumps/i);
+});

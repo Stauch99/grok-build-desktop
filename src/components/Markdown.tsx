@@ -34,10 +34,12 @@ export const Markdown = memo(function Markdown({
   const blocks = splitAssistantBlocks(text);
   const roots = assetRoots(cwd, "");
   const toSrc = (path: string) => safeFileSrc(path, roots, convertFileSrc) ?? "";
-  const htmlFor = (md: string, idx: number) =>
-    live
+  const htmlFor = (md: string, idx: number) => {
+    const last = idx === blocks.length - 1;
+    return live && last
       ? renderLiveMarkdownThrottled(`${blockId}-${idx}`, md, cwd, toSrc)
       : memoizeMarkdown(md, cwd, toSrc);
+  };
   return (
     <div className={className} data-live={live ? "" : undefined} onClick={onClick}>
       {blocks.map((b, i) =>

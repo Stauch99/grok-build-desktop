@@ -14,7 +14,6 @@ export type MenuSelectProps<T extends string> = {
   /** Accessible name. Rendered by the caller's own label element. */
   ariaLabel: string;
   disabled?: boolean;
-  title?: string;
   /** `field` fills its container (Settings rows); `inline` hugs its text. */
   variant?: "field" | "inline";
   className?: string;
@@ -34,7 +33,6 @@ export function MenuSelect<T extends string>({
   onChange,
   ariaLabel,
   disabled,
-  title,
   variant = "field",
   className,
 }: MenuSelectProps<T>) {
@@ -76,7 +74,6 @@ export function MenuSelect<T extends string>({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         disabled={disabled}
-        data-tip={title}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -128,7 +125,6 @@ export function MenuSelect<T extends string>({
               role="option"
               aria-selected={o.value === value}
               className={i === active ? "on" : undefined}
-              data-tip={o.hint || o.label}
               onMouseEnter={() => setActive(i)}
               onClick={() => commit(o.value)}
             >

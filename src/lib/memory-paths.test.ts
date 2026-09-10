@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { dailyMdPath, dailyShardPath, DAILY_MAX_SHARDS, dreamsMdPath, memoryStatePath, userMdPath } from "./memory-paths";
+import {
+  dailyMdPath,
+  dailyShardPath,
+  DAILY_MAX_SHARDS,
+  dreamsMdPath,
+  foundingDomainPath,
+  foundingEpisodePath,
+  memoryStatePath,
+  skillProposalPath,
+  userMdPath,
+} from "./memory-paths";
 
 describe("memory-paths", () => {
   it("uses the locked filenames", () => {
@@ -8,6 +18,9 @@ describe("memory-paths", () => {
     expect(dreamsMdPath(root)).toBe("/tmp/memory/DREAMS.md");
     expect(dailyMdPath(root, "2026-08-30")).toBe("/tmp/memory/daily/2026-08-30.md");
     expect(memoryStatePath(root)).toBe("/tmp/memory/.dreams/state.json");
+    expect(foundingEpisodePath(root, 1)).toBe("/tmp/memory/.dreams/founding/_episodes.1.md");
+    expect(foundingDomainPath(root, "GlobalEdu")).toBe("/tmp/memory/.dreams/founding/GlobalEdu.md");
+    expect(skillProposalPath(root, "scheme-pdf")).toBe("/tmp/memory/skill-proposals/scheme-pdf.md");
   });
 });
 

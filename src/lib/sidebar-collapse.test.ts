@@ -42,7 +42,7 @@ describe("sidebar collapse CSS", () => {
   ] as const)("%s collapses to 0fr until .open", (closed, opened, inner) => {
     expect(ruleBlock(closed)).toMatch(/grid-template-rows:\s*0fr/);
     expect(ruleBlock(opened)).toMatch(/grid-template-rows:\s*1fr/);
-    expect(ruleBlock(closed)).not.toMatch(/transition:\s*grid-template-rows/);
+    expect(ruleBlock(closed)).toMatch(/transition:\s*grid-template-rows/);
     const innerBlock = ruleBlock(inner);
     expect(innerBlock).toMatch(/overflow:\s*hidden/);
     expect(innerBlock).toMatch(/min-height:\s*0/);

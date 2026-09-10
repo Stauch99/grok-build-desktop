@@ -80,7 +80,6 @@ export function ContextPanel({ planFile, rules, onOpen, mcpEnabled }: ContextPan
                   key={rule.path}
                   type="button"
                   className="file-item"
-                  data-tip={rule.path}
                   onClick={() => onOpen(rule.path)}
                 >
                   {rule.name}

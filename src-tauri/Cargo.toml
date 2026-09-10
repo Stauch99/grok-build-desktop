@@ -1,6 +1,6 @@
 [package]
 name = "grok-build-webui"
-version = "0.6.4"
+version = "0.6.5"
 description = "WebUI desktop client for Grok Build"
 authors = ["Stauch"]
 edition = "2021"

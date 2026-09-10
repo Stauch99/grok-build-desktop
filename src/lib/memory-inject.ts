@@ -35,3 +35,34 @@ export function resolveOutgoingPrompt(input: WrapFirstPromptInput): WrapFirstPro
   if (input.userText.startsWith("/")) return { text: input.userText, injected: false };
   return wrapFirstPrompt(input);
 }
+
+export function stripInjectedMemory(text: string): string {
+  const closed = text.replace(/<user-memory>[\s\S]*?<\/user-memory>\s*/gi, "").trim();
+  if (closed !== text.trim()) return closed;
+  if (!/<user-memory>/i.test(text)) return text;
+  const lines = text.replace(/^<user-memory>\s*/i, "").split(/\n/);
+  let i = 0;
+  if (lines[i]?.trim() === "# You") i += 1;
+  while (i < lines.length) {
+    const row = lines[i] ?? "";
+    if (row.trim() === "" || row.startsWith("- ")) {
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  return lines.slice(i).join("\n").trim();
+}
+
+export type SplitInjectedMemory = { visible: string; injected: string | null };
+
+export function splitInjectedMemory(text: string): SplitInjectedMemory {
+  if (!/<user-memory>/i.test(text)) return { visible: text, injected: null };
+  const visible = stripInjectedMemory(text);
+  const closed = text.match(/<user-memory>([\s\S]*?)<\/user-memory>/i);
+  if (closed) return { visible, injected: closed[1].trim() || null };
+  const withoutTag = text.replace(/^<user-memory>\s*/i, "");
+  const cut = visible ? withoutTag.lastIndexOf(visible) : -1;
+  const injected = (cut >= 0 ? withoutTag.slice(0, cut) : withoutTag).trim();
+  return { visible, injected: injected || null };
+}

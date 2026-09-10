@@ -60,7 +60,6 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
             <button
               type="button"
               className="file-open"
-              data-tip={copied ? t("toast.copied") : t("git.copyCommand")}
               aria-label={copied ? t("toast.copied") : t("git.copyCommand")}
               onClick={copy}
             >
@@ -82,7 +81,7 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
       onFocus={showCard}
       onBlur={hideCard}
     >
-      <button type="button" className="bash-cmd-preview" onClick={onInspect} data-tip={t("bash.inspect")}>
+      <button type="button" className="bash-cmd-preview" onClick={onInspect}>
         {preview}
       </button>
       {card}

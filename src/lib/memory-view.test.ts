@@ -10,6 +10,14 @@ describe("parseDreamsMd", () => {
       { date: "2026-08-30", body: "new" },
     ]);
   });
+
+  it("stores founding chapter headings as YYYY-MM-DD", () => {
+    const entries = parseDreamsMd("## 2026-09-09\nnightly\n\n## 大梦 · 2026-09-09\nfounding body\n");
+    expect(entries).toEqual([
+      { date: "2026-09-09", body: "nightly" },
+      { date: "2026-09-09", body: "founding body" },
+    ]);
+  });
 });
 
 describe("selectedDiary", () => {
@@ -49,5 +57,12 @@ describe("overlayStatus", () => {
     });
     expect(overlayStatus({ ...emptyMemoryState(), lastStatus: "failed" }, 0)).toEqual({ kind: "failed" });
     expect(overlayStatus(emptyMemoryState(), 3)).toEqual({ kind: "pending", sessionCount: 3 });
+  });
+
+  it("prefers founding over nightly running", () => {
+    expect(overlayStatus({ ...emptyMemoryState(), foundingStatus: "running" }, 0)).toEqual({ kind: "founding" });
+    expect(
+      overlayStatus({ ...emptyMemoryState(), foundingStatus: "running", lastStatus: "running" }, 0),
+    ).toEqual({ kind: "founding" });
   });
 });

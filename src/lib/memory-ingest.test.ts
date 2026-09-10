@@ -54,3 +54,18 @@ describe("utf8Bytes", () => {
     expect(utf8Bytes("中")).toBe(3);
   });
 });
+
+describe("teach_episode", () => {
+  it("round-trips teach_episode lines", () => {
+    const lines = [
+      {
+        agentId: "grok" as const,
+        sessionId: "s1",
+        cwd: "/p",
+        kind: "teach_episode" as const,
+        text: "was: A → now: B",
+      },
+    ];
+    expect(parseDailyFile(formatDailyFile("2026-09-09", lines))).toEqual(lines);
+  });
+});

@@ -92,9 +92,9 @@ describe("streaming surface and tool chip hover", () => {
     expect(css).not.toMatch(/caret-blink/);
   });
 
-  it("lifts tool-result on hover", () => {
+  it("does not lift tool-result on hover", () => {
     const src = cssFile("src/styles/thread.css");
-    expect(src).toMatch(/\.tool-result:hover\s*\{[^}]*translateY\(-1px\)/);
+    expect(src).not.toMatch(/\.tool-result:hover\s*\{[^}]*translateY/);
   });
 });
 
@@ -105,12 +105,9 @@ describe("composer and palette polish", () => {
     expect(src).toMatch(/\.composer:focus-within\s*\{[^}]*box-shadow: 0 0 0 1px var\(--accent\)/);
   });
 
-  it("animates chip entry with transform/opacity", () => {
+  it("does not stagger composer chips on every child", () => {
     const src = cssFile("src/styles/composer.css");
-    expect(src).toMatch(/\.composer-chips > \*\s*\{[^}]*animation:\s*chip-in/);
-    const kf = src.match(/@keyframes chip-in\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(kf).toMatch(/translateY/);
-    expect(kf).toMatch(/opacity/);
+    expect(src).toMatch(/\.composer-chips > \*\s*\{[^}]*animation:\s*none/);
   });
 
   it("gives the palette empty state a dashed ring", () => {
@@ -144,7 +141,8 @@ describe("cards and messages motion", () => {
     expect(src).not.toMatch(/\.thread \.msg:last-child\s*\{/);
     expect(src).not.toMatch(/\.permission\s*\{[^}]*animation:/);
     const overlays = cssFile("src/styles/overlays.css");
-    expect(overlays).toMatch(/\.permission\s*\{[^}]*animation:[^}]*rise-in[^}]*perm-pulse[^}]*spine-enter/);
+    expect(overlays).toMatch(/\.permission\s*\{[^}]*animation:[^}]*rise-in/);
+    expect(overlays).not.toMatch(/perm-pulse/);
   });
 
   it("stagger-animates diff summary chips", () => {

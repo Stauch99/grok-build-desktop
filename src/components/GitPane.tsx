@@ -6,6 +6,8 @@ import type { GitWorktree } from "../lib/git";
 import { sameCwd } from "../lib/inbox";
 import { basename } from "../lib/text";
 import { useT } from "../lib/locale-context";
+import { DiffSummary } from "./DiffSummary";
+import type { DiffSummaryItem } from "../lib/diff-summary";
 import { IconGrokPlus } from "../grok-icons";
 
 export type GitPaneProps = {
@@ -28,9 +30,10 @@ export type GitPaneProps = {
   onPull: () => void | Promise<string | null | void>;
   onPush: () => void | Promise<string | null | void>;
   onDiscard: (path: string) => void;
+  turnDiffItems?: DiffSummaryItem[];
 };
 
-/** Git peer pane: bar, dirty files, worktrees, and a log. */
+/** Git peer pane: this-turn diffs, bar, dirty files, worktrees, and a log. */
 export function GitPane({
   status,
   changes,
@@ -51,11 +54,13 @@ export function GitPane({
   onPull,
   onPush,
   onDiscard,
+  turnDiffItems,
 }: GitPaneProps) {
   const t = useT();
   const currentPath = cwd || status?.root || "";
   return (
     <div className="review-stack git-pane">
+      {turnDiffItems ? <DiffSummary items={turnDiffItems} /> : null}
       <GitBar
         status={status}
         busy={busy}
@@ -92,7 +97,6 @@ export function GitPane({
                       <button
                         type="button"
                         disabled={!!busy || current || !onSwitchWorktree}
-                        data-tip={current ? t("git.currentWorktree") : t("git.switchWorktree")}
                         onClick={() => onSwitchWorktree?.(wt.path)}
                       >
                         <span className="git-worktree-name">{basename(wt.path) || wt.path}</span>

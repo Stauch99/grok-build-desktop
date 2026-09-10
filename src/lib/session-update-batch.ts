@@ -79,17 +79,10 @@ export function shouldClearBusyOnSessionUpdate(
   return true;
 }
 
-/** One animation frame, or a microtask when rAF is missing (Node tests). */
+/** Coalesce session updates onto a short timeout so tool floods paint together. */
+export const SESSION_UPDATE_COALESCE_MS = 32;
+
 export function scheduleSessionUpdateFlush(apply: () => void): () => void {
-  if (typeof requestAnimationFrame === "function") {
-    const id = requestAnimationFrame(() => apply());
-    return () => cancelAnimationFrame(id);
-  }
-  let cancelled = false;
-  queueMicrotask(() => {
-    if (!cancelled) apply();
-  });
-  return () => {
-    cancelled = true;
-  };
+  const id = setTimeout(apply, SESSION_UPDATE_COALESCE_MS);
+  return () => clearTimeout(id);
 }

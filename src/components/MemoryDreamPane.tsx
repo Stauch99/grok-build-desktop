@@ -45,7 +45,7 @@ export function MemoryDreamPane({
           <button
             type="button"
             className="btn"
-            disabled={status.kind === "running"}
+            disabled={status.kind === "running" || status.kind === "founding"}
             onClick={onDreamNow}
           >
             {t(locale, "memory.dreamNow")}
@@ -73,6 +73,8 @@ export function MemoryDreamPane({
 
 function statusLine(status: OverlayStatus, locale: Locale): string {
   switch (status.kind) {
+    case "founding":
+      return t(locale, "memory.statusFounding");
     case "running":
       return t(locale, "memory.statusRunning");
     case "failed":

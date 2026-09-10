@@ -5,6 +5,7 @@ export const DREAM_INPUT_MAX_CHARS = 6000;
 export const DREAM_LINE_MAX_CHARS = 600;
 
 const KIND_WEIGHTS: Record<IngestKind, number> = {
+  teach_episode: 5,
   user_pref: 3,
   agent_commitment: 2,
   user_utterance: 1,

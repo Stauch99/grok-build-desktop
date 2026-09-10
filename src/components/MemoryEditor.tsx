@@ -44,7 +44,7 @@ export function MemoryEditor({
         <button type="button" className="btn" onClick={onSave} disabled={dirty === false}>
           {t("preview.save")}
         </button>
-        <button type="button" className="file-open" onClick={onReveal} data-tip={t("finder.open")} aria-label={t("finder.open")}>
+        <button type="button" className="file-open" onClick={onReveal} aria-label={t("finder.open")}>
           <IconFinder size={14} />
         </button>
       </div>

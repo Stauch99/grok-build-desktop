@@ -112,6 +112,19 @@ span.crumb-cwd {
   overflow-y: auto;
   z-index: 20;
 }
+.head-count-btn {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.head-count {
+  font-size: var(--ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
 .jobs-menu {
   min-width: 240px;
   max-width: min(420px, 70vw);
@@ -692,6 +705,6 @@ span.crumb-cwd {
   color: var(--muted);
 }
 
-.file-item { transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
-.file-item:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.file-item { transition: background-color var(--dur-fast) var(--ease); }
+.file-item:hover { background: var(--bg-hover); }
 

@@ -39,4 +39,9 @@ describe("GrokBotIcon", () => {
     expect(html).toContain('dur="1.6s"');
     expect(html).toContain('repeatCount="indefinite"');
   });
+
+  it("can freeze the SVG SMIL when the tab is hidden", () => {
+    const html = renderToStaticMarkup(createElement(GrokBotIcon, { accent: "green", animate: false }));
+    expect(html).not.toContain("animateTransform");
+  });
 });

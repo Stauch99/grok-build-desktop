@@ -25,7 +25,7 @@ export function DoctorsOverview({
                     key={cmd}
                     type="button"
                     className="set-doctor-copy"
-                    data-tip={t("git.copyCommand")}
+                    aria-label={t("git.copyCommand")}
                     onClick={() => {
                       void navigator.clipboard.writeText(cmd).then(() => onCopied?.(cmd));
                     }}

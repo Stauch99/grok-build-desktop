@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function installTauriStub(page: Page) {
-  await page.addInitScript(() => {
+async function installTauriStub(page: Page, stateExtra: Record<string, unknown> = {}) {
+  await page.addInitScript((extra: Record<string, unknown>) => {
     const callbacks = new Map<number, (...args: unknown[]) => void>();
     let nextId = 1;
     const invoke = async (cmd: string) => {
@@ -42,7 +42,7 @@ async function installTauriStub(page: Page) {
           userMd: "# You\n",
           dreamsMd: "## 2026-09-08\n整理了一天的偏好。\n",
           dailyMd: "",
-          stateJson: JSON.stringify({ tagline: "专为测试打造的工作台" }),
+          stateJson: JSON.stringify({ tagline: "专为测试打造的工作台", ...extra }),
           memoryRoot: "/tmp/memory",
         };
       }
@@ -81,7 +81,7 @@ async function installTauriStub(page: Page) {
       },
     };
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
-  });
+  }, stateExtra);
 }
 
 test.describe("memory growth page", () => {
@@ -116,6 +116,7 @@ test.describe("memory growth page", () => {
     await dialog.getByRole("button", { name: /更多|More/ }).click();
     const menu = dialog.locator(".growth-menu-wrap .menu");
     await expect(menu.getByRole("menuitem").first()).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /^做一场大梦$|^Founding dream$/ })).toBeVisible();
     const btn = await dialog.getByRole("button", { name: /更多|More/ }).boundingBox();
     const menuBox = await menu.boundingBox();
     expect(btn && menuBox).toBeTruthy();
@@ -123,6 +124,19 @@ test.describe("memory growth page", () => {
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(btn!.x + btn!.width + 8);
     await dialog.locator(".growth-timeline-day").first().click();
     await expect(dialog.locator(".growth-paper")).toBeVisible();
+  });
+
+  test("shows founding-again when foundingAt is set", async ({ page }) => {
+    await installTauriStub(page, { foundingAt: 1 });
+    await page.goto("/");
+    await expect(page.locator(".composer textarea")).toBeVisible();
+    await page.locator(".composer textarea").fill("/memory");
+    await page.getByRole("option", { name: /记忆|Memory/ }).click();
+    const dialog = page.getByRole("dialog", { name: /记忆|Memory/ });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /更多|More/ }).click();
+    const menu = dialog.locator(".growth-menu-wrap .menu");
+    await expect(menu.getByRole("menuitem", { name: /再做一场大梦|Dream again/ })).toBeVisible();
   });
 
   test("opens from settings without typing a slash command", async ({ page }) => {

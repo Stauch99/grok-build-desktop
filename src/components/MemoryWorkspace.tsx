@@ -113,7 +113,7 @@ function DocRow({
           <strong>{heading}</strong>
         </button>
         <div className="hub-row-side">
-          <button type="button" className="file-open" onClick={() => void beginEdit()} data-tip={t(locale, "preview.edit")} aria-label={t(locale, "preview.edit")}>
+          <button type="button" className="file-open" onClick={() => void beginEdit()} aria-label={t(locale, "preview.edit")}>
             <IconEdit size={14} />
           </button>
         </div>

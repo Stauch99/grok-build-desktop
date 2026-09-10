@@ -16,11 +16,14 @@ function Motion({
   type,
   values,
   additive,
+  animate = true,
 }: {
   type: "rotate" | "scale" | "translate";
   values: string;
   additive?: "sum";
+  animate?: boolean;
 }) {
+  if (!animate) return null;
   return (
     <animateTransform
       attributeName="transform"
@@ -36,11 +39,11 @@ function Motion({
   );
 }
 
-function Eye(eye: GrokBotEyeRect) {
+function Eye({ animate, ...eye }: GrokBotEyeRect & { animate: boolean }) {
   return (
     <g transform={`translate(${eye.cx} ${eye.cy})`}>
-      <Motion type="scale" values="1 1;1 1;1 1;1 1;1 0.9;1 0.08;1 0.9;1 1;1 1;1 1" additive="sum" />
-      <Motion type="translate" values="0 0;0 -2;0 0;0 2;0 0;0 0;0 0;0 -1;0 0;0 0" additive="sum" />
+      <Motion animate={animate} type="scale" values="1 1;1 1;1 1;1 1;1 0.9;1 0.08;1 0.9;1 1;1 1;1 1" additive="sum" />
+      <Motion animate={animate} type="translate" values="0 0;0 -2;0 0;0 2;0 0;0 0;0 0;0 -1;0 0;0 0" additive="sum" />
       <rect x={eye.x} y={eye.y} width={eye.w} height={eye.h} rx={eye.rx} fill="white" />
     </g>
   );
@@ -100,7 +103,7 @@ function useDocumentAccent(override?: AccentId): AccentId {
 }
 
 /** Animated design-pack robot. Silhouette follows the selected accent; fill follows `currentColor`. */
-export function GrokBotIcon({ size = 18, accent }: { size?: number; accent?: AccentId }) {
+export function GrokBotIcon({ size = 18, accent, animate = true }: { size?: number; accent?: AccentId; animate?: boolean }) {
   const clipId = `grok-bot-clip-${useId().replace(/:/g, "")}`;
   const accentId = useDocumentAccent(accent);
   const spec = grokBotSpec(accentId);
@@ -119,16 +122,16 @@ export function GrokBotIcon({ size = 18, accent }: { size?: number; accent?: Acc
         <BodyClip id={clipId} body={spec.body} />
       </defs>
       <g>
-        <Motion type="rotate" values="0 100 100;2 100 100;0 100 100;-2 100 100;0 100 100;-3 100 100;0 100 100;3 100 100;0 100 100;0 100 100" />
+        <Motion animate={animate} type="rotate" values="0 100 100;2 100 100;0 100 100;-2 100 100;0 100 100;-3 100 100;0 100 100;3 100 100;0 100 100;0 100 100" />
         <g>
-          <Motion type="scale" values="1 1;1.04 0.96;1 1;0.97 1.03;1 1;0.94 1.06;1 1;1.03 0.97;1 1;1 1" />
-          <Motion type="translate" values="0 0;-4 4;0 0;3 -3;0 0;6 -6;0 0;-3 3;0 0;0 0" additive="sum" />
+          <Motion animate={animate} type="scale" values="1 1;1.04 0.96;1 1;0.97 1.03;1 1;0.94 1.06;1 1;1.03 0.97;1 1;1 1" />
+          <Motion animate={animate} type="translate" values="0 0;-4 4;0 0;3 -3;0 0;6 -6;0 0;-3 3;0 0;0 0" additive="sum" />
           <BodyFill body={spec.body} />
           <g clipPath={`url(#${clipId})`}>
             <g>
-              <Motion type="translate" values="0 0;-5 0;-5 0;0 0;5 0;5 0;0 0;-3 0;0 0;0 0" />
-              <Eye {...eyes.left} />
-              <Eye {...eyes.right} />
+              <Motion animate={animate} type="translate" values="0 0;-5 0;-5 0;0 0;5 0;5 0;0 0;-3 0;0 0;0 0" />
+              <Eye animate={animate} {...eyes.left} />
+              <Eye animate={animate} {...eyes.right} />
             </g>
           </g>
         </g>

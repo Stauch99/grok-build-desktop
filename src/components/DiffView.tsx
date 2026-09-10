@@ -32,7 +32,7 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
   return (
     <div className="diff">
       <div className="diff-head">
-        <span className="diff-path" data-tip={path}>
+        <span className="diff-path">
           {basename(path) || path}
         </span>
         <span className="diff-stat">
@@ -47,7 +47,6 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
               className="file-open"
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
-              data-tip={expanded ? t("diff.collapse") : t("diff.expand")}
               aria-label={expanded ? t("diff.collapse") : t("diff.expand")}
             >
               {expanded ? <IconMinimize size={14} /> : <IconMaximize size={14} />}
@@ -56,7 +55,6 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
           <button
             type="button"
             className="file-open"
-            data-tip={t("diff.copyNew")}
             aria-label={t("diff.copyNew")}
             onClick={() => void navigator.clipboard.writeText(newText ?? "")}
           >
@@ -66,7 +64,6 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
             <button
               type="button"
               className="file-open"
-              data-tip={t("finder.open")}
               aria-label={t("finder.open")}
               onClick={() => onOpen(path)}
             >

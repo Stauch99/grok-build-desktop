@@ -59,7 +59,6 @@ export function DockCapsule({
             type="button"
             className="icon-btn"
             onClick={onDismiss}
-            data-tip={closeLabel}
             aria-label={closeLabel}
           >
             <IconClose size={16} />

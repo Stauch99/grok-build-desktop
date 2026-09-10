@@ -1,3 +1,4 @@
+/** Single catalog: Tabler Icons. See `.cursor/rules/tabler-icons.mdc`. */
 import type { TablerIcon } from "@tabler/icons-react";
 import {
   IconArrowBackUp,
@@ -30,8 +31,10 @@ import {
   IconFolder as TablerFolder,
   IconFolderOpen as TablerFolderOpen,
   IconFolderPlus as TablerFolderPlus,
+  IconChecklist as TablerChecklist,
   IconGitBranch,
   IconGitFork as TablerGitFork,
+  IconHierarchy2 as TablerHierarchy2,
   IconLayoutSidebar,
   IconLayoutSidebarRight,
   IconListDetails as TablerListDetails,
@@ -110,6 +113,8 @@ export const IconTerminal = wrap(IconTerminal2);
 export const IconLight = wrap(IconBulb);
 export const IconBook = wrap(IconBook2, 18);
 export const IconRobot = wrap(TablerRobot, 14);
+export const IconChecklist = wrap(TablerChecklist);
+export const IconHierarchy2 = wrap(TablerHierarchy2);
 export const IconShieldCheck = wrap(TablerShieldCheck, 14);
 export const IconFileSearch = wrap(TablerFileSearch);
 export const IconFileTxt = wrap(IconFileText);

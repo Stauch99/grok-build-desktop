@@ -37,7 +37,7 @@ describe("PermissionCard timeout", () => {
     expect(html).toMatch(/点击继续处理/);
   });
 
-  it("keeps the command text in a tooltip so a two-line clamp can hide the rest", () => {
+  it("keeps the command text on the card when the heading clamps", () => {
     const html = renderToStaticMarkup(
       createElement(PermissionCard, {
         title: "Execute a very long shell script that should not expand the card",
@@ -46,12 +46,12 @@ describe("PermissionCard timeout", () => {
         onAlwaysAllow: () => {},
       }),
     );
-    expect(html).toMatch(/class="permission-cmd"[^>]*data-tip="Execute a very long shell script/);
+    expect(html).toMatch(/class="permission-cmd"[^>]*>Execute a very long shell script/);
   });
 });
 
 describe("QuestionCard title", () => {
-  it("exposes the full prompt on hover while the heading can clamp", () => {
+  it("renders the full prompt in the heading", () => {
     const title = "Execute a huge script that also asks 选择课程套餐";
     const html = renderToStaticMarkup(
       createElement(QuestionCard, {
@@ -60,7 +60,7 @@ describe("QuestionCard title", () => {
         onPick: () => {},
       }),
     );
-    expect(html).toMatch(/<h4[^>]*data-tip="Execute a huge script/);
+    expect(html).toContain(title);
   });
 
   it("renders a custom answer field when onCustomAnswer is provided", () => {

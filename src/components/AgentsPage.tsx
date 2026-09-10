@@ -30,7 +30,6 @@ function AgentList({
             key={a.path}
             type="button"
             className="file-item"
-            data-tip={a.path}
             onClick={() => onOpen(a.path)}
           >
             {a.name}

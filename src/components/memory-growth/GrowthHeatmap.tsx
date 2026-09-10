@@ -28,7 +28,6 @@ export function GrowthHeatmap({
                 type="button"
                 className={`growth-heat-cell${selectedDay === cell.day ? " selected" : ""}`}
                 data-level={cell.level}
-                data-tip={`${cell.day} · ${cell.raw}`}
                 aria-label={`${cell.day} ${cell.raw}`}
                 onClick={() => onSelect(cell.day)}
               />

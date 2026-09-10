@@ -1,6 +1,7 @@
 import { isAgentId, type AgentId } from "./agent-id";
 
 export type MemoryStatus = "ok" | "failed" | "running" | "blocked-login";
+export type FoundingStatus = "idle" | "running" | "ok" | "failed";
 
 export type MemoryState = {
   lastDeepAt: number | null;
@@ -16,6 +17,12 @@ export type MemoryState = {
   taglineAt: number | null;
   pendingSinceDeep: { sessions: number; mcpBatches: number } | null;
   dailySeenDay: string | null;
+  foundingAt: number | null;
+  foundingStatus: FoundingStatus | null;
+  foundingError: string | null;
+  foundingDomainsDone: string[];
+  foundingCursors: Record<string, number>;
+  foundingModelId: string | null;
 };
 
 export function emptyMemoryState(): MemoryState {
@@ -33,6 +40,12 @@ export function emptyMemoryState(): MemoryState {
     taglineAt: null,
     pendingSinceDeep: null,
     dailySeenDay: null,
+    foundingAt: null,
+    foundingStatus: null,
+    foundingError: null,
+    foundingDomainsDone: [],
+    foundingCursors: {},
+    foundingModelId: null,
   };
 }
 
@@ -69,5 +82,22 @@ export function parseMemoryState(raw: unknown): MemoryState {
     dailySeenDay: typeof row.dailySeenDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.dailySeenDay)
       ? row.dailySeenDay
       : null,
+    foundingAt: typeof row.foundingAt === "number" ? row.foundingAt : null,
+    foundingStatus:
+      row.foundingStatus === "idle" ||
+      row.foundingStatus === "running" ||
+      row.foundingStatus === "ok" ||
+      row.foundingStatus === "failed"
+        ? row.foundingStatus
+        : null,
+    foundingError: typeof row.foundingError === "string" ? row.foundingError : null,
+    foundingDomainsDone: Array.isArray(row.foundingDomainsDone)
+      ? row.foundingDomainsDone.filter((x) => typeof x === "string")
+      : [],
+    foundingCursors:
+      row.foundingCursors && typeof row.foundingCursors === "object"
+        ? (row.foundingCursors as Record<string, number>)
+        : {},
+    foundingModelId: typeof row.foundingModelId === "string" ? row.foundingModelId : null,
   };
 }

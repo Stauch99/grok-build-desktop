@@ -69,6 +69,14 @@ describe("firstUserPreview", () => {
     expect(firstUserPreview([assistant("a1", "no"), user("u1", "  hi  ")])).toBe("hi");
     expect(firstUserPreview([])).toBe("");
   });
+
+  it("does not preview injected user-memory as the session title", () => {
+    expect(
+      firstUserPreview([
+        user("u1", `<user-memory>\n# You\n- 继续 Source: grok · s0\n</user-memory>\n\n都动`),
+      ]),
+    ).toBe("都动");
+  });
 });
 
 describe("liveSessionPreviews", () => {

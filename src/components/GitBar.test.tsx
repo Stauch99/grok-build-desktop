@@ -45,8 +45,7 @@ describe("GitBar sync loop", () => {
   it("renames push to publish and disables pull when the branch is untracked", () => {
     const html = renderBar(repo({ hasUpstream: false }));
     expect(html).toContain("发布");
-    expect(html).toContain("先发布此分支");
-    expect(html).toContain('disabled="" data-tip="先发布此分支"');
+    expect(html).toContain('disabled=""');
     expect(html).not.toContain("添加远程");
   });
 

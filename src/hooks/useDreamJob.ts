@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   appendMemoryEvent,
   listSessions,
+  listWorkspaceEntries,
   readMemoryEvents,
   readMemoryHost,
   readSessionUpdates,
   readTextFile,
+  writeAllowedText,
   type MemoryHostSnapshot,
 } from "../api";
 import type { AgentDoctor } from "../lib/agent-doctor";
@@ -22,15 +24,38 @@ import {
 } from "../lib/memory-backfill";
 import { evaluateDreamGates, type DreamTrigger } from "../lib/memory-gates";
 import { parseDailyFile } from "../lib/memory-ingest";
-import { appendDreamsAppendix, dreamAlreadyRunning, loggedInAgentIds, openDreamAcp } from "../lib/memory-dream-acp";
+import {
+  appendDreamsAppendix,
+  dreamAlreadyRunning,
+  FOUNDING_PROMPT_TIMEOUT_MS,
+  foundingBootstrapPrompts,
+  loggedInAgentIds,
+  openDreamAcp,
+} from "../lib/memory-dream-acp";
 import { runDreamSweep, type DreamIo } from "../lib/memory-dream";
-import { applyGrokIngest, skipDreamIngestPage, type GrokIngestPage } from "../lib/memory-grok-turns";
+import { pickFoundingKimiModel } from "../lib/memory-founding-model";
+import { runFoundingDream } from "../lib/memory-founding-run";
+import { applyGrokIngest, skipFoundingSession, type GrokIngestPage } from "../lib/memory-grok-turns";
 import { DREAM_LOOKBACK_DAYS, loadLookbackDays } from "../lib/memory-daily-read";
 import { persistDreamFiles, persistIngest, persistState } from "../lib/memory-host-persist";
-import { dailyMdPath, dailyShardPath, DAILY_MAX_SHARDS, dreamsMdPath, userMdPath as userMdPathOf } from "../lib/memory-paths";
+import {
+  dailyMdPath,
+  dailyShardPath,
+  DAILY_MAX_SHARDS,
+  dreamsMdPath,
+  skillProposalPath,
+  userMdPath as userMdPathOf,
+} from "../lib/memory-paths";
 import { mainPrompt, parseMainOutput } from "../lib/memory-phase-prompt";
 import { selectDreamInput } from "../lib/memory-weight";
 import { armRecurringLocalHour } from "../lib/memory-schedule";
+import {
+  applyProposalDecision,
+  parseProposalMarkdown,
+  proposalMarkdown,
+  skillMarkdownFromProposal,
+  type SkillProposal,
+} from "../lib/memory-skill-proposal";
 import { emptyMemoryState, parseMemoryState } from "../lib/memory-state";
 import { corpusLine, overlayStatus, parseDreamsMd, type DiaryEntry, type OverlayStatus } from "../lib/memory-view";
 import { brandSessionList } from "../lib/session-list";
@@ -45,7 +70,10 @@ export type DreamJobOpts = {
   settingsHydrated: boolean;
   thresholdSessions: number;
   showToast: (msg: string) => void;
+  skillNames?: readonly string[];
 };
+
+export { pickFoundingKimiModel, foundingBootstrapPrompts, FOUNDING_PROMPT_TIMEOUT_MS };
 
 /** How often the accumulation trigger is re-checked while the app is open. */
 const THRESHOLD_CHECK_MS = 10 * 60 * 1000;
@@ -121,18 +149,66 @@ async function recordEvent(event: Parameters<typeof appendMemoryEvent>[0]): Prom
   }
 }
 
-async function collectGrokPages(io: DreamIo, memoryRoot: string): Promise<GrokIngestPage[]> {
+async function collectIngestPages(
+  io: DreamIo,
+  memoryRoot: string,
+  cursors: Record<string, number>,
+): Promise<GrokIngestPage[]> {
   const sessions = brandSessionList(await listSessions(null));
   const pages: GrokIngestPage[] = [];
   for (const s of sessions) {
-    if (s.agentId !== "grok") continue;
+    if (s.agentId !== "grok" && s.agentId !== "claude") continue;
     if (io.state.forgotten.includes(s.id)) continue;
-    if (skipDreamIngestPage({ sessionId: s.id, cwd: s.cwd }, memoryRoot)) continue;
-    const after = io.state.cursors[memoryCursorKey("grok", s.id)] ?? 0;
-    const page = await readSessionUpdates(s.id, after);
-    pages.push({ sessionId: s.id, cwd: s.cwd, rows: page.rows, nextByte: page.nextByte });
+    if (skipFoundingSession({ id: s.id, cwd: s.cwd, dir: s.dir, sessionKind: s.sessionKind, parentSessionId: s.parentSessionId }, memoryRoot)) continue;
+    const after = cursors[memoryCursorKey(s.agentId, s.id)] ?? 0;
+    const page = await readSessionUpdates(s.id, after, s.dir);
+    pages.push({ sessionId: s.id, cwd: s.cwd, rows: page.rows, nextByte: page.nextByte, agentId: s.agentId });
   }
   return pages;
+}
+
+async function collectGrokPages(io: DreamIo, memoryRoot: string): Promise<GrokIngestPage[]> {
+  return collectIngestPages(io, memoryRoot, io.state.cursors);
+}
+
+async function collectFoundingPages(io: DreamIo, memoryRoot: string): Promise<GrokIngestPage[]> {
+  const sessions = brandSessionList(await listSessions(null));
+  const pages: GrokIngestPage[] = [];
+  for (const s of sessions) {
+    if (s.agentId !== "grok" && s.agentId !== "claude") continue;
+    if (io.state.forgotten.includes(s.id)) continue;
+    if (skipFoundingSession({ id: s.id, cwd: s.cwd, dir: s.dir, sessionKind: s.sessionKind, parentSessionId: s.parentSessionId }, memoryRoot)) continue;
+    const after = io.state.foundingCursors[memoryCursorKey(s.agentId, s.id)] ?? 0;
+    const page = await readSessionUpdates(s.id, after, s.dir);
+    pages.push({ sessionId: s.id, cwd: s.cwd, rows: page.rows, nextByte: page.nextByte, agentId: s.agentId });
+  }
+  return pages;
+}
+
+function grokSkillsRootOf(doctors: readonly AgentDoctor[]): string {
+  const home = doctors.find((d) => d.agentId === "grok")?.home;
+  if (!home) return "";
+  return `${home.replace(/\/+$/, "")}/skills`;
+}
+
+async function loadSkillProposals(memoryRoot: string): Promise<SkillProposal[]> {
+  if (!memoryRoot) return [];
+  try {
+    const entries = await listWorkspaceEntries(`${memoryRoot}/skill-proposals`);
+    const out: SkillProposal[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "file" || !entry.name.endsWith(".md")) continue;
+      try {
+        const parsed = parseProposalMarkdown((await readTextFile(entry.path, memoryRoot)).text);
+        if (parsed) out.push(parsed);
+      } catch {
+        /* unreadable proposal */
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /** MCP append batches since the last deep sweep join the accumulation count. */
@@ -155,8 +231,9 @@ export function useDreamJob(opts: DreamJobOpts) {
   const [corpus, setCorpus] = useState<string | null>(null);
   const [userMd, setUserMd] = useState<string | null>(null);
   const [memoryRoot, setMemoryRoot] = useState("");
-  const [profileUpdated, setProfileUpdated] = useState(false);
   const [tagline, setTagline] = useState<string | null>(null);
+  const [foundingAt, setFoundingAt] = useState<number | null>(null);
+  const [skillProposals, setSkillProposals] = useState<SkillProposal[]>([]);
   const runningRef = useRef(false);
   const catchUpTried = useRef(false);
   const optsRef = useRef(opts);
@@ -169,6 +246,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     setCorpus(corpusLine(shardLines(shards, io.dailyMd)));
     setUserMd(io.userMd.trim() ? io.userMd : null);
     setTagline(io.state.tagline);
+    setFoundingAt(io.state.foundingAt);
   }, []);
 
   const refreshFromHost = useCallback(async () => {
@@ -189,6 +267,7 @@ export function useDreamJob(opts: DreamJobOpts) {
     const mcpBatches = await mcpBatchesSince(io.state.lastDeepAt ?? 0);
     const pending = newSessionCount + mcpBatches;
     applyIo(io, snap.memoryRoot, pending, ingested.shards);
+    void loadSkillProposals(snap.memoryRoot).then(setSkillProposals).catch(() => setSkillProposals([]));
     return { snap, io, now, tz, day, pending, newSessionCount, pages, shards: ingested.shards };
   }, [applyIo]);
 
@@ -239,7 +318,6 @@ export function useDreamJob(opts: DreamJobOpts) {
     const pendingMaterial = newSessionCount + mcpBatches;
     runningRef.current = true;
     setStatus({ kind: "running" });
-    const beforeUser = io.userMd;
     const acp = { handle: null as Awaited<ReturnType<typeof openDreamAcp>> | null };
     const usage = { inChars: 0, outChars: 0, selected: 0 };
     let postIngest: DreamIo = io;
@@ -289,7 +367,7 @@ export function useDreamJob(opts: DreamJobOpts) {
                 alreadyRunning: dreamAlreadyRunning(o.selectedAgentId, o.dreamAgentId),
               });
             }
-            const prompt = mainPrompt(current, selection.selected);
+            const prompt = mainPrompt(current, selection.selected, o.skillNames ?? []);
             usage.inChars = prompt.length;
             const text = await acp.handle.prompt(prompt);
             usage.outChars = text.length;
@@ -362,7 +440,6 @@ export function useDreamJob(opts: DreamJobOpts) {
         pages = await collectGrokPages(io, snap.memoryRoot);
       }
       applyIo(lastIo, snap.memoryRoot, pending, shards);
-      setProfileUpdated(lastIo.userMd !== beforeUser);
     } catch (e) {
       const failed: DreamIo = {
         ...postIngest,
@@ -379,6 +456,95 @@ export function useDreamJob(opts: DreamJobOpts) {
   const onDreamNow = useCallback(() => {
     void runSweep("manual");
   }, [runSweep]);
+
+  const runFounding = useCallback(async () => {
+    const o = optsRef.current;
+    if (runningRef.current) {
+      o.showToast(t(o.locale, "memory.lockHeld"));
+      return;
+    }
+    runningRef.current = true;
+    setStatus({ kind: "founding" });
+    try {
+      const now = Date.now();
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const day = localDayStamp(now, tz);
+      const snap = await readMemoryHost();
+      const loaded = await ioFromHost(snap, day);
+      const result = await runFoundingDream({
+        io: loaded.io,
+        memoryRoot: snap.memoryRoot,
+        selectedAgentId: o.selectedAgentId,
+        doctors: o.doctors,
+        skillNames: o.skillNames ?? [],
+        now,
+        day,
+        grokSkillsRoot: grokSkillsRootOf(o.doctors),
+        listPages: (current) => collectFoundingPages(current, snap.memoryRoot),
+        openAcp: (opts) =>
+          openDreamAcp({
+            ...opts,
+            promptTimeoutMs: opts.promptTimeoutMs ?? FOUNDING_PROMPT_TIMEOUT_MS,
+          }),
+        persistState,
+        persistDreamFiles,
+        writeText: (path, text) => writeAllowedText(path, text, snap.memoryRoot),
+        readText: async (path) => (await readTextFile(path, snap.memoryRoot)).text,
+        readGlobalMemory: async () => {
+          const home = o.doctors.find((d) => d.agentId === "grok")?.home;
+          if (!home) return "";
+          try {
+            return (await readTextFile(`${home.replace(/\/+$/, "")}/memory/MEMORY.md`, home)).text;
+          } catch {
+            return "";
+          }
+        },
+      });
+      applyIo(result.io, snap.memoryRoot, 0, loaded.shards);
+      setSkillProposals(await loadSkillProposals(snap.memoryRoot));
+      if (result.error === "lock") o.showToast(t(o.locale, "memory.lockHeld"));
+      else if (result.error === "kimi-login") o.showToast(t(o.locale, "memory.foundingNeedKimi"));
+      else if (result.error === "k3") o.showToast(t(o.locale, "memory.foundingNeedK3"));
+      else if (result.error && /caller workspace does not match/i.test(result.error)) {
+        o.showToast(t(o.locale, "memory.foundingWorkspace"));
+      } else if (result.error) o.showToast(result.error);
+    } catch (e) {
+      o.showToast(friendlyError(e));
+    } finally {
+      runningRef.current = false;
+    }
+  }, [applyIo]);
+
+  const onFoundingNow = useCallback(() => {
+    void runFounding();
+  }, [runFounding]);
+
+  const onProposalDecision = useCallback(async (id: string, decision: "approved" | "dismissed") => {
+    const o = optsRef.current;
+    const root = memoryRoot;
+    if (!root || !id) return;
+    const path = skillProposalPath(root, id);
+    try {
+      const parsed = parseProposalMarkdown((await readTextFile(path, root)).text);
+      if (!parsed) return;
+      const next = applyProposalDecision(parsed, decision);
+      const md = proposalMarkdown(next);
+      if (md) await writeAllowedText(path, md, root);
+      if (decision === "approved") {
+        const skillsRoot = grokSkillsRootOf(o.doctors);
+        if (skillsRoot) {
+          await writeAllowedText(
+            `${skillsRoot}/${next.id}/SKILL.md`,
+            skillMarkdownFromProposal(next),
+            skillsRoot,
+          );
+        }
+      }
+      setSkillProposals(await loadSkillProposals(root));
+    } catch (e) {
+      o.showToast(friendlyError(e));
+    }
+  }, [memoryRoot]);
 
   useEffect(() => {
     void refreshFromHost().catch(() => undefined);
@@ -443,15 +609,17 @@ export function useDreamJob(opts: DreamJobOpts) {
 
   return {
     onDreamNow,
+    onFoundingNow,
+    onProposalDecision,
     diary,
     status,
     corpus,
     userMd,
     tagline,
+    foundingAt,
+    skillProposals,
     userMdPath: memoryRoot ? userMdPathOf(memoryRoot) : "",
     dreamsMdPath: memoryRoot ? dreamsMdPath(memoryRoot) : "",
     memoryRoot,
-    profileUpdated,
-    dismissProfileUpdated: () => setProfileUpdated(false),
   };
 }

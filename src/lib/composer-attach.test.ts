@@ -19,7 +19,7 @@ describe("composer IME enter", () => {
   });
 
   it("clears the box after a successful send so a rejected send keeps the draft", () => {
-    expect(composer).toMatch(/function dispatchSend[\s\S]*const ok = send\(text\)[\s\S]*if \(ok === false\) return[\s\S]*onChange\(""\)/);
+    expect(composer).toMatch(/function dispatchSend[\s\S]*const ok = send\(text\)[\s\S]*if \(ok === false\) return[\s\S]*commitLocal\("", true\)/);
   });
 
   it("cycles slash and mention menus with Tab", () => {

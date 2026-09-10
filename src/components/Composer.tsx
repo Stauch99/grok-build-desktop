@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -64,6 +65,8 @@ import {
   sameMetaHide,
   type ComposerMetaHide,
 } from "../lib/composer-meta";
+import { growArea } from "../lib/composer-grow";
+import { scheduleFrameValue } from "../lib/scroll-frame";
 
 export type ComposerHandle = {
   focus: () => void;
@@ -127,9 +130,8 @@ export type ComposerProps = {
   onEditQueued?: (id: number, text: string) => void;
   /** Hide the input while a permission / question / plan card covers it. */
   takeover?: "permission" | "question" | "plan" | "bar";
-  busyHint?: string;
 
-  /** Rendered above the input: permission card, wait pill, memory dock. */
+  /** Rendered above the input: permission card, wait pill, inject chip. */
   children?: React.ReactNode;
 
   /** Quiet caption under the input box, outside `.composer`. */
@@ -151,18 +153,12 @@ export type ComposerProps = {
   pendingMode?: Mode | null;
 };
 
-function growArea(el: HTMLTextAreaElement | null, max = 200) {
-  if (!el) return;
-  el.style.height = "0";
-  el.style.height = `${Math.min(Math.max(el.scrollHeight, 24), max)}px`;
-}
-
 /**
  * The prompt box and everything docked to it. Each pane mounts its own
  * instance, so slash / mention / mode / model menu state is per-pane —
  * opening the mode menu on the left no longer opens it on the right.
  */
-export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
+export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function Composer(
   {
     value,
     onChange,
@@ -199,7 +195,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onReorderQueued,
     onEditQueued,
     takeover = "bar",
-    busyHint,
     children,
     footer,
     metaActions,
@@ -251,10 +246,34 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     stats: false,
     ring: false,
   });
+  const [localValue, setLocalValue] = useState(value);
+  const localRef = useRef(value);
+  const parentTimer = useRef(0);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const commitLocal = useCallback((next: string, flush: boolean) => {
+    localRef.current = next;
+    setLocalValue(next);
+    window.clearTimeout(parentTimer.current);
+    if (flush) {
+      onChangeRef.current(next);
+      return;
+    }
+    parentTimer.current = window.setTimeout(() => onChangeRef.current(next), 50);
+  }, []);
+
+  useEffect(() => {
+    if (value === localRef.current) return;
+    localRef.current = value;
+    setLocalValue(value);
+  }, [value]);
+
+  useEffect(() => () => window.clearTimeout(parentTimer.current), []);
 
   useEffect(() => {
     growArea(taRef.current);
-  }, [value]);
+  }, [localValue]);
 
   useEffect(() => {
     if (mentionEffectOwnerRef.current === cwd) return;
@@ -355,7 +374,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
     setText: (text: string) => {
-      onChange(text);
+      commitLocal(text, true);
       taRef.current?.focus();
     },
     attachPaths: (paths) => {
@@ -508,7 +527,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setMetaHide((prev) => (sameMetaHide(prev, next) ? prev : next));
     };
     apply();
-    const ro = new ResizeObserver(apply);
+    const applyFrame = scheduleFrameValue(() => apply());
+    const ro = new ResizeObserver(() => applyFrame(undefined));
     ro.observe(row);
     return () => ro.disconnect();
   }, [workspaceLabel, footer, metaActions, takeover]);
@@ -518,7 +538,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, [metaHide.cwd]);
 
   async function handleChange(next: string) {
-    onChange(next);
+    commitLocal(next, false);
     if (next.startsWith("/")) {
       setSlashOn(true);
       setSlashHits(filterCommands(next, commands));
@@ -558,7 +578,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   function promptText(): string {
-    return formatAttachmentsPrompt(attachments, value);
+    return formatAttachmentsPrompt(attachments, localValue);
   }
 
   function clearAttachments() {
@@ -571,7 +591,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     const ok = send(text);
     if (ok === false) return;
     histPosRef.current = -1;
-    onChange("");
+    commitLocal("", true);
     clearAttachments();
   }
 
@@ -632,21 +652,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       });
       return;
     }
-    if (e.key === "ArrowUp" && !value.trim() && !slashOn && !mentionOn && promptHistoryRef) {
+    if (e.key === "ArrowUp" && !localValue.trim() && !slashOn && !mentionOn && promptHistoryRef) {
       const list = promptHistoryRef.current;
       if (!list.length) return;
       e.preventDefault();
-      if (histPosRef.current < 0) liveDraftRef.current = value;
+      if (histPosRef.current < 0) liveDraftRef.current = localValue;
       const step = historyBack(list, histPosRef.current);
       histPosRef.current = step.pos;
-      if (step.text != null) onChange(step.text);
+      if (step.text != null) commitLocal(step.text, true);
       return;
     }
     if (e.key === "ArrowDown" && histPosRef.current >= 0 && !slashOn && !mentionOn && promptHistoryRef) {
       e.preventDefault();
       const step = historyForward(promptHistoryRef.current, histPosRef.current);
       histPosRef.current = step.pos;
-      onChange(step.text ?? liveDraftRef.current);
+      commitLocal(step.text ?? liveDraftRef.current, true);
       return;
     }
     if (e.key === "Escape" && (slashOn || mentionOn)) {
@@ -686,10 +706,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       if (!sendKey && !altKey) return;
       e.preventDefault();
       if (slashOn && slashHits.length && sendKey) {
-        const name = value.split(/\s/)[0];
+        const name = localValue.split(/\s/)[0];
         const exact = slashHits.find((c) => c.name === name);
         const cmd = exact ?? slashHits[slashActive] ?? slashHits[0];
-        runSlash(cmd, exact ? value.slice(name.length).trimStart() : "");
+        runSlash(cmd, exact ? localValue.slice(name.length).trimStart() : "");
         return;
       }
       if (sendKey) {
@@ -705,10 +725,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!sendKey) return;
     e.preventDefault();
     if (slashOn && slashHits.length) {
-      const name = value.split(/\s/)[0];
+      const name = localValue.split(/\s/)[0];
       const exact = slashHits.find((c) => c.name === name);
       const cmd = exact ?? slashHits[slashActive] ?? slashHits[0];
-      runSlash(cmd, exact ? value.slice(name.length).trimStart() : "");
+      runSlash(cmd, exact ? localValue.slice(name.length).trimStart() : "");
       return;
     }
     if (mentionOn && mentions[mentionActive]) {
@@ -719,7 +739,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
 
   async function selectMention(hit: MentionHit) {
-    const pick = beginMentionPick({ generation: mentionGenerationRef.current, value });
+    const pick = beginMentionPick({ generation: mentionGenerationRef.current, value: localValue });
     mentionGenerationRef.current = pick.generation;
     mentionVisibleRef.current = pick.visible;
     setMentionOn(false);
@@ -744,7 +764,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       content,
     });
     if (next == null) return;
-    onChange(next);
+    commitLocal(next, true);
     taRef.current?.focus();
   }
 
@@ -755,14 +775,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const busySendTitle = altLabel === t("composer.steer")
     ? t("composer.queueSend", { k: sendKbd })
     : t("composer.steerNow", { k: sendKbd });
-  const busyAltTitle =
-    altLabel === t("composer.steer")
-      ? t("composer.steerKbd", { k: altKbd })
-      : altLabel
-        ? t("composer.queueKbd", { k: altKbd })
-        : undefined;
 
-  const canSend = (!!value.trim() || attachments.length > 0) && !blocked;
+  const canSend = (!!localValue.trim() || attachments.length > 0) && !blocked;
   const overlayHost = fileDragOver ? dropZoneEl() : null;
 
   return (
@@ -832,7 +846,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <textarea
             ref={taRef}
             rows={1}
-            value={value}
+            value={localValue}
             aria-label={t("composer.input")}
             onChange={(e) => void handleChange(e.target.value)}
             onKeyDown={onKeyDown}
@@ -849,12 +863,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 type="button"
                 className={`alt-send${held && enterSends ? " shortcut-host" : ""}`}
                 disabled={!canSend}
-                data-tip={
-                  busyAltTitle ??
-                  (altLabel === t("composer.steer")
-                    ? t("composer.steerHint")
-                    : t("composer.queueHint"))
-                }
                 onClick={() => dispatchSend(onAlt)}
               >
                 {altLabel}
@@ -865,7 +873,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               type="button"
               className={`send-btn${held && !enterSends ? " shortcut-host" : ""}`}
               disabled={!canSend}
-              data-tip={busy ? busySendTitle : idleSendTitle}
               aria-label={busy ? busySendTitle : idleSendTitle}
               onClick={() => dispatchSend(onSend)}
             >
@@ -892,7 +899,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   className="cwd-chip"
                   aria-haspopup="listbox"
                   aria-expanded={wsOpen}
-                  data-tip={workspaceLabel || undefined}
                   onClick={() => {
                     setModeOpen(false);
                     setEffortOpen(false);
@@ -1005,9 +1011,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           </div>
         </div>
       ) : null}
-      {busy && busyHint ? (
-        <p className="composer-busy-hint" role="status">{busyHint}</p>
-      ) : null}
     </div>
   );
-});
+}));

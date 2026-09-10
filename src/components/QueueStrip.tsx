@@ -81,7 +81,6 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
               type="button"
               className="queue-text"
               aria-label={t("queue.queued", { text: q.text })}
-              data-tip={onReorder ? t("queue.dragHint") : t("queue.editHint")}
               onDoubleClick={() => {
                 setEditQueuedId(q.id);
                 setEditQueuedText(q.text);

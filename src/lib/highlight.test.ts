@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { highlight, highlightLang, tokensToLines } from "./highlight";
+import { highlight, highlightLang, highlightWindow, tokensToLines } from "./highlight";
 
 describe("highlightLang", () => {
   it("maps preview languages from the path", () => {
@@ -106,5 +106,20 @@ describe("tokensToLines", () => {
       { text: " x", kind: "plain" },
     ]);
     expect(lines[1]).toEqual([{ text: "y", kind: "plain" }]);
+  });
+});
+
+describe("highlightWindow", () => {
+  it("leaves a short file fully tokenized", () => {
+    expect(highlightWindow("const x = 1", "js")).toEqual(highlight("const x = 1", "js"));
+  });
+
+  it("stops highlighting past the cap and appends the rest as plain", () => {
+    const text = "const a = 1;\n".repeat(20);
+    const tokens = highlightWindow(text, "js", 20);
+    const joined = tokens.map((t) => t.text).join("");
+    expect(joined).toBe(text);
+    expect(tokens[tokens.length - 1]?.kind).toBe("plain");
+    expect(tokens[tokens.length - 1]?.text.startsWith(text.slice(20))).toBe(true);
   });
 });

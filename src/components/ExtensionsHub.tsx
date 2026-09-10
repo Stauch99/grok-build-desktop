@@ -316,7 +316,7 @@ export function ExtensionsHub({
             placeholder={t(locale, "hub.search")}
             aria-label={t(locale, "hub.searchAria")}
           />
-          <button type="button" className="icon-btn" onClick={() => void load()} disabled={busy} data-tip={t(locale, "common.refresh")} aria-label={t(locale, "common.refresh")}>
+          <button type="button" className="icon-btn" onClick={() => void load()} disabled={busy} aria-label={t(locale, "common.refresh")}>
             <IconRefresh size={16} />
           </button>
         </div>
@@ -581,7 +581,7 @@ function SkillsTab({
         <div className="hub-compose">
           <p className="hub-meta">{preview.path}</p>
           <pre className="hub-preview">{preview.text.slice(0, 8000)}</pre>
-          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} data-tip={t(locale, "hub.openFinder")} aria-label={t(locale, "hub.openFinder")}>
+          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} aria-label={t(locale, "hub.openFinder")}>
             <IconFinder size={14} />
           </button>
         </div>
@@ -980,7 +980,7 @@ function HooksTab({
         <p className="hub-group-label">{t(locale, "hub.template")}</p>
         <div className="set-actions">
           {HOOK_TEMPLATES.map((tpl) => (
-            <button key={tpl.id} type="button" className="btn ghost" onClick={() => onTemplate(tpl)} data-tip={tpl.hint}>
+            <button key={tpl.id} type="button" className="btn ghost" onClick={() => onTemplate(tpl)}>
               {tpl.label}
             </button>
           ))}

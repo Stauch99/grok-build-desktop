@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-/** Matches `--dur` in styles.css. Layout motion only; never used while dragging. */
-export const MOTION_MS = 200;
+/** Matches `--dur` in tokens.css. Layout motion only; never used while dragging. */
+export const MOTION_MS = 160;
 
 export function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"

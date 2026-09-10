@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   doctor,
   listProjectFiles,
@@ -21,8 +21,7 @@ import { chatWidthCss } from "./lib/chat-width";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
 import { maxFor, PREVIEW, SIDEBAR } from "./lib/layout";
-import { paneComposerTakeover, SIDEBAR_RAIL } from "./lib/shell-ia";
-import { composerSendIntentHint } from "./lib/send-intent";
+import { paneComposerTakeover } from "./lib/shell-ia";
 import { forkAtSlash } from "./lib/turn-files";
 import { RecapCard } from "./components/RecapCard";
 import { GoalBar } from "./components/GoalBar";
@@ -32,6 +31,8 @@ import { MillerPicker } from "./components/MillerPicker";
 import { Resizer } from "./components/Resizer";
 import { persistReviewOpen } from "./lib/review-rail";
 import { usePresence } from "./lib/motion";
+import { useSidebarMotion, sidebarSlotPx } from "./lib/sidebar-motion";
+import { markScrolling, scheduleFrameValue } from "./lib/scroll-frame";
 import { displayTitle } from "./lib/projects";
 import { MAIN_PANE } from "./lib/pane-tree";
 import { selectPaneMentionSource } from "./lib/pane-mentions";
@@ -58,13 +59,11 @@ import { ReviewRail } from "./components/ReviewRail";
 import { ExplorerPane } from "./components/ExplorerPane";
 import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
-import { MemoryDock } from "./components/MemoryDock";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
 import { handleMdClick, ThreadColumn } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
 import { GitPane } from "./components/GitPane";
-import { DiffSummary } from "./components/DiffSummary";
 import { PlanCompleteCard } from "./components/PlanCompleteCard";
 import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
@@ -75,10 +74,9 @@ import { EmptyState } from "./components/EmptyState";
 import { Skeleton } from "./components/Skeleton";
 import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
-import { snapshotMtimes } from "./lib/memory-dock";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
-import { IconChevron, IconGitFork } from "./icons";
+import { IconChevron, IconGitFork, IconHierarchy2 } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
@@ -87,6 +85,7 @@ export function App() {
   const {
     theme,
     setTheme,
+    resolvedTheme,
     settingsOpen,
     setSettingsOpen,
     hubOpen,
@@ -215,9 +214,6 @@ export function App() {
     setCollapsedIds,
     setAllowedTools,
     workspaceEntries,
-    memoryChanges,
-    setMemoryChanges,
-    memoryBaseline,
     searchHits,
     setSearchHits,
     mruOpen,
@@ -243,8 +239,11 @@ export function App() {
     dreamDreamsMdPath,
     dreamTagline,
     onDreamNow,
-    profileUpdated,
-    dismissProfileUpdated,
+    onFoundingNow,
+    foundingAt,
+    dreamProposals,
+    onProposalApprove,
+    onProposalDismiss,
     setInjectUserMemory,
     dreamingEnabled,
     setDreamingEnabled,
@@ -387,6 +386,14 @@ export function App() {
     allowedTools,
   } = useAppModel();
   const reviewPresence = usePresence(reviewOpen);
+  const settingsPresence = usePresence(settingsOpen);
+  const toastPresence = usePresence(!!toast);
+  const palettePresence = usePresence(palette.open);
+  const sidebarMotion = useSidebarMotion(sidebarCollapsed);
+  const appRef = useRef<HTMLDivElement>(null);
+  const toastHold = useRef(toast);
+  if (toast) toastHold.current = toast;
+  const setAtBottomFrame = useMemo(() => scheduleFrameValue(setAtBottom), [setAtBottom]);
   const [planMarkedComplete, setPlanMarkedComplete] = useState(false);
   useEffect(() => {
     setPlanMarkedComplete(false);
@@ -444,6 +451,24 @@ export function App() {
       />
     );
   }
+
+  function copyConversationBtn(items: typeof chat.items) {
+    return (
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={t(locale, "thread.copyAll")}
+        onClick={() => copyAllConversation(items)}
+      >
+        <IconGrokCopy size={16} />
+      </button>
+    );
+  }
+
+  const reviewItems =
+    focusedPaneId === MAIN_PANE
+      ? chat.items
+      : extraPanes[focusedPaneId]?.chat.items ?? chat.items;
 
   function customAnswerFor(perm: QueuedPermission, paneId: string) {
     return (text: string) => {
@@ -567,7 +592,7 @@ export function App() {
           }}
         >
           <div className="title-wrap">
-            <span className="crumb-cwd" data-tip={paneCwd}>
+            <span className="crumb-cwd">
               {inboxCwd && paneCwd && sameCwd(paneCwd, inboxCwd) ? t(locale, "cwd.none") : basename(paneCwd || "")}
             </span>
             <span className="crumb-sep">/</span>
@@ -594,16 +619,12 @@ export function App() {
               />
             ) : sid ? (
               <>
-                <button type="button" className="session-title-btn" data-tip={paneTitle} onClick={() => beginEditTitle(sid)}>
+                <button type="button" className="session-title-btn" onClick={() => beginEditTitle(sid)}>
                   {paneTitle}
-                </button>
-                <button type="button" className="icon-btn" data-tip={t(locale, "thread.copyAll")} aria-label={t(locale, "thread.copyAll")} onClick={() => copyAllConversation(paneChat.items)}>
-                  <IconGrokCopy size={16} />
                 </button>
                 <button type="button" className="icon-btn" data-menu-trigger aria-label={t(locale, "session.actions")} onClick={(e) => openMenu("header", sid, e.currentTarget)}>
                   <IconGrokMore size={18} />
                 </button>
-                <DiffSummary items={paneChat.items} onOpen={() => openReview("changed-file")} />
               </>
             ) : (
               <span className="title-static">{t(locale, "chrome.newSession")}</span>
@@ -625,8 +646,15 @@ export function App() {
             {jobsMenu()}
             {paneCatalog.length > 0 && (
               <div className="chip-wrap">
-                <button type="button" className="btn ghost" aria-expanded={catalogOpen} onClick={() => setCatalogOpen((o) => !o)}>
-                  {t(locale, "subagent.count", { n: paneCatalog.length })}
+                <button
+                  type="button"
+                  className="icon-btn head-count-btn"
+                  aria-expanded={catalogOpen}
+                  aria-label={t(locale, "subagent.count", { n: paneCatalog.length })}
+                  onClick={() => setCatalogOpen((o) => !o)}
+                >
+                  <IconHierarchy2 size={16} />
+                  <span className="head-count">{paneCatalog.length}</span>
                 </button>
                 {catalogOpen ? (
                   <div className="chip-menu" role="menu">
@@ -648,10 +676,10 @@ export function App() {
                 ) : null}
               </div>
             )}
+            {sid ? copyConversationBtn(paneChat.items) : null}
             <button
               type="button"
               className="icon-btn shortcut-host"
-              data-tip={t(locale, "rail.dashboard")}
               aria-label={t(locale, "rail.dashboard")}
               aria-expanded={reviewOpen}
               onClick={() => {
@@ -664,7 +692,7 @@ export function App() {
               <ShortcutKbd id="review" />
             </button>
             {paneCount > 1 ? (
-              <button type="button" className="icon-btn" data-tip={t(locale, "pane.close")} aria-label={t(locale, "pane.close")} onClick={() => closePaneLeaf(paneId)}>
+              <button type="button" className="icon-btn" aria-label={t(locale, "pane.close")} onClick={() => closePaneLeaf(paneId)}>
                 <IconGrokClose size={16} />
               </button>
             ) : null}
@@ -675,7 +703,7 @@ export function App() {
             paneId={paneId}
             chat={paneChat}
             chatWidth={chatWidth}
-            dark={theme === "dark"}
+            dark={resolvedTheme === "dark"}
             cwd={paneCwd}
             showThinking={showThinking}
             empty={paneChat.items.length === 0}
@@ -690,8 +718,9 @@ export function App() {
             sessionId={sid}
             loading={paneId === MAIN_PANE ? loadingSession : false}
             onScroll={(el) => {
+              markScrolling(el);
               const at = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-              if (paneId === MAIN_PANE) setAtBottom(at);
+              if (paneId === MAIN_PANE) setAtBottomFrame(at);
               else onExtraAtBottom(paneId, at);
             }}
             turns={paneTurns}
@@ -728,7 +757,6 @@ export function App() {
             <button
               type="button"
               className="jump-bottom"
-              data-tip={t(locale, "thread.scrollBottom")}
               aria-label={t(locale, "thread.scrollBottom")}
               onClick={() => {
                 if (paneId === MAIN_PANE) {
@@ -756,16 +784,6 @@ export function App() {
           onAlt={(text) => altSubmit(text, paneId)}
           altLabel={steerByDefault ? t(locale, "composer.queue") : t(locale, "composer.steer")}
           busy={paneBusy}
-          busyHint={composerSendIntentHint({
-            connecting,
-            ready,
-            busy: paneBusy,
-            pendingPermission: paneTakeover === "permission",
-            hasBody: !!paneDraft.trim(),
-            steerByDefault,
-            queueLength: paneQueue.items.length,
-            locale,
-          })}
           takeover={paneTakeover}
           enterSends={enterSends}
           threadWidth={chatWidthCss(chatWidth)}
@@ -848,11 +866,14 @@ return (
     <ShortcutProvider shortcuts={shortcuts}>
     <LocaleProvider locale={locale}>
     <div
+      ref={appRef}
       className="app"
       lang={locale === "en" ? "en" : "zh-CN"}
+      data-sidebar-motion={sidebarMotion.motion ? "" : undefined}
       style={{
         ["--md-size" as string]: `${normalizeChatFontSize(chatFontSize)}px`,
-        ["--sidebar-w" as string]: `${sidebarCollapsed ? SIDEBAR_RAIL : sidebarWidth}px`,
+        ["--sidebar-w" as string]: `${sidebarSlotPx(sidebarMotion.slotCollapsed, sidebarWidth)}px`,
+        ["--review-w" as string]: `${previewWidth}px`,
       }}
     >
       <Sidebar
@@ -910,8 +931,9 @@ return (
         onAddProject={() => void addProject()}
         picking={picking}
         statusFor={statusFor}
-        width={sidebarCollapsed ? SIDEBAR_RAIL : sidebarWidth}
-        collapsed={sidebarCollapsed}
+        width={sidebarSlotPx(sidebarMotion.slotCollapsed, sidebarWidth)}
+        collapsed={sidebarMotion.contentHidden}
+        hiding={sidebarMotion.motion && sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         signedIn={!!info?.authPresent}
         weeklyUsage={weeklyUsage}
@@ -959,7 +981,7 @@ return (
         showStatus={sidebarList.showStatus}
         showWorktree={sidebarList.showWorktree}
       />
-      {!sidebarCollapsed && (
+      {!sidebarMotion.slotCollapsed && (
       <Resizer
         ariaLabel={t(locale, "sidebar.resize")}
         className="sidebar-resizer"
@@ -967,8 +989,13 @@ return (
         min={SIDEBAR.min}
         max={maxFor(SIDEBAR, winWidth, reviewOpen ? previewWidth : 0)}
         resetTo={SIDEBAR.initial}
-        onChange={setSidebarWidth}
-        onCommit={(n) => persist({ sidebarWidth: n })}
+        onChange={(n) => {
+          appRef.current?.style.setProperty("--sidebar-w", `${n}px`);
+        }}
+        onCommit={(n) => {
+          setSidebarWidth(n);
+          persist({ sidebarWidth: n });
+        }}
       />
       )}
 
@@ -1028,7 +1055,6 @@ return (
                 variant="inline"
                 className="crumb-cwd"
                 ariaLabel={t(locale, "cwd.pick")}
-                title={cwdLocked ? t(locale, "cwd.locked") : t(locale, "cwd.pick")}
                 disabled={cwdLocked}
                 value={cwd || inboxCwd}
                 options={[
@@ -1064,24 +1090,10 @@ return (
                   <button
                     type="button"
                     className="session-title-btn"
-                    data-tip={currentTitle}
                     onClick={() => beginEditTitle(sessionId)}
                   >
                     {currentTitle}
                   </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    data-tip={t(locale, "thread.copyAll")}
-                    aria-label={t(locale, "thread.copyAll")}
-                    onClick={() => copyAllConversation(chat.items)}
-                  >
-                    <IconGrokCopy size={16} />
-                  </button>
-                  <DiffSummary
-                    items={chat.items}
-                    onOpen={() => openReview("changed-file")}
-                  />
                   <button
                     type="button"
                     className="icon-btn"
@@ -1111,8 +1123,15 @@ return (
               {jobsMenu()}
               {catalog.length > 0 && (
                 <div className="chip-wrap">
-                  <button type="button" className="btn ghost" aria-expanded={catalogOpen} onClick={() => setCatalogOpen((o) => !o)}>
-                    {t(locale, "subagent.count", { n: catalog.length })}
+                  <button
+                    type="button"
+                    className="icon-btn head-count-btn"
+                    aria-expanded={catalogOpen}
+                    aria-label={t(locale, "subagent.count", { n: catalog.length })}
+                    onClick={() => setCatalogOpen((o) => !o)}
+                  >
+                    <IconHierarchy2 size={16} />
+                    <span className="head-count">{catalog.length}</span>
                   </button>
                   {catalogOpen ? (
                     <div className="chip-menu" role="menu">
@@ -1134,11 +1153,11 @@ return (
                   ) : null}
                 </div>
               )}
+              {sessionId ? copyConversationBtn(chat.items) : null}
               {(
                 <button
                   type="button"
                   className="icon-btn shortcut-host"
-                  data-tip={t(locale, "rail.dashboard")}
                   aria-label={t(locale, "rail.dashboard")}
                   aria-expanded={reviewOpen}
                   onClick={() => {
@@ -1158,7 +1177,7 @@ return (
               paneId="main"
               chat={chat}
               chatWidth={chatWidth}
-              dark={theme === "dark"}
+              dark={resolvedTheme === "dark"}
               cwd={cwd}
               showThinking={showThinking}
               empty={chat.items.length === 0 && !loadingSession}
@@ -1190,7 +1209,10 @@ return (
               pinToLatest={atBottom}
               sessionId={sessionId}
               loading={loadingSession}
-              onScroll={(el) => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)}
+              onScroll={(el) => {
+                markScrolling(el);
+                setAtBottomFrame(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+              }}
               turns={userTurns}
               onResendUser={(text) => submitPrompt(text)}
               rewindFor={rewindForItem}
@@ -1205,7 +1227,6 @@ return (
               <button
                 type="button"
                 className="jump-bottom"
-                data-tip={t(locale, "thread.scrollBottom")}
                 aria-label={t(locale, "thread.scrollBottom")}
                 onClick={() => {
                   setAtBottom(true);
@@ -1231,16 +1252,6 @@ return (
             busy={mainPaneBusy}
             blocked={hero.blocked || loadingSession}
             takeover={takeover}
-            busyHint={composerSendIntentHint({
-              connecting,
-              ready,
-              busy: mainPaneBusy,
-              pendingPermission: takeover === "permission",
-              hasBody: !!draft.trim(),
-              steerByDefault,
-              queueLength: queue.items.length,
-              locale,
-            })}
             enterSends={enterSends}
             threadWidth={chatWidthCss(chatWidth)}
             commands={[...skillCommands, ...chat.commands]}
@@ -1295,7 +1306,6 @@ return (
                   <button
                     type="button"
                     className="icon-btn fork-btn"
-                    data-tip={t(locale, "palette.fork")}
                     aria-label={t(locale, "palette.fork")}
                     onClick={() => void sendPrompt("/fork")}
                   >
@@ -1319,37 +1329,6 @@ return (
                   locale={locale}
                   onOpen={() => setExtraPage("memory")}
                   onDismiss={() => dismissInjectedSession(sessionId)}
-                />
-              ) : null}
-              {memoryChanges.length > 0 && (
-                <MemoryDock
-                  changes={memoryChanges}
-                  onOpen={(p) => {
-                    void openPreview(p);
-                    memoryBaseline.current = {
-                      ...memoryBaseline.current,
-                      ...snapshotMtimes(memoryChanges),
-                    };
-                    setMemoryChanges([]);
-                  }}
-                  onDismiss={() => {
-                    memoryBaseline.current = {
-                      ...memoryBaseline.current,
-                      ...snapshotMtimes(memoryChanges),
-                    };
-                    setMemoryChanges([]);
-                  }}
-                />
-              )}
-              {profileUpdated && dreamUserMdPath ? (
-                <MemoryDock
-                  title={t(locale, "memory.dockUpdated")}
-                  changes={[{ path: dreamUserMdPath, mtime: Date.now() }]}
-                  onOpen={() => {
-                    setExtraPage("memory");
-                    dismissProfileUpdated();
-                  }}
-                  onDismiss={dismissProfileUpdated}
                 />
               ) : null}
               <RunStatusRegion status={runStatus} />
@@ -1403,10 +1382,15 @@ return (
           <Resizer
             ariaLabel={t(locale, "rail.resize")} value={previewWidth} min={PREVIEW.min}
             max={maxFor(PREVIEW, winWidth, sidebarWidth)} resetTo={PREVIEW.initial} direction={-1}
-            onChange={setPreviewWidth} onCommit={(n) => persist({ previewWidth: n })}
+            onChange={(n) => {
+              appRef.current?.style.setProperty("--review-w", `${n}px`);
+            }}
+            onCommit={(n) => {
+              setPreviewWidth(n);
+              persist({ previewWidth: n });
+            }}
           />
           <ReviewRail activeTab={reconciledReviewTab} tabs={reviewTabs}
-            width={previewWidth}
             leaving={reviewPresence.leaving}
             onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
             {{
@@ -1432,9 +1416,10 @@ return (
                   onPull={pullGit}
                   onPush={pushGit}
                   onDiscard={(path) => void discardChange(path)}
+                  turnDiffItems={reviewItems}
                 />
               ),
-              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={theme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(friendlyError(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
+              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={resolvedTheme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(friendlyError(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
               explorer: (
                 <ExplorerPane
                   cwd={reviewCwd}
@@ -1546,13 +1531,13 @@ return (
         />
       )}
 
-      {settingsOpen && (
-        <div className="settings-layer">
+      {settingsPresence.shown && (
+        <div className={`settings-layer${settingsPresence.leaving ? " layer-out" : ""}`}>
           <div className="settings-backdrop" onClick={() => setSettingsOpen(false)} />
           <div className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div className="settings-head">
               <h2 id="settings-title">{t(locale, "settings.title")}</h2>
-              <button type="button" className="icon-btn" aria-label={t(locale, "common.close")} data-tip={t(locale, "common.close")} onClick={() => setSettingsOpen(false)}>
+              <button type="button" className="icon-btn" aria-label={t(locale, "common.close")} onClick={() => setSettingsOpen(false)}>
                 <IconGrokClose size={16} />
               </button>
             </div>
@@ -1710,6 +1695,11 @@ return (
         status={dreamStatus}
         corpus={dreamCorpus}
         onDreamNow={onDreamNow}
+        onFoundingNow={onFoundingNow}
+        foundingAt={foundingAt}
+        proposals={dreamProposals}
+        onProposalApprove={onProposalApprove}
+        onProposalDismiss={onProposalDismiss}
         userMdPath={dreamUserMdPath || undefined}
         dreamsMdPath={dreamDreamsMdPath || undefined}
         tagline={dreamTagline}
@@ -1774,10 +1764,11 @@ return (
           }}
         />
       )}
-      {palette.open && (
+      {palettePresence.shown && (
         <CommandPalette
           items={palette.items}
           onPick={palette.run}
+          leaving={palettePresence.leaving}
           onSearch={(query) => {
             void searchSessionText(query)
               .then((hits) => {
@@ -1822,21 +1813,21 @@ return (
           });
         }}
       />
-      {toast && (
+      {toastPresence.shown && toastHold.current && (
         <div
-          className="toast"
+          className={`toast${toastPresence.leaving ? " toast-out" : ""}`}
           role="status"
           onMouseEnter={pauseToast}
           onMouseLeave={resumeToast}
           onFocus={pauseToast}
           onBlur={resumeToast}
         >
-          <span>{toast.message}</span>
-          {toast.actionLabel && toast.onAction ? (
+          <span>{toastHold.current.message}</span>
+          {toastHold.current.actionLabel && toastHold.current.onAction ? (
             <>
               <span className="toast-sep" aria-hidden="true">·</span>
-              <button type="button" className="toast-action" onClick={toast.onAction}>
-                {toast.actionLabel}
+              <button type="button" className="toast-action" onClick={toastHold.current.onAction}>
+                {toastHold.current.actionLabel}
               </button>
             </>
           ) : null}

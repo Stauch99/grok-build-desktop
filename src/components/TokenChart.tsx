@@ -46,7 +46,6 @@ export function TokenChart({ points, days, onDays }: TokenChartProps) {
             return (
               <div
                 key={p.at}
-                data-tip={`${p.used} / ${p.size}`}
                 style={{ height: `${Math.max(pct, 2)}%` }}
               />
             );

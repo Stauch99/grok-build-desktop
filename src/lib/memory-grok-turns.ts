@@ -5,12 +5,12 @@ import { memoryCursorKey } from "./memory-clock";
 import { isDreamSession } from "./memory-dream-acp";
 import {
   clipDailyText,
-  filterIngestTurns,
   MEMORY_FILE_MAX_BYTES,
   utf8Bytes,
   type DailyLine,
   type IngestTurn,
 } from "./memory-ingest";
+import { extractTeachLines } from "./memory-teach";
 import { DAILY_MAX_SHARDS } from "./memory-paths";
 import { isHarnessUserText } from "./chat";
 import { asRecord, textFromContent } from "./text";
@@ -22,6 +22,7 @@ export type GrokIngestPage = {
   cwd: string;
   rows: AcpRecord[];
   nextByte: number;
+  agentId?: AgentId;
 };
 
 function updateFromRecord(row: AcpRecord): Record<string, unknown> {
@@ -68,6 +69,22 @@ export function skipDreamIngestPage(page: { sessionId: string; cwd: string }, me
   return isDreamSession(page.sessionId);
 }
 
+export function skipFoundingSession(
+  session: {
+    id: string;
+    cwd: string;
+    dir?: string | null;
+    sessionKind?: string | null;
+    parentSessionId?: string | null;
+  },
+  memoryRoot: string,
+): boolean {
+  if (skipDreamIngestPage({ sessionId: session.id, cwd: session.cwd }, memoryRoot)) return true;
+  if (session.sessionKind === "subagent" || session.parentSessionId) return true;
+  const hay = `${session.cwd}\n${session.dir ?? ""}`;
+  return /claude-mem-observer/i.test(hay);
+}
+
 function emptyDailyShard(day: string): string {
   return `# ${day}\n`;
 }
@@ -108,12 +125,13 @@ export function applyGrokIngest(
   for (const page of pages) {
     if (forgotten.has(page.sessionId)) continue;
     if (skipDreamIngestPage(page, memoryRoot)) continue;
+    const agentId = page.agentId ?? "grok";
     const turns = grokTurnsFromUpdates(page.rows, {
-      agentId: "grok",
+      agentId,
       sessionId: page.sessionId,
       cwd: page.cwd,
     });
-    const kept = filterIngestTurns(turns, io.state.forgotten);
+    const kept = extractTeachLines(turns, io.state.forgotten);
 
     let allFit = true;
     for (const line of kept) {
@@ -134,7 +152,7 @@ export function applyGrokIngest(
       stoppedEarly = true;
       break;
     }
-    cursors[memoryCursorKey("grok", page.sessionId)] = page.nextByte;
+    cursors[memoryCursorKey(agentId, page.sessionId)] = page.nextByte;
     if (kept.length) newSessionCount += 1;
   }
 

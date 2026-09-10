@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactUserMd, resolveOutgoingPrompt, wrapFirstPrompt } from "./memory-inject";
+import { compactUserMd, resolveOutgoingPrompt, splitInjectedMemory, wrapFirstPrompt } from "./memory-inject";
 
 describe("compactUserMd", () => {
   it("keeps short files", () => {
@@ -65,5 +65,27 @@ describe("resolveOutgoingPrompt", () => {
     expect(r.injected).toBe(true);
     expect(r.text).toContain("<user-memory>");
     expect(r.text.endsWith("hello")).toBe(true);
+  });
+});
+
+describe("splitInjectedMemory", () => {
+  it("keeps a plain user turn untouched", () => {
+    expect(splitInjectedMemory("都动")).toEqual({ visible: "都动", injected: null });
+  });
+
+  it("separates a closed user-memory wrap from the real request", () => {
+    const text = `<user-memory>\n# You\n- 继续 Source: grok · s0\n</user-memory>\n\n都动`;
+    expect(splitInjectedMemory(text)).toEqual({
+      visible: "都动",
+      injected: "# You\n- 继续 Source: grok · s0",
+    });
+  });
+
+  it("drops an unclosed user-memory prefix of # You bullets", () => {
+    const text = `<user-memory>\n# You\n- 清日历 Source: grok · s0\n请改合同`;
+    const split = splitInjectedMemory(text);
+    expect(split.visible).toBe("请改合同");
+    expect(split.injected).toContain("清日历");
+    expect(split.injected).not.toContain("请改合同");
   });
 });

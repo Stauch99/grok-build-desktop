@@ -52,7 +52,7 @@ export function ChangesPanel({
             </>
           )}
         </span>
-        <button type="button" className="file-open" onClick={onRefresh} data-tip={t("git.refresh")} aria-label={t("git.refresh")}>
+        <button type="button" className="file-open" onClick={onRefresh} aria-label={t("git.refresh")}>
           <IconRefresh size={14} />
         </button>
       </div>
@@ -73,7 +73,7 @@ export function ChangesPanel({
                 onOpen={() => onPreview(target)}
                 onReveal={() => onReveal(revealAt)}
                 leading={
-                  <span className={`change-mark ${c.status}`} data-tip={c.status}>
+                  <span className={`change-mark ${c.status}`}>
                     {statusMark(c.status)}
                   </span>
                 }
@@ -87,7 +87,6 @@ export function ChangesPanel({
                       <button
                         type="button"
                         className="file-open change-discard"
-                        data-tip={t("git.discardHint")}
                         aria-label={t("git.discardPath", { path: c.path })}
                         onClick={() => setPendingDiscard(c.path)}
                       >

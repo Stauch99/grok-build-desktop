@@ -1,5 +1,6 @@
 import { parseAcpRecord } from "./acp-events";
 import type { AgentId } from "./agent-id";
+import { stripInjectedMemory } from "./memory-inject";
 import { stickyToolName, isSubagentPollTool } from "./subagent";
 import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
@@ -185,7 +186,10 @@ export function lastUserTextBefore(items: ChatItem[], itemId: string): string | 
   let last: string | null = null;
   for (const it of items) {
     if (it.id === itemId) break;
-    if (it.kind === "user" && it.text.trim()) last = it.text;
+    if (it.kind === "user") {
+      const visible = stripInjectedMemory(it.text);
+      if (visible) last = visible;
+    }
   }
   return last;
 }
@@ -245,14 +249,17 @@ export function shouldClearBusyOnSettledChat(opts: {
   if (turnHasOpenTools(opts.items)) {
     return false;
   }
-  if (!turn.some((it) => it.kind === "assistant" && it.text.trim())) return false;
-  let replyClock = 0;
-  for (const it of turn) {
+  let tail: (typeof turn)[number] | undefined;
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const it = turn[i];
     if (it.kind === "tool" && isBusyNoiseTool(it.title, it.toolName)) continue;
-    const t = it.until ?? it.at;
-    if (typeof t === "number" && t > replyClock) replyClock = t;
+    tail = it;
+    break;
   }
-  if (!replyClock && opts.seenAssistantAt) replyClock = opts.seenAssistantAt;
+  // A completed tool or a thought means the model is still in the turn — Grok
+  // xhigh often pauses 4s+ between tool batches and the next token.
+  if (!tail || tail.kind !== "assistant" || !tail.text.trim()) return false;
+  const replyClock = tail.until ?? tail.at ?? opts.seenAssistantAt ?? 0;
   if (!replyClock) return false;
   return opts.now - replyClock >= (opts.settleMs ?? SETTLED_TURN_MS);
 }
@@ -597,7 +604,45 @@ export type SessionUpdatePage = {
 export type SessionUpdateCursor = {
   nextByte: number;
   chat: ChatState;
+  lastTurnStopReason?: string | null;
+  userAfterLastStop?: boolean;
 };
+
+export function lastTurnCompletedStopReason(rows: unknown[]): string | null {
+  return foldTurnStopCursor(undefined, rows).lastTurnStopReason;
+}
+
+export function foldLastTurnStopReason(
+  prev: string | null | undefined,
+  rows: unknown[],
+): string | null {
+  return foldTurnStopCursor({ lastTurnStopReason: prev ?? null, userAfterLastStop: false }, rows)
+    .lastTurnStopReason;
+}
+
+export function foldTurnStopCursor(
+  prev: { lastTurnStopReason: string | null; userAfterLastStop: boolean } | undefined,
+  rows: unknown[],
+): { lastTurnStopReason: string | null; userAfterLastStop: boolean } {
+  let lastTurnStopReason = prev?.lastTurnStopReason ?? null;
+  let userAfterLastStop = prev?.userAfterLastStop ?? false;
+  for (const row of rows) {
+    const rec = parseAcpRecord(row);
+    if (!rec) continue;
+    const params = rec.params ? asRecord(rec.params) : rec;
+    const update = params.update ? asRecord(params.update) : params;
+    const kind = String(update.sessionUpdate ?? "");
+    if (kind === "turn_completed") {
+      lastTurnStopReason = String(update.stop_reason ?? update.stopReason ?? "");
+      userAfterLastStop = false;
+      continue;
+    }
+    if (kind === "user_message_chunk" && lastTurnStopReason != null) {
+      userAfterLastStop = true;
+    }
+  }
+  return { lastTurnStopReason, userAfterLastStop };
+}
 
 export function afterByteFor(
   cursors: Map<string, SessionUpdateCursor>,
@@ -611,9 +656,21 @@ export function applySessionPage(
   sessionId: string,
   page: SessionUpdatePage,
 ): ChatState {
-  const prev = cursors.get(sessionId)?.chat;
-  const chat = hydrateFromUpdates(page.rows, prev);
-  cursors.set(sessionId, { nextByte: page.nextByte, chat });
+  const prev = cursors.get(sessionId);
+  const chat = hydrateFromUpdates(page.rows, prev?.chat);
+  const stop = foldTurnStopCursor(
+    {
+      lastTurnStopReason: prev?.lastTurnStopReason ?? null,
+      userAfterLastStop: prev?.userAfterLastStop ?? false,
+    },
+    page.rows,
+  );
+  cursors.set(sessionId, {
+    nextByte: page.nextByte,
+    chat,
+    lastTurnStopReason: stop.lastTurnStopReason,
+    userAfterLastStop: stop.userAfterLastStop,
+  });
   return chat;
 }
 

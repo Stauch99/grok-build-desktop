@@ -67,4 +67,21 @@ describe("renderMd", () => {
     expect(html).toContain("<li>");
     expect(html).toContain("一项");
   });
+
+  it("does not swallow headings when ``` is glued to CJK prose", () => {
+    const html = renderMd(
+      "```用户说「现在高三在读」，系统回执展示归一化结果。\n\n### 3.4 B 无效两次后\n**现状问题**\n- 一项",
+    );
+    expect(html).toContain("<h3>");
+    expect(html).toContain("<strong>");
+    expect(html).toContain("<li>");
+    expect(html).not.toContain("<pre>");
+    expect(html).toContain("用户说「现在高三在读」");
+  });
+
+  it("still renders a language fence as a code block", () => {
+    const html = renderMd("```ts\nconst x = 1;\n```");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("const x = 1");
+  });
 });

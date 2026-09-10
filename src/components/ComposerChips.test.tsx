@@ -38,7 +38,7 @@ describe("ComposerChips mode trigger", () => {
     const html = render();
     expect(html).toMatch(/mode-chip yolo[\s\S]*<svg/);
     expect(html).not.toMatch(/mode-chip[^>]*>\s*始终批准/);
-    expect(html).toContain('data-tip="始终批准"');
+    expect(html).toContain("始终批准");
     expect(html).not.toContain("chip-kbd");
     expect(html).not.toContain("⇧Tab");
   });

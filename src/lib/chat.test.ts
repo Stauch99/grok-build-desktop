@@ -3,6 +3,9 @@ import {
   afterByteFor,
   applyChatUpdate,
   applySessionPage,
+  lastTurnCompletedStopReason,
+  foldLastTurnStopReason,
+  foldTurnStopCursor,
   emptyChat,
   chatAfterBoundSessionChange,
   groupWorkRuns,
@@ -356,6 +359,36 @@ describe("session update cursor", () => {
     expect(afterByteFor(cursors, "s1")).toBe(80);
     expect(second.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
   });
+
+  it("remembers turn_completed stopReason across empty suffix pages", () => {
+    const cursors = new Map();
+    applySessionPage(cursors, "s1", {
+      rows: [upd("turn_completed", { stopReason: "cancelled" })],
+      nextByte: 40,
+      truncated: false,
+    });
+    expect(cursors.get("s1")?.userAfterLastStop).toBe(false);
+    applySessionPage(cursors, "s1", {
+      rows: [upd("user_message_chunk", { content: { text: "继续" } })],
+      nextByte: 80,
+      truncated: false,
+    });
+    expect(cursors.get("s1")?.lastTurnStopReason).toBe("cancelled");
+    expect(cursors.get("s1")?.userAfterLastStop).toBe(true);
+    expect(
+      foldTurnStopCursor(undefined, [
+        upd("turn_completed", { stopReason: "cancelled" }),
+        upd("user_message_chunk", { content: { text: "继续" } }),
+      ]),
+    ).toEqual({ lastTurnStopReason: "cancelled", userAfterLastStop: true });
+    expect(lastTurnCompletedStopReason([upd("turn_completed", { stop_reason: "canceled" })])).toBe(
+      "canceled",
+    );
+    expect(foldLastTurnStopReason("cancelled", [])).toBe("cancelled");
+    expect(lastTurnCompletedStopReason([upd("agent_message_chunk", { content: { text: "hi" } })])).toBe(
+      null,
+    );
+  });
 });
 
 describe("groupWorkRuns", () => {
@@ -670,6 +703,25 @@ describe("shouldClearBusyOnSettledChat", () => {
     expect(shouldClearBusyOnSettledChat({ busy: true, now: 10_200 + 3999, items })).toBe(false);
     expect(shouldClearBusyOnSettledChat({ busy: true, now: 10_200 + 4000, items })).toBe(true);
   });
+
+  it("does not treat a mid-turn tool gap as the reply having settled", () => {
+    const items = [
+      { kind: "user" as const, id: "u", text: "plan", at: 1 },
+      { kind: "assistant" as const, id: "a", text: "先读文件", at: 2, until: 3 },
+      { kind: "tool" as const, id: "t", title: "Read", status: "completed" as const, at: 4, until: 5 },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 5 + 4000, items })).toBe(false);
+  });
+
+  it("does not idle while the model is still thinking after tools", () => {
+    const items = [
+      { kind: "user" as const, id: "u", text: "plan", at: 1 },
+      { kind: "assistant" as const, id: "a", text: "先读文件", at: 2, until: 3 },
+      { kind: "tool" as const, id: "t", title: "Read", status: "completed" as const, at: 4, until: 5 },
+      { kind: "thought" as const, id: "th", text: "对照条款", at: 6, until: 7 },
+    ];
+    expect(shouldClearBusyOnSettledChat({ busy: true, now: 7 + 4000, items })).toBe(false);
+  });
 });
 
 describe("formatElapsed", () => {
@@ -692,5 +744,17 @@ describe("lastUserTextBefore", () => {
     expect(lastUserTextBefore(items, "t2")).toBe("retry me");
     expect(lastUserTextBefore(items, "t1")).toBe("first");
     expect(lastUserTextBefore(items, "u1")).toBeNull();
+  });
+
+  it("strips injected user-memory from retry text", () => {
+    const items: import("./chat").ChatItem[] = [
+      {
+        kind: "user",
+        id: "u1",
+        text: `<user-memory>\n# You\n- 继续 Source: grok · s0\n</user-memory>\n\n都动`,
+      },
+      { kind: "tool", id: "t1", title: "Read", status: "failed" },
+    ];
+    expect(lastUserTextBefore(items, "t1")).toBe("都动");
   });
 });

@@ -25,6 +25,6 @@ describe("AgentChip trigger", () => {
     expect(html).toContain("<svg");
     expect(html).not.toMatch(/agent-chip[^>]*>[^<]*Grok/);
     expect(html).toContain("切换 CLI");
-    expect(html).toContain('data-tip="Grok"');
+    expect(html).toContain('aria-label="切换 CLI: Grok"');
   });
 });

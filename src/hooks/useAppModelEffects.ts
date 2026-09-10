@@ -3,7 +3,6 @@ import {
   gitChanges,
   gitStatus,
   listAgentsDir,
-  listMemoryChanges,
   listWorkspaceEntries,
   notify,
   ensureNotifyPermission,
@@ -37,12 +36,13 @@ import { persistReviewOpen } from "../lib/review-rail";
 import { friendlyError } from "../lib/error-copy";
 import { fitLayout } from "../lib/layout";
 import { situationAutoCollapse } from "../lib/shell-ia";
+import { applyDocumentBackground } from "../lib/window-bg";
+import { scheduleFrameValue } from "../lib/scroll-frame";
 import { shouldPollBilling } from "../lib/auth-kind";
 import { billingKindFromDoctors } from "../lib/agent-port";
 import { parseWeeklyUsage } from "../lib/weekly-usage";
 import { activityKey } from "../lib/stall";
 import { firstHitIndex } from "../lib/search-highlight";
-import { detectMemoryUpdates, snapshotMtimes } from "../lib/memory-dock";
 import { nextGoalView } from "../lib/goal-bar";
 import { markUnread, clearUnread, pruneUnread } from "../lib/session-status";
 import { BILLING_POLL_MS, scheduleIdle, shouldRunChipWarmup } from "../lib/agent-warmup";
@@ -154,10 +154,11 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [d.reviewCwd, review.tab, review.open]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = s.theme;
+    document.documentElement.dataset.theme = s.resolvedTheme;
     document.documentElement.dataset.themeFamily = s.themeFamily;
     document.documentElement.dataset.density = s.density;
-  }, [s.theme, s.themeFamily, s.density]);
+    applyDocumentBackground(s.resolvedTheme);
+  }, [s.theme, s.resolvedTheme, s.themeFamily, s.density]);
 
   useEffect(() => {
     applyAccent(document.documentElement, s.accentId);
@@ -229,30 +230,6 @@ export function useAppModelEffects(d: EffectsDeps) {
     if (!s.cwd) return;
     void setWorkspace(s.cwd, acp.sessionId).catch(() => {});
   }, [s.cwd, acp.sessionId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const rows = await listMemoryChanges();
-        if (cancelled) return;
-        if (!s.memoryBaseline.current) {
-          s.memoryBaseline.current = snapshotMtimes(rows);
-          s.setMemoryChanges([]);
-          return;
-        }
-        s.setMemoryChanges(detectMemoryUpdates(rows, s.memoryBaseline.current, Date.now()));
-      } catch {
-        /* ignore */
-      }
-    };
-    void poll();
-    const id = window.setInterval(() => void poll(), 20_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
 
   useEffect(() => {
     if (!s.settingsOpen) return;
@@ -353,12 +330,6 @@ export function useAppModelEffects(d: EffectsDeps) {
     }
   }, [s.extraPanes, d.sendPrompt]);
 
-  useEffect(() => {
-    if (!acp.busy && !d.extraBusy) return;
-    const id = window.setInterval(() => s.setClock((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [acp.busy, d.extraBusy]);
-
   const activity = useMemo(() => {
     const last = acp.chat.items[acp.chat.items.length - 1];
     const lastLen = last && "text" in last ? last.text.length : 0;
@@ -383,7 +354,8 @@ export function useAppModelEffects(d: EffectsDeps) {
   }, [s.focused]);
 
   useEffect(() => {
-    const onResize = () => s.setWinWidth(window.innerWidth);
+    const send = scheduleFrameValue((w: number) => s.setWinWidth(w));
+    const onResize = () => send(window.innerWidth);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -405,9 +377,13 @@ export function useAppModelEffects(d: EffectsDeps) {
 
   useEffect(() => {
     let off: (() => void) | null = null;
-    void windowFocused().then(s.setFocused);
+    void windowFocused().then((next) => {
+      s.setFocused(next);
+      document.documentElement.toggleAttribute("data-window-blur", !next);
+    });
     void onWindowFocus((next) => {
       s.setFocused(next);
+      document.documentElement.toggleAttribute("data-window-blur", !next);
     }).then((fn) => {
       off = fn;
     });
@@ -590,8 +566,12 @@ export function useAppModelEffects(d: EffectsDeps) {
     s.currentTitleRef.current = view.currentTitle;
   }, [view.currentTitle]);
 
+  const lastBadge = useRef<number | null>(null);
   useEffect(() => {
-    void setBadge(countAttention(d.allSessions.map((row) => view.statusFor(row.id))));
+    const count = countAttention(d.allSessions.map((row) => view.statusFor(row.id)));
+    if (lastBadge.current === count) return;
+    lastBadge.current = count;
+    void setBadge(count);
   }, [d.allSessions, view.statusFor]);
 
   useAppHotkeys({

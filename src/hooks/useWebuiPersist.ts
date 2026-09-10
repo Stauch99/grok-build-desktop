@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { saveWebuiState, type WebuiState } from "../api";
 import type { AgentId } from "../lib/agent-id";
 import type { Locale } from "../lib/i18n";
+import type { ThemePref } from "../lib/theme-pref";
 import { WEBUI_PERSIST_MS } from "../lib/persist-cache";
 import type { Mode } from "../lib/mode";
 import type { UnreadMap } from "../lib/session-status";
@@ -12,7 +13,7 @@ export { WEBUI_PERSIST_MS };
 
 export type WebuiSnapshot = {
   projects: string[];
-  theme: "light" | "dark";
+  theme: ThemePref;
   mode: Mode;
   chatWidth: number;
   titles: Record<string, string>;

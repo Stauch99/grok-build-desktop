@@ -9,6 +9,7 @@ import {
   applyGrokIngest,
   grokTurnsFromUpdates,
   skipDreamIngestPage,
+  skipFoundingSession,
 } from "./memory-grok-turns";
 
 const meta = { agentId: "grok" as const, sessionId: "s1", cwd: "/proj" };
@@ -27,7 +28,7 @@ function userChunk(text: string): AcpRecord {
 }
 
 function dailyLine(sessionId: string, cwd: string, text: string): string {
-  return `- [grok | ${sessionId} | ${cwd} | user_utterance] ${clipDailyText(text)}\n`;
+  return `- [grok | ${sessionId} | ${cwd} | user_pref] ${clipDailyText(text)}\n`;
 }
 
 function packUntilCap(start: string, line: string): { body: string; lines: number } {
@@ -45,12 +46,12 @@ function userPage(sessionId: string, cwd: string, texts: string[], nextByte: num
 }
 
 const fixture: AcpRecord[] = [
-  { update: { sessionUpdate: "user_message_chunk", content: { text: "I like dark mode" } } },
+  { update: { sessionUpdate: "user_message_chunk", content: { text: "以后用 dark mode" } } },
   { update: { sessionUpdate: "agent_message_chunk", content: { text: "Noted." } } },
   { update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "read" } },
   {
     params: {
-      update: { sessionUpdate: "user_message_chunk", content: { text: "also rust" } },
+      update: { sessionUpdate: "user_message_chunk", content: { text: "prefer rust" } },
     },
   },
 ];
@@ -59,21 +60,21 @@ describe("grokTurnsFromUpdates", () => {
   it("maps user chunk, assistant chunk, and tool event to roles", () => {
     const turns = grokTurnsFromUpdates(fixture, meta);
     expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "tool", "user"]);
-    expect(turns[0]).toMatchObject({ text: "I like dark mode", sessionId: "s1", cwd: "/proj", agentId: "grok" });
+    expect(turns[0]).toMatchObject({ text: "以后用 dark mode", sessionId: "s1", cwd: "/proj", agentId: "grok" });
     expect(turns[1]?.text).toBe("Noted.");
     expect(turns[2]?.role).toBe("tool");
-    expect(turns[3]?.text).toBe("also rust");
+    expect(turns[3]?.text).toBe("prefer rust");
   });
 
   it("drops harness user chunks so they are not ingested as preferences", () => {
     const turns = grokTurnsFromUpdates(
       [
         { update: { sessionUpdate: "user_message_chunk", content: { text: "<system-reminder>\nskip" } } },
-        { update: { sessionUpdate: "user_message_chunk", content: { text: "I like dark mode" } } },
+        { update: { sessionUpdate: "user_message_chunk", content: { text: "以后用 dark mode" } } },
       ],
       meta,
     );
-    expect(turns.map((t) => t.text)).toEqual(["I like dark mode"]);
+    expect(turns.map((t) => t.text)).toEqual(["以后用 dark mode"]);
   });
 });
 
@@ -91,8 +92,8 @@ describe("applyGrokIngest", () => {
     );
     expect(newSessionCount).toBe(1);
     expect(io.state.cursors["grok/s1"]).toBe(420);
-    expect(io.dailyMd).toContain("I like dark mode");
-    expect(io.dailyMd).toContain("also rust");
+    expect(io.dailyMd).toContain("以后用 dark mode");
+    expect(io.dailyMd).toContain("prefer rust");
     expect(io.dailyMd).not.toContain("Noted.");
   });
 
@@ -113,6 +114,24 @@ describe("applyGrokIngest", () => {
     expect(newSessionCount).toBe(0);
     expect(io.state.cursors["grok/gone"]).toBeUndefined();
     expect(io.state.cursors["grok/s2"]).toBe(3);
+  });
+
+  it("tags Claude pages as claude and advances a claude cursor", () => {
+    const { io } = applyGrokIngest(
+      blankIo(),
+      [
+        {
+          sessionId: "c1",
+          cwd: "/edu",
+          agentId: "claude",
+          rows: [userChunk("以后先出框架")],
+          nextByte: 77,
+        },
+      ],
+      "2026-09-09",
+    );
+    expect(io.state.cursors["claude/c1"]).toBe(77);
+    expect(io.dailyMd).toContain("- [claude | c1 | /edu | user_pref] 以后先出框架");
   });
 
   it("does not mutate the input cursor map", () => {
@@ -138,13 +157,13 @@ describe("applyGrokIngest", () => {
     expect(io.state.cursors["grok/dream-cwd"]).toBeUndefined();
     expect(io.state.cursors["grok/dream-sid"]).toBeUndefined();
     expect(io.state.cursors["grok/s1"]).toBe(420);
-    expect(io.dailyMd).toContain("I like dark mode");
+    expect(io.dailyMd).toContain("以后用 dark mode");
   });
 
   it("fills shard 1 then shard 2 before advancing a later session cursor", () => {
     const day = "2026-09-08";
     const cwd = "/p";
-    const chunk = "x".repeat(DREAM_LINE_MAX_CHARS);
+    const chunk = `记住 ${"x".repeat(DREAM_LINE_MAX_CHARS - 3)}`;
     const header = `# ${day}\n`;
     const nA = packUntilCap(header, dailyLine("a", cwd, chunk)).lines;
     const { io, shards, stoppedEarly, newSessionCount } = applyGrokIngest(
@@ -170,7 +189,7 @@ describe("applyGrokIngest", () => {
   it("leaves a session cursor unchanged when all shards are full", () => {
     const day = "2026-09-08";
     const cwd = "/p";
-    const chunk = "x".repeat(DREAM_LINE_MAX_CHARS);
+    const chunk = `记住 ${"x".repeat(DREAM_LINE_MAX_CHARS - 3)}`;
     const header = `# ${day}\n`;
     const filled = packUntilCap(header, dailyLine("s1", cwd, chunk));
     const perShard = packUntilCap(header, dailyLine("s2", cwd, chunk)).lines;
@@ -201,7 +220,7 @@ describe("applyGrokIngest", () => {
   it("appends to an existing shard 2 instead of replacing it", () => {
     const day = "2026-09-08";
     const cwd = "/p";
-    const chunk = "x".repeat(DREAM_LINE_MAX_CHARS);
+    const chunk = `记住 ${"x".repeat(DREAM_LINE_MAX_CHARS - 3)}`;
     const header = `# ${day}\n`;
     const filled = packUntilCap(header, dailyLine("s1", cwd, chunk));
     const existing2 = `${header}- [grok | old | /p | user_utterance] keep-me\n`;
@@ -225,5 +244,32 @@ describe("skipDreamIngestPage", () => {
     expect(skipDreamIngestPage({ sessionId: "dream-sid", cwd: "/proj" }, "/wb/memory")).toBe(true);
     expect(skipDreamIngestPage({ sessionId: "chat", cwd: "/proj" }, "/wb/memory")).toBe(false);
     forgetDreamSession("dream-sid");
+  });
+});
+
+describe("skipFoundingSession", () => {
+  it("drops observer, subagent, and memory-root sessions", () => {
+    expect(
+      skipFoundingSession(
+        {
+          id: "a",
+          cwd: "/p",
+          dir: "/Users/me/.claude/projects/-Users-me--claude-mem-observer-sessions/a.jsonl",
+        },
+        "/mem",
+      ),
+    ).toBe(true);
+    expect(skipFoundingSession({ id: "b", cwd: "/p", sessionKind: "subagent" }, "/mem")).toBe(true);
+    expect(skipFoundingSession({ id: "c", cwd: "/p", parentSessionId: "parent" }, "/mem")).toBe(true);
+    expect(
+      skipFoundingSession(
+        {
+          id: "d",
+          cwd: "/p",
+          dir: "/Users/me/.claude/projects/-Users-me-Documents-GlobalEdu/d.jsonl",
+        },
+        "/mem",
+      ),
+    ).toBe(false);
   });
 });

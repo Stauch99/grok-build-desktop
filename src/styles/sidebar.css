@@ -3,7 +3,9 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-side);
-  border-right: 0.5px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-right: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  user-select: none;
+  -webkit-user-select: none;
 }
 .sidebar-resizer {
   position: absolute;
@@ -29,7 +31,27 @@
 .sidebar.rail .session-list,
 .sidebar.rail .ws-head,
 .sidebar.rail .section-label,
-.sidebar.rail .ws-hits { display: none; }
+.sidebar.rail .ws-hits {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+  visibility: hidden;
+  position: absolute;
+}
+.sidebar .side-content,
+.sidebar .session-list,
+.sidebar .ws-head {
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.sidebar.is-hiding .side-content,
+.sidebar.is-hiding .session-list,
+.sidebar.is-hiding .ws-head,
+.sidebar.is-hiding .section-label,
+.sidebar.is-hiding .ws-hits {
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+}
 .sidebar.rail .side-account {
   display: flex;
   width: 100%;
@@ -54,6 +76,11 @@
 }
 .sidebar.rail .account-trigger.compact .usage-bar {
   width: 28px;
+}
+.sidebar.rail .side-actions {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
 }
 .sidebar.rail .icon-btn {
   width: 36px;
@@ -107,6 +134,7 @@
   flex: 1 1 0;
   overflow: auto;
   padding: 0 8px var(--session-list-end-pad);
+  overscroll-behavior: contain;
 }
 .session-list.inbox-list {
   padding-bottom: 0;
@@ -150,6 +178,7 @@
 .project-sessions {
   display: grid;
   grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
 }
 .project-sessions.open {
   grid-template-rows: 1fr;
@@ -199,6 +228,7 @@
 .group-projects {
   display: grid;
   grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
 }
 .group-projects.open {
   grid-template-rows: 1fr;
@@ -223,6 +253,7 @@
   padding: 4px 6px;
   font-size: var(--ui-smaller);
   min-height: 0;
+  contain: layout;
 }
 .inbox-list .session { padding-left: 6px; }
 .session.child { color: var(--muted); padding-left: 16px; }
@@ -368,6 +399,7 @@
 .session-kids {
   display: grid;
   grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
 }
 .session-kids.open {
   grid-template-rows: 1fr;
@@ -522,6 +554,10 @@
   margin-top: 8px;
 }
 .ws-band-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-side);
   padding: 12px 10px 6px;
   font-size: 11px;
   color: var(--faint);
@@ -629,7 +665,6 @@
   opacity: 0;
   transition:
     transform var(--dur) var(--ease),
-    height var(--dur) var(--ease),
     opacity var(--dur-fast) linear;
   pointer-events: none;
   z-index: 0;

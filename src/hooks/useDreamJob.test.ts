@@ -21,7 +21,8 @@ describe("useDreamJob persist wiring", () => {
     expect(src).toContain("postIngest");
     expect(src).toMatch(/lastStatus:\s*"failed"/);
     expect(src).toContain("await persistState(failed.state)");
-    const catchBlock = src.slice(src.indexOf("const failed: DreamIo"));
+    const catchStart = src.indexOf("const failed: DreamIo");
+    const catchBlock = src.slice(catchStart, src.indexOf("const onDreamNow"));
     expect(catchBlock).toContain("persistState(failed.state)");
     expect(catchBlock).not.toContain("persistDreamFiles");
     expect(catchBlock).not.toContain("userMd:");
@@ -61,9 +62,30 @@ describe("useDreamJob persist wiring", () => {
     expect(catchUp).not.toContain('runSweep("launch")');
   });
 
+  it("ingests Grok and Claude parent sessions with dir replay", () => {
+    expect(src).toContain('s.agentId !== "grok" && s.agentId !== "claude"');
+    expect(src).toContain("skipFoundingSession");
+    expect(src).toContain("readSessionUpdates(s.id, after, s.dir)");
+    expect(src).toContain("agentId: s.agentId");
+    expect(src).not.toContain('s.agentId !== "grok") continue');
+  });
+
   it("does not persist a follow-up lastScanAt null when the sweep never started", () => {
     expect(src).toContain("sweepStateToPersist");
     expect(src).toContain("previousLastScanAt");
     expect(src).toContain("lastScanAt: null");
+  });
+
+  it("wires founding on Kimi K3 with founding cursors and host writes", () => {
+    expect(src).toContain("onFoundingNow");
+    expect(src).toContain("runFounding");
+    expect(src).toContain("runFoundingDream");
+    expect(src).toContain("pickFoundingKimiModel");
+    expect(src).toContain("FOUNDING_PROMPT_TIMEOUT_MS");
+    expect(src).toContain("foundingBootstrapPrompts");
+    expect(src).toContain("writeAllowedText");
+    expect(src).toContain("collectFoundingPages");
+    expect(src).toContain("io.state.foundingCursors[memoryCursorKey");
+    expect(src).toContain("onProposalDecision");
   });
 });

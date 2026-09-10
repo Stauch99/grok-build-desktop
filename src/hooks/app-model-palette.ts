@@ -1,6 +1,7 @@
 import { filterCommands, type HubTab } from "../lib/commands";
 import { t, type Locale } from "../lib/i18n";
 import { persistReviewOpen } from "../lib/review-rail";
+import { resolveTheme, systemPrefersDark, togglePinnedTheme, type ThemePref } from "../lib/theme-pref";
 import { exportTranscript } from "../lib/session-local";
 import type { PaletteAction } from "../lib/palette";
 import type { ChatState } from "../lib/chat";
@@ -10,7 +11,7 @@ import type { ExtraPage } from "../components/ExtraOverlay";
 
 export type PaletteActionDeps = {
   locale: Locale;
-  theme: "light" | "dark";
+  theme: ThemePref;
   reviewOpen: boolean;
   defaultRail: "tasks" | "changes" | "context";
   cwd: string;
@@ -18,7 +19,7 @@ export type PaletteActionDeps = {
   allSessions: SessionSummary[];
   persist: (partial: WebuiState) => void;
   showToast: (msg: string) => void;
-  setTheme: (theme: "light" | "dark") => void;
+  setTheme: (theme: ThemePref) => void;
   setExtraPage: (page: ExtraPage | null) => void;
   setImagineImages: (paths: string[]) => void;
   setImagineVideos: (paths: string[]) => void;
@@ -91,7 +92,8 @@ export function handlePaletteAction(d: PaletteActionDeps, action: PaletteAction)
       break;
     }
     case "theme": {
-      const next = d.theme === "light" ? "dark" : "light";
+      const applied = resolveTheme(d.theme, systemPrefersDark(window.matchMedia("(prefers-color-scheme: dark)")));
+      const next = togglePinnedTheme(d.theme, applied);
       d.setTheme(next);
       d.persist({ theme: next });
       break;

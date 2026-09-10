@@ -67,6 +67,10 @@ describe("buildWebuiState", () => {
     const state = buildWebuiState({ ...base, themeFamily: "frost" });
     expect(state.themeFamily).toBe("frost");
   });
+
+  it("persists following the system color scheme", () => {
+    expect(buildWebuiState({ ...base, theme: "system" }).theme).toBe("system");
+  });
 });
 
 describe("webui persist throttle", () => {

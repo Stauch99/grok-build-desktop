@@ -8,9 +8,33 @@ export type AssistantBlock =
 
 const OPEN = /^```mermaid[ \t]*\r?$/i;
 const CLOSE = /^```[ \t]*\r?$/;
-const FENCE = /^(\s*)(`{3,}|~{3,})/;
+const FENCE_LINE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+const FENCE_LANG = /^[a-zA-Z][\w+#.-]{0,30}$/;
 const BLOCK_NEXT = /^(#{1,6}\s|`{3,}|~{3,}|\s*[-*+]\s|\s*\d+[.)]\s|\s*>|\s*\|)/;
 const CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f]/;
+
+/** Opening fence: empty info, or a short language id — not a Chinese sentence glued to ```. */
+export function isMarkdownFenceOpen(line: string): boolean {
+  const m = line.match(FENCE_LINE);
+  if (!m) return false;
+  const info = m[3].trim();
+  if (!info) return true;
+  return FENCE_LANG.test(info.split(/\s+/)[0] ?? "");
+}
+
+function isMarkdownFenceClose(line: string, mark: string): boolean {
+  const m = line.match(FENCE_LINE);
+  if (!m) return false;
+  if (!line.trim().startsWith(mark)) return false;
+  return m[3].trim() === "";
+}
+
+function escapeAccidentalFence(line: string): string {
+  return line.replace(/^(\s*)(`{3,}|~{3,})/, (_all, ws: string, ticks: string) => {
+    const ent = ticks.startsWith("`") ? "&#96;" : "&#126;";
+    return `${ws}${ent.repeat(ticks.length)}`;
+  });
+}
 
 function isCjk(ch: string): boolean {
   return CJK.test(ch);
@@ -41,15 +65,17 @@ export function unwrapMarkdownSoftBreaks(src: string): string {
   const lines = src.split("\n");
   const out: string[] = [];
   let fenceMark: string | null = null;
-  for (const line of lines) {
-    const fence = line.match(FENCE);
+  for (const raw of lines) {
+    const line: string =
+      !fenceMark && FENCE_LINE.test(raw) && !isMarkdownFenceOpen(raw) ? escapeAccidentalFence(raw) : raw;
     if (fenceMark) {
       out.push(line);
-      if (fence && line.trim().startsWith(fenceMark)) fenceMark = null;
+      if (isMarkdownFenceClose(line, fenceMark)) fenceMark = null;
       continue;
     }
-    if (fence) {
-      fenceMark = fence[2];
+    if (isMarkdownFenceOpen(line)) {
+      const open = line.match(FENCE_LINE);
+      fenceMark = open?.[2] ?? "```";
       out.push(line);
       continue;
     }

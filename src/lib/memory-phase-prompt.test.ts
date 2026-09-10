@@ -11,14 +11,23 @@ const io: DreamIo = {
 };
 
 describe("mainPrompt", () => {
-  it("produces one prompt asking for all three sections by marker", () => {
+  it("produces one prompt asking for all four sections by marker", () => {
     const text = mainPrompt(io, ["- [grok | s1 | /p | user_pref] loves vim"]);
     expect(text).toMatch(/<<<DIARY>>>/);
     expect(text).toMatch(/<<<USER>>>/);
+    expect(text).toMatch(/<<<SKILLS>>>/);
     expect(text).toMatch(/<<<TAGLINE>>>/);
     expect(text).toMatch(/## 2026-08-30/);
     expect(text).toMatch(/loves vim/);
     expect(text).toMatch(/Source:/);
+  });
+
+  it("asks for a teaching diary, SKILLS, and lists skill names", () => {
+    const text = mainPrompt(io, ["- [grok | s1 | /p | teach_episode] 先框架再 PDF"], ["beldore-pdf"]);
+    expect(text).toMatch(/<<<SKILLS>>>/);
+    expect(text).toMatch(/teach_episode/);
+    expect(text).toMatch(/beldore-pdf/);
+    expect(text).not.toMatch(/2-4 sentences/);
   });
 });
 
@@ -59,5 +68,35 @@ The user worked on tests.
     const raw = "```markdown\n<<<TAGLINE>>>\nSingle line tagline\n```";
     const parsed = parseMainOutput(raw);
     expect(parsed.tagline).toBe("Single line tagline");
+    expect(parsed.skills).toEqual([]);
+  });
+
+  it("parses SKILLS yaml blocks and ignores a broken stub", () => {
+    const parsed = parseMainOutput(`<<<DIARY>>>
+## 2026-09-09
+你改了口径。
+<<<SKILLS>>>
+action: create
+id: scheme-pdf
+title: 升学方案
+target:
+evidence: s1
+summary: 先框架再 PDF
+---
+not-yaml
+<<<TAGLINE>>>
+懂你的工作台
+`);
+    expect(parsed.skills).toEqual([
+      {
+        action: "create",
+        id: "scheme-pdf",
+        title: "升学方案",
+        target: "",
+        evidence: "s1",
+        summary: "先框架再 PDF",
+      },
+    ]);
+    expect(parsed.diary).toContain("口径");
   });
 });

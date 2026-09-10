@@ -9,15 +9,18 @@ export function parseUserMdEntries(text: string): string[] {
     .map((line) => line.slice(2).trim());
 }
 
+export type UserMdRewriteOpts = { skipLoss?: boolean };
+
 export function validateUserMdRewrite(
   prev: string,
   next: string,
+  opts?: UserMdRewriteOpts,
 ): { ok: true } | { ok: false; reason: "loss" | "source" | "budget" | "shape" } {
   if (new TextEncoder().encode(next).length > USER_MD_MAX_BYTES) return { ok: false, reason: "budget" };
   if (!/^# /m.test(next) || !/^- /m.test(next)) return { ok: false, reason: "shape" };
   const before = parseUserMdEntries(prev);
   const after = parseUserMdEntries(next);
-  if (before.length > 0) {
+  if (!opts?.skipLoss && before.length > 0) {
     const kept = before.filter((e) => after.some((a) => a.includes(e) || e.includes(a))).length;
     if (kept / before.length < 1 - USER_MD_MAX_LOSS) return { ok: false, reason: "loss" };
   }
@@ -32,8 +35,9 @@ export function validateUserMdRewrite(
 export function applyUserMdRewrite(
   prev: string,
   next: string,
+  opts?: UserMdRewriteOpts,
 ): { file: string; preimage: string; rejected?: true } {
-  const check = validateUserMdRewrite(prev, next);
+  const check = validateUserMdRewrite(prev, next, opts);
   if (!check.ok) return { file: prev, preimage: prev, rejected: true };
   return { file: next, preimage: prev };
 }

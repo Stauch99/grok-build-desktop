@@ -123,6 +123,9 @@
   cursor: col-resize !important;
   user-select: none !important;
 }
+:root.resizing .pane-split-branch > * {
+  pointer-events: none;
+}
 .file-row {
   display: flex;
   align-items: center;

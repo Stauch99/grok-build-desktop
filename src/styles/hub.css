@@ -238,7 +238,7 @@
 }
 .details-body { padding: 10px; overflow: auto; height: 100%; }
 .rail-stack {
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: center;
   gap: 2px;
@@ -246,6 +246,10 @@
   padding: 4px 0 8px;
   flex: 1 1 0;
   min-height: 0;
+}
+.sidebar.rail .rail-stack,
+.sidebar.is-hiding .rail-stack {
+  display: flex;
 }
 .rail-stack .icon-btn {
   width: 32px;
@@ -341,26 +345,6 @@
   stroke-width: 2;
   stroke-linecap: round;
 }
-.usage-pop {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 20;
-  display: none;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  white-space: nowrap;
-  font-size: var(--ui-smaller);
-  color: var(--muted);
-  pointer-events: none;
-}
-.usage-chip:hover .usage-pop,
-.usage-chip:focus-within .usage-pop { display: flex; }
 .composer-dock {
   display: flex;
   flex-direction: column;

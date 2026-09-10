@@ -170,7 +170,6 @@ export function SidebarListMenu({ prefs, onPrefs, onCollapseAll, onMarkAllRead, 
         type="button"
         className="icon-btn"
         aria-label={t("sidebar.filter")}
-        data-tip={t("sidebar.filter")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggleOpen}

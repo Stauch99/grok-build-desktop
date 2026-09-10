@@ -24,3 +24,22 @@ export function dailyMdPath(memoryRoot: string, day: string): string {
 export function memoryStatePath(memoryRoot: string): string {
   return `${memoryRoot.replace(/\/+$/, "")}/.dreams/state.json`;
 }
+
+export const FOUNDING_MAX_EPISODE_SHARDS = 8;
+
+export function foundingEpisodePath(memoryRoot: string, index: number): string {
+  if (!Number.isInteger(index) || index < 1 || index > FOUNDING_MAX_EPISODE_SHARDS) {
+    throw new Error("invalid founding episode shard");
+  }
+  return `${memoryRoot.replace(/\/+$/, "")}/.dreams/founding/_episodes.${index}.md`;
+}
+
+export function foundingDomainPath(memoryRoot: string, domain: string): string {
+  const safe = domain.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return `${memoryRoot.replace(/\/+$/, "")}/.dreams/founding/${safe || "other"}.md`;
+}
+
+export function skillProposalPath(memoryRoot: string, id: string): string {
+  const safe = id.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return `${memoryRoot.replace(/\/+$/, "")}/skill-proposals/${safe}.md`;
+}

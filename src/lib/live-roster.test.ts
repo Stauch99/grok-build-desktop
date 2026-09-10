@@ -13,6 +13,7 @@ import {
   applyLiveParentExpand,
   runningChildSessionIds,
   sessionToOpen,
+  liveRosterFingerprint,
   sessionsWithLiveRoster,
 } from "./live-roster";
 
@@ -267,6 +268,21 @@ describe("applyLiveParentExpand", () => {
     const src = readFileSync(new URL("../hooks/useAppModelEffects.ts", import.meta.url), "utf8");
     expect(src).not.toContain("parentsToExpandForLive");
     expect(src).not.toContain("applyLiveParentExpand");
+  });
+});
+
+describe("liveRosterFingerprint", () => {
+  it("ignores assistant text growth", () => {
+    const tools = [tool({ id: "c1", title: "Task: x", status: "in_progress" })];
+    const a: ChatItem[] = [...tools, { kind: "assistant", id: "a", text: "hi" }];
+    const b: ChatItem[] = [...tools, { kind: "assistant", id: "a", text: "hi there" }];
+    expect(liveRosterFingerprint(a)).toBe(liveRosterFingerprint(b));
+  });
+
+  it("changes when a live tool starts or finishes", () => {
+    const running = [tool({ id: "c1", title: "Task: x", status: "in_progress" })];
+    const done = [tool({ id: "c1", title: "Task: x", status: "completed" })];
+    expect(liveRosterFingerprint(running)).not.toBe(liveRosterFingerprint(done));
   });
 });
 

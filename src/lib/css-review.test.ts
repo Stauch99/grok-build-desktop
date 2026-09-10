@@ -41,12 +41,11 @@ describe("compact density", () => {
 });
 
 describe("reduced motion", () => {
-  it("does not freeze the spinner and does not fade memory-dock to invisible", () => {
+  it("does not freeze the spinner", () => {
     const src = css("src/styles.css");
     const reduceIdx = src.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(reduceIdx).toBeGreaterThan(0);
     const chunk = src.slice(reduceIdx, reduceIdx + 1600);
-    expect(chunk).toMatch(/\.memory-dock[\s\S]*animation:\s*none/);
     expect(chunk).toMatch(/\.spinner[\s\S]*infinite/);
     expect(chunk).toMatch(/spinner-pulse/);
     expect(chunk).toMatch(/\.shimmer-text[\s\S]*animation:\s*none/);
@@ -58,11 +57,14 @@ describe("motion tokens and press feedback", () => {
     const tokens = css("src/styles/tokens.css");
     expect(tokens).toMatch(/--ease-in:/);
     expect(tokens).toMatch(/--ease-in-out:/);
-    expect(tokens).toMatch(/--dur-slow:/);
+    expect(tokens).toMatch(/--dur-fast:\s*80ms/);
+    expect(tokens).toMatch(/--dur:\s*160ms/);
+    expect(tokens).toMatch(/--dur-slow:\s*240ms/);
   });
 
-  it("gives buttons a press scale", () => {
-    expect(css("src/styles.css")).toMatch(/button:active[\s\S]*scale\(0\.97\)/);
+  it("gives primary actions a press scale, not every button", () => {
+    expect(css("src/styles.css")).toMatch(/\.send-btn:active[\s\S]*scale\(0\.97\)/);
+    expect(css("src/styles.css")).not.toMatch(/button:active[\s\S]*scale\(0\.97\)/);
   });
 
   it("centers jump-bottom without transform so a press scale cannot shove it sideways", () => {
@@ -94,9 +96,9 @@ describe("motion tokens and press feedback", () => {
     expect(app).not.toMatch(/transition:\s*grid-template-columns/);
   });
 
-  it("does not transition sidebar 0fr/1fr row templates", () => {
+  it("animates sidebar 0fr/1fr row templates", () => {
     const sheet = css("src/styles/sidebar.css");
-    expect(sheet).not.toMatch(/transition:[^;]*grid-template-rows/);
+    expect(sheet).toMatch(/\.project-sessions[\s\S]{0,180}transition:\s*grid-template-rows/);
   });
 
   it("drives the pixel-grid cells from --d", () => {
@@ -107,28 +109,23 @@ describe("motion tokens and press feedback", () => {
     expect(css("src/styles/review.css")).toMatch(/\.review-rail\.rail-out/);
   });
 
-  it("transitions shadow and outline on theme change", () => {
+  it("does not inherit theme transitions from :root", () => {
     const tokens = css("src/styles/tokens.css");
-    expect(tokens).toMatch(/transition:[^}]*box-shadow/);
-    expect(tokens).toMatch(/transition:[^}]*outline-color/);
+    const root = tokens.match(/:root\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(root).not.toMatch(/^\s*transition:/m);
   });
 
   it("defines a skeleton pulse", () => {
     expect(css("src/styles.css")).toMatch(/\.skeleton[\s\S]*skeleton-pulse/);
   });
 
-  it("offers a CSS tooltip for data-tip", () => {
-    expect(css("src/styles.css")).toMatch(/\[data-tip\]:hover::after/);
+  it("does not draw CSS hover tooltips", () => {
+    expect(css("src/styles.css")).not.toMatch(/\[data-tip\]:hover::after/);
+    expect(css("src/styles/review.css")).not.toMatch(/\[data-tip\]:hover::after/);
   });
 
-  it("drops review-head tooltips below the chrome so the window edge does not clip them", () => {
+  it("does not clip review pane buttons with overflow hidden", () => {
     const src = css("src/styles/review.css");
-    const flip = src.match(/\.review-head \[data-tip\]:hover::after[\s\S]*?\}/)?.[0] ?? "";
-    expect(flip).toMatch(/top:\s*calc\(100%\s*\+\s*6px\)/);
-    expect(flip).toMatch(/bottom:\s*auto/);
-    const close = src.match(/\.review-head > \.icon-btn\[data-tip\]:hover::after[\s\S]*?\}/)?.[0] ?? "";
-    expect(close).toMatch(/right:\s*0/);
-    expect(close).toMatch(/left:\s*auto/);
     const panes = src.match(/\.review-panes button\s*\{[^}]+\}/)?.[0] ?? "";
     expect(panes).not.toMatch(/overflow:\s*hidden/);
   });
@@ -163,7 +160,7 @@ describe("brand accent surfaces", () => {
 
   it("tints only the sidebar hairline with brand", () => {
     const block = css("src/styles/sidebar.css").match(/^\.sidebar\s*\{[^}]+\}/m)?.[0] ?? "";
-    expect(block).toMatch(/border-right:\s*0\.5px solid color-mix\(in srgb,\s*var\(--brand\)\s*20%,\s*var\(--line\)\)/);
+    expect(block).toMatch(/border-right:\s*1px solid color-mix\(in srgb,\s*var\(--brand\)\s*20%,\s*var\(--line\)\)/);
   });
 
   it("does not retint the send button or pane grips with --brand", () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { gitBlame } from "../api";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
-import { highlight, highlightLang, tokensToLines, type HighlightToken } from "../lib/highlight";
+import { highlightLang, highlightWindow, tokensToLines, type HighlightToken } from "../lib/highlight";
 import {
   afterPreviewSave,
   draftForPath,
@@ -241,7 +241,7 @@ export function PreviewPane({
     >
       <PreviewTabs tabs={tabs} active={displayPath} onSelect={selectTab} onClose={closeTab} />
       <header>
-        <span className="preview-name" data-tip={displayPath}>
+        <span className="preview-name">
           {label}
         </span>
         <span className="preview-actions">
@@ -250,7 +250,6 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={raw}
-              data-tip={raw ? t("preview.render") : t("preview.source")}
               aria-label={raw ? t("preview.render") : t("preview.source")}
               onClick={() => setRaw((v) => !v)}
             >
@@ -262,7 +261,6 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={findOpen}
-              data-tip={t("preview.find")}
               aria-label={t("preview.find")}
               onClick={() => setFindOpen((v) => !v)}
             >
@@ -274,7 +272,6 @@ export function PreviewPane({
               type="button"
               className="file-open"
               aria-pressed={blameOn}
-              data-tip={t("preview.history")}
               aria-label={t("preview.history")}
               onClick={() => {
                 setBlameOn((v) => {
@@ -293,7 +290,6 @@ export function PreviewPane({
             <button
               type="button"
               className="file-open"
-              data-tip={t("preview.copyAll")}
               aria-label={t("preview.copyAll")}
               onClick={() => void navigator.clipboard.writeText(displayText)}
             >
@@ -307,7 +303,6 @@ export function PreviewPane({
               aria-pressed={editing}
               disabled={saving}
               aria-busy={saving}
-              data-tip={saving ? t("preview.saving") : editing ? t("preview.save") : t("preview.edit")}
               aria-label={saving ? t("preview.saving") : editing ? t("preview.save") : t("preview.edit")}
               onClick={() => {
                 if (saving) return;
@@ -322,7 +317,6 @@ export function PreviewPane({
             <button
               type="button"
               className="file-open file-attach"
-              data-tip={t("session.attach")}
               aria-label={t("session.attach")}
               onClick={() => onAttach(displayPath)}
             >
@@ -333,7 +327,6 @@ export function PreviewPane({
             <button
               type="button"
               className="file-open"
-              data-tip={t("finder.open")}
               aria-label={t("finder.open")}
               onClick={() => onReveal(displayPath)}
             >
@@ -341,7 +334,7 @@ export function PreviewPane({
             </button>
           ) : null}
           {onClose ? (
-            <button type="button" className="icon-btn" aria-label={t("preview.close")} data-tip={t("preview.close")} onClick={onClose}>
+            <button type="button" className="icon-btn" aria-label={t("preview.close")} onClick={onClose}>
               <IconGrokClose size={16} />
             </button>
           ) : null}
@@ -491,7 +484,7 @@ function HighlightedSource({
   const t = useT();
   const lang = highlightLang(path);
   const lines = useMemo(() => {
-    const tokens = lang ? highlight(text, lang) : [{ text, kind: "plain" as const }];
+    const tokens = lang ? highlightWindow(text, lang) : [{ text, kind: "plain" as const }];
     return tokensToLines(tokens);
   }, [lang, text]);
   const numbers = lineGutter(text);
@@ -511,7 +504,6 @@ function HighlightedSource({
                 className="preview-gutter"
                 aria-label={t("preview.blameLine", { n })}
                 aria-pressed={blameLine === n}
-                data-tip={t("preview.viewLineHistory")}
                 onClick={() => onBlameLine(n)}
               >
                 {n}

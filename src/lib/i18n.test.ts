@@ -42,6 +42,9 @@ describe("i18n", () => {
     expect(t("en", "memory.loadedChip")).toBe("Memory loaded");
     expect(t("zh", "memory.dismissChip")).toBe("关闭");
     expect(t("en", "memory.dismissChip")).toBe("Dismiss");
+    expect(t("zh", "memory.growth.foundingNow")).toBe("做一场大梦");
+    expect(t("zh", "settings.themeSystem")).toBe("跟随系统");
+    expect(t("en", "settings.themeSystem")).toBe("System");
   });
 
   it("differs on at least 20 chrome keys", () => {

@@ -48,7 +48,7 @@ export function ImagineGallery({
         {paths.map((path) => {
           const src = safeFileSrc(path, roots, convertFileSrc);
           return (
-            <button key={path} type="button" data-tip={path} onClick={() => onOpen(path)}>
+            <button key={path} type="button" onClick={() => onOpen(path)}>
               {src ? (
                 showVideo ? (
                   <video src={src} muted preload="metadata" playsInline />

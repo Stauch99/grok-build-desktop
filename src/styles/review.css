@@ -158,15 +158,15 @@
 .rewind-dialog .palette-list { flex: 1; min-height: 0; }
 .diff-summary-strip { cursor: pointer; }
 .diff-summary-strip:hover { color: var(--text); }
-.title-wrap .diff-summary-strip {
-  width: auto;
-  flex: 0 1 auto;
+.git-pane > .diff-summary-strip {
+  width: 100%;
+  flex: none;
   min-width: 0;
   overflow: hidden;
   gap: 6px;
-  padding: 4px 8px;
-  border-radius: var(--radius);
+  padding: 4px 0 8px;
   color: var(--muted);
+  cursor: default;
 }
 .diff-summary-inner {
   display: inline-flex;
@@ -174,14 +174,9 @@
   gap: 6px;
   min-width: 0;
 }
-.title-wrap .diff-summary-strip:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
 
 /* Stable Review rail: one right-side surface for progress, files, changes, context, details and preview. */
 .review-rail {
-  flex: 0 0 auto;
   align-self: stretch;
   min-width: 280px;
   max-width: none;
@@ -191,11 +186,18 @@
   flex-direction: column;
   overflow: hidden;
   isolation: isolate;
-  border-left: 0.5px solid var(--line);
+  width: var(--review-w, 360px);
+  flex: 0 0 var(--review-w, 360px);
+  border-left: 1px solid var(--line);
   background: var(--bg);
+  animation: rail-in var(--dur) var(--ease);
 }
 .review-rail.rail-out {
   animation: rail-out var(--dur) var(--ease-in) forwards;
+}
+@keyframes rail-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 @keyframes rail-out {
   from { opacity: 1; transform: translateX(0); }
@@ -217,17 +219,6 @@
   font-weight: 500;
   container-type: inline-size;
   container-name: review-head;
-}
-.review-head [data-tip]:hover::after,
-.review-head [data-tip]:focus-visible::after {
-  bottom: auto;
-  top: calc(100% + 6px);
-}
-.review-head > .icon-btn[data-tip]:hover::after,
-.review-head > .icon-btn[data-tip]:focus-visible::after {
-  left: auto;
-  right: 0;
-  transform: none;
 }
 .review-panes {
   display: flex;

@@ -64,7 +64,7 @@ export function QuestionCard({ title, options, onPick, onCustomAnswer }: Questio
       data-keys="1-9"
       onKeyDown={onKeyDown}
     >
-      <h4 data-tip={title}>{title}</h4>
+      <h4>{title}</h4>
       <p className="permission-hint">{t("perm.pickNine")}</p>
       <div className="opts">
         {options.map((opt, i) => {

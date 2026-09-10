@@ -27,7 +27,7 @@ export function GoalBar({ goal, startedAt, live = false }: GoalBarProps) {
       className="goal-bar"
       label={t("goal.label")}
     >
-      <span data-tip={goal}>{goal}</span>
+      <span>{goal}</span>
     </DockCapsule>
   );
 }

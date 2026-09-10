@@ -1,6 +1,7 @@
 import {
   Fragment,
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -42,6 +43,7 @@ import { WorkRun } from "./WorkRun";
 import { liveWorkBlockId, visibleWorkItems } from "../lib/work-run";
 import { latestAssistantText, LIVE_REGION_MS, publishLiveText } from "../lib/live-region";
 import { chatWidthCss } from "../lib/chat-width";
+import { splitInjectedMemory } from "../lib/memory-inject";
 import { tocActiveId } from "../lib/toc-active";
 import { latestThreadRowIndex, readyTranscriptPinKey, restoreVirtualScrollIndex, shouldPinReadyTranscript } from "../lib/virtual-scroll-anchor";
 import { useT } from "../lib/locale-context";
@@ -89,7 +91,7 @@ export function UsageMark({
       ? t("thread.usagePct", { pct, used, size })
       : t("thread.usageIdle");
   return (
-    <span className={`usage-chip usage-chip-${tone}`} data-tip={title}>
+    <span className={`usage-chip usage-chip-${tone}`} aria-label={title}>
       <span className="usage-bar" aria-hidden>
         <span className="usage-bar-fill" style={{ width: `${pct ?? 0}%` }} />
       </span>
@@ -123,7 +125,7 @@ export function WaitPill({
         </span>
       ) : null}
       <span className="wait-time">{elapsed}</span>
-      <button type="button" className="wait-stop" onClick={onStop} data-tip={t("thread.stop")} aria-label={t("thread.stop")}>
+      <button type="button" className="wait-stop" onClick={onStop} aria-label={t("thread.stop")}>
         <IconStop size={16} />
       </button>
     </div>
@@ -170,7 +172,7 @@ export function Fold({
         <span className="fold-label">{label}</span>
         {meta ? <span className={metaClass}>{meta}</span> : null}
       </button>
-      {open && children ? <div className="fold-body">{children}</div> : null}
+      {children ? <div className="fold-body">{children}</div> : null}
     </div>
   );
 }
@@ -213,11 +215,12 @@ export const ChatRow = memo(function ChatRow({
   };
   if (item.kind === "user") {
     const clock = item.at != null ? formatClock(item.at) : undefined;
+    const visible = splitInjectedMemory(item.text).visible;
     return (
       <div
         id={`turn-${paneId}-${item.id}`}
         data-turn-id={item.id}
-        className={`turn-user${highlightQuery && item.text.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}`}
+        className={`turn-user${highlightQuery && visible.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}`}
       >
         <UserTurn
           text={item.text}
@@ -226,8 +229,8 @@ export const ChatRow = memo(function ChatRow({
           clock={clock || undefined}
           sessionModel={sessionModel}
           onClick={(e) => handleMdClick(e, cwd, onPreviewPath)}
-          onCopy={() => void navigator.clipboard.writeText(item.text)}
-          onResend={() => onResendUser?.(item.text)}
+          onCopy={() => void navigator.clipboard.writeText(visible)}
+          onResend={() => onResendUser?.(visible)}
           onEditResend={onResendUser}
           onRewind={rewindFor?.(item.id)}
           onFork={onForkTurn ? () => onForkTurn(item.id) : undefined}
@@ -253,7 +256,6 @@ export const ChatRow = memo(function ChatRow({
             type="button"
             onClick={() => void navigator.clipboard.writeText(item.text)}
             aria-label={t("thread.copy")}
-            data-tip={t("thread.copy")}
           >
             <IconGrokCopy />
           </button>
@@ -356,7 +358,7 @@ export const ChatRow = memo(function ChatRow({
   );
 });
 
-const VIRTUALIZE_AFTER = 80;
+const VIRTUALIZE_AFTER = 24;
 const LIST_OVERSCAN = 8;
 
 type ThreadRowCtx = {
@@ -368,10 +370,11 @@ type ThreadRowCtx = {
   blocks: ThreadBlock[];
   lastWorkId: string | null;
   liveInTimeline: boolean;
-  liveRow: ReactNode;
   liveStartedAt?: number;
+  stallNote?: string;
   busy: boolean;
-  items: ChatItem[];
+  copyReady: (id: string) => boolean;
+  lastUser: (id: string) => string | null;
   onResendUser?: (text: string) => void;
   rewindFor?: (itemId: string) => (() => void) | undefined;
   onForkTurn?: (itemId: string) => void;
@@ -412,10 +415,11 @@ function ThreadBlockView({
     showThinking,
     sessionModel,
     lastWorkId,
-    liveRow,
     liveStartedAt,
-    items,
+    stallNote,
     busy,
+    copyReady,
+    lastUser,
     onResendUser,
     rewindFor,
     onForkTurn,
@@ -425,7 +429,7 @@ function ThreadBlockView({
     onCancel,
     onDraftUser,
   } = ctx;
-  const copyFor = (id: string) => assistantCopyReady(items, id, busy);
+  const copyFor = copyReady;
   if (block.kind === "work") {
     const visible = visibleWorkItems(block.items, showThinking);
     if (visible.length === 0) return null;
@@ -435,14 +439,14 @@ function ThreadBlockView({
         items={visible}
         busy={runBusy}
         cwd={cwd}
-        live={runBusy ? liveRow : null}
+        live={runBusy && busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} /> : null}
         onInspectTool={onInspectTool}
         onRetry={(tool) => {
-          const text = lastUserTextBefore(items, tool.id);
+          const text = lastUser(tool.id);
           if (text) onResendUser?.(text);
         }}
         onDraft={(tool) => {
-          const text = lastUserTextBefore(items, tool.id);
+          const text = lastUser(tool.id);
           if (text) onDraftUser?.(text);
         }}
         onStop={runBusy ? onCancel : undefined}
@@ -490,7 +494,7 @@ function ThreadBlockView({
       onInspectTool={onInspectTool}
       onPreviewPath={onPreviewPath}
           highlightQuery={highlightQuery}
-          retryText={item.kind === "tool" ? lastUserTextBefore(items, item.id) : null}
+          retryText={item.kind === "tool" ? lastUser(item.id) : null}
           onDraftUser={onDraftUser}
     />
   );
@@ -586,12 +590,17 @@ export function ThreadColumn({
   const blocks = useMemo(() => groupWorkRuns(chat.items), [chat.items]);
   const virtualize = blocks.length > VIRTUALIZE_AFTER;
   const listRef = useListRef(null);
-  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 72 });
+  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 96 });
   const lastWorkId = liveWorkBlockId(blocks, { busy, showThinking });
   const liveInTimeline = lastWorkId != null;
   const liveStartedAt = trailingWorkStartedAt(chat.items);
-  const liveRow =
-    busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} /> : null;
+  const itemsRef = useRef(chat.items);
+  itemsRef.current = chat.items;
+  const copyReady = useCallback(
+    (id: string) => assistantCopyReady(itemsRef.current, id, busy),
+    [busy],
+  );
+  const lastUser = useCallback((id: string) => lastUserTextBefore(itemsRef.current, id), []);
   const rowCtx = useMemo(
     (): ThreadRowCtx => ({
       paneId,
@@ -602,10 +611,11 @@ export function ThreadColumn({
       blocks,
       lastWorkId,
       liveInTimeline,
-      liveRow,
       liveStartedAt,
+      stallNote,
       busy,
-      items: chat.items,
+      copyReady,
+      lastUser,
       onResendUser,
       rewindFor,
       onForkTurn,
@@ -624,10 +634,11 @@ export function ThreadColumn({
       blocks,
       lastWorkId,
       liveInTimeline,
-      liveRow,
       liveStartedAt,
+      stallNote,
       busy,
-      chat.items,
+      copyReady,
+      lastUser,
       onResendUser,
       rewindFor,
       onForkTurn,
@@ -690,11 +701,6 @@ export function ThreadColumn({
     lastReadyPinRef.current = next.remember;
     if (!next.pin) return;
     pinToEnd(true);
-    const raf = requestAnimationFrame(() => {
-      pinToEnd(true);
-      requestAnimationFrame(() => pinToEnd(true));
-    });
-    return () => cancelAnimationFrame(raf);
   }, [readyPinKey]);
 
   useLayoutEffect(() => {
@@ -834,7 +840,9 @@ export function ThreadColumn({
                 />
               ))
             )}
-            {busy && !liveInTimeline ? liveRow : null}
+            {busy && !liveInTimeline ? (
+              <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} />
+            ) : null}
           </>
         )}
         </div>
@@ -846,7 +854,7 @@ export function ThreadColumn({
       {turns.length > 1 && (
         <nav className="toc" aria-label={t("thread.toc")}>
           {turns.map((u) => {
-            const tip = u.text.replace(/\s+/g, " ").slice(0, 80);
+            const tip = splitInjectedMemory(u.text).visible.replace(/\s+/g, " ").slice(0, 80);
             return (
               <button
                 key={u.id}

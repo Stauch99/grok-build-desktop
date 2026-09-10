@@ -32,38 +32,44 @@ export function useGitWatcher(opts: {
   cwd: string;
   onWorkspaceTouched?: (cwd: string) => void;
 }): GitWatcher {
-  const [git, setGit] = useState<GitStatus | null>(null);
-  const [changes, setChanges] = useState<GitChange[]>([]);
-  const [commits, setCommits] = useState<GitCommit[]>([]);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
+  const [snap, setSnap] = useState<{
+    git: GitStatus | null;
+    changes: GitChange[];
+    commits: GitCommit[];
+    branches: string[];
+    worktrees: GitWorktree[];
+  }>({ git: null, changes: [], commits: [], branches: [], worktrees: [] });
   const onTouchedRef = useRef(opts.onWorkspaceTouched);
   onTouchedRef.current = opts.onWorkspaceTouched;
 
   const refresh = useCallback(async (dir = opts.cwd) => {
     try {
-      const snap = await loadGitSnapshot(dir, {
+      const next = await loadGitSnapshot(dir, {
         status: gitStatus,
         changes: gitChanges,
         log: gitLog,
         branches: gitBranches,
       });
-      setGit(snap.git);
-      setChanges(snap.changes);
-      setCommits(snap.commits);
-      setBranches(snap.branches);
-      if (snap.git?.isRepo) {
+      if (next.git?.isRepo) {
         const porcelain = await gitListWorktrees(dir).catch(() => "");
-        setWorktrees(parseWorktreePorcelain(porcelain));
+        setSnap({
+          git: next.git,
+          changes: next.changes,
+          commits: next.commits,
+          branches: next.branches,
+          worktrees: parseWorktreePorcelain(porcelain),
+        });
       } else {
-        setWorktrees([]);
+        setSnap({
+          git: next.git,
+          changes: next.changes,
+          commits: next.commits,
+          branches: next.branches,
+          worktrees: [],
+        });
       }
     } catch {
-      setGit(null);
-      setChanges([]);
-      setCommits([]);
-      setBranches([]);
-      setWorktrees([]);
+      setSnap({ git: null, changes: [], commits: [], branches: [], worktrees: [] });
     }
   }, [opts.cwd]);
 
@@ -120,5 +126,5 @@ export function useGitWatcher(opts: {
     };
   }, [opts.cwd, refresh]);
 
-  return { git, changes, commits, branches, worktrees, refresh };
+  return { ...snap, refresh };
 }
