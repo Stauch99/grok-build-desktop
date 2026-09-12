@@ -81,10 +81,12 @@ function SpineRow({
 export function WorkLiveRow({
   startedAt,
   onStop,
+  onStopAndRetry,
   note,
 }: {
   startedAt?: number;
   onStop: () => void;
+  onStopAndRetry?: () => void;
   note?: string;
 }) {
   const t = useT();
@@ -107,7 +109,7 @@ export function WorkLiveRow({
     (startedAt != null
       ? t("timeline.worked", { elapsed: formatWorkedElapsed(now - startedAt) })
       : t("timeline.working"));
-  return (
+  const liveBtn = (
     <button
       type="button"
       className={`work-live${note ? " stalled" : ""}`}
@@ -121,6 +123,15 @@ export function WorkLiveRow({
         <span className={`spine-verb${note ? "" : " shimmer-text"}`}>{label}</span>
       </span>
     </button>
+  );
+  if (!onStopAndRetry) return liveBtn;
+  return (
+    <div className="work-live-wrap">
+      {liveBtn}
+      <button type="button" className="btn work-live-retry" onClick={onStopAndRetry}>
+        {t("thread.stopAndRetry")}
+      </button>
+    </div>
   );
 }
 

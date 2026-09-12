@@ -35,7 +35,7 @@ import { AccentSwatches } from "./components/AccentSwatches";
 import { DEFAULT_ACCENT_ID, type AccentId } from "./lib/accent";
 import brandLogoUrl from "./assets/brand-logo.png";
 import { friendlyError } from "./lib/error-copy";
-import { parseGrantKey } from "./lib/permission-allow";
+import { grantExpiresAt, parseGrantKey } from "./lib/permission-allow";
 import { basename } from "./lib/text";
 import { agentChipLabel } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
@@ -931,12 +931,16 @@ export function SettingsPanel({
                             <ul className="set-list">
                               {allowedTools.map((key) => {
                                 const grant = parseGrantKey(key);
+                                const expires = grantExpiresAt(key);
                                 const label = grant
                                   ? `${isAgentId(grant.agentId) ? agentChipLabel(grant.agentId) : grant.agentId} · ${basename(grant.cwd)} · ${grant.tool}`
                                   : key;
+                                const expiry = expires
+                                  ? t(locale, "settings.grantExpires", { date: new Date(expires).toLocaleDateString() })
+                                  : "";
                                 return (
                                   <li key={key} className="set-row">
-                                    <span>{label}</span>
+                                    <span>{expiry ? `${label} · ${expiry}` : label}</span>
                                     <button type="button" className="btn ghost" onClick={() => onRevokeTool?.(key)}>
                                       {t(locale, "perm.revoke")}
                                     </button>

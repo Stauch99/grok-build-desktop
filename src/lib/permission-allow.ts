@@ -1,6 +1,18 @@
 /** In-memory session tool allowlist key: `${sessionId}::${toolName}`. */
 export type AllowKey = `${string}::${string}`;
 
+/** Durable grants expire; session allow-list does not. */
+export const GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GRANT_TS_SEP = "@@";
+
+const HIGH_RISK_TOOLS = new Set(["execute", "bash", "write", "shell"]);
+
+/** High-risk tools cannot be saved as durable "always" grants. Session skip and yolo stay. */
+export function isHighRiskTool(toolName: string): boolean {
+  const n = toolName.trim().toLowerCase().replace(/:$/, "");
+  return HIGH_RISK_TOOLS.has(n);
+}
+
 export type PermissionOption = {
   optionId: string;
   name: string;
@@ -17,13 +29,69 @@ export function grantKey(agentId: string, cwd: string, toolName: string): string
 }
 
 export function parseGrantKey(key: string): { agentId: string; cwd: string; tool: string } | null {
-  const parts = key.split("::");
+  const bare = grantBareKey(key);
+  const parts = bare.split("::");
   if (parts.length < 3) return null;
   const agentId = parts[0] ?? "";
   const tool = parts[parts.length - 1] ?? "";
   const cwd = parts.slice(1, -1).join("::");
   if (!agentId || !cwd || !tool) return null;
   return { agentId, cwd, tool };
+}
+
+function grantBareKey(entry: string): string {
+  const cut = entry.lastIndexOf(GRANT_TS_SEP);
+  return cut === -1 ? entry : entry.slice(0, cut);
+}
+
+export function grantGrantedAt(entry: string): number | null {
+  const cut = entry.lastIndexOf(GRANT_TS_SEP);
+  if (cut === -1) return null;
+  const n = Number(entry.slice(cut + GRANT_TS_SEP.length));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function storedGrant(agentId: string, cwd: string, toolName: string, grantedAt = Date.now()): string {
+  return `${grantKey(agentId, cwd, toolName)}${GRANT_TS_SEP}${grantedAt}`;
+}
+
+export function grantExpiresAt(entry: string, ttlMs = GRANT_TTL_MS): number | null {
+  const at = grantGrantedAt(entry);
+  return at == null ? null : at + ttlMs;
+}
+
+export function grantStillValid(entry: string, nowMs = Date.now(), ttlMs = GRANT_TTL_MS): boolean {
+  if (isHighRiskTool(parseGrantKey(entry)?.tool ?? "")) return false;
+  const at = grantGrantedAt(entry);
+  if (at == null) return false;
+  return nowMs - at < ttlMs;
+}
+
+/** Stamp legacy keys, drop expired and high-risk durable grants. */
+export function migrateAllowedTools(entries: readonly string[], nowMs = Date.now()): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of entries) {
+    if (typeof raw !== "string" || !raw) continue;
+    if (!raw.includes("::")) continue;
+    const parsed = parseGrantKey(raw);
+    if (parsed) {
+      if (isHighRiskTool(parsed.tool)) continue;
+      const stamped = grantGrantedAt(raw) != null ? raw : storedGrant(parsed.agentId, parsed.cwd, parsed.tool, nowMs);
+      if (!grantStillValid(stamped, nowMs)) continue;
+      const bare = grantBareKey(stamped);
+      if (seen.has(bare)) continue;
+      seen.add(bare);
+      out.push(stamped);
+      continue;
+    }
+    // session allow keys (`sessionId::tool`) — keep as-is
+    if (raw.includes(GRANT_TS_SEP)) continue;
+    if (seen.has(raw)) continue;
+    seen.add(raw);
+    out.push(raw);
+  }
+  return out;
 }
 
 /** Prefer toolKind; otherwise first whitespace token of title. */
@@ -39,13 +107,30 @@ export function shouldSkipPermission(
   sessionId: string | null | undefined,
   toolName: string,
   grant?: { agentId: string; cwd: string },
+  nowMs = Date.now(),
 ): boolean {
   if (!toolName) return false;
-  if (grant?.agentId && grant.cwd && allowed.has(grantKey(grant.agentId, grant.cwd, toolName))) {
+  if (grant?.agentId && grant.cwd && hasValidDurableGrant(allowed, grant.agentId, grant.cwd, toolName, nowMs)) {
     return true;
   }
   if (!sessionId) return false;
   return allowed.has(allowKey(sessionId, toolName));
+}
+
+function hasValidDurableGrant(
+  allowed: Set<string>,
+  agentId: string,
+  cwd: string,
+  toolName: string,
+  nowMs: number,
+): boolean {
+  if (isHighRiskTool(toolName)) return false;
+  const exact = grantKey(agentId, cwd, toolName);
+  for (const entry of allowed) {
+    if (grantBareKey(entry) !== exact) continue;
+    if (grantStillValid(entry, nowMs)) return true;
+  }
+  return false;
 }
 
 /** Composer 始终批准 skips tool permission cards. AskUserQuestion stays interactive. */
@@ -71,9 +156,15 @@ export function allowForGrant(
   agentId: string,
   cwd: string,
   toolName: string,
+  grantedAt = Date.now(),
 ): Set<string> {
   const next = new Set(allowed);
-  if (agentId && cwd && toolName) next.add(grantKey(agentId, cwd, toolName));
+  if (!agentId || !cwd || !toolName || isHighRiskTool(toolName)) return next;
+  const exact = grantKey(agentId, cwd, toolName);
+  for (const entry of [...next]) {
+    if (grantBareKey(entry) === exact) next.delete(entry);
+  }
+  next.add(storedGrant(agentId, cwd, toolName, grantedAt));
   return next;
 }
 

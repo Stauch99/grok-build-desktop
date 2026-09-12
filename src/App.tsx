@@ -42,7 +42,7 @@ import { PaneLayout } from "./components/PaneLayout";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
 import { INBOX_PIN } from "./lib/sidebar-list";
-import { allowForGrant, allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
+import { allowForGrant, allowForSession, findAlwaysOption, isHighRiskTool, parseToolName, pickAllowOption } from "./lib/permission-allow";
 import type { QueuedPermission } from "./lib/permission-queue";
 import { subagentChips } from "./lib/subagent-tree";
 import { friendlyError } from "./lib/error-copy";
@@ -378,6 +378,7 @@ export function App() {
     goalView,
     health,
     runStatus,
+    mainWedged,
     turnStats,
     sounds,
     setSounds,
@@ -411,11 +412,12 @@ export function App() {
 
   function rememberGrant(perm: QueuedPermission, paneCwd: string, paneSid: string | null) {
     const tool = parseToolName(perm.title, perm.toolKind);
-    let next = allowForGrant(allowedTools, perm.agentId, paneCwd, tool);
+    let next = allowedTools;
     if (paneSid) next = allowForSession(next, paneSid, tool);
+    if (!isHighRiskTool(tool)) next = allowForGrant(next, perm.agentId, paneCwd, tool);
     setAllowedTools(next);
     persist({ allowedTools: [...next] });
-    const pick = findAlwaysOption(perm.options) ?? pickAllowOption(perm.options);
+    const pick = (isHighRiskTool(tool) ? null : findAlwaysOption(perm.options)) ?? pickAllowOption(perm.options);
     if (pick) void answerPermission(perm, pick);
   }
 
@@ -432,6 +434,25 @@ export function App() {
   function stopJob(job: { paneId: string }) {
     setJobsOpen(false);
     void cancelTurn(job.paneId);
+  }
+
+  function stopAndRetry(paneId: string) {
+    const items =
+      paneId === MAIN_PANE ? paneChatStore.getMain().chat.items : paneChatStore.getExtra(paneId).chat.items;
+    let text = "";
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.kind === "user" && item.text.trim()) {
+        text = item.text;
+        break;
+      }
+    }
+    void cancelTurn(paneId).then(() => {
+      if (!text) return;
+      if (paneId === MAIN_PANE) onDraftChange(text);
+      else onExtraDraftChange(paneId, text);
+      showToast(t(locale, "toast.wedgedRetry"));
+    });
   }
 
   function jobsMenu() {
@@ -505,6 +526,7 @@ export function App() {
             receivedAt={item.receivedAt}
             onPick={(id) => void answerPermission(item, id)}
             onAlwaysAllow={() => rememberGrant(item, paneCwd, paneSid)}
+            canRemember={!isHighRiskTool(parseToolName(item.title, item.toolKind))}
           />
         ))}
         {perm && kind && visible && (
@@ -518,6 +540,7 @@ export function App() {
             onPick={(id) => void answerPermission(perm, id)}
             onAlwaysAllow={kind === "permission" ? () => rememberGrant(perm, paneCwd, paneSid) : undefined}
             onCustomAnswer={kind === "question" ? customAnswerFor(perm, paneId) : undefined}
+            canRemember={!isHighRiskTool(parseToolName(perm.title, perm.toolKind))}
           />
         )}
       </>
@@ -716,6 +739,7 @@ export function App() {
             sessionModel={paneSession?.model ?? null}
             stallNote={paneId === MAIN_PANE && runStatus.kind === "stalled" ? runStatus.detail : undefined}
             onCancel={() => void cancelTurn(paneId)}
+            onStopAndRetry={paneId === MAIN_PANE && mainWedged ? () => stopAndRetry(paneId) : undefined}
             chatRef={paneChatRef}
             pinToLatest={paneAtBottom}
             sessionId={sid}
@@ -1195,6 +1219,7 @@ return (
               }
               stallNote={runStatus.kind === "stalled" ? runStatus.detail : undefined}
               onCancel={() => void cancelTurn("main")}
+              onStopAndRetry={mainWedged ? () => stopAndRetry(MAIN_PANE) : undefined}
               sessionModel={sessionModel}
               chatRef={chatEl}
               pinToLatest={atBottom}

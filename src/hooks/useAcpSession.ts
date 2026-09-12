@@ -72,6 +72,7 @@ import { applyTurnCrash, turnIsLive } from "../lib/turn-crash";
 import {
   applyGhostHeal,
   findOptimisticGhostTurn,
+  PROMPT_RPC_TIMEOUT_MS,
   shouldHealGhostStreaming,
   stampMainTurnClock,
 } from "../lib/ghost-streaming-heal";
@@ -1026,7 +1027,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const rec = asRecord(params);
     const sid = typeof rec.sessionId === "string" ? rec.sessionId : "";
     if (sid) pendingSession.current.set(id, sid);
-    const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? 0 : 180000);
+    const timeoutMs = opts?.timeoutMs ?? (method === "session/prompt" ? PROMPT_RPC_TIMEOUT_MS : 180000);
     return new Promise((resolve, reject) => {
       pendingRpc.current.set(id, { resolve, reject, method });
       void sendRaw({ jsonrpc: "2.0", id, method, params }, agentId).catch((e) => {

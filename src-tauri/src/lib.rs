@@ -670,7 +670,7 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
         probe_agent_binary("claude"),
         probe_agent_binary("codex"),
     );
-    vec![
+    let mut rows = vec![
         crate::agent_doctor::doctor_from_evidence(
             "grok",
             grok_h.display().to_string(),
@@ -703,7 +703,26 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
             codex_bin.0,
             codex_bin.1,
         ),
-    ]
+    ];
+    let registry =
+        std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
+    let grok_bin_path = resolve_grok();
+    let grok_bin_dir = grok_h.join("bin");
+    let ids = [
+        AgentId::Grok,
+        AgentId::Kimi,
+        AgentId::Claude,
+        AgentId::Codex,
+    ];
+    for (row, id) in rows.iter_mut().zip(ids) {
+        row.spawn_rejected = crate::adapters::toml_spawn_rejected(
+            id,
+            grok_bin_path.as_deref(),
+            &grok_bin_dir,
+            registry.as_deref(),
+        );
+    }
+    rows
 }
 
 #[tauri::command]

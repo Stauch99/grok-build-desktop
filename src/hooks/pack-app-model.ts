@@ -346,6 +346,7 @@ export function packAppModel(p: PackAppModelInput) {
     goalView: s.goalView,
     health: view.health,
     runStatus: view.runStatus,
+    mainWedged: view.mainWedged,
     turnStats: view.turnStats,
     hasOpenSession: !!acp.sessionId,
     injectedSessions: acp.injectedSessions,

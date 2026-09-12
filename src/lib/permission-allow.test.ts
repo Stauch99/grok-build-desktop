@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  GRANT_TTL_MS,
+  allowForGrant,
   allowForSession,
   allowKey,
   findAlwaysOption,
+  grantGrantedAt,
+  grantStillValid,
   isAllowOption,
+  isHighRiskTool,
+  migrateAllowedTools,
+  parseGrantKey,
   parseToolName,
   pickAllowOption,
   shouldAutoApprovePermission,
   shouldSkipPermission,
+  storedGrant,
 } from "./permission-allow";
 
 describe("parseToolName", () => {
@@ -44,6 +52,43 @@ describe("allowlist", () => {
     expect(shouldSkipPermission(next, "s1", "bash")).toBe(true);
     expect(shouldSkipPermission(next, "s1", "read")).toBe(false);
     expect(shouldSkipPermission(next, "s2", "bash")).toBe(false);
+  });
+
+  it("does not skip high-risk durable grants; session skip still works", () => {
+    const durable = allowForGrant(new Set(), "grok", "/tmp/p", "bash", 1);
+    expect([...durable]).toEqual([]);
+    expect(shouldSkipPermission(durable, "s1", "bash", { agentId: "grok", cwd: "/tmp/p" })).toBe(false);
+    const session = allowForSession(new Set(), "s1", "bash");
+    expect(shouldSkipPermission(session, "s1", "bash")).toBe(true);
+  });
+
+  it("expires stamped grants and ignores legacy keys without a timestamp", () => {
+    const fresh = storedGrant("grok", "/tmp/p", "read", 1_000);
+    const set = new Set([fresh, "grok::/tmp/p::read"]);
+    expect(shouldSkipPermission(set, "s1", "read", { agentId: "grok", cwd: "/tmp/p" }, 1_000 + 60_000)).toBe(true);
+    expect(shouldSkipPermission(set, "s1", "read", { agentId: "grok", cwd: "/tmp/p" }, 1_000 + GRANT_TTL_MS)).toBe(false);
+    expect(grantStillValid("grok::/tmp/p::read", 1_000)).toBe(false);
+    expect(grantGrantedAt(fresh)).toBe(1_000);
+    expect(parseGrantKey(fresh)).toEqual({ agentId: "grok", cwd: "/tmp/p", tool: "read" });
+  });
+
+  it("migrates legacy grants, drops high-risk, and drops expired", () => {
+    const now = GRANT_TTL_MS + 10_000;
+    const next = migrateAllowedTools(
+      ["grok::/tmp/p::read", "grok::/tmp/p::bash", storedGrant("kimi", "/a", "read", 1), "s1::read"],
+      now,
+    );
+    expect(next).toContain(storedGrant("grok", "/tmp/p", "read", now));
+    expect(next.some((k) => k.includes("bash"))).toBe(false);
+    expect(next).toContain("s1::read");
+    expect(next.some((k) => k.startsWith("kimi::"))).toBe(false);
+  });
+
+  it("flags execute / bash / write as high-risk", () => {
+    expect(isHighRiskTool("execute")).toBe(true);
+    expect(isHighRiskTool("Bash:")).toBe(true);
+    expect(isHighRiskTool("write")).toBe(true);
+    expect(isHighRiskTool("read")).toBe(false);
   });
 
   it("does not mutate the original set", () => {

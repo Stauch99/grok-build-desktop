@@ -74,4 +74,20 @@ describe("WorkLiveRow", () => {
     expect(html).toContain("已 3 分钟没有新输出，可能卡住了");
     expect(html).not.toContain("工作了 4m 4s");
   });
+
+  it("offers stop-and-retry beside the live row when the turn is wedged", () => {
+    const html = renderToStaticMarkup(
+      createElement(LocaleProvider, {
+        locale: "zh",
+        children: createElement(WorkLiveRow, {
+          startedAt: Date.now() - 244_000,
+          note: "已 3 分钟没有新输出，可能卡住了",
+          onStop: () => {},
+          onStopAndRetry: () => {},
+        }),
+      }),
+    );
+    expect(html).toContain("work-live-retry");
+    expect(html).toContain("停止并重试");
+  });
 });

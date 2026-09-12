@@ -95,6 +95,18 @@ describe("doctorActionHint", () => {
       }),
     ).toEqual([]);
   });
+
+  it("reports a rejected spawn command before install/login hints", () => {
+    expect(
+      doctorActionHint({
+        agentId: "kimi",
+        binary: "/usr/bin/kimi",
+        authPresent: true,
+        loginHint: ["kimi login"],
+        spawnRejected: "sh",
+      }),
+    ).toEqual(["启动命令被拒绝（sh）"]);
+  });
 });
 
 describe("emptyDoctorKind", () => {

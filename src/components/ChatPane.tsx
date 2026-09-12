@@ -33,6 +33,7 @@ export type ChatPaneProps = {
   stallNote?: string;
   atBottom: boolean;
   onJumpBottom: () => void;
+  onStopAndRetry?: () => void;
 };
 
 function urlChipsFrom(chat: ChatState): string[] {

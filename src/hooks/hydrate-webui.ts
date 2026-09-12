@@ -27,6 +27,7 @@ import {
   type SidebarListPrefs,
 } from "../lib/sidebar-list";
 import { keepLiveAgentOnHydrate } from "../lib/session-agent";
+import { migrateAllowedTools } from "../lib/permission-allow";
 import type { AgentId } from "../lib/agent-id";
 import { normalizeAccentId, type AccentId } from "../lib/accent";
 import type { AgentDoctor } from "../lib/agent-doctor";
@@ -173,7 +174,7 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     if (typeof state.hideToTray === "boolean") d.setHideToTray(state.hideToTray);
     if (typeof state.sounds === "boolean") d.setSounds(state.sounds);
     if (Array.isArray(state.allowedTools)) {
-      d.setAllowedTools(new Set(state.allowedTools.filter((k) => typeof k === "string")));
+      d.setAllowedTools(new Set(migrateAllowedTools(state.allowedTools.filter((k) => typeof k === "string"))));
     }
     if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
       d.setDefaultRail(state.defaultRail);

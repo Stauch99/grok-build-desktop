@@ -11,6 +11,7 @@ export type AgentDoctor = {
   authPresent: boolean;
   authKind: AuthKind;
   loginHint: string[];
+  spawnRejected?: string | null;
 };
 
 export function defaultAgentHome(home: string, id: AgentId): string {
@@ -35,8 +36,9 @@ export function defaultInstallHint(id: AgentId): string[] {
 }
 
 export function doctorActionHint(
-  d: Pick<AgentDoctor, "agentId" | "binary" | "authPresent" | "loginHint">,
+  d: Pick<AgentDoctor, "agentId" | "binary" | "authPresent" | "loginHint" | "spawnRejected">,
 ): string[] {
+  if (d.spawnRejected) return [tr("doctor.spawnRejected", { cmd: d.spawnRejected })];
   if (!d.binary) return defaultInstallHint(d.agentId);
   if (!d.authPresent) return d.loginHint.length ? d.loginHint : defaultLoginHint(d.agentId);
   return [];

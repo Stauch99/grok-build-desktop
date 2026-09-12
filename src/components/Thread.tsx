@@ -383,6 +383,7 @@ type ThreadRowCtx = {
   highlightQuery?: string;
   onCancel: () => void;
   onDraftUser?: (text: string) => void;
+  onStopAndRetry?: () => void;
 };
 
 function userTurnsBefore(blocks: ThreadBlock[], index: number): number {
@@ -428,6 +429,7 @@ function ThreadBlockView({
     highlightQuery,
     onCancel,
     onDraftUser,
+    onStopAndRetry,
   } = ctx;
   const copyFor = copyReady;
   if (block.kind === "work") {
@@ -439,7 +441,7 @@ function ThreadBlockView({
         items={visible}
         busy={runBusy}
         cwd={cwd}
-        live={runBusy && busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} /> : null}
+        live={runBusy && busy ? <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} onStopAndRetry={onStopAndRetry} note={stallNote} /> : null}
         onInspectTool={onInspectTool}
         onRetry={(tool) => {
           const text = lastUser(tool.id);
@@ -543,6 +545,7 @@ export type ThreadColumnProps = {
   loading?: boolean;
   onDraftUser?: (text: string) => void;
   stallNote?: string;
+  onStopAndRetry?: () => void;
 };
 
 /** The conversation column: narrative, work timeline, and the tick-mark table of contents. */
@@ -575,6 +578,7 @@ export function ThreadColumn({
   loading = false,
   onDraftUser,
   stallNote,
+  onStopAndRetry,
 }: ThreadColumnProps) {
   const t = useT();
   const [tocHover, setTocHover] = useState<{
@@ -624,6 +628,7 @@ export function ThreadColumn({
       highlightQuery,
       onCancel,
       onDraftUser,
+      onStopAndRetry,
     }),
     [
       paneId,
@@ -647,6 +652,7 @@ export function ThreadColumn({
       highlightQuery,
       onCancel,
       onDraftUser,
+      onStopAndRetry,
     ],
   );
   const listActive = virtualize && !empty;
@@ -846,7 +852,7 @@ export function ThreadColumn({
               ))
             )}
             {busy && !liveInTimeline ? (
-              <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} note={stallNote} />
+              <WorkLiveRow startedAt={liveStartedAt} onStop={onCancel} onStopAndRetry={onStopAndRetry} note={stallNote} />
             ) : null}
           </>
         )}
