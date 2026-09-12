@@ -61,6 +61,8 @@ describe("thread open scroll", () => {
     const src = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/pinToLatest=\{paneAtBottom\}/);
     expect(src).toMatch(/pinToLatest=\{atBottom\}/);
+    expect(src).toMatch(/<ChatPane/);
+    expect(src).toMatch(/store=\{paneChatStore\}/);
     expect(src).toMatch(/sessionId=\{sid\}/);
     expect(src).toMatch(/sessionId=\{sessionId\}/);
     expect(src).toMatch(/loading=\{loadingSession\}/);

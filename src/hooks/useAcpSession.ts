@@ -78,6 +78,7 @@ import {
 
 import { classifyAgentExit } from "../lib/agent-exit";
 import { friendlyError } from "../lib/error-copy";
+import { chatShellKey, createPaneChatStore, extraPaneShouldRender, type PaneChatStore } from "../lib/pane-chat-store";
 import { recordPromptHistory } from "../lib/prompt-history";
 import {
   bindTurnSession,
@@ -576,12 +577,15 @@ export type AcpSession = {
   dismissInjectedSession: (sessionId: string) => void;
   mainAgentIdRef: React.MutableRefObject<AgentId>;
   bindMainAgent: (id: AgentId) => void;
+  paneChatStore: PaneChatStore;
 };
 
 export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [chat, setChat] = useState<ChatState>(emptyChat);
-  const [busy, setBusy] = useState(false);
+  const [paneChatStore] = useState(createPaneChatStore);
+  const chatRef = useRef<ChatState>(emptyChat());
+  const [chat, setChatState] = useState<ChatState>(chatRef.current);
+  const [busy, setBusyState] = useState(false);
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
   const [liveTurnIds, setLiveTurnIds] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -620,14 +624,28 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const drainRef = useRef<() => void>(() => {});
   const depsRef = useRef(deps);
   depsRef.current = deps;
-  const chatRef = useRef(chat);
-  chatRef.current = chat;
   const extraChatRef = useRef<Record<string, ChatState>>({});
   const extraBusyKey = Object.entries(deps.extraPanes)
     .filter(([, pane]) => pane.busy)
     .map(([id]) => id)
     .join(",");
   const seenAssistantAtRef = useRef<number | null>(null);
+
+  const setChat: React.Dispatch<React.SetStateAction<ChatState>> = (action) => {
+    const prev = chatRef.current;
+    const next = typeof action === "function" ? action(prev) : action;
+    chatRef.current = next;
+    paneChatStore.setMainChat(next);
+    if (chatShellKey(prev) !== chatShellKey(next)) setChatState(next);
+  };
+
+  const setBusy: React.Dispatch<React.SetStateAction<boolean>> = (action) => {
+    const prev = busyRef.current;
+    const next = typeof action === "function" ? action(prev) : action;
+    busyRef.current = next;
+    paneChatStore.setMainBusy(next);
+    if (next !== prev) setBusyState(next);
+  };
   useEffect(() => onHiddenFlush(() => drainRef.current()), []);
   useEffect(() => {
     turnStartedAtRef.current = stampMainTurnClock(busy, turnStartedAtRef.current, Date.now());
@@ -752,11 +770,20 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     });
   }
 
+  function rememberExtra(paneId: string, pane: ExtraPaneState) {
+    extraChatRef.current[paneId] = pane.chat;
+    paneChatStore.replaceExtra(paneId, { chat: pane.chat, busy: pane.busy });
+  }
+
   function patchExtra(paneId: string, patch: (prev: ExtraPaneState) => ExtraPaneState) {
     depsRef.current.setExtraPanes((prev) => {
       const cur = prev[paneId];
       if (!cur) return prev;
-      return { ...prev, [paneId]: patch(cur) };
+      const live = { ...cur, chat: extraChatRef.current[paneId] ?? cur.chat };
+      const next = patch(live);
+      rememberExtra(paneId, next);
+      if (!extraPaneShouldRender(cur, next)) return prev;
+      return { ...prev, [paneId]: next };
     });
   }
 
@@ -894,7 +921,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       pane: MAIN_PANE,
       sessionId: sessionIdRef.current,
     });
-    busyRef.current = live;
     setBusy(live);
     const primary = primaryRunningId(turnsRef.current, sessionIdRef.current);
     runningSessionIdRef.current = primary;
@@ -1253,7 +1279,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           const notice = surfaceStderr(line);
           if (notice) setChat((prev) => withPromptFail(prev, notice, Date.now()));
         }
-        depsRef.current.setExtraPanes((prev) => extraPanesAfterAgentStderr(prev, eventAgent, line, Date.now()));
+        depsRef.current.setExtraPanes((prev) => {
+          const next = extraPanesAfterAgentStderr(prev, eventAgent, line, Date.now());
+          for (const [id, pane] of Object.entries(next)) rememberExtra(id, pane);
+          return next;
+        });
       });
       const exit = await onAgentExit((eventAgent, payload, generation) => {
         if (
@@ -1308,9 +1338,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           }
           d.setExtraPanes((prev) => {
             const next = extraPanesAfterAgentExit(prev, eventAgent, { detail, at }, extraChatRef.current);
-            for (const [id, pane] of Object.entries(next)) {
-              if (prev[id] && prev[id] !== pane) extraChatRef.current[id] = pane.chat;
-            }
+            for (const [id, pane] of Object.entries(next)) rememberExtra(id, pane);
             return next;
           });
         }
@@ -1486,9 +1514,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }, { dest: paneId, agentId }));
       const sid = sessionIdFromNewResult(result);
       echoedExtra.current[paneId] = false;
-      d.setExtraPanes((prev) => ({
-        ...prev,
-        [paneId]: {
+      d.setExtraPanes((prev) => {
+        const pane = {
           sessionId: sid,
           cwd: dir,
           chat: emptyChat(),
@@ -1497,8 +1524,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           atBottom: true,
           queue: emptyQueue(),
           agentId,
-        },
-      }));
+        };
+        rememberExtra(paneId, pane);
+        return { ...prev, [paneId]: pane };
+      });
       announceCreatedSession({ id: sid, cwd: dir, agentId });
     } catch (e) {
       d.showToast(friendlyError(e));
@@ -1649,9 +1678,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       extraChatRef.current[paneId] = next;
       const { agentId, selectedAfterOpen } = openSessionAgent(s, selectedAgentIdRef.current);
       d.setSelectedAgentId(selectedAfterOpen);
-      d.setExtraPanes((prev) => ({
-        ...prev,
-        [paneId]: {
+      d.setExtraPanes((prev) => {
+        const pane = {
           sessionId: s.id,
           cwd: s.cwd,
           chat: next,
@@ -1660,8 +1688,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           atBottom: true,
           queue: prev[paneId]?.queue ?? { items: [], nextId: 1 },
           agentId,
-        },
-      }));
+        };
+        rememberExtra(paneId, pane);
+        return { ...prev, [paneId]: pane };
+      });
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id, paneId);
       try {
@@ -2150,5 +2180,6 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     dismissInjectedSession,
     mainAgentIdRef,
     bindMainAgent,
+    paneChatStore,
   };
 }

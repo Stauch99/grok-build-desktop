@@ -61,7 +61,8 @@ import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { handleMdClick, ThreadColumn } from "./components/Thread";
+import { ChatPane } from "./components/ChatPane";
+import { handleMdClick } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
 import { GitPane } from "./components/GitPane";
@@ -77,7 +78,7 @@ import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
-import { IconChevron, IconGitFork, IconHierarchy2 } from "./icons";
+import { IconGitFork, IconHierarchy2 } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
@@ -273,6 +274,7 @@ export function App() {
     setSelectedAgentId,
     sessionIdRef,
     chat,
+    paneChatStore,
     ready,
     connecting,
     loadingSession,
@@ -348,8 +350,6 @@ export function App() {
     menuSession,
     findSessionById,
     usage,
-    userTurns,
-    urlChips,
     openSettings,
     allSessions,
     palette,
@@ -422,7 +422,9 @@ export function App() {
   function inspectJob(job: { id: string; paneId: string }) {
     setJobsOpen(false);
     if (job.paneId !== focusedPaneId) focusPane(job.paneId);
-    const items = job.paneId === MAIN_PANE ? chat.items : extraPanes[job.paneId]?.chat.items;
+    const items = job.paneId === MAIN_PANE
+      ? paneChatStore.getMain().chat.items
+      : paneChatStore.getExtra(job.paneId).chat.items;
     const item = items?.find((it) => it.kind === "tool" && it.id === job.id);
     if (item && item.kind === "tool") review.inspectTool(item);
   }
@@ -453,13 +455,16 @@ export function App() {
     );
   }
 
-  function copyConversationBtn(items: typeof chat.items) {
+  function copyConversationBtn(pane: string) {
     return (
       <button
         type="button"
         className="icon-btn"
         aria-label={t(locale, "thread.copyAll")}
-        onClick={() => copyAllConversation(items)}
+        onClick={() => {
+          const items = pane === MAIN_PANE ? paneChatStore.getMain().chat.items : paneChatStore.getExtra(pane).chat.items;
+          copyAllConversation(items);
+        }}
       >
         <IconGrokCopy size={16} />
       </button>
@@ -551,7 +556,6 @@ export function App() {
       pendingKind: permView.kind,
       plan: paneId === MAIN_PANE && showPlanComplete,
     });
-    const paneTurns = paneChat.items.filter((i): i is Extract<typeof i, { kind: "user" }> => i.kind === "user");
     const paneCatalog = subagentChips(paneChat.items, allSessions, {
       parentSessionId: sid,
       agentId: extra?.agentId ?? selectedAgentId,
@@ -678,7 +682,7 @@ export function App() {
                 ) : null}
               </div>
             )}
-            {sid ? copyConversationBtn(paneChat.items) : null}
+            {sid ? copyConversationBtn(paneId) : null}
             <button
               type="button"
               className="icon-btn shortcut-host"
@@ -701,18 +705,15 @@ export function App() {
           </div>
         </header>
         <div className="chat-shell">
-          <ThreadColumn
+          <ChatPane
+            store={paneChatStore}
             paneId={paneId}
-            chat={paneChat}
             chatWidth={chatWidth}
             dark={resolvedTheme === "dark"}
             cwd={paneCwd}
             showThinking={showThinking}
-            empty={paneChat.items.length === 0}
             emptyTitle=""
             sessionModel={paneSession?.model ?? null}
-            urlChips={[]}
-            busy={paneBusy}
             stallNote={paneId === MAIN_PANE && runStatus.kind === "stalled" ? runStatus.detail : undefined}
             onCancel={() => void cancelTurn(paneId)}
             chatRef={paneChatRef}
@@ -725,7 +726,6 @@ export function App() {
               if (paneId === MAIN_PANE) setAtBottomFrame(at);
               else onExtraAtBottom(paneId, at);
             }}
-            turns={paneTurns}
             onResendUser={(text) => submitPrompt(text, paneId)}
             rewindFor={rewindForItem}
             onForkTurn={() => void sendPrompt(forkAtSlash(), paneId)}
@@ -734,9 +734,19 @@ export function App() {
             highlightQuery={searchJump}
             jumpId={jumpTurnId}
             onDraftUser={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
+            atBottom={paneAtBottom}
+            onJumpBottom={() => {
+              if (paneId === MAIN_PANE) {
+                setAtBottom(true);
+                if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
+              } else {
+                onExtraAtBottom(paneId, true);
+                const el = extraChatEls.current[paneId];
+                if (el) el.scrollTop = el.scrollHeight;
+              }
+            }}
             emptyNode={
-              paneChat.items.length === 0 ? (
-                <EmptyState
+              <EmptyState
                   doctor={doctors.find((d) => d.agentId === selectedAgentId) ?? null}
                   agentLabel={agentChipLabel(selectedAgentId)}
                   cwd={paneCwd}
@@ -752,28 +762,8 @@ export function App() {
                   onUseLastPrompt={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                   onUseExample={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                 />
-              ) : undefined
             }
           />
-          {!paneAtBottom && paneChat.items.length > 0 && (
-            <button
-              type="button"
-              className="jump-bottom"
-              aria-label={t(locale, "thread.scrollBottom")}
-              onClick={() => {
-                if (paneId === MAIN_PANE) {
-                  setAtBottom(true);
-                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
-                } else {
-                  onExtraAtBottom(paneId, true);
-                  const el = extraChatEls.current[paneId];
-                  if (el) el.scrollTop = el.scrollHeight;
-                }
-              }}
-            >
-              <IconChevron size={16} />
-            </button>
-          )}
         </div>
         <Composer
           ref={(el) => {
@@ -1157,7 +1147,7 @@ return (
                   ) : null}
                 </div>
               )}
-              {sessionId ? copyConversationBtn(chat.items) : null}
+              {sessionId ? copyConversationBtn(MAIN_PANE) : null}
               {(
                 <button
                   type="button"
@@ -1177,14 +1167,13 @@ return (
             </div>
           </header>
           <div className="chat-shell">
-            <ThreadColumn
+            <ChatPane
+              store={paneChatStore}
               paneId="main"
-              chat={chat}
               chatWidth={chatWidth}
               dark={resolvedTheme === "dark"}
               cwd={cwd}
               showThinking={showThinking}
-              empty={chat.items.length === 0 && !loadingSession}
               emptyTitle=""
               emptyNode={
                 <EmptyState
@@ -1204,8 +1193,6 @@ return (
                   onUseExample={(text) => onDraftChange(text)}
                 />
               }
-              urlChips={urlChips}
-              busy={mainPaneBusy}
               stallNote={runStatus.kind === "stalled" ? runStatus.detail : undefined}
               onCancel={() => void cancelTurn("main")}
               sessionModel={sessionModel}
@@ -1217,7 +1204,6 @@ return (
                 markScrolling(el);
                 setAtBottomFrame(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
               }}
-              turns={userTurns}
               onResendUser={(text) => submitPrompt(text)}
               rewindFor={rewindForItem}
               onForkTurn={() => void sendPrompt(forkAtSlash())}
@@ -1226,20 +1212,12 @@ return (
               highlightQuery={searchJump}
               jumpId={jumpTurnId}
               onDraftUser={onDraftChange}
+              atBottom={atBottom}
+              onJumpBottom={() => {
+                setAtBottom(true);
+                if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
+              }}
             />
-            {!atBottom && chat.items.length > 0 && (
-              <button
-                type="button"
-                className="jump-bottom"
-                aria-label={t(locale, "thread.scrollBottom")}
-                onClick={() => {
-                  setAtBottom(true);
-                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
-                }}
-              >
-                <IconChevron size={16} />
-              </button>
-            )}
           </div>
           {loadingSession && (
             <div className="overlay">

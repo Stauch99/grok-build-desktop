@@ -231,6 +231,7 @@ export function packAppModel(p: PackAppModelInput) {
     setSelectedAgentId: p.setSelectedAgentId,
     sessionIdRef: acp.sessionIdRef,
     chat: acp.chat,
+    paneChatStore: acp.paneChatStore,
     busy: acp.busy,
     ready: acp.ready,
     connecting: acp.connecting,

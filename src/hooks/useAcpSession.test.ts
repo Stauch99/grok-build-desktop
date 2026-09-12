@@ -678,6 +678,13 @@ describe("session update pending cap", () => {
     expect(src).toMatch(/nextFoldSlice\(updates\)/);
     expect(src).toMatch(/onHiddenFlush\(\(\) => drainRef\.current\(\)\)/);
   });
+
+  it("writes streaming chat to the pane store without a token-level setState", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/createPaneChatStore/);
+    expect(src).toMatch(/chatShellKey\(prev\) !== chatShellKey\(next\)/);
+    expect(src).toMatch(/extraPaneShouldRender/);
+  });
 });
 
 describe("main-pane settle while another session is on screen", () => {

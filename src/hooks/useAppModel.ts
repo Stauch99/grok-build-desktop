@@ -307,6 +307,7 @@ export function useAppModel() {
     titles: s.titles,
     projectGroups: s.projectGroups,
     chat: acp.chat,
+    paneChatStore: acp.paneChatStore,
     draft: s.draft,
     busy: acp.busy,
     atBottom: s.atBottom,
