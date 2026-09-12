@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   doctor,
   listProjectFiles,
@@ -27,13 +27,13 @@ import { RecapCard } from "./components/RecapCard";
 import { GoalBar } from "./components/GoalBar";
 import { ComposerDock } from "./components/ComposerDock";
 import { StatsLineView } from "./components/StatsLineView";
-import { MillerPicker } from "./components/MillerPicker";
 import { Resizer } from "./components/Resizer";
 import { persistReviewOpen } from "./lib/review-rail";
 import { usePresence } from "./lib/motion";
 import { useSidebarMotion, sidebarSlotPx } from "./lib/sidebar-motion";
 import { markScrolling, scheduleFrameValue } from "./lib/scroll-frame";
 import { displayTitle } from "./lib/projects";
+import { emptyChat } from "./lib/chat";
 import { MAIN_PANE } from "./lib/pane-tree";
 import { selectPaneMentionSource } from "./lib/pane-mentions";
 import { derivePermissionView } from "./lib/permission-view";
@@ -51,14 +51,9 @@ import { friendlyError } from "./lib/error-copy";
 import { JobsMenu } from "./components/JobsMenu";
 import { WorkPane } from "./components/WorkPane";
 import { SessionMenu } from "./SessionMenu";
-import { SettingsPanel } from "./Settings";
-import { ExtensionsHub } from "./components/ExtensionsHub";
 import { Sidebar } from "./components/Sidebar";
 import { PendingRequestCard } from "./components/PendingRequestCard";
-import { FilePanel } from "./components/FilePanel";
-import { PreviewPane } from "./components/PreviewPane";
 import { ReviewRail } from "./components/ReviewRail";
-import { ExplorerPane } from "./components/ExplorerPane";
 import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
@@ -67,23 +62,31 @@ import { ChatPane } from "./components/ChatPane";
 import { handleMdClick } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
-import { GitPane } from "./components/GitPane";
 import { PlanCompleteCard } from "./components/PlanCompleteCard";
-import { ExtraOverlay } from "./components/ExtraOverlay";
 import { MenuSelect } from "./components/MenuSelect";
 import { Composer } from "./components/Composer";
 import { SelectionActions } from "./components/SelectionActions";
-import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { Skeleton } from "./components/Skeleton";
 import { AppModal } from "./components/AppModal";
-import { RewindDialog } from "./components/RewindDialog";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
 import { IconGitFork, IconHierarchy2 } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
+
+// Overlay-only surfaces load on demand; the sidebar/thread/composer stay eager.
+const SettingsPanel = lazy(() => import("./Settings").then((m) => ({ default: m.SettingsPanel })));
+const ExtensionsHub = lazy(() => import("./components/ExtensionsHub").then((m) => ({ default: m.ExtensionsHub })));
+const ExtraOverlay = lazy(() => import("./components/ExtraOverlay").then((m) => ({ default: m.ExtraOverlay })));
+const GitPane = lazy(() => import("./components/GitPane").then((m) => ({ default: m.GitPane })));
+const PreviewPane = lazy(() => import("./components/PreviewPane").then((m) => ({ default: m.PreviewPane })));
+const ExplorerPane = lazy(() => import("./components/ExplorerPane").then((m) => ({ default: m.ExplorerPane })));
+const FilePanel = lazy(() => import("./components/FilePanel").then((m) => ({ default: m.FilePanel })));
+const MillerPicker = lazy(() => import("./components/MillerPicker").then((m) => ({ default: m.MillerPicker })));
+const CommandPalette = lazy(() => import("./components/CommandPalette").then((m) => ({ default: m.CommandPalette })));
+const RewindDialog = lazy(() => import("./components/RewindDialog").then((m) => ({ default: m.RewindDialog })));
 
 export function App() {
   const {
@@ -211,6 +214,7 @@ export function App() {
     moveProjectToGroup,
     renameNamedGroup,
     requestDeleteGroup,
+    requestRemoveProject,
     settingsFocus,
     setSettingsFocus,
     expandedIds,
@@ -370,6 +374,7 @@ export function App() {
     mainPermissionView,
     panePermissions,
     timedOutByPane,
+    panePendingExtra,
     takeover,
     hero,
     turnFiles,
@@ -552,6 +557,7 @@ export function App() {
             title={perm.title}
             options={perm.options}
             timedOut={perm.timedOut}
+            pendingExtra={panePendingExtra[paneId] ?? 0}
             timeoutNotice={permissionTimeoutNotice(locale)}
             receivedAt={perm.receivedAt}
             onPick={(id) => void answerPermission(perm, id)}
@@ -565,14 +571,16 @@ export function App() {
   }
 
   function renderSplitLeaf(paneId: string) {
-    const extra = paneId === MAIN_PANE ? null : extraPanes[paneId];
-    const sid = extra?.sessionId ?? sessionId;
+    const isMain = paneId === MAIN_PANE;
+    const extra = isMain ? null : extraPanes[paneId];
+    const unbound = !isMain && !extra;
+    const sid = isMain ? sessionId : (extra?.sessionId ?? null);
     const paneCwd = extra?.cwd ?? cwd;
-    const paneChat = extra?.chat ?? chat;
-    const paneDraft = extra?.draft ?? draft;
-    const paneBusy = extra ? extra.busy : mainPaneBusy;
-    const paneQueue = extra?.queue ?? queue;
-    const paneAtBottom = extra ? extra.atBottom : atBottom;
+    const paneChat = extra?.chat ?? (isMain ? chat : emptyChat());
+    const paneDraft = extra?.draft ?? (isMain ? draft : "");
+    const paneBusy = extra ? extra.busy : isMain ? mainPaneBusy : false;
+    const paneQueue = extra?.queue ?? (isMain ? queue : { items: [], nextId: 1 });
+    const paneAtBottom = extra ? extra.atBottom : isMain ? atBottom : true;
     const paneSession = sid
       ? sessions.find((s) => s.id === sid) ?? inboxSessions.find((s) => s.id === sid) ?? null
       : paneId === MAIN_PANE ? current : null;
@@ -705,7 +713,7 @@ export function App() {
             />
           </div>
           <div className="head-actions">
-            {git?.isRepo ? (
+            {git?.isRepo && (isMain || sameCwd(paneCwd, cwd)) ? (
               <GitChip status={git} onClick={() => openReview("changed-file")} />
             ) : null}
             {jobsMenu()}
@@ -806,7 +814,12 @@ export function App() {
               }
             }}
             emptyNode={
-              <EmptyState
+              unbound ? (
+                <div className="empty" style={{ minHeight: 0 }}>
+                  <p>{t(locale, "pane.empty")}</p>
+                </div>
+              ) : (
+                <EmptyState
                   doctor={doctors.find((d) => d.agentId === selectedAgentId) ?? null}
                   agentLabel={agentChipLabel(selectedAgentId)}
                   cwd={paneCwd}
@@ -822,9 +835,11 @@ export function App() {
                   onUseLastPrompt={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                   onUseExample={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                 />
+              )
             }
           />
         </div>
+        {unbound ? null : (
         <Composer
           ref={(el) => {
             if (paneId === MAIN_PANE) composerRef.current = el;
@@ -836,12 +851,14 @@ export function App() {
           onAlt={(text) => altSubmit(text, paneId)}
           altLabel={steerByDefault ? t(locale, "composer.queue") : t(locale, "composer.steer")}
           busy={paneBusy}
+          blocked={isMain ? hero.blocked || loadingSession : false}
           takeover={paneTakeover}
           enterSends={enterSends}
           threadWidth={chatWidthCss(chatWidth)}
           commands={[...skillCommands, ...paneChat.commands]}
           onRunSlash={(cmd, rest) => void runSlash(cmd, rest, paneId)}
           cwd={paneCwd}
+          sessionId={sid}
           grokHome={info?.grokHome ?? ""}
           listFiles={(q) => listProjectFiles(paneCwd, q)}
           mentionDirs={mentions.dirs}
@@ -876,19 +893,62 @@ export function App() {
             else onExtraQueue(paneId, (q) => editQueued(q, id, text));
           }}
           onOverflow={showToast}
+          workspaceLabel={isMain ? (inboxCwd && cwd && sameCwd(cwd, inboxCwd) ? t(locale, "sidebar.inbox") : cwd ? basename(cwd) : "") : undefined}
+          workspaceOptions={isMain ? [
+            ...(inboxCwd ? [{ path: INBOX_PIN, label: t(locale, "sidebar.inbox") }] : []),
+            ...projects.map((p) => ({ path: p, label: basename(p) })),
+          ] : undefined}
+          onWorkspace={isMain ? (path) => {
+            const last = path === INBOX_PIN ? INBOX_PIN : path;
+            setLastWorkspace(last);
+            persist({ lastWorkspace: last });
+            if (sessionId) return;
+            const folder = path === INBOX_PIN ? inboxCwd : path;
+            if (!folder) return;
+            setCwd(folder);
+            void setWorkspace(folder).catch((e) => showToast(friendlyError(e)));
+          } : undefined}
           footer={<StatsLineView stats={paneStats} sessionTokens={paneChat.usage?.used} usageHistory={usageHistory} />}
           metaActions={
-            <UsageRing
-              usage={paneChat.usage ?? {}}
-              compactPercent={cli?.compactPercent ?? 85}
-              onCompact={(pct) => {
-                if (window.confirm(t(locale, "usage.compactAsk", { pct }))) void sendPrompt("/compact", paneId);
-              }}
-            />
+            <>
+              {sid ? (
+                <button
+                  type="button"
+                  className="icon-btn fork-btn"
+                  aria-label={t(locale, "palette.fork")}
+                  onClick={() => void sendPrompt("/fork", paneId)}
+                >
+                  <IconGitFork size={16} />
+                </button>
+              ) : null}
+              <UsageRing
+                usage={paneChat.usage ?? {}}
+                compactPercent={cli?.compactPercent ?? 85}
+                onCompact={(pct) => {
+                  if (window.confirm(t(locale, "usage.compactAsk", { pct }))) void sendPrompt("/compact", paneId);
+                }}
+              />
+            </>
           }
           pendingMode={pendingMode}
           promptHistoryRef={promptHistoryRef}
         >
+          {isMain ? (
+            <ComposerDock>
+              {showRecap ? <RecapCard text={recapText} onDismiss={dismissRecap} /> : null}
+              {sessionId && injectedSessions.has(sessionId) ? (
+                <MemoryInjectChip
+                  locale={locale}
+                  onOpen={() => setExtraPage("memory")}
+                  onDismiss={() => dismissInjectedSession(sessionId)}
+                />
+              ) : null}
+              <RunStatusRegion status={runStatus} />
+              {goalView && !mainPaneBusy ? (
+                <GoalBar goal={goalView.text} startedAt={goalView.startedAt} />
+              ) : null}
+            </ComposerDock>
+          ) : null}
           {requestCards(
             paneId,
             perm,
@@ -910,6 +970,7 @@ export function App() {
             </button>
           ) : null}
         </Composer>
+        )}
       </WorkPane>
       </ErrorBoundary>
     );
@@ -982,6 +1043,14 @@ return (
         }}
         onDragSession={beginPaneDrag}
         onAddProject={() => void addProject()}
+        onRevealProject={(path) => void openPath(path).catch((e) => showToast(friendlyError(e)))}
+        onCopyProjectPath={(path) => {
+          void navigator.clipboard
+            .writeText(path)
+            .then(() => showToast(t(locale, "toast.copied")))
+            .catch((e) => showToast(friendlyError(e)));
+        }}
+        onRemoveProject={(path) => requestRemoveProject(path)}
         picking={picking}
         statusFor={statusFor}
         width={sidebarSlotPx(sidebarMotion.slotCollapsed, sidebarWidth)}
@@ -992,6 +1061,7 @@ return (
         weeklyUsage={weeklyUsage}
         onSettings={() => setSettingsOpen(true)}
         onExtensions={() => openHub()}
+        onOpenExtra={(id) => palette.run(id)}
         onShortcuts={() => {
           setSettingsOpen(true);
           setSettingsFocus("shortcuts");
@@ -1334,6 +1404,7 @@ return (
             commands={[...skillCommands, ...chat.commands]}
             onRunSlash={(cmd, rest) => void runSlash(cmd, rest)}
             cwd={cwd}
+            sessionId={sessionId}
             grokHome={info?.grokHome ?? ""}
             listFiles={(q) => listProjectFiles(cwd, q)}
             mentionDirs={workspaceEntries.filter((e) => e.kind === "dir").map((e) => e.name)}
@@ -1473,8 +1544,13 @@ return (
             onTab={review.setTab} onClose={() => { review.close(); persist(persistReviewOpen(false)); }}>
             {{
               progress: reviewPlan.length > 0 ? <ul className="todo">{reviewPlan.map((e, i) => <li key={`${e.content}-${i}`} className={e.status || "pending"}><TodoMark status={e.status} /><span className="todo-text">{e.content}</span></li>)}</ul> : <p className="float-empty">{t(locale, "rail.emptyProgress")}</p>,
-              files: turnFiles.length > 0 ? <FilePanel artifacts={turnFiles.map((path) => ({ path }))} cwd={reviewCwd} onOpenPath={(p) => void review.revealPath(p)} onPreview={(p) => void openPreview(p)} /> : <p className="float-empty">{t(locale, "rail.emptyFiles")}</p>,
+              files: turnFiles.length > 0 ? (
+                <Suspense fallback={<Skeleton rows={3} />}>
+                  <FilePanel artifacts={turnFiles.map((path) => ({ path }))} cwd={reviewCwd} onOpenPath={(p) => void review.revealPath(p)} onPreview={(p) => void openPreview(p)} />
+                </Suspense>
+              ) : <p className="float-empty">{t(locale, "rail.emptyFiles")}</p>,
               git: (
+                <Suspense fallback={<Skeleton rows={3} />}>
                 <GitPane
                   status={git}
                   changes={changes}
@@ -1496,9 +1572,15 @@ return (
                   onDiscard={(path) => void discardChange(path)}
                   turnDiffItems={reviewItems}
                 />
+                </Suspense>
               ),
-              preview: previewPath ? <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={resolvedTheme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(friendlyError(e))); }} /> : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
+              preview: previewPath ? (
+                <Suspense fallback={<Skeleton rows={3} />}>
+                  <PreviewPane path={previewPath} text={previewText} truncated={previewTruncated} error={previewError} cwd={reviewCwd} dark={resolvedTheme === "dark"} embedded tabs={review.previewTabs} onSelectTab={review.selectPreviewTab} onCloseTab={review.closePreviewTab} onReveal={(p) => void review.revealPath(p)} onAttach={(p) => attachToSession(p, "file")} onFollowLink={(e) => handleMdClick(e, reviewCwd, (p) => void openPreview(p))} onSave={(p, text) => { void writeAllowedText(p, text, reviewCwd || null).then(() => { review.setPreviewText(p, review.preview.requestId, text); showToast(t(locale, "toast.saved")); void refreshGit(); }).catch((e) => showToast(friendlyError(e))); }} />
+                </Suspense>
+              ) : <p className="float-empty">{t(locale, "rail.emptyPreview")}</p>,
               explorer: (
+                <Suspense fallback={<Skeleton rows={3} />}>
                 <ExplorerPane
                   cwd={reviewCwd}
                   expandedDirs={review.expandedDirs}
@@ -1507,6 +1589,7 @@ return (
                   onReveal={(p) => void review.revealPath(p)}
                   onAttach={attachToSession}
                 />
+                </Suspense>
               ),
               terminal: (
                 <div className="review-stack">
@@ -1614,6 +1697,7 @@ return (
               </button>
             </div>
             <ErrorBoundary locale={locale}>
+            <Suspense fallback={<Skeleton rows={4} />}>
             <SettingsPanel
               focusSection={settingsFocus}
               onConsumedFocus={() => setSettingsFocus(null)}
@@ -1720,12 +1804,14 @@ return (
               }}
               info={info}
             />
+            </Suspense>
             </ErrorBoundary>
           </div>
         </div>
       )}
 
       <ErrorBoundary locale={locale}>
+      <Suspense fallback={null}>
       <ExtensionsHub
         open={hubOpen}
         tab={hubTab}
@@ -1739,8 +1825,10 @@ return (
           void sendPrompt(text);
         }}
       />
+      </Suspense>
       </ErrorBoundary>
 
+      <Suspense fallback={null}>
       <ExtraOverlay
         page={extraPage}
         onClose={() => setExtraPage(null)}
@@ -1794,6 +1882,7 @@ return (
           status: s.status,
         }))}
       />
+      </Suspense>
 
       {movePick && (
         <div className="menu" style={{ top: movePick.top, left: movePick.left }} role="menu">
@@ -1828,19 +1917,22 @@ return (
         </div>
       )}
       {rewindPreview && rewindTarget != null && (
-        <RewindDialog
-          open
-          plan={rewindPreview.plan}
-          rows={rewindPreview.rows}
-          onCancel={() => setRewindTarget(null)}
-          onConfirm={() => {
-            const index = rewindTarget;
-            setRewindTarget(null);
-            void applyRewind(index);
-          }}
-        />
+        <Suspense fallback={null}>
+          <RewindDialog
+            open
+            plan={rewindPreview.plan}
+            rows={rewindPreview.rows}
+            onCancel={() => setRewindTarget(null)}
+            onConfirm={() => {
+              const index = rewindTarget;
+              setRewindTarget(null);
+              void applyRewind(index);
+            }}
+          />
+        </Suspense>
       )}
       {palettePresence.shown && (
+        <Suspense fallback={null}>
         <CommandPalette
           items={palette.items}
           onPick={palette.run}
@@ -1862,16 +1954,19 @@ return (
           }}
           onClose={() => palette.setOpen(false)}
         />
+        </Suspense>
       )}
       {millerOpen && (inboxCwd || cwd) && (
-        <MillerPicker
-          root={cwd || inboxCwd}
-          onPick={(path) => {
-            setMillerOpen(false);
-            void selectProject(path);
-          }}
-          onClose={() => setMillerOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <MillerPicker
+            root={cwd || inboxCwd}
+            onPick={(path) => {
+              setMillerOpen(false);
+              void selectProject(path);
+            }}
+            onClose={() => setMillerOpen(false)}
+          />
+        </Suspense>
       )}
       <SelectionActions
         viewport={{ width: window.innerWidth, height: window.innerHeight }}
@@ -1915,6 +2010,7 @@ return (
           appConfirm?.kind === "delete-session" ||
           appConfirm?.kind === "delete-sessions" ||
           appConfirm?.kind === "delete-group" ||
+          appConfirm?.kind === "remove-project" ||
           appConfirm?.kind === "close-pane"
         }
         title={appConfirm?.title ?? ""}

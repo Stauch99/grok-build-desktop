@@ -482,8 +482,19 @@ export function useAppModelEffects(d: EffectsDeps) {
       setSessionTokens: s.setSessionTokens,
       setCwd: s.setCwd,
       setSettingsHydrated: s.setSettingsHydrated,
+      setPaneTree: s.setPaneTree,
+      restorePaneSessions: ws.restorePaneSessions,
     });
   }, []);
+
+  // Pane layout + pane→session bindings ride along with every debounced flush.
+  const paneBindKey = `${acp.sessionId ?? ""}|${Object.entries(s.extraPanes)
+    .map(([id, pane]) => `${id}=${pane.sessionId}`)
+    .join(",")}`;
+  useEffect(() => {
+    if (!s.settingsHydrated) return;
+    d.persist({ paneTree: s.paneTree, paneBindings: ws.liveBindings() });
+  }, [s.settingsHydrated, s.paneTree, paneBindKey]);
 
   useEffect(() => {
     if (!s.settingsHydrated) return;

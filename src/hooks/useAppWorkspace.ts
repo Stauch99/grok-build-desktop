@@ -24,6 +24,7 @@ import {
   ensureMainLeaf,
   leafIds,
   paneOfSession,
+  planPaneRestore,
   type Bindings,
   type PaneNode,
   type ResolvedDrop,
@@ -90,6 +91,7 @@ export type AppConfirm = {
   | { kind: "move-inbox"; sessionId: string; dest: string }
   | { kind: "close-pane"; paneId: string }
   | { kind: "delete-group"; groupId: string }
+  | { kind: "remove-project"; path: string }
 );
 
 export type AppWorkspaceDeps = {
@@ -97,6 +99,8 @@ export type AppWorkspaceDeps = {
   cwd: string;
   inboxCwd: string;
   projects: string[];
+  pinnedProjects: string[];
+  lastWorkspace: string;
   sessions: SessionSummary[];
   inboxSessions: SessionSummary[];
   titles: Record<string, string>;
@@ -118,6 +122,7 @@ export type AppWorkspaceDeps = {
   setLastWorkspace: (path: string) => void;
   setOpenProjects: Dispatch<SetStateAction<Record<string, boolean>>>;
   setProjects: Dispatch<SetStateAction<string[]>>;
+  setPinnedProjects: Dispatch<SetStateAction<string[]>>;
   setPicking: (value: boolean) => void;
   setInboxSessions: Dispatch<SetStateAction<SessionSummary[]>>;
   setSessions: Dispatch<SetStateAction<SessionSummary[]>>;
@@ -834,12 +839,83 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     });
   }
 
+  function requestRemoveProject(path: string) {
+    const d = depsRef.current;
+    if (path === INBOX_PIN) return;
+    d.setAppConfirm({
+      title: t(d.locale, "confirm.removeProjectTitle"),
+      body: t(d.locale, "confirm.removeProjectBody", { name: basename(path) }),
+      confirmLabel: t(d.locale, "hub.remove"),
+      kind: "remove-project",
+      path,
+    });
+  }
+
+  /** Drop the project row only — the folder and its sessions stay on disk. */
+  function commitRemoveProject(path: string) {
+    const d = depsRef.current;
+    const next = mergeProjectPaths(d.projectsRef.current.filter((p) => !sameCwd(p, path)), []);
+    const pinnedNext = d.pinnedProjects.filter((p) => !sameCwd(p, path));
+    const groupsNext = pruneProjectGroups(d.projectGroups, next);
+    d.setProjects(next);
+    d.setPinnedProjects(pinnedNext);
+    d.setProjectGroups(groupsNext);
+    d.setOpenProjects((m) => {
+      if (!(path in m)) return m;
+      const out = { ...m };
+      delete out[path];
+      return out;
+    });
+    const last = sameCwd(d.lastWorkspace, path) ? "" : d.lastWorkspace;
+    if (last !== d.lastWorkspace) d.setLastWorkspace(last);
+    d.persist({
+      projects: next,
+      pinnedProjects: pinnedNext,
+      projectGroups: groupsNext,
+      lastWorkspace: last,
+      manualProjects: true,
+    });
+    applySessionUnion(d.diskSessionsRef.current, d.inboxCwd, next);
+  }
+
+  /**
+   * Rebind a persisted pane layout after the session list lands. Dead leaves are
+   * closed by planPaneRestore; live extras re-open via openInPane, and the main
+   * leaf resumes its session when nothing newer claimed it.
+   */
+  async function restorePaneSessions(
+    tree: PaneNode,
+    bindings: Bindings,
+    sessions: SessionSummary[],
+  ): Promise<void> {
+    const d = depsRef.current;
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    const plan = planPaneRestore(tree, bindings, new Set(byId.keys()));
+    d.setPaneTree(plan.tree);
+    const keep = new Set(leafIds(plan.tree));
+    d.setExtraPanes((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    if (plan.mainSessionId && plan.mainSessionId !== d.sessionIdRef.current) {
+      const s = byId.get(plan.mainSessionId);
+      if (s) await d.resumeSession(s);
+    }
+    for (const { paneId, sessionId } of plan.open) {
+      if (!keep.has(paneId) || d.extraPanesRef.current[paneId]) continue;
+      if (sessionId === d.sessionIdRef.current) continue;
+      const s = byId.get(sessionId);
+      if (s) await d.openInPane(paneId, s);
+    }
+  }
+
   function confirmAppModal(pending: AppConfirm | null) {
     if (!pending) return;
     if (pending.kind === "delete-session") void commitRemoveSession(pending.session);
     else if (pending.kind === "delete-sessions")
       queueSessionDelete(pending.sessions, t(depsRef.current.locale, "toast.deletedCount", { n: pending.sessions.length }));
     else if (pending.kind === "move-inbox") void commitMoveInbox(pending.sessionId, pending.dest);
+    else if (pending.kind === "remove-project") commitRemoveProject(pending.path);
     else if (pending.kind === "delete-group") {
       commitProjectGroups(deleteProjectGroup(depsRef.current.projectGroups, pending.groupId));
     } else closePaneLeaf(pending.paneId);
@@ -888,5 +964,8 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     moveProjectToGroup,
     renameNamedGroup,
     requestDeleteGroup,
+    requestRemoveProject,
+    commitRemoveProject,
+    restorePaneSessions,
   };
 }

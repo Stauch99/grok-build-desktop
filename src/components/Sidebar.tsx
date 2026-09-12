@@ -3,7 +3,7 @@ import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "r
 import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
-import { IconClose, IconFolder, IconFolderOpen, IconFolderPlus } from "../icons";
+import { IconBook, IconChart, IconClose, IconDashboard, IconFolder, IconFolderOpen, IconFolderPlus, IconPhoto, IconRobot } from "../icons";
 import { nestByParent } from "../lib/projects";
 import { clipSessionTitle, isUntitledSessionTitle } from "../lib/session-title";
 import { windowedProjectNodes } from "../lib/project-session-window";
@@ -61,6 +61,9 @@ export type SidebarProps = {
   onNewChat: () => void;
   onNewProjectSession: (path: string) => void;
   onAddProject: () => void;
+  onRevealProject?: (path: string) => void;
+  onCopyProjectPath?: (path: string) => void;
+  onRemoveProject?: (path: string) => void;
   picking: boolean;
   statusFor: (id: string) => SessionStatus;
   collapsed?: boolean;
@@ -72,6 +75,8 @@ export type SidebarProps = {
   onSettings: () => void;
   onExtensions: () => void;
   onShortcuts: () => void;
+  /** Open a global page (dashboard/memory/agents/usage/imagine) via the palette action id. */
+  onOpenExtra?: (id: string) => void;
   onCollapseAll: () => void;
   onMarkAllRead: () => void;
   showTokens: boolean;
@@ -136,6 +141,9 @@ export const Sidebar = memo(function Sidebar({
   onNewChat,
   onNewProjectSession,
   onAddProject,
+  onRevealProject,
+  onCopyProjectPath,
+  onRemoveProject,
   picking,
   statusFor,
   collapsed = false,
@@ -146,6 +154,7 @@ export const Sidebar = memo(function Sidebar({
   onSettings,
   onExtensions,
   onShortcuts,
+  onOpenExtra,
   onCollapseAll,
   onMarkAllRead,
   showTokens,
@@ -891,6 +900,30 @@ export const Sidebar = memo(function Sidebar({
         )}
       </div>
 
+      {onOpenExtra && !collapsed ? (
+        <div className="side-content" data-nav="extra">
+          <button type="button" className="side-link" onClick={() => onOpenExtra("act:dashboard")}>
+            <IconDashboard size={16} />
+            {t("extra.dashboard")}
+          </button>
+          <button type="button" className="side-link" onClick={() => onOpenExtra("act:memory")}>
+            <IconBook size={16} />
+            {t("extra.memory")}
+          </button>
+          <button type="button" className="side-link" onClick={() => onOpenExtra("act:agents")}>
+            <IconRobot size={16} />
+            {t("extra.agents")}
+          </button>
+          <button type="button" className="side-link" onClick={() => onOpenExtra("act:usage")}>
+            <IconChart size={16} />
+            {t("extra.usage")}
+          </button>
+          <button type="button" className="side-link" onClick={() => onOpenExtra("act:imagine")}>
+            <IconPhoto size={16} />
+            {t("extra.imagine")}
+          </button>
+        </div>
+      ) : null}
       <AccountMenu
         signedIn={signedIn}
         weeklyUsage={weeklyUsage}
@@ -910,6 +943,34 @@ export const Sidebar = memo(function Sidebar({
             onPinProject(projectMenu.path);
             setProjectMenu(null);
           }}
+          onNewSession={() => {
+            onNewProjectSession(projectMenu.path);
+            setProjectMenu(null);
+          }}
+          onReveal={
+            onRevealProject
+              ? () => {
+                  onRevealProject(projectMenu.path);
+                  setProjectMenu(null);
+                }
+              : undefined
+          }
+          onCopyPath={
+            onCopyProjectPath
+              ? () => {
+                  onCopyProjectPath(projectMenu.path);
+                  setProjectMenu(null);
+                }
+              : undefined
+          }
+          onRemove={
+            onRemoveProject && projectMenu.path !== INBOX_PIN
+              ? () => {
+                  onRemoveProject(projectMenu.path);
+                  setProjectMenu(null);
+                }
+              : undefined
+          }
           onMoveToGroup={(groupId) => {
             onMoveProjectToGroup?.(projectMenu.path, groupId);
             setProjectMenu(null);

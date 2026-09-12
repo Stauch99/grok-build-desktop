@@ -97,6 +97,10 @@ export function ProjectMenu({
   left,
   pinned,
   onPin,
+  onNewSession,
+  onReveal,
+  onCopyPath,
+  onRemove,
   groups = [],
   currentGroupId = null,
   onMoveToGroup,
@@ -107,6 +111,10 @@ export function ProjectMenu({
   left: number;
   pinned: boolean;
   onPin: () => void;
+  onNewSession?: () => void;
+  onReveal?: () => void;
+  onCopyPath?: () => void;
+  onRemove?: () => void;
   groups?: { id: string; name: string }[];
   currentGroupId?: string | null;
   onMoveToGroup?: (groupId: string) => void;
@@ -116,6 +124,12 @@ export function ProjectMenu({
   const t = useT();
   return (
     <div className="menu" style={{ top, left }} role="menu">
+      {onNewSession ? (
+        <button type="button" onClick={onNewSession}>{t("sidebar.newProjectSession")}</button>
+      ) : null}
+      {onReveal ? <button type="button" onClick={onReveal}>{t("menu.reveal")}</button> : null}
+      {onCopyPath ? <button type="button" onClick={onCopyPath}>{t("menu.copyCwd")}</button> : null}
+      {onNewSession || onReveal || onCopyPath ? <div className="sep" /> : null}
       <button type="button" onClick={onPin}>{pinned ? t("menu.unpin") : t("menu.pin")}</button>
       {onMoveToGroup || onCreateGroup ? <div className="sep" /> : null}
       {groups.map((group) => (
@@ -133,6 +147,10 @@ export function ProjectMenu({
       ) : null}
       {currentGroupId && onUngroup ? (
         <button type="button" onClick={onUngroup}>{t("sidebar.ungroupProject")}</button>
+      ) : null}
+      {onRemove ? <div className="sep" /> : null}
+      {onRemove ? (
+        <button type="button" className="danger" onClick={onRemove}>{t("menu.removeProject")}</button>
       ) : null}
     </div>
   );

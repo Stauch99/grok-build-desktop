@@ -11,6 +11,7 @@ import { bashTools } from "../lib/tool-render";
 import { deriveRunStatus, mainPaneIsBusy } from "../lib/run-status";
 import { derivePermissionView } from "../lib/permission-view";
 import { selectPanePermissions, selectTimedOutPermissions, type QueuedPermission } from "../lib/permission-queue";
+import { pendingExtraByPane } from "../lib/permission-count";
 import { deriveReviewTabs, reconcileReviewTab, type ReviewTab } from "../lib/review-rail";
 import { stallLevel, stallNote } from "../lib/stall";
 import { paneComposerTakeover, heroLayout } from "../lib/shell-ia";
@@ -226,6 +227,7 @@ export function useAppModelView(input: AppModelViewInput) {
   };
   const panePermissions = selectPanePermissions(input.permissions, permissionContext);
   const timedOutByPane = selectTimedOutPermissions(input.permissions, permissionContext);
+  const panePendingExtra = pendingExtraByPane(input.permissions, permissionContext);
   const mainPermission = panePermissions.main;
   const mainPermissionView = derivePermissionView({ ...permissionContext, request: mainPermission });
   const mainPaneBusy = mainPaneIsBusy({
@@ -324,6 +326,7 @@ export function useAppModelView(input: AppModelViewInput) {
     agentsMdPath,
     panePermissions,
     timedOutByPane,
+    panePendingExtra,
     mainPermission,
     mainPermissionView,
     mainPaneBusy,

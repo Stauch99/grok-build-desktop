@@ -12,8 +12,11 @@ import {
   layoutRects,
   leafIds,
   nextPaneId,
+  parsePaneTree,
+  planPaneRestore,
   previewRect,
   resolveDrop,
+  sanitizePaneBindings,
   singlePane,
   splitLeaf,
 } from "./pane-tree";
@@ -229,3 +232,116 @@ describe("dragStarted", () => {
   });
 });
 
+
+describe("parsePaneTree", () => {
+  it("round-trips a serialized tree", () => {
+    const tree = splitLeaf(splitLeaf(singlePane(), MAIN_PANE, "right", "p2")!, "p2", "bottom", "p3")!;
+    const parsed = parsePaneTree(JSON.parse(JSON.stringify(tree)));
+    expect(parsed).toEqual(tree);
+    expect(leafIds(parsed!)).toEqual([MAIN_PANE, "p2", "p3"]);
+  });
+
+  it("rejects corrupt or missing trees", () => {
+    expect(parsePaneTree(undefined)).toBeNull();
+    expect(parsePaneTree(null)).toBeNull();
+    expect(parsePaneTree("main")).toBeNull();
+    expect(parsePaneTree({ type: "leaf" })).toBeNull();
+    expect(parsePaneTree({ type: "leaf", id: "" })).toBeNull();
+    expect(
+      parsePaneTree({ type: "split", id: "s1", dir: "col", ratio: 0.5, first: { type: "leaf", id: "main" } }),
+    ).toBeNull();
+    expect(
+      parsePaneTree({
+        type: "split",
+        id: "s1",
+        dir: "diag",
+        ratio: 0.5,
+        first: { type: "leaf", id: "main" },
+        second: { type: "leaf", id: "p2" },
+      }),
+    ).toBeNull();
+    // duplicate leaf ids are ambiguous for bindings
+    expect(
+      parsePaneTree({
+        type: "split",
+        id: "s1",
+        dir: "col",
+        ratio: 0.5,
+        first: { type: "leaf", id: "main" },
+        second: { type: "leaf", id: "main" },
+      }),
+    ).toBeNull();
+  });
+
+  it("tolerates a missing ratio", () => {
+    const parsed = parsePaneTree({
+      type: "split",
+      id: "s1",
+      dir: "col",
+      first: { type: "leaf", id: "main" },
+      second: { type: "leaf", id: "p2" },
+    });
+    expect(parsed && parsed.type === "split" ? parsed.ratio : null).toBe(0.5);
+  });
+});
+
+describe("sanitizePaneBindings", () => {
+  const two = splitLeaf(singlePane(), MAIN_PANE, "right", "p2")!;
+
+  it("keeps only leaf ids and string session ids", () => {
+    expect(
+      sanitizePaneBindings(two, { main: "a", p2: "b", ghost: "c", extra: 5 }),
+    ).toEqual({ main: "a", p2: "b" });
+  });
+
+  it("turns empty or non-string values into null", () => {
+    expect(sanitizePaneBindings(two, { main: "", p2: 42 })).toEqual({ main: null, p2: null });
+    expect(sanitizePaneBindings(two, undefined)).toEqual({ main: null, p2: null });
+  });
+
+  it("lets main win when two panes claim one session", () => {
+    expect(sanitizePaneBindings(two, { main: "a", p2: "a" })).toEqual({ main: "a", p2: null });
+  });
+});
+
+describe("planPaneRestore", () => {
+  const two = splitLeaf(singlePane(), MAIN_PANE, "right", "p2")!;
+  const live = new Set(["a", "b"]);
+
+  it("re-opens live extras and resumes a live main session", () => {
+    const plan = planPaneRestore(two, { main: "a", p2: "b" }, live);
+    expect(plan.tree).toEqual(two);
+    expect(plan.open).toEqual([{ paneId: "p2", sessionId: "b" }]);
+    expect(plan.mainSessionId).toBe("a");
+    expect(plan.bindings).toEqual({ main: "a", p2: "b" });
+  });
+
+  it("closes leaves bound to sessions that no longer exist", () => {
+    const plan = planPaneRestore(two, { main: "a", p2: "gone" }, live);
+    expect(plan.tree).toEqual(singlePane());
+    expect(plan.open).toEqual([]);
+    expect(plan.mainSessionId).toBe("a");
+    expect(plan.bindings).toEqual({ main: "a" });
+  });
+
+  it("keeps an unbound extra leaf as an empty drop target", () => {
+    const plan = planPaneRestore(two, { main: "a", p2: null }, live);
+    expect(plan.tree).toEqual(two);
+    expect(plan.open).toEqual([]);
+    expect(plan.bindings).toEqual({ main: "a", p2: null });
+  });
+
+  it("retargets main when the persisted tree lost its main leaf", () => {
+    const orphan = { type: "leaf", id: "p2" } as const;
+    const plan = planPaneRestore(orphan, { p2: "b" }, live);
+    expect(leafIds(plan.tree)).toEqual([MAIN_PANE]);
+    expect(plan.mainSessionId).toBe("b");
+  });
+
+  it("drops a stale main binding without touching the leaf", () => {
+    const plan = planPaneRestore(two, { main: "gone", p2: "b" }, live);
+    expect(plan.tree).toEqual(two);
+    expect(plan.mainSessionId).toBeNull();
+    expect(plan.bindings.main).toBeNull();
+  });
+});

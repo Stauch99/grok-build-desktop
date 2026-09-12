@@ -73,8 +73,8 @@ describe("thread open scroll", () => {
     const src = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>/);
     expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<WorkPane paneId=\{MAIN_PANE\}/);
-    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<SettingsPanel/);
-    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<ExtensionsHub/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<Suspense[\s\S]{0,80}?<SettingsPanel/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<Suspense[\s\S]{0,80}?<ExtensionsHub/);
     expect(src).not.toMatch(/location\.reload/);
   });
 });

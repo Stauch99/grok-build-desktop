@@ -35,6 +35,32 @@ export function singlePane(id = MAIN_PANE): PaneLeaf {
   return { type: "leaf", id };
 }
 
+/** Strict shape check for persisted pane trees; anything odd falls back to null. */
+export function parsePaneTree(value: unknown): PaneNode | null {
+  const seen = new Set<string>();
+  function walk(node: unknown): PaneNode | null {
+    if (!node || typeof node !== "object") return null;
+    const rec = node as Record<string, unknown>;
+    if (rec.type === "leaf") {
+      if (typeof rec.id !== "string" || !rec.id || seen.has(rec.id)) return null;
+      seen.add(rec.id);
+      return { type: "leaf", id: rec.id };
+    }
+    if (rec.type === "split") {
+      if (typeof rec.id !== "string" || !rec.id) return null;
+      if (rec.dir !== "row" && rec.dir !== "col") return null;
+      const ratio = typeof rec.ratio === "number" && Number.isFinite(rec.ratio) ? rec.ratio : 0.5;
+      const first = walk(rec.first);
+      const second = walk(rec.second);
+      if (!first || !second) return null;
+      return { type: "split", id: rec.id, dir: rec.dir, ratio, first, second };
+    }
+    return null;
+  }
+  const tree = walk(value);
+  return tree && leafIds(tree).length > 0 ? tree : null;
+}
+
 export function isLeaf(node: PaneNode): node is PaneLeaf {
   return node.type === "leaf";
 }
@@ -312,4 +338,69 @@ export function applyDrop(
     bindings: pruneBindings(closed.tree, { ...bindings, [drop.newPaneId]: drop.sessionId }),
     focus: drop.newPaneId,
   };
+}
+
+/**
+ * Coerce persisted bindings into the tree's leaf set: non-string or empty
+ * session ids become null, and a session may bind at most one leaf (main wins).
+ */
+export function sanitizePaneBindings(tree: PaneNode, value: unknown): Bindings {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const out: Bindings = {};
+  const taken = new Set<string>();
+  const claim = (id: string): string | null => {
+    const sid = raw[id];
+    if (typeof sid !== "string" || !sid || taken.has(sid)) return null;
+    taken.add(sid);
+    return sid;
+  };
+  // Main claims its session first so duplicates fall off the extra leaves.
+  if (leafIds(tree).includes(MAIN_PANE)) out[MAIN_PANE] = claim(MAIN_PANE);
+  for (const id of leafIds(tree)) {
+    if (id === MAIN_PANE) continue;
+    out[id] = claim(id);
+  }
+  return out;
+}
+
+export type PaneRestorePlan = {
+  tree: PaneNode;
+  bindings: Bindings;
+  /** Extra leaves whose session still exists and should be re-opened. */
+  open: { paneId: string; sessionId: string }[];
+  /** Persisted main binding when the session still exists, else null. */
+  mainSessionId: string | null;
+};
+
+/**
+ * Reconcile a persisted layout against the live session list. Leaves bound to
+ * sessions that are gone are closed; the main leaf always survives.
+ */
+export function planPaneRestore(
+  tree: PaneNode,
+  bindings: Bindings,
+  liveSessionIds: ReadonlySet<string>,
+): PaneRestorePlan {
+  const ensured = ensureMainLeaf(tree, bindings);
+  // Null out dead session ids; extra leaves that lose their binding are closed.
+  const bound: Bindings = {};
+  for (const [id, sid] of Object.entries(ensured.bindings)) {
+    bound[id] = sid && liveSessionIds.has(sid) ? sid : null;
+  }
+  let next = ensured.tree;
+  for (const id of leafIds(next)) {
+    if (id === MAIN_PANE) continue;
+    if (ensured.bindings[id] && !bound[id]) {
+      const closed = closePane(next, id);
+      if (closed) next = closed.tree;
+    }
+  }
+  const open: { paneId: string; sessionId: string }[] = [];
+  for (const id of leafIds(next)) {
+    if (id === MAIN_PANE) continue;
+    const sid = bound[id];
+    if (sid) open.push({ paneId: id, sessionId: sid });
+  }
+  const mainSessionId = leafIds(next).includes(MAIN_PANE) ? bound[MAIN_PANE] ?? null : null;
+  return { tree: next, bindings: pruneBindings(next, bound), open, mainSessionId };
 }

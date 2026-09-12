@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { DEFAULT_SIDEBAR_LIST } from "../lib/sidebar-list";
+import { singlePane, splitLeaf } from "../lib/pane-tree";
 import {
   accumulatePersistPartial,
   buildWebuiState,
@@ -42,6 +43,8 @@ const base: WebuiSnapshot = {
   injectUserMemory: true,
   dreamingEnabled: true,
   dreamAgentId: "grok",
+  paneTree: singlePane(),
+  paneBindings: { main: null },
 };
 
 describe("buildWebuiState", () => {
@@ -72,6 +75,19 @@ describe("buildWebuiState", () => {
 
   it("persists following the system color scheme", () => {
     expect(buildWebuiState({ ...base, theme: "system" }).theme).toBe("system");
+  });
+
+  it("round-trips the pane tree and pane bindings through the snapshot", () => {
+    const tree = splitLeaf(singlePane(), "main", "right", "p2");
+    const snap = {
+      ...base,
+      paneTree: tree!,
+      paneBindings: { main: "grok/a", p2: "grok/b" },
+    };
+    const state = buildWebuiState(snap, { titles: { "grok/a": "T" } });
+    expect(state.paneTree).toEqual(tree);
+    expect(state.paneBindings).toEqual({ main: "grok/a", p2: "grok/b" });
+    expect(JSON.parse(JSON.stringify(state)).paneTree).toEqual(tree);
   });
 });
 

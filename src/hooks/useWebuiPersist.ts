@@ -8,6 +8,7 @@ import type { Mode } from "../lib/mode";
 import type { UnreadMap } from "../lib/session-status";
 import type { SidebarListPrefs } from "../lib/sidebar-list";
 import type { ProjectGroupState } from "../lib/project-groups";
+import type { Bindings, PaneNode } from "../lib/pane-tree";
 
 export { WEBUI_PERSIST_MS };
 
@@ -50,6 +51,8 @@ export type WebuiSnapshot = {
   manualProjects?: boolean;
   sounds?: boolean;
   allowedTools?: string[];
+  paneTree: PaneNode;
+  paneBindings: Bindings;
 };
 
 export function buildWebuiState(snapshot: WebuiSnapshot, partial: WebuiState = {}): WebuiState {

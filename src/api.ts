@@ -8,6 +8,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { AcpRecord } from "./lib/acp-events";
 import type { AgentId } from "./lib/agent-id";
+import type { PaneNode } from "./lib/pane-tree";
 import { acpMessageFromEvent, resolveStartAgentId, stderrFromAcpEvent } from "./lib/acp-host";
 import { unwrapAcpEvent } from "./lib/acp-event-tag";
 
@@ -90,6 +91,10 @@ export type WebuiState = {
   manualProjects?: boolean;
   sounds?: boolean;
   allowedTools?: string[];
+  /** Split-pane layout; untrusted JSON — validated by pane-tree helpers on load. */
+  paneTree?: PaneNode;
+  /** paneId → sessionId (null = leaf left unbound). Pruned against live sessions on hydrate. */
+  paneBindings?: Record<string, string | null>;
 };
 
 export type WorkspaceEntry = {

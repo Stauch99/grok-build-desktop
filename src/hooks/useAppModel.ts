@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { catalogFromSource, emptyCatalog, effortsForModel } from "../lib/agent-models";
 import { parseInspect } from "../lib/inspect";
-import { MAIN_PANE } from "../lib/pane-tree";
+import { MAIN_PANE, type Bindings } from "../lib/pane-tree";
 import { persistReviewOpen } from "../lib/review-rail";
 import { friendlyError } from "../lib/error-copy";
 import { permissionTimeoutNotice } from "../lib/permission-copy";
@@ -133,6 +133,11 @@ export function useAppModel() {
   s.allSessionsRef.current = allSessions;
 
   const focusedExtra = s.focusedPaneId !== MAIN_PANE ? s.extraPanes[s.focusedPaneId] : undefined;
+  const paneBindings = useMemo(() => {
+    const b: Bindings = { [MAIN_PANE]: acp.sessionId };
+    for (const [id, pane] of Object.entries(s.extraPanes)) b[id] = pane.sessionId;
+    return b;
+  }, [acp.sessionId, s.extraPanes]);
   const reviewCwd = focusedExtra?.cwd || s.cwd;
   const reviewSessionId = focusedExtra?.sessionId ?? acp.sessionId;
   const extraBusy = Object.values(s.extraPanes).some((p) => p.busy);
@@ -194,6 +199,8 @@ export function useAppModel() {
     manualProjects: s.manualProjects,
     sounds: s.sounds,
     allowedTools: [...s.allowedTools],
+    paneTree: s.paneTree,
+    paneBindings,
   });
   s.persistRef.current = persist;
   s.persistReviewOpened.current = () => persist(persistReviewOpen(true));
@@ -302,6 +309,8 @@ export function useAppModel() {
     cwd: s.cwd,
     inboxCwd: s.inboxCwd,
     projects: s.projects,
+    pinnedProjects: s.pinnedProjects,
+    lastWorkspace: s.lastWorkspace,
     sessions: s.sessions,
     inboxSessions: s.inboxSessions,
     titles: s.titles,
@@ -323,6 +332,7 @@ export function useAppModel() {
     setLastWorkspace: s.setLastWorkspace,
     setOpenProjects: s.setOpenProjects,
     setProjects: s.setProjects,
+    setPinnedProjects: s.setPinnedProjects,
     setPicking: s.setPicking,
     setInboxSessions: s.setInboxSessions,
     setSessions: s.setSessions,

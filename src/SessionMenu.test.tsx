@@ -27,6 +27,45 @@ describe("ProjectMenu", () => {
     expect(html).toContain("移出分组");
     expect(html).toContain("disabled");
   });
+
+  it("offers new session, reveal, copy path, and remove-from-list", () => {
+    const html = renderToStaticMarkup(
+      createElement(LocaleProvider, {
+        locale: "zh",
+        children: createElement(ProjectMenu, {
+          top: 0,
+          left: 0,
+          pinned: false,
+          onPin: () => {},
+          onNewSession: () => {},
+          onReveal: () => {},
+          onCopyPath: () => {},
+          onRemove: () => {},
+        }),
+      }),
+    );
+    expect(html).toContain("在此项目新开会话");
+    expect(html).toContain("在访达中显示");
+    expect(html).toContain("复制项目路径");
+    expect(html).toContain("从列表移除项目");
+    expect(html).toContain("danger");
+  });
+
+  it("hides optional rows when their handlers are absent", () => {
+    const html = renderToStaticMarkup(
+      createElement(LocaleProvider, {
+        locale: "zh",
+        children: createElement(ProjectMenu, {
+          top: 0,
+          left: 0,
+          pinned: false,
+          onPin: () => {},
+        }),
+      }),
+    );
+    expect(html).not.toContain("在此项目新开会话");
+    expect(html).not.toContain("从列表移除项目");
+  });
 });
 
 describe("GroupMenu", () => {

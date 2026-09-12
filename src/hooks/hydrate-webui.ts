@@ -34,6 +34,12 @@ import type { AgentDoctor } from "../lib/agent-doctor";
 import type { Mode } from "../lib/mode";
 import { parseThemePref, type ThemePref } from "../lib/theme-pref";
 import { doctorAll, importAgentsMcpFirstOpen } from "../lib/workbench-api";
+import {
+  parsePaneTree,
+  sanitizePaneBindings,
+  type Bindings,
+  type PaneNode,
+} from "../lib/pane-tree";
 import type { Dispatch, SetStateAction } from "react";
 
 export type HydrateWebuiDeps = {
@@ -89,6 +95,12 @@ export type HydrateWebuiDeps = {
   setCwd: (cwd: string) => void;
   setSettingsHydrated: (value: boolean) => void;
   setInspect?: Dispatch<SetStateAction<InspectReport | null>>;
+  setPaneTree: Dispatch<SetStateAction<PaneNode>>;
+  restorePaneSessions: (
+    tree: PaneNode,
+    bindings: Bindings,
+    sessions: SessionSummary[],
+  ) => Promise<void>;
 };
 
 export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
@@ -175,8 +187,15 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     d.setProjectGroups(pruneProjectGroups(loadProjectGroups(state.projectGroups), adopted.projects));
     const paintedCwd = lastWorkspace || adopted.projects[0] || "";
     if (paintedCwd) d.setCwd(paintedCwd);
+    // Paint the persisted split layout immediately; sessions bind in phase two.
+    const restoredTree = parsePaneTree(state.paneTree);
+    const paneBindings = restoredTree ? sanitizePaneBindings(restoredTree, state.paneBindings) : null;
+    if (restoredTree) d.setPaneTree(restoredTree);
     d.setSettingsHydrated(true);
-    void hydrateRemoteSessions(d, state, adopted, lastWorkspace, paintedCwd);
+    void hydrateRemoteSessions(d, state, adopted, lastWorkspace, paintedCwd, {
+      tree: restoredTree,
+      bindings: paneBindings,
+    });
   } catch (e) {
     d.showToast(friendlyError(e));
     d.setSettingsHydrated(true);
@@ -189,6 +208,7 @@ async function hydrateRemoteSessions(
   adopted: ReturnType<typeof adoptManualProjects>,
   lastWorkspace: string,
   paintedCwd: string,
+  panes: { tree: PaneNode | null; bindings: Bindings | null },
 ): Promise<void> {
   void doctor()
     .then(d.setInfo)
@@ -224,6 +244,9 @@ async function hydrateRemoteSessions(
     d.setInboxCwd(inbox);
     const all = brandSessionList(await listSessions(null).catch(() => [] as SessionSummary[]));
     d.applySessionUnion(all, inbox, kept);
+    if (panes.tree && panes.bindings) {
+      await d.restorePaneSessions(panes.tree, panes.bindings, all).catch(() => undefined);
+    }
     const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
     d.setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
     const initial = lastWorkspace || kept[0] || inbox;

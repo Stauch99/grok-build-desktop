@@ -56,6 +56,8 @@ function render(
     groupMembership?: Record<string, string>;
     openGroups?: Record<string, boolean>;
     openProjects?: Record<string, boolean>;
+    onOpenExtra?: (id: string) => void;
+    collapsed?: boolean;
   },
 ) {
   const noop = () => {};
@@ -99,6 +101,8 @@ function render(
         onSettings: noop,
         onExtensions: noop,
         onShortcuts: noop,
+        onOpenExtra: extra?.onOpenExtra,
+        collapsed: extra?.collapsed ?? false,
         onCollapseAll: noop,
         onMarkAllRead: noop,
         showTokens: false,
@@ -227,6 +231,25 @@ describe("Sidebar project groups", () => {
     expect(html).toContain("aria-expanded=\"false\"");
     expect(html).toContain("class=\"group-projects\"");
     expect(html).not.toContain("group-projects open");
+  });
+});
+
+describe("Sidebar global nav", () => {
+  it("renders quiet rows for the extra pages when onOpenExtra is wired", () => {
+    const html = render(2, { onOpenExtra: () => {} });
+    for (const label of ["会话总览", "记忆", "代理", "用量", "图片"]) {
+      expect(html).toContain(label);
+    }
+    expect((html.match(/class="side-link"/g) ?? []).length).toBe(5);
+    // Each row routes through a palette action id so imagine/agents preload.
+    for (const act of ["act:dashboard", "act:memory", "act:agents", "act:usage", "act:imagine"]) {
+      expect(sidebarSrc).toContain(`onOpenExtra("${act}")`);
+    }
+  });
+
+  it("stays hidden without the callback or in rail mode", () => {
+    expect(render(2)).not.toContain('data-nav="extra"');
+    expect(render(2, { onOpenExtra: () => {}, collapsed: true })).not.toContain('data-nav="extra"');
   });
 });
 

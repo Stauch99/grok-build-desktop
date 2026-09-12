@@ -35,6 +35,7 @@ import {
   IconGitBranch,
   IconGitFork as TablerGitFork,
   IconHierarchy2 as TablerHierarchy2,
+  IconLayoutDashboard,
   IconLayoutSidebar,
   IconLayoutSidebarRight,
   IconListDetails as TablerListDetails,
@@ -89,6 +90,7 @@ export const IconCopy = wrap(TablerCopy);
 export const IconUp = wrap(IconArrowUp);
 export const IconFinder = wrap(IconExternalLink);
 export const IconEye = wrap(TablerEye, 14);
+export const IconDashboard = wrap(IconLayoutDashboard, 16);
 export const IconPanel = wrap(IconLayoutSidebarRight);
 export const IconSidebar = wrap(IconLayoutSidebar, 18);
 export const IconGear = wrap(IconSettings);
