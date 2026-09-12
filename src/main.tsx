@@ -22,6 +22,7 @@ import "./styles/composer.css";
 import "./styles/settings.css";
 import "./styles/review.css";
 import "./styles/frost.css";
+import "./styles/interactions.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -725,6 +725,19 @@ describe("queuePrompt echo", () => {
     expect(src).toMatch(/function queuePrompt[\s\S]*echoUserOnce\(prev, text, "u-queue"/);
   });
 
+  it("does not re-echo a queued prompt when the queue drains through sendPrompt", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    // Enqueue marks the text as already echoed; the send path only re-echoes
+    // when the bubble is gone (e.g. the transcript was rebuilt on resume).
+    expect(src).toMatch(/noteQueuedEcho\(queuedEchoRef\.current, echoQueueKey\(MAIN_PANE\), text\)/);
+    expect(src).toMatch(/noteQueuedEcho\(queuedEchoRef\.current, echoQueueKey\(dest\), text\)/);
+    expect(src).toMatch(
+      /takeQueuedEcho\(queuedEchoRef\.current, echoQueueKey\(dest, sendingSid\), text\)/,
+    );
+    expect(src).toMatch(/hasLocalUserEcho\(chatRef\.current\.items, text\)/);
+    expect(src).toMatch(/hasLocalUserEcho\(prev\.chat\.items, text\)/);
+  });
+
   it("parks the main composer queue on the session that queued it", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
     expect(src).toMatch(/swapSessionQueue\(/);

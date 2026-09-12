@@ -1,5 +1,11 @@
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { useT } from "../lib/locale-context";
+import {
+  applyImeComposition,
+  emptyImeEnterState,
+  imeBlocksEnter,
+  imeEnterShouldPreventDefault,
+} from "../lib/ime-enter";
 
 export type QuestionOption = { id: string; label: string };
 
@@ -18,10 +24,12 @@ export function QuestionCard({ title, options, onPick, onCustomAnswer }: Questio
   const t = useT();
   const [index, setIndex] = useState(0);
   const [customText, setCustomText] = useState("");
+  const imeRef = useRef(emptyImeEnterState());
 
   const submitCustom = () => {
     const trimmed = customText.trim();
     if (!trimmed) return;
+    setCustomText("");
     onCustomAnswer?.(trimmed);
   };
 
@@ -88,7 +96,6 @@ export function QuestionCard({ title, options, onPick, onCustomAnswer }: Questio
       {onCustomAnswer ? (
         <form
           className="perm-custom-row"
-          style={{ marginTop: "10px", display: "flex", gap: "6px" }}
           onSubmit={(e) => {
             e.preventDefault();
             submitCustom();
@@ -96,23 +103,48 @@ export function QuestionCard({ title, options, onPick, onCustomAnswer }: Questio
         >
           <input
             type="text"
-            className="input"
-            style={{ flex: 1, fontSize: "13px", padding: "4px 8px" }}
+            className="perm-custom-input"
             placeholder={t("question.freeText")}
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setCustomText("");
+                e.currentTarget.blur();
+                return;
+              }
+              if (e.key !== "Enter") return;
+              const keyLike = {
+                key: e.key,
+                isComposing: e.nativeEvent.isComposing,
+                keyCode: e.nativeEvent.keyCode,
+              };
+              // Enter confirming an IME candidate must not submit the form.
+              if (imeBlocksEnter(keyLike, imeRef.current, Date.now())) {
+                if (imeEnterShouldPreventDefault(keyLike, imeRef.current, Date.now())) {
+                  e.preventDefault();
+                }
+              }
+            }}
+            onCompositionStart={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+            }}
+            onCompositionEnd={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+            }}
           />
           <button
             type="submit"
-            className="secondary-btn small"
+            className="perm-custom-send"
             disabled={!customText.trim()}
-            style={{ fontSize: "12px", padding: "4px 10px" }}
           >
             {t("question.freeSend")}
           </button>
         </form>
       ) : null}
+      {onCustomAnswer ? <p className="permission-hint">{t("question.freeHint")}</p> : null}
     </div>
   );
 }

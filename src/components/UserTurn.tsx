@@ -1,8 +1,14 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useState, type MouseEventHandler } from "react";
+import { useRef, useState, type MouseEventHandler } from "react";
 import { IconGrokCopy, IconGrokEdit, IconGrokRegenerate } from "../grok-icons";
 import { IconChevron, IconGitFork, IconUndo } from "../icons";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
+import {
+  applyImeComposition,
+  emptyImeEnterState,
+  imeBlocksEnter,
+  imeEnterShouldPreventDefault,
+} from "../lib/ime-enter";
 import { splitInjectedMemory } from "../lib/memory-inject";
 import { rewriteLocalMediaHtml } from "../lib/media";
 import { escapeText, linkifyLocalPaths } from "../lib/text";
@@ -45,8 +51,19 @@ export function UserTurn({
   const { visible, injected } = splitInjectedMemory(text);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(visible);
+  const imeRef = useRef(emptyImeEnterState());
   const showModelChip = !!(model && sessionModel && model !== sessionModel);
   const showMeta = !!(clock || showModelChip);
+
+  const submitEdit = () => {
+    const next = draft;
+    setEditing(false);
+    onEditResend?.(next);
+  };
+  const cancelEdit = () => {
+    setDraft(visible);
+    setEditing(false);
+  };
 
   if (editing) {
     return (
@@ -57,27 +74,42 @@ export function UserTurn({
           rows={Math.min(12, Math.max(3, draft.split("\n").length + 1))}
           onChange={(e) => setDraft(e.target.value)}
           autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              cancelEdit();
+              return;
+            }
+            if (e.key !== "Enter") return;
+            const keyLike = {
+              key: e.key,
+              isComposing: e.nativeEvent.isComposing,
+              keyCode: e.nativeEvent.keyCode,
+            };
+            if (imeBlocksEnter(keyLike, imeRef.current, Date.now())) {
+              if (imeEnterShouldPreventDefault(keyLike, imeRef.current, Date.now())) {
+                e.preventDefault();
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey) {
+              e.preventDefault();
+              submitEdit();
+            }
+          }}
+          onCompositionStart={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+          }}
+          onCompositionEnd={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+          }}
         />
         <div className="msg-actions">
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => {
-              const next = draft;
-              setEditing(false);
-              onEditResend?.(next);
-            }}
-          >
+          <button type="button" className="btn primary" onClick={submitEdit}>
             {t("composer.send")}
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              setDraft(visible);
-              setEditing(false);
-            }}
-          >
+          <button type="button" className="btn" onClick={cancelEdit}>
             {t("sidebar.cancel")}
           </button>
         </div>

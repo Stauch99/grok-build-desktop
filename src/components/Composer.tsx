@@ -96,6 +96,8 @@ export type ComposerProps = {
   onRunSlash: (cmd: CommandDef, rest: string) => void;
 
   cwd: string;
+  /** Bound session for this pane. Attachments are dropped when it changes. */
+  sessionId?: string | null;
   grokHome?: string;
   listFiles: (query: string) => Promise<string[]>;
   /** Optional file reader for attached file contents. Falls back to `readTextFile`. */
@@ -172,6 +174,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     commands,
     onRunSlash,
     cwd,
+    sessionId,
     grokHome = "",
     listFiles,
     readFile,
@@ -284,6 +287,16 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     setMentions([]);
     setMentionOn(false);
   }, [cwd]);
+
+  // Attachments belong to the session+folder they were picked in — the composer
+  // does not remount on session switch, so drop them instead of formatting
+  // stale paths into the next prompt.
+  const attachScope = `${cwd}${sessionId ?? ""}`;
+  const attachScopeRef = useRef(attachScope);
+  if (attachScopeRef.current !== attachScope) {
+    attachScopeRef.current = attachScope;
+    setAttachments([]);
+  }
 
   const mergeAttachments = useCallback(
     (incoming: Attachment[]) => {

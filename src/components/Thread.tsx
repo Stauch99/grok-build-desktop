@@ -587,6 +587,9 @@ export function ThreadColumn({
     text: string;
   } | null>(null);
   const [tocActive, setTocActive] = useState<string | null>(null);
+  // Items that arrived while the user was scrolled up — badge over the jump button.
+  const [newSinceScroll, setNewSinceScroll] = useState(0);
+  const scrollBaseRef = useRef<number | null>(null);
   const wasVirtualRef = useRef(false);
   const anchorIndexRef = useRef(0);
   const liveClock = useRef({ announced: "", lastAt: 0 });
@@ -715,6 +718,21 @@ export function ThreadColumn({
     if (!pinToLatest || loading) return;
     pinToEnd(false);
   }, [pinToLatest, loading, listActive, blocks.length, chat.items]);
+
+  // pinToLatest is the pane's atBottom flag: the baseline freezes when it flips
+  // off and clears when the user returns to the bottom.
+  useEffect(() => {
+    const len = chat.items.length;
+    if (pinToLatest) {
+      scrollBaseRef.current = null;
+      setNewSinceScroll(0);
+      return;
+    }
+    if (scrollBaseRef.current == null || len < scrollBaseRef.current) {
+      scrollBaseRef.current = len;
+    }
+    setNewSinceScroll(len - scrollBaseRef.current);
+  }, [pinToLatest, chat.items.length]);
 
   // Rebuild the TOC observer only when the set of user turns changes — `blocks`
   // gets a fresh identity on every streaming flush, so key off the joined ids.
@@ -867,6 +885,12 @@ export function ThreadColumn({
         )}
         </div>
       </div>
+
+      {!pinToLatest && newSinceScroll > 0 ? (
+        <span className="jump-count" aria-hidden="true">
+          {newSinceScroll}
+        </span>
+      ) : null}
 
       {/* Sits outside the scroll container: absolute children of a scrolling
           element scroll away with the content, which put the table of contents

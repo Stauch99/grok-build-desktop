@@ -46,7 +46,14 @@ import type { Mode } from "../lib/mode";
 import { tryEnqueue, emptyQueue, dequeue, putSessionQueue, swapSessionQueue, type QueueState, type SessionQueues } from "../lib/prompt-queue";
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
-import { getDraft, setDraft as writeDraft, resumeComposerDraft, isStaleSentDraftChange } from "../lib/session-drafts";
+import { draftKey, getDraft, setDraft as writeDraft, resumeComposerDraft, isStaleSentDraftChange } from "../lib/session-drafts";
+import {
+  clearQueuedEchoes,
+  hasLocalUserEcho,
+  noteQueuedEcho,
+  takeQueuedEcho,
+  type QueuedEchoes,
+} from "../lib/queued-echo";
 import { DRAFT_PERSIST_MS, createTrailingFlush } from "../lib/trailing-flush";
 import { isLiveRosterId } from "../lib/live-roster";
 import { agentIdForPaneDest, planOpenSession, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
@@ -337,6 +344,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const ignoreReplay = useRef(false);
   const ignoreExtraReplay = useRef<Record<string, boolean>>({});
   const pendingPrompt = useRef<PaneDest | null>(null);
+  const queuedEchoRef = useRef<QueuedEchoes>(new Map());
   const [injectedSessions, setInjectedSessions] = useState<Set<string>>(() => new Set());
   const injectedRef = useRef(injectedSessions);
   injectedRef.current = injectedSessions;
@@ -519,6 +527,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     });
   }
 
+  /** Queue-echo scope: the main queue parks per session, extras per pane. */
+  function echoQueueKey(dest: PaneDest, sessionId?: string | null): string {
+    if (dest !== MAIN_PANE) return `pane/${dest}`;
+    return `main/${draftKey(sessionId === undefined ? sessionIdRef.current : sessionId)}`;
+  }
+
   function rememberExtra(paneId: string, pane: ExtraPaneState) {
     extraChatRef.current[paneId] = pane.chat;
     paneChatStore.replaceExtra(paneId, { chat: pane.chat, busy: pane.busy });
@@ -623,6 +637,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const prev = sessionIdRef.current;
     if (id !== prev) {
       draftsPersist.flush();
+      // The rebuilt transcript drops local echo bubbles; the parked queue must
+      // echo again when it drains on either session.
+      clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(MAIN_PANE, prev));
+      clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(MAIN_PANE, id));
       setChat((chat) => chatAfterBoundSessionChange(chat, prev, id));
       const d = depsRef.current;
       const swapped = swapSessionQueue({
@@ -654,6 +672,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     adoptSession(null);
     bindMainAgent(selectedAgentIdRef.current);
     setChat(emptyChat());
+    clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(MAIN_PANE));
     depsRef.current.setDraft("");
     echoedUser.current = false;
   }
@@ -1264,6 +1283,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }, { dest: paneId, agentId }));
       const sid = sessionIdFromNewResult(result);
       echoedExtra.current[paneId] = false;
+      clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(paneId));
       d.setExtraPanes((prev) => {
         const pane = {
           sessionId: sid,
@@ -1335,6 +1355,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       userAfterLastStop = stopCursor?.userAfterLastStop ?? false;
       chatRef.current = next;
       setChat(next);
+      clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(MAIN_PANE, s.id));
       const stored = getDraft(d.sessionDrafts, s.id);
       const restore = resumeComposerDraft(next.items, stored);
       d.setDraft(restore);
@@ -1421,6 +1442,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     d.onOpenSplit();
     echoedExtra.current[paneId] = false;
+    clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(paneId));
     try {
       const page = await readSessionUpdates(s.id, afterByteFor(updateCursors.current, s.id) ?? null, s.dir);
       ignoreExtraReplay.current[paneId] = ignoreAcpHistoryDuringResume(page.rows.length);
@@ -1559,6 +1581,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         return false;
       }
       echoedExtra.current[dest] = true;
+      noteQueuedEcho(queuedEchoRef.current, echoQueueKey(dest), text);
       patchExtra(dest, (prev) => {
         const chat = echoUserOnce(prev.chat, text, "u-queue", at);
         extraChatRef.current[dest] = chat;
@@ -1578,6 +1601,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     d.setQueue(result.state);
     d.sessionQueuesRef.current = putSessionQueue(d.sessionQueuesRef.current, sessionIdRef.current, result.state);
     echoedUser.current = true;
+    noteQueuedEcho(queuedEchoRef.current, echoQueueKey(MAIN_PANE), text);
     setChat((prev) => {
       const next = echoUserOnce(prev, text, "u-queue", at);
       chatRef.current = next;
@@ -1630,6 +1654,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     const destKey = extra ? dest : MAIN_PANE;
     const sendingSid = extra ? d.extraPanes[dest]?.sessionId ?? null : sessionIdRef.current;
+    // A prompt drained from the queue already has its user bubble (echoed at
+    // enqueue). Consume the marker so the send path does not echo it twice.
+    const hadQueuedEcho = takeQueuedEcho(queuedEchoRef.current, echoQueueKey(dest, sendingSid), text);
     const pendingForThis = destHasPendingPrompt(
       pendingRpc.current,
       pendingDest.current,
@@ -1712,7 +1739,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         agentId: extraAgent,
       });
       patchExtra(dest, (prev) => {
-        const chat = echoUserOnce(prev.chat, text, "u-local", at);
+        const chat =
+          hadQueuedEcho && hasLocalUserEcho(prev.chat.items, text)
+            ? prev.chat
+            : echoUserOnce(prev.chat, text, "u-local", at);
         extraChatRef.current[dest] = chat;
         return { ...prev, chat, draft: "", busy: true, atBottom: true };
       });
@@ -1761,11 +1791,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     const firstTurn = !chat.items.some((item) => item.kind === "user");
     echoedUser.current = true;
-    setChat((prev) => {
-      const next = echoUserOnce(prev, text, "u-local", Date.now());
-      chatRef.current = next;
-      return next;
-    });
+    if (!(hadQueuedEcho && hasLocalUserEcho(chatRef.current.items, text))) {
+      setChat((prev) => {
+        const next = echoUserOnce(prev, text, "u-local", Date.now());
+        chatRef.current = next;
+        return next;
+      });
+    }
     d.setDraft("");
     lastSentRef.current = text;
     let drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");

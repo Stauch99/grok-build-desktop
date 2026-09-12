@@ -15,6 +15,8 @@ export type PermissionCardProps = {
   locale?: Locale;
   receivedAt?: number;
   canRemember?: boolean;
+  /** More requests queued behind this card for the same pane. */
+  pendingExtra?: number;
 };
 
 export type PermissionPickContext = {
@@ -49,6 +51,7 @@ export function PermissionCard({
   locale,
   receivedAt,
   canRemember = true,
+  pendingExtra = 0,
 }: PermissionCardProps) {
   const ctxLocale = useLocale();
   const loc = locale ?? ctxLocale;
@@ -188,6 +191,9 @@ export function PermissionCard({
           {t(loc, remember && canRemember ? "perm.alwaysBtn" : "perm.allowOnce")}
         </button>
       </div>
+      {pendingExtra > 0 ? (
+        <p className="permission-hint perm-more">{t(loc, "queue.count", { n: pendingExtra })}</p>
+      ) : null}
     </div>
   );
 }
