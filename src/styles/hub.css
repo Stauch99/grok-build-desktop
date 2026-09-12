@@ -350,6 +350,7 @@
   background: var(--bg-card);
   color: var(--muted);
   font-size: var(--md-size, 15px);
+  transition: border-color var(--dur-fast) var(--ease);
 }
 .dock-capsule-pill {
   border-radius: var(--radius-pill);

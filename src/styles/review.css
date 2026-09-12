@@ -415,6 +415,7 @@
   max-width: 160px;
   border-radius: var(--radius-md);
   background: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
 }
 .preview-tab[data-active="true"] { background: var(--bg-hover); }
 .preview-tab button[role="tab"] {

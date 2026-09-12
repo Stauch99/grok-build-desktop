@@ -68,6 +68,7 @@
   color: var(--text);
   font-size: var(--ui-smaller);
   outline: none;
+  transition: opacity var(--dur-fast) var(--ease);
 }
 .git-msg:disabled { opacity: 0.55; }
 .git-worktree-label {
@@ -264,6 +265,7 @@
   line-height: 1.6;
   resize: vertical;
   outline: none;
+  transition: border-color var(--dur-fast) var(--ease);
 }
 .user-turn-edit:focus { border-color: var(--accent); }
 

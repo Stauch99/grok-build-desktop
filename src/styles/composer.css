@@ -25,6 +25,9 @@
   padding: 5px 8px 5px 12px;
   box-shadow: none;
   border: 1px solid var(--line);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--brand) 50%, var(--line));
@@ -344,6 +347,10 @@
   border-radius: var(--radius-md);
   padding: 3px 6px 3px 8px;
   font-size: var(--ui-smaller);
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
 }
 .queue-item:hover { color: var(--text); border-color: var(--line-strong); }
 .queue-text {
