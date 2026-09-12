@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  dashboardStatus,
   deriveHero,
   mainPaneIsBusy,
   mapDashboardSessions,
@@ -24,26 +23,53 @@ describe("planIsComplete", () => {
 });
 
 describe("dashboard sessions", () => {
-  it("maps sidebar status onto the dashboard vocabulary", () => {
-    expect(dashboardStatus("needs-you")).toBe("needs-input");
-    expect(dashboardStatus("working")).toBe("running");
-    expect(dashboardStatus("idle")).toBe("idle");
-    expect(dashboardStatus("done")).toBe("idle");
-    expect(dashboardStatus("error")).toBe("idle");
-  });
-
-  it("uses display titles and per-session status", () => {
+  it("keeps the full session status and carries the card fields", () => {
     const rows = mapDashboardSessions(
       [
-        { id: "a", title: "生成名" },
-        { id: "b", title: "另一个" },
+        {
+          id: "a",
+          title: "生成名",
+          cwd: "/p/one",
+          agentId: "claude",
+          updatedAt: "2026-01-01T00:00:00Z",
+          createdAt: "2026-01-01T00:00:00Z",
+          numMessages: 4,
+        },
+        {
+          id: "b",
+          title: "另一个",
+          cwd: "/p/two",
+          agentId: "grok",
+          updatedAt: "2026-01-02T00:00:00Z",
+          createdAt: "2026-01-02T00:00:00Z",
+          numMessages: 9,
+        },
       ],
       { a: "手改" },
-      (id) => (id === "a" ? "needs-you" : "working"),
+      (id) => (id === "a" ? "needs-you" : "done"),
+      { b: 4200 },
     );
     expect(rows).toEqual([
-      { id: "a", title: "手改", status: "needs-input" },
-      { id: "b", title: "另一个", status: "running" },
+      {
+        id: "a",
+        title: "手改",
+        status: "needs-you",
+        cwd: "/p/one",
+        agentId: "claude",
+        updatedAt: "2026-01-01T00:00:00Z",
+        numMessages: 4,
+        tokens: undefined,
+      },
+      {
+        id: "b",
+        title: "另一个",
+        status: "done",
+        cwd: "/p/two",
+        agentId: "grok",
+        updatedAt: "2026-01-02T00:00:00Z",
+        numMessages: 9,
+        tokens: 4200,
+      },
     ]);
   });
 });

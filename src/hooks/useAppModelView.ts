@@ -20,6 +20,7 @@ import { turnStatsFromItems } from "../lib/usage-split";
 import { displayTitle } from "../lib/projects";
 import { liveSessionPreviews } from "../lib/session-summary";
 import { buildSidebarSections, type SidebarListPrefs } from "../lib/sidebar-list";
+import { mapDashboardSessions } from "../lib/app-view";
 import type { ProjectGroupState } from "../lib/project-groups";
 import { deriveStatus, sidebarWorkingIds, type SessionStatus, type UnreadMap } from "../lib/session-status";
 import { planRevert, previewRevert } from "../lib/checkpoint";
@@ -206,13 +207,14 @@ export function useAppModelView(input: AppModelViewInput) {
 
   const dashboardSessions = useMemo(
     () =>
-      input.allSessions.map((s) => {
-        const st = statusFor(s.id);
-        const status =
-          st === "needs-you" ? "needs-input" : st === "working" ? "running" : "idle";
-        return { id: s.id, title: displayTitle(s, input.titles, sessionPreviews), status } as const;
-      }),
-    [input.allSessions, statusFor, input.titles, sessionPreviews],
+      mapDashboardSessions(
+        input.allSessions,
+        input.titles,
+        statusFor,
+        input.sessionTokens,
+        sessionPreviews,
+      ),
+    [input.allSessions, statusFor, input.titles, sessionPreviews, input.sessionTokens],
   );
 
   const memoryPath = input.rules.find((r) => r.name === "MEMORY.md")?.path;

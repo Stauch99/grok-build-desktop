@@ -6,6 +6,8 @@ import type { Mode } from "./mode";
 import { shouldBlockIdleComposer } from "./agent-warmup";
 import { displayTitle } from "./projects";
 import { heroLayout } from "./shell-ia";
+import { tokenForRow } from "./sidebar-list";
+import type { SessionSummary } from "../api";
 
 export function planIsComplete(mode: Mode, plan: readonly Pick<PlanEntry, "status">[]): boolean {
   return mode === "plan" && plan.length > 0 && plan.every((e) => e.status === "completed");
@@ -14,23 +16,31 @@ export function planIsComplete(mode: Mode, plan: readonly Pick<PlanEntry, "statu
 export type DashboardSession = {
   id: string;
   title: string;
-  status: "needs-input" | "running" | "idle";
+  status: SessionStatus;
+  cwd: string;
+  agentId?: string | null;
+  updatedAt: string;
+  numMessages: number;
+  tokens?: number;
 };
 
-export function dashboardStatus(st: SessionStatus): DashboardSession["status"] {
-  return st === "needs-you" ? "needs-input" : st === "working" ? "running" : "idle";
-}
-
+/** The kanban buckets on the full five-state status, not a collapsed vocabulary. */
 export function mapDashboardSessions(
-  sessions: readonly { id: string; title: string }[],
+  sessions: readonly SessionSummary[],
   titles: Record<string, string>,
   statusFor: (id: string) => SessionStatus,
+  tokens: Record<string, number>,
   preview?: Record<string, string>,
 ): DashboardSession[] {
   return sessions.map((s) => ({
     id: s.id,
     title: displayTitle(s, titles, preview),
-    status: dashboardStatus(statusFor(s.id)),
+    status: statusFor(s.id),
+    cwd: s.cwd,
+    agentId: s.agentId,
+    updatedAt: s.updatedAt,
+    numMessages: s.numMessages,
+    tokens: tokenForRow(s.id, tokens),
   }));
 }
 
