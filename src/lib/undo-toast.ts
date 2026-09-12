@@ -32,3 +32,20 @@ export function omitPending<T extends { id: string }>(items: T[], pendingKey: st
   if (!pendingKey) return items;
   return items.filter((item) => item.id !== pendingKey);
 }
+
+/** Stable key for a multi-row pending payload; order-insensitive. */
+export function pendingBatchKey<T extends { id: string }>(rows: T[]): string {
+  return rows.map((row) => row.id).sort().join("\u0000");
+}
+
+/** Hide every row of a batch pending payload, plus rows orphaned by it. */
+export function omitPendingBatch<T extends { id: string; parentSessionId?: string | null }>(
+  items: T[],
+  pending: PendingCommit<T[]> | null,
+): T[] {
+  if (!pending) return items;
+  const ids = new Set(pending.payload.map((row) => row.id));
+  let out = items;
+  for (const id of ids) out = omitPending(out, id);
+  return out.filter((item) => !item.parentSessionId || !ids.has(item.parentSessionId));
+}

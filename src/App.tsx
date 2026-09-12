@@ -41,6 +41,8 @@ import { turnStatsFromItems } from "./lib/usage-split";
 import { PaneLayout } from "./components/PaneLayout";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
+import { clearUnread } from "./lib/session-status";
+import { applyImeComposition, emptyImeEnterState, imeBlocksEnter } from "./lib/ime-enter";
 import { INBOX_PIN } from "./lib/sidebar-list";
 import { allowForGrant, allowForSession, findAlwaysOption, isHighRiskTool, parseToolName, pickAllowOption } from "./lib/permission-allow";
 import type { QueuedPermission } from "./lib/permission-queue";
@@ -321,6 +323,7 @@ export function App() {
     refreshInbox,
     switchWorkdir,
     removeSession,
+    removeSessions,
     applyMode,
     applySessionModel,
     applyModel,
@@ -395,12 +398,26 @@ export function App() {
   const appRef = useRef<HTMLDivElement>(null);
   const toastHold = useRef(toast);
   if (toast) toastHold.current = toast;
+  const titleImeRef = useRef(emptyImeEnterState());
   const setAtBottomFrame = useMemo(() => scheduleFrameValue(setAtBottom), [setAtBottom]);
   const [planMarkedComplete, setPlanMarkedComplete] = useState(false);
   useEffect(() => {
     setPlanMarkedComplete(false);
   }, [sessionId]);
   const showPlanComplete = planComplete || planMarkedComplete;
+
+  function startRenameSession(id: string) {
+    setMenu(null);
+    if (id === sessionIdRef.current || openIds.includes(id)) {
+      beginEditTitle(id);
+      return;
+    }
+    void (async () => {
+      const s = findSessionById(id);
+      if (s) await openSession(s);
+      beginEditTitle(id);
+    })();
+  }
 
   function attachToSession(path: string, kind: "file" | "dir" = "file") {
     const handle = focusedPaneId === MAIN_PANE
@@ -634,12 +651,31 @@ export function App() {
                 onChange={(e) => setTitleDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
+                    if (
+                      imeBlocksEnter(
+                        {
+                          key: e.key,
+                          isComposing: e.nativeEvent.isComposing,
+                          keyCode: e.nativeEvent.keyCode,
+                        },
+                        titleImeRef.current,
+                        Date.now(),
+                      )
+                    ) {
+                      return;
+                    }
                     e.preventDefault();
                     commitTitle(titleDraft);
                   } else if (e.key === "Escape") {
                     e.preventDefault();
                     cancelEditTitle();
                   }
+                }}
+                onCompositionStart={() => {
+                  titleImeRef.current = applyImeComposition(titleImeRef.current, "start", Date.now());
+                }}
+                onCompositionEnd={() => {
+                  titleImeRef.current = applyImeComposition(titleImeRef.current, "end", Date.now());
                 }}
                 onBlur={() => {
                   if (titleDraft.trim() && titleDraft.trim() !== paneTitle) commitTitle(titleDraft);
@@ -994,6 +1030,21 @@ return (
           setUnread({});
           persist({ unread: {} });
         }}
+        onStartRename={startRenameSession}
+        onDeleteSessions={(ids) => removeSessions(ids)}
+        onMarkReadSessions={(ids) => {
+          setUnread((prev) => {
+            let next = prev;
+            for (const id of ids) next = clearUnread(next, id);
+            if (next !== prev) persist({ unread: next });
+            return next;
+          });
+        }}
+        onArchiveSessions={(ids) => {
+          const next = ids.reduce((list, id) => toggleId(list, id), archived);
+          setArchived(next);
+          persist({ archived: next });
+        }}
         showTokens={sidebarList.showTokens}
         showStatus={sidebarList.showStatus}
         showWorktree={sidebarList.showWorktree}
@@ -1091,12 +1142,31 @@ return (
                   onChange={(e) => setTitleDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
+                      if (
+                        imeBlocksEnter(
+                          {
+                            key: e.key,
+                            isComposing: e.nativeEvent.isComposing,
+                            keyCode: e.nativeEvent.keyCode,
+                          },
+                          titleImeRef.current,
+                          Date.now(),
+                        )
+                      ) {
+                        return;
+                      }
                       e.preventDefault();
                       commitTitle(titleDraft);
                     } else if (e.key === "Escape") {
                       e.preventDefault();
                       cancelEditTitle();
                     }
+                  }}
+                  onCompositionStart={() => {
+                    titleImeRef.current = applyImeComposition(titleImeRef.current, "start", Date.now());
+                  }}
+                  onCompositionEnd={() => {
+                    titleImeRef.current = applyImeComposition(titleImeRef.current, "end", Date.now());
                   }}
                   onBlur={() => {
                     if (titleDraft.trim() && titleDraft.trim() !== currentTitle) commitTitle(titleDraft);
@@ -1469,19 +1539,7 @@ return (
           hasOverride={!!titles[menuSession.id]?.trim()}
           top={menu.top}
           left={menu.left}
-          onRename={() => {
-            const id = menuSession.id;
-            setMenu(null);
-            if (id === sessionIdRef.current || openIds.includes(id)) {
-              beginEditTitle(id);
-              return;
-            }
-            void (async () => {
-              const s = findSessionById(id);
-              if (s) await openSession(s);
-              beginEditTitle(id);
-            })();
-          }}
+          onRename={() => startRenameSession(menuSession.id)}
           onRestore={() => restoreGenerated(menuSession.id)}
           onNew={() => {
             setMenu(null);
@@ -1853,6 +1911,12 @@ return (
       )}
       <AppModal
         open={!!appConfirm}
+        danger={
+          appConfirm?.kind === "delete-session" ||
+          appConfirm?.kind === "delete-sessions" ||
+          appConfirm?.kind === "delete-group" ||
+          appConfirm?.kind === "close-pane"
+        }
         title={appConfirm?.title ?? ""}
         body={appConfirm?.body ?? ""}
         confirmLabel={appConfirm?.confirmLabel ?? t(locale, "common.ok")}

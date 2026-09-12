@@ -94,8 +94,8 @@ describe("i18n", () => {
   it("covers rail account extra toast stats chrome", () => {
     expect(t("zh", "rail.explorer")).toBe("文件管理");
     expect(t("en", "rail.explorer")).toBe("Files");
-    expect(t("zh", "rail.review")).toBe("Dashboard");
-    expect(t("en", "rail.review")).toBe("Dashboard");
+    expect(t("zh", "rail.review")).toBe("审阅");
+    expect(t("en", "rail.review")).toBe("Review");
     expect(t("zh", "sidebar.pin")).toBe("置顶");
     expect(t("en", "sidebar.pin")).toBe("Pinned");
     expect(t("zh", "sidebar.newGroup")).toBe("新建分组");

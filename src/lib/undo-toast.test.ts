@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { cancelPending, commitPending, omitPending, queuePending } from "./undo-toast";
+import {
+  cancelPending,
+  commitPending,
+  omitPending,
+  omitPendingBatch,
+  pendingBatchKey,
+  queuePending,
+} from "./undo-toast";
 
 const a = { key: "a", payload: { id: "a" } };
 const b = { key: "b", payload: { id: "b" } };
@@ -59,5 +66,31 @@ describe("omitPending", () => {
   it("returns the list unchanged when nothing is pending", () => {
     const list = [{ id: "a" }];
     expect(omitPending(list, null)).toBe(list);
+  });
+});
+
+describe("pendingBatchKey", () => {
+  it("is order-insensitive and distinct per member set", () => {
+    const rows = [{ id: "b" }, { id: "a" }];
+    expect(pendingBatchKey(rows)).toBe(pendingBatchKey([{ id: "a" }, { id: "b" }]));
+    expect(pendingBatchKey(rows)).not.toBe(pendingBatchKey([{ id: "a" }]));
+  });
+});
+
+describe("omitPendingBatch", () => {
+  const rows = [
+    { id: "a" },
+    { id: "b" },
+    { id: "kid", parentSessionId: "a" },
+    { id: "other-kid", parentSessionId: "z" },
+  ];
+
+  it("hides every pending payload row and rows orphaned by it", () => {
+    const pending = { key: "k", payload: [{ id: "a" }, { id: "b" }] };
+    expect(omitPendingBatch(rows, pending).map((x) => x.id)).toEqual(["other-kid"]);
+  });
+
+  it("returns the list unchanged when nothing is pending", () => {
+    expect(omitPendingBatch(rows, null)).toBe(rows);
   });
 });

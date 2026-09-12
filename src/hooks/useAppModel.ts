@@ -579,7 +579,7 @@ export function useAppModel() {
     [view.rewindIndex],
   );
 
-  return packAppModel({
+  const packed = packAppModel({
     s,
     ws,
     view,
@@ -620,4 +620,6 @@ export function useAppModel() {
       })().catch((e) => showToast(friendlyError(e)));
     },
   });
+
+  return { ...packed, removeSessions: ws.removeSessions };
 }

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { queueLabel, type QueueState } from "../lib/prompt-queue";
 import { useLocale, useT } from "../lib/locale-context";
+import { applyImeComposition, emptyImeEnterState, imeBlocksEnter } from "../lib/ime-enter";
 
 export type QueueStripProps = {
   queue: QueueState;
@@ -10,6 +11,7 @@ export type QueueStripProps = {
 };
 
 export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripProps) {
+  const imeRef = useRef(emptyImeEnterState());
   const dragFromRef = useRef<number | null>(null);
   const queueDraggedRef = useRef(false);
   const [editQueuedId, setEditQueuedId] = useState<number | null>(null);
@@ -38,11 +40,30 @@ export function QueueStrip({ queue, onRemove, onReorder, onEdit }: QueueStripPro
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                if (
+                  imeBlocksEnter(
+                    {
+                      key: e.key,
+                      isComposing: e.nativeEvent.isComposing,
+                      keyCode: e.nativeEvent.keyCode,
+                    },
+                    imeRef.current,
+                    Date.now(),
+                  )
+                ) {
+                  return;
+                }
                 e.preventDefault();
                 onEdit?.(q.id, editQueuedText);
                 setEditQueuedId(null);
               }
               if (e.key === "Escape") setEditQueuedId(null);
+            }}
+            onCompositionStart={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+            }}
+            onCompositionEnd={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
             }}
           />
         ) : (

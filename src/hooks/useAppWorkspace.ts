@@ -1,4 +1,4 @@
-import { useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import {
   deleteSession,
   gitCreateWorktree,
@@ -55,6 +55,16 @@ import { planOpenSession } from "../lib/session-agent";
 import { brandSessionList } from "../lib/session-list";
 import { menuPosition, type SessionMenuState } from "../SessionMenu";
 import { basename } from "../lib/text";
+import {
+  cancelPending,
+  commitPending,
+  omitPendingBatch,
+  pendingBatchKey,
+  queuePending,
+  type PendingCommit,
+} from "../lib/undo-toast";
+import { clearTimeoutRef, scheduleTimeout } from "../lib/timeout-ref";
+import type { ToastAction } from "./useToast";
 import { putSessionQueue, type QueueState, type SessionQueues } from "../lib/prompt-queue";
 import type { AgentId } from "../lib/agent-id";
 import type { ExtraPaneState } from "./useAcpSession";
@@ -67,12 +77,16 @@ import {
   type PaneTreeActionDeps,
 } from "./pane-tree-actions";
 
+/** Window where a "deleted" session is only hidden; the disk delete fires when it lapses. */
+export const DELETE_UNDO_MS = 5000;
+
 export type AppConfirm = {
   title: string;
   body: string;
   confirmLabel: string;
 } & (
   | { kind: "delete-session"; session: SessionSummary }
+  | { kind: "delete-sessions"; sessions: SessionSummary[] }
   | { kind: "move-inbox"; sessionId: string; dest: string }
   | { kind: "close-pane"; paneId: string }
   | { kind: "delete-group"; groupId: string }
@@ -99,7 +113,7 @@ export type AppWorkspaceDeps = {
   git: GitStatus | null;
   info: DoctorInfo | null;
   persist: (partial: WebuiState) => void;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, action?: ToastAction) => void;
   setCwd: (cwd: string) => void;
   setLastWorkspace: (path: string) => void;
   setOpenProjects: Dispatch<SetStateAction<Record<string, boolean>>>;
@@ -159,6 +173,9 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
   const createdSessionsRef = useRef<SessionSummary[]>([]);
+  const pendingDeleteRef = useRef<PendingCommit<SessionSummary[]> | null>(null);
+  const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTitlesRef = useRef<Record<string, string>>({});
 
   function findSessionById(id: string): SessionSummary | null {
     return lookupSession(id, depsRef.current.allSessionsRef.current);
@@ -188,8 +205,9 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     });
     createdSessionsRef.current = created;
     const all = rows.filter((s) => sessionInLibrary(s.cwd, projectPaths, inbox));
-    d.setInboxSessions(inbox ? all.filter((s) => sameCwd(s.cwd, inbox)) : []);
-    d.setSessions(inbox ? all.filter((s) => !sameCwd(s.cwd, inbox)) : all);
+    const visible = omitPendingBatch(all, pendingDeleteRef.current);
+    d.setInboxSessions(inbox ? visible.filter((s) => sameCwd(s.cwd, inbox)) : []);
+    d.setSessions(inbox ? visible.filter((s) => !sameCwd(s.cwd, inbox)) : visible);
   }
 
   function onAcpSessionList(agentId: AgentId, rows: SessionSummary[]) {
@@ -398,20 +416,29 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     });
   }
 
-  async function commitRemoveSession(s: SessionSummary) {
+  async function deleteSessionRows(rows: SessionSummary[]) {
     const d = depsRef.current;
-    try {
+    for (const s of rows) {
       try {
         await deleteSession(s.id, s.dir);
       } catch (e) {
-        if (!isMissingSessionError(e)) throw e;
+        if (!isMissingSessionError(e)) d.showToast(friendlyError(e));
       }
+    }
+  }
+
+  /** Remove rows from every list source and persist title cleanup, before disk delete lands. */
+  function optimisticRemoveSessions(batch: SessionSummary[]) {
+    const d = depsRef.current;
+    let disk = d.diskSessionsRef.current;
+    let titles = d.titles;
+    const captured: Record<string, string> = {};
+    for (const s of batch) {
       d.acpListedRef.current = omitListedSession(d.acpListedRef.current, s.id);
       createdSessionsRef.current = dropDiskSession(createdSessionsRef.current, s.id);
-      const next = setTitleOverride(d.titles, s.id, "");
-      d.setTitles(next);
-      d.persist({ titles: next });
-      d.setMenu(null);
+      const cur = titles[s.id];
+      if (cur?.trim()) captured[s.id] = cur;
+      titles = setTitleOverride(titles, s.id, "");
       if (d.editingTitleId === s.id) d.setEditingTitleId(null);
       if (d.sessionId === s.id) {
         d.adoptSession(null);
@@ -419,12 +446,95 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
       }
       const extraId = Object.entries(d.extraPanesRef.current).find(([, pane]) => pane.sessionId === s.id)?.[0];
       if (extraId) closePaneLeaf(extraId);
-      applySessionUnion(dropDiskSession(d.diskSessionsRef.current, s.id), d.inboxCwd);
-      await refreshAllSessions();
-    } catch (e) {
-      d.showToast(friendlyError(e));
+      disk = dropDiskSession(disk, s.id);
     }
+    pendingTitlesRef.current = captured;
+    if (titles !== d.titles) {
+      d.setTitles(titles);
+      d.persist({ titles });
+    }
+    d.setMenu(null);
+    applySessionUnion(disk, d.inboxCwd);
   }
+
+  function undoSessionDelete(key: string) {
+    const d = depsRef.current;
+    const { pending, restored } = cancelPending(pendingDeleteRef.current, key);
+    pendingDeleteRef.current = pending;
+    if (!restored) return;
+    clearTimeoutRef(pendingDeleteTimerRef);
+    const saved = pendingTitlesRef.current;
+    pendingTitlesRef.current = {};
+    let titles = d.titles;
+    for (const s of restored) {
+      const prev = saved[s.id];
+      if (prev) titles = setTitleOverride(titles, s.id, prev);
+    }
+    if (titles !== d.titles) {
+      d.setTitles(titles);
+      d.persist({ titles });
+    }
+    for (const s of restored) {
+      createdSessionsRef.current = rememberCreatedSession(createdSessionsRef.current, s);
+    }
+    applySessionUnion(d.diskSessionsRef.current, d.inboxCwd);
+    void refreshAllSessions();
+  }
+
+  function queueSessionDelete(batch: SessionSummary[], message: string) {
+    const d = depsRef.current;
+    if (batch.length === 0) return;
+    optimisticRemoveSessions(batch);
+    const key = batch.length === 1 ? batch[0].id : pendingBatchKey(batch);
+    const { pending, displaced } = queuePending(pendingDeleteRef.current, { key, payload: batch });
+    pendingDeleteRef.current = pending;
+    if (displaced) void deleteSessionRows(displaced);
+    scheduleTimeout(pendingDeleteTimerRef, () => {
+      const done = commitPending(pendingDeleteRef.current, key);
+      pendingDeleteRef.current = done.pending;
+      if (!done.committed) return;
+      pendingTitlesRef.current = {};
+      void deleteSessionRows(done.committed);
+    }, DELETE_UNDO_MS);
+    d.showToast(message, {
+      actionLabel: t(d.locale, "toast.undo"),
+      onAction: () => undoSessionDelete(key),
+    });
+  }
+
+  async function commitRemoveSession(s: SessionSummary) {
+    queueSessionDelete([s], t(depsRef.current.locale, "toast.deleted"));
+  }
+
+  function removeSessions(ids: string[]) {
+    const d = depsRef.current;
+    const idSet = new Set(ids);
+    const rows = ids
+      .map((id) => findSessionById(id))
+      .filter((s): s is SessionSummary => !!s && (!s.parentSessionId || !idSet.has(s.parentSessionId)));
+    if (rows.length === 0) return;
+    if (rows.length === 1) {
+      void removeSession(rows[0]);
+      return;
+    }
+    d.setAppConfirm({
+      title: t(d.locale, "confirm.deleteSessionTitle"),
+      body: t(d.locale, "confirm.deleteSessionsBody", { n: rows.length }),
+      confirmLabel: t(d.locale, "hub.delete"),
+      kind: "delete-sessions",
+      sessions: rows,
+    });
+  }
+
+  useEffect(
+    () => () => {
+      clearTimeoutRef(pendingDeleteTimerRef);
+      const { committed } = commitPending(pendingDeleteRef.current);
+      pendingDeleteRef.current = null;
+      if (committed) void deleteSessionRows(committed);
+    },
+    [],
+  );
 
   async function moveInboxToProject(sessionId: string, dest: string) {
     const d = depsRef.current;
@@ -727,6 +837,8 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   function confirmAppModal(pending: AppConfirm | null) {
     if (!pending) return;
     if (pending.kind === "delete-session") void commitRemoveSession(pending.session);
+    else if (pending.kind === "delete-sessions")
+      queueSessionDelete(pending.sessions, t(depsRef.current.locale, "toast.deletedCount", { n: pending.sessions.length }));
     else if (pending.kind === "move-inbox") void commitMoveInbox(pending.sessionId, pending.dest);
     else if (pending.kind === "delete-group") {
       commitProjectGroups(deleteProjectGroup(depsRef.current.projectGroups, pending.groupId));
@@ -746,6 +858,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     addProject,
     switchWorkdir,
     removeSession,
+    removeSessions,
     commitRemoveSession,
     moveInboxToProject,
     commitMoveInbox,
