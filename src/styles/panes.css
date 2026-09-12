@@ -36,6 +36,50 @@
   min-width: 0;
   min-height: 0;
 }
+
+/* ---- pane mount/exit motion ---- */
+/* One-shot entrance along the split axis: col splits slide on X, rows on Y.
+   Leaves/splits only mount when the tree changes, so the animation cannot
+   spam on ordinary re-renders. */
+.pane-split-col > .pane-split-branch > .pane,
+.pane-split-col > .pane-split-branch > .pane-split {
+  animation: pane-in-x var(--dur-slow) var(--ease);
+}
+.pane-split-row > .pane-split-branch > .pane,
+.pane-split-row > .pane-split-branch > .pane-split {
+  animation: pane-in-y var(--dur-slow) var(--ease);
+}
+@keyframes pane-in-x {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+@keyframes pane-in-y {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+/* Held on the leaf for the --dur window before the tree drops it. */
+.pane-leaving {
+  animation: pane-out-x var(--dur) var(--ease) forwards;
+}
+.pane-split-row > .pane-split-branch > .pane-leaving {
+  animation-name: pane-out-y;
+}
+@keyframes pane-out-x {
+  to {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+@keyframes pane-out-y {
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
 .resizer-row {
   flex: 0 0 5px;
   margin: -2px 0;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import {
   deleteSession,
   gitCreateWorktree,
@@ -80,6 +80,10 @@ import {
 
 /** Window where a "deleted" session is only hidden; the disk delete fires when it lapses. */
 export const DELETE_UNDO_MS = 5000;
+/** Exit-animation hold before rows/panes unmount; mirrors --dur (160ms) in tokens.css. */
+export const LEAVE_ANIM_MS = 160;
+/** How long a row keeps its one-shot enter marker so it animates exactly once. */
+export const FRESH_ANIM_MS = 1000;
 
 export type AppConfirm = {
   title: string;
@@ -181,6 +185,44 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   const pendingDeleteRef = useRef<PendingCommit<SessionSummary[]> | null>(null);
   const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTitlesRef = useRef<Record<string, string>>({});
+  const [leavingPanes, setLeavingPanes] = useState<ReadonlySet<string>>(new Set());
+  const [leavingSessions, setLeavingSessions] = useState<ReadonlySet<string>>(new Set());
+  const [freshSessions, setFreshSessions] = useState<ReadonlySet<string>>(new Set());
+  const paneLeaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Deferred delete commits keyed by their timer so unmount can flush them.
+  const sessionLeaveRef = useRef<Map<ReturnType<typeof setTimeout>, () => void>>(new Map());
+  const freshTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  function flagIds(setter: Dispatch<SetStateAction<ReadonlySet<string>>>, ids: string[], on: boolean) {
+    setter((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of ids) {
+        if (on && !next.has(id)) {
+          next.add(id);
+          changed = true;
+        } else if (!on && next.delete(id)) {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }
+
+  /** One-shot enter marker; the timer drops it so the row animates once. */
+  function markFreshSession(id: string) {
+    flagIds(setFreshSessions, [id], true);
+    const timers = freshTimersRef.current;
+    const prev = timers.get(id);
+    if (prev != null) clearTimeout(prev);
+    timers.set(
+      id,
+      setTimeout(() => {
+        timers.delete(id);
+        flagIds(setFreshSessions, [id], false);
+      }, FRESH_ANIM_MS),
+    );
+  }
 
   function findSessionById(id: string): SessionSummary | null {
     return lookupSession(id, depsRef.current.allSessionsRef.current);
@@ -223,6 +265,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
 
   function onSessionCreated(row: SessionSummary) {
     createdSessionsRef.current = rememberCreatedSession(createdSessionsRef.current, row);
+    markFreshSession(row.id);
     applySessionUnion(depsRef.current.diskSessionsRef.current, depsRef.current.inboxCwd);
   }
 
@@ -481,30 +524,42 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     }
     for (const s of restored) {
       createdSessionsRef.current = rememberCreatedSession(createdSessionsRef.current, s);
+      markFreshSession(s.id);
     }
     applySessionUnion(d.diskSessionsRef.current, d.inboxCwd);
     void refreshAllSessions();
   }
 
   function queueSessionDelete(batch: SessionSummary[], message: string) {
-    const d = depsRef.current;
     if (batch.length === 0) return;
-    optimisticRemoveSessions(batch);
-    const key = batch.length === 1 ? batch[0].id : pendingBatchKey(batch);
-    const { pending, displaced } = queuePending(pendingDeleteRef.current, { key, payload: batch });
-    pendingDeleteRef.current = pending;
-    if (displaced) void deleteSessionRows(displaced);
-    scheduleTimeout(pendingDeleteTimerRef, () => {
-      const done = commitPending(pendingDeleteRef.current, key);
-      pendingDeleteRef.current = done.pending;
-      if (!done.committed) return;
-      pendingTitlesRef.current = {};
-      void deleteSessionRows(done.committed);
-    }, DELETE_UNDO_MS);
-    d.showToast(message, {
-      actionLabel: t(d.locale, "toast.undo"),
-      onAction: () => undoSessionDelete(key),
-    });
+    const ids = batch.map((s) => s.id);
+    flagIds(setLeavingSessions, ids, true);
+    // The optimistic removal + undo toast land once the exit animation ends.
+    const commit = () => {
+      const d = depsRef.current;
+      flagIds(setLeavingSessions, ids, false);
+      optimisticRemoveSessions(batch);
+      const key = batch.length === 1 ? batch[0].id : pendingBatchKey(batch);
+      const { pending, displaced } = queuePending(pendingDeleteRef.current, { key, payload: batch });
+      pendingDeleteRef.current = pending;
+      if (displaced) void deleteSessionRows(displaced);
+      scheduleTimeout(pendingDeleteTimerRef, () => {
+        const done = commitPending(pendingDeleteRef.current, key);
+        pendingDeleteRef.current = done.pending;
+        if (!done.committed) return;
+        pendingTitlesRef.current = {};
+        void deleteSessionRows(done.committed);
+      }, DELETE_UNDO_MS);
+      d.showToast(message, {
+        actionLabel: t(d.locale, "toast.undo"),
+        onAction: () => undoSessionDelete(key),
+      });
+    };
+    const handle = setTimeout(() => {
+      sessionLeaveRef.current.delete(handle);
+      commit();
+    }, LEAVE_ANIM_MS);
+    sessionLeaveRef.current.set(handle, commit);
   }
 
   async function commitRemoveSession(s: SessionSummary) {
@@ -533,10 +588,21 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
 
   useEffect(
     () => () => {
+      // Flush deletes still inside their exit window so they commit instead
+      // of stranding rows the user already confirmed.
+      for (const [handle, commit] of sessionLeaveRef.current) {
+        clearTimeout(handle);
+        commit();
+      }
+      sessionLeaveRef.current.clear();
       clearTimeoutRef(pendingDeleteTimerRef);
       const { committed } = commitPending(pendingDeleteRef.current);
       pendingDeleteRef.current = null;
       if (committed) void deleteSessionRows(committed);
+      for (const handle of paneLeaveTimersRef.current.values()) clearTimeout(handle);
+      paneLeaveTimersRef.current.clear();
+      for (const handle of freshTimersRef.current.values()) clearTimeout(handle);
+      freshTimersRef.current.clear();
     },
     [],
   );
@@ -673,6 +739,24 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   }
 
   function closePaneLeaf(paneId: string) {
+    const ids = leafIds(depsRef.current.paneTreeRef.current);
+    // Hold the leaf for one exit window (.pane-leaving, ~--dur) before the
+    // tree drops it, but only when the close will actually remove a leaf.
+    if (ids.length > 1 && ids.includes(paneId)) {
+      flagIds(setLeavingPanes, [paneId], true);
+      const timers = paneLeaveTimersRef.current;
+      const prev = timers.get(paneId);
+      if (prev != null) clearTimeout(prev);
+      timers.set(
+        paneId,
+        setTimeout(() => {
+          timers.delete(paneId);
+          flagIds(setLeavingPanes, [paneId], false);
+          closePaneLeafAction(paneTreeDeps(), paneId);
+        }, LEAVE_ANIM_MS),
+      );
+      return;
+    }
     closePaneLeafAction(paneTreeDeps(), paneId);
   }
 
@@ -967,5 +1051,8 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     requestRemoveProject,
     commitRemoveProject,
     restorePaneSessions,
+    leavingPanes,
+    leavingSessions,
+    freshSessions,
   };
 }

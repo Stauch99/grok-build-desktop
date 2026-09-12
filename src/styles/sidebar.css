@@ -422,6 +422,43 @@
   padding-left: 6px;
   border-left: 0.5px solid var(--line);
 }
+
+/* ---- session row enter/exit ---- */
+/* Same 0fr↔1fr grid collapse as .project-sessions/.session-kids: the flag
+   lands ~--dur before the row unmounts so it can fold away first. */
+.session-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur) var(--ease);
+}
+.session-row.leaving {
+  grid-template-rows: 0fr;
+  pointer-events: none;
+}
+.session-row-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.session.leaving,
+.session-row.leaving .session {
+  opacity: 0;
+  transform: translateX(-8px);
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+@keyframes session-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+/* Enter runs only on .fresh rows — the virtualized list remounts on scroll,
+   so a blanket mount animation would replay constantly. */
+.session.fresh,
+.session-row.fresh .session {
+  animation: session-row-in var(--dur) var(--ease);
+}
 /* segmented control — shared anatomy in styles.css */
 .side-view {
   margin-top: 8px;

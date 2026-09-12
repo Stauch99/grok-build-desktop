@@ -291,6 +291,9 @@ export function App() {
     openSession,
     splitRight,
     closePaneLeaf,
+    leavingPanes,
+    leavingSessions,
+    freshSessions,
     beginPaneDrag,
     focusPane,
     onPaneRatio,
@@ -632,6 +635,7 @@ export function App() {
       <WorkPane
         paneId={paneId}
         focused={focusedPaneId === paneId}
+        className={leavingPanes.has(paneId) ? "pane-leaving" : undefined}
         onFocus={() => {
           focusedPermissionPaneRef.current = paneId;
           focusPane(paneId);
@@ -993,6 +997,8 @@ return (
       <Sidebar
         sections={sidebarSections}
         prefs={sidebarList}
+        leaving={leavingSessions}
+        fresh={freshSessions}
         onPrefs={(next) => {
           setSidebarList(next);
           persist({ sidebarList: next });

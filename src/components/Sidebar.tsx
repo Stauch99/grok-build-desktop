@@ -89,6 +89,10 @@ export type SidebarProps = {
   onMarkReadSessions?: (ids: string[]) => void;
   onArchiveSessions?: (ids: string[]) => void;
   onDragSession?: (e: import("react").PointerEvent<HTMLElement>, s: SessionSummary) => void;
+  /** Session ids mid exit animation; rows collapse, then unmount. */
+  leaving?: ReadonlySet<string>;
+  /** Session ids that replay the one-shot enter animation. */
+  fresh?: ReadonlySet<string>;
 };
 
 function rowMetaMap(rows: SidebarRow[]): Map<string, SidebarRow> {
@@ -165,6 +169,8 @@ export const Sidebar = memo(function Sidebar({
   onMarkReadSessions,
   onArchiveSessions,
   onDragSession,
+  leaving,
+  fresh,
 }: SidebarProps) {
   const t = useT();
   const [projectMenu, setProjectMenu] = useState<{
@@ -404,6 +410,21 @@ export const Sidebar = memo(function Sidebar({
     onDragSession,
   };
 
+  function sessionRowClass(id: string): string {
+    const cls = ["session-row"];
+    if (leaving?.has(id)) cls.push("leaving");
+    if (fresh?.has(id)) cls.push("fresh");
+    return cls.join(" ");
+  }
+
+  function wrapSessionRow(id: string, branch: ReactNode) {
+    return (
+      <div className={sessionRowClass(id)} key={id}>
+        <div className="session-row-inner">{branch}</div>
+      </div>
+    );
+  }
+
   function renderProject(section: SidebarSection) {
     const meta = rowMetaMap(section.rows);
     const path = section.projectPath ?? INBOX_PIN;
@@ -475,17 +496,19 @@ export const Sidebar = memo(function Sidebar({
         <div className={`project-sessions${open ? " open" : ""}`}>
           <div className="project-sessions-inner" inert={!open}>
             <div className={`project-sessions-clip${windowed.hasMore ? " is-clipped" : ""}`}>
-              {windowed.nodes.map((node) => (
-                <SessionBranch
-                  key={node.session.id}
-                  node={node}
-                  depth={0}
-                  rowKind="project"
-                  rowMeta={meta}
-                  {...branchProps}
-                  hideProjectSubtitle
-                />
-              ))}
+              {windowed.nodes.map((node) =>
+                wrapSessionRow(
+                  node.session.id,
+                  <SessionBranch
+                    node={node}
+                    depth={0}
+                    rowKind="project"
+                    rowMeta={meta}
+                    {...branchProps}
+                    hideProjectSubtitle
+                  />,
+                ),
+              )}
             </div>
             {windowed.hasMore ? (
               <button
@@ -539,35 +562,39 @@ export const Sidebar = memo(function Sidebar({
     return (
       <div key={item.section.id} className="ws-section" role="listitem" aria-label={item.section.label} data-session-group>
         {inbox
-          ? nestByParent(item.section.rows.map((row) => row.session)).map((node) => (
-              <SessionBranch
-                key={node.session.id}
-                node={node}
-                depth={0}
-                rowKind="inbox"
-                rowMeta={meta}
-                {...branchProps}
-                hideProjectSubtitle
-              />
-            ))
-          : item.section.rows.map((row) => (
-              <SessionBranch
-                key={row.session.id}
-                node={{ session: row.session, children: [] }}
-                depth={row.indent}
-                rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
-                projectPinned={row.projectPinned}
-                rowMeta={meta}
-                {...branchProps}
-              />
-            ))}
+          ? nestByParent(item.section.rows.map((row) => row.session)).map((node) =>
+              wrapSessionRow(
+                node.session.id,
+                <SessionBranch
+                  node={node}
+                  depth={0}
+                  rowKind="inbox"
+                  rowMeta={meta}
+                  {...branchProps}
+                  hideProjectSubtitle
+                />,
+              ),
+            )
+          : item.section.rows.map((row) =>
+              wrapSessionRow(
+                row.session.id,
+                <SessionBranch
+                  node={{ session: row.session, children: [] }}
+                  depth={row.indent}
+                  rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
+                  projectPinned={row.projectPinned}
+                  rowMeta={meta}
+                  {...branchProps}
+                />,
+              ),
+            )}
       </div>
     );
   }
 
   const virtualRowProps = useMemo(
     () => ({ items: listItems, renderItem: renderListItem }),
-    [listItems, openProjects, sessionPages, sessionId, displayTitles, expandedIds, collapsedIds, dropOver],
+    [listItems, openProjects, sessionPages, sessionId, displayTitles, expandedIds, collapsedIds, dropOver, leaving, fresh],
   );
 
   return (
@@ -866,28 +893,32 @@ export const Sidebar = memo(function Sidebar({
                 </div>
               )}
               {inbox
-                ? nestByParent(section.rows.map((row) => row.session)).map((node) => (
-                    <SessionBranch
-                      key={node.session.id}
-                      node={node}
-                      depth={0}
-                      rowKind="inbox"
-                      rowMeta={meta}
-                      {...branchProps}
-                      hideProjectSubtitle
-                    />
-                  ))
-                : section.rows.map((row) => (
-                    <SessionBranch
-                      key={row.session.id}
-                      node={{ session: row.session, children: [] }}
-                      depth={row.indent}
-                      rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
-                      projectPinned={row.projectPinned}
-                      rowMeta={meta}
-                      {...branchProps}
-                    />
-                  ))}
+                ? nestByParent(section.rows.map((row) => row.session)).map((node) =>
+                    wrapSessionRow(
+                      node.session.id,
+                      <SessionBranch
+                        node={node}
+                        depth={0}
+                        rowKind="inbox"
+                        rowMeta={meta}
+                        {...branchProps}
+                        hideProjectSubtitle
+                      />,
+                    ),
+                  )
+                : section.rows.map((row) =>
+                    wrapSessionRow(
+                      row.session.id,
+                      <SessionBranch
+                        node={{ session: row.session, children: [] }}
+                        depth={row.indent}
+                        rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
+                        projectPinned={row.projectPinned}
+                        rowMeta={meta}
+                        {...branchProps}
+                      />,
+                    ),
+                  )}
             </div>
           );
               })}
