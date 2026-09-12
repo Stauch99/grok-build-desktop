@@ -12,6 +12,7 @@ export function GrowthHeader({
   menuOpen,
   onToggleMenu,
   onCloseMenu,
+  primary,
   children,
 }: {
   locale: Locale;
@@ -23,6 +24,7 @@ export function GrowthHeader({
   menuOpen: boolean;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
+  primary?: ReactNode;
   children?: ReactNode;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -51,22 +53,25 @@ export function GrowthHeader({
     <header className="growth-header">
       <div className="growth-header-row">
         <h2>{title}</h2>
-        <div className="growth-menu-wrap" ref={wrapRef}>
-          <button
-            type="button"
-            className="icon-btn growth-menu-btn"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label={t(locale, "memory.growth.menu")}
-            onClick={onToggleMenu}
-          >
-            <IconGrokMore size={16} />
-          </button>
-          {menuOpen ? (
-            <div className="menu" role="menu">
-              {children}
-            </div>
-          ) : null}
+        <div className="growth-header-side">
+          {primary}
+          <div className="growth-menu-wrap" ref={wrapRef}>
+            <button
+              type="button"
+              className="icon-btn growth-menu-btn"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={t(locale, "memory.growth.menu")}
+              onClick={onToggleMenu}
+            >
+              <IconGrokMore size={16} />
+            </button>
+            {menuOpen ? (
+              <div className="menu" role="menu">
+                {children}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
       <p className="growth-tagline">{tagline?.trim() || t(locale, "memory.growth.taglineFallback")}</p>

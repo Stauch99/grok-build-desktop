@@ -115,6 +115,15 @@
 }
 .hub-card-actions .btn.ghost:hover,
 .hub-row-side .btn.ghost:hover { color: var(--text); }
+/* MCP row secondary actions stay out of the way until the row is active. */
+.hub-row .hub-row-side .btn.ghost {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.hub-row:hover .hub-row-side .btn.ghost,
+.hub-row:focus-within .hub-row-side .btn.ghost,
+.hub-row .hub-row-side .btn.armed { opacity: 1; }
+.hub-row.previewing { background: var(--bg-alt); }
 .btn.armed,
 .hub-row-side .btn.armed { color: var(--danger); }
 .hub-badges,
@@ -139,6 +148,21 @@
   max-height: 220px;
   overflow: auto;
   color: var(--muted);
+}
+.hub-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.hub-preview-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 .hub-group { margin: 0; }
 .hub-group-label,

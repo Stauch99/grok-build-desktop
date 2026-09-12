@@ -207,11 +207,16 @@ export function ExtensionsHub({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (skillPreview) {
+        setSkillPreview(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, skillPreview]);
 
   const q = query.trim().toLowerCase();
   const skills = useMemo(() => {
@@ -302,6 +307,7 @@ export function ExtensionsHub({
                 id={`hub-tab-${id}`}
                 onClick={() => {
                   setCompose(false);
+                  setSkillPreview(null);
                   onTab(id);
                 }}
               >
@@ -348,6 +354,10 @@ export function ExtensionsHub({
               onPreview={async (skill) => {
                 const path = sourcePath(skill.source);
                 if (!path) return;
+                if (skillPreview?.path === path) {
+                  setSkillPreview(null);
+                  return;
+                }
                 try {
                   const file = await readTextFile(path);
                   setSkillPreview({ path: file.path, text: file.text });
@@ -364,15 +374,25 @@ export function ExtensionsHub({
               }}
               onCreate={() =>
                 void runNoted(async () => {
-                  await createSkill({
+                  const made = await createSkill({
                     name: newSkill.name,
                     scope: newSkill.scope,
                     cwd: cwd || null,
                     template: newSkill.template,
                   });
+                  setCompose(false);
+                  setNewSkill({ name: "", scope: "user", template: "blank" });
+                  setNote(t(locale, "hub.skillCreated", { name: newSkill.name }));
+                  try {
+                    const file = await readTextFile(made.path);
+                    setSkillPreview({ path: file.path, text: file.text });
+                  } catch {
+                    setSkillPreview(null);
+                  }
                 })
               }
               onCreateSlash={() => onForwardSlash?.("/create-skill")}
+              onClosePreview={() => setSkillPreview(null)}
             />
           )}
           {tab === "mcp" && (
@@ -521,6 +541,7 @@ function SkillsTab({
   newSkill,
   setNewSkill,
   onPreview,
+  onClosePreview,
   onToggle,
   onCreate,
   onCreateSlash,
@@ -536,6 +557,7 @@ function SkillsTab({
   newSkill: { name: string; scope: "user" | "project"; template: string };
   setNewSkill: (n: { name: string; scope: "user" | "project"; template: string }) => void;
   onPreview: (s: InspectSkill) => void;
+  onClosePreview: () => void;
   onToggle: (name: string, disable: boolean) => void;
   onCreate: () => void;
   onCreateSlash: () => void;
@@ -552,25 +574,44 @@ function SkillsTab({
             {g.items.map((skill) => {
               const qname = qualifySkillName(skill, skills);
               const off = disabled.includes(skill.name) || skill.disabled;
+              const path = sourcePath(skill.source);
               const bits = [
                 skill.description,
                 skill.userInvocable === false ? t(locale, "hub.notInSlash") : null,
                 qname !== skill.name ? t(locale, "hub.slashName", { name: qname }) : null,
               ].filter(Boolean);
+              const previewing = preview != null && path != null && preview.path === path;
               return (
-                <li key={`${skill.name}:${sourcePath(skill.source)}`} className="hub-row">
-                  <button type="button" className="hub-row-main" onClick={() => onPreview(skill)}>
+                <li key={`${skill.name}:${path}`} className={`hub-row${previewing ? " previewing" : ""}`}>
+                  <button
+                    type="button"
+                    className="hub-row-main"
+                    aria-expanded={previewing}
+                    onClick={() => onPreview(skill)}
+                  >
                     <strong>/{skill.name}</strong>
                     {bits.length > 0 ? <span className="hub-meta">{bits.join(" · ")}</span> : null}
                   </button>
-                  <button
-                    type="button"
-                    className={`toggle ${off ? "" : "on"}`}
-                    aria-label={off ? t(locale, "hub.enable") : t(locale, "hub.disable")}
-                    onClick={() => onToggle(skill.name, !off)}
-                  >
-                    <i />
-                  </button>
+                  <div className="hub-row-side">
+                    {path ? (
+                      <button
+                        type="button"
+                        className="file-open"
+                        onClick={() => void openPath(path)}
+                        aria-label={t(locale, "hub.openFinder")}
+                      >
+                        <IconFinder size={14} />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`toggle ${off ? "" : "on"}`}
+                      aria-label={off ? t(locale, "hub.enable") : t(locale, "hub.disable")}
+                      onClick={() => onToggle(skill.name, !off)}
+                    >
+                      <i />
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -579,11 +620,16 @@ function SkillsTab({
       ))}
       {preview && (
         <div className="hub-compose">
-          <p className="hub-meta">{preview.path}</p>
+          <div className="hub-preview-head">
+            <span className="hub-meta hub-preview-path">{preview.path}</span>
+            <button type="button" className="file-open" onClick={() => void openPath(preview.path)} aria-label={t(locale, "hub.openFinder")}>
+              <IconFinder size={14} />
+            </button>
+            <button type="button" className="file-open" onClick={onClosePreview} aria-label={t(locale, "common.close")}>
+              <IconGrokClose size={14} />
+            </button>
+          </div>
           <pre className="hub-preview">{preview.text.slice(0, 8000)}</pre>
-          <button type="button" className="file-open" onClick={() => void openPath(preview.path)} aria-label={t(locale, "hub.openFinder")}>
-            <IconFinder size={14} />
-          </button>
         </div>
       )}
       <div className="hub-compose">
