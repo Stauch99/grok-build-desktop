@@ -133,10 +133,14 @@ describe("work-run progress", () => {
 });
 
 describe("cards and messages motion", () => {
-  it("animates the newest message and permission cards on entry", () => {
+  it("animates arriving messages in inline threads and permission cards on entry", () => {
     const src = cssFile("src/styles/thread.css");
     expect(src).toMatch(
-      /\.thread > \.msg:last-child[^{]*\.thread > \.turn-user:last-child > \.msg\s*\{[^}]*animation:\s*spine-enter/,
+      /\.chat:not\(\.virtualized\)\s+\.msg\s*\{[^}]*animation:\s*spine-fade/,
+    );
+    const shell = cssFile("src/styles/shell.css");
+    expect(shell).toMatch(
+      /\.chat:not\(\.virtualized\)\s+\.turn-user\s*\{[^}]*animation:\s*fade-in/,
     );
     expect(src).not.toMatch(/\.thread \.msg:last-child\s*\{/);
     expect(src).not.toMatch(/\.permission\s*\{[^}]*animation:/);

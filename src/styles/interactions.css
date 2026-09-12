@@ -21,6 +21,7 @@
   font-size: var(--text-xs);
   line-height: 1.4;
   pointer-events: none;
+  animation: rise-in var(--dur) var(--ease);
 }
 
 /* "还有 N 个" line under the option rows of a permission card. */
@@ -45,6 +46,7 @@
   background: var(--bg-input);
   color: var(--text);
   font-size: var(--text-md);
+  transition: border-color var(--dur-fast) var(--ease);
 }
 .perm-custom-input:focus {
   border-color: var(--accent);
