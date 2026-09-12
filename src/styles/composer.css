@@ -21,7 +21,7 @@
 }
 .composer {
   background: var(--bg-card);
-  border-radius: var(--radius-l);
+  border-radius: var(--radius-2xl);
   padding: 5px 8px 5px 12px;
   box-shadow: none;
   border: 1px solid var(--line);
@@ -96,7 +96,7 @@
   font-size: inherit;
 }
 .composer-meta-row .mode-chip {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 2px 8px;
   min-height: 22px;
 }
@@ -183,11 +183,11 @@
   margin: 0 auto 8px;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   max-height: 220px;
   overflow: auto;
-  z-index: 5;
-  box-shadow: var(--shadow);
+  z-index: var(--z-raise);
+  box-shadow: var(--shadow-md);
   padding: 4px;
 }
 .mention button {
@@ -201,7 +201,7 @@
   background: transparent;
   padding: 8px 10px;
   font-size: var(--ui-small);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
 }
 .mention button:hover { background: var(--bg-hover); }
 
@@ -220,7 +220,7 @@
 }
 .composer-wrap.composer-takeover .composer { display: none; }
 .slash-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--faint);
   border: 0;
   padding: 0;
@@ -245,10 +245,10 @@
   min-width: 200px;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   padding: 4px;
-  z-index: 5;
+  z-index: var(--z-raise);
   animation: menu-in var(--dur) var(--ease);
   transform-origin: var(--menu-origin, top center);
 }
@@ -262,7 +262,7 @@
   background: transparent;
   padding: 6px 8px;
   font-size: var(--md-size, 15px);
-  border-radius: calc(var(--radius-l) - 4px);
+  border-radius: calc(var(--radius-2xl) - 4px);
 }
 .chip-menu button:hover { background: var(--bg-hover); }
 .chip-menu .mode-row {
@@ -341,7 +341,7 @@
   border: 1px solid var(--line);
   background: var(--bg-alt);
   color: var(--muted);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 3px 6px 3px 8px;
   font-size: var(--ui-smaller);
 }
@@ -385,7 +385,7 @@
   flex: none;
   border: 1px solid var(--line);
   background: var(--bg-alt);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 .attach-card.is-file {
   width: 168px;
@@ -403,7 +403,7 @@
   flex: none;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: grid;
   place-items: center;
   color: var(--text);
@@ -476,10 +476,10 @@
   width: 20px;
   height: 20px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--faint);
-  font-size: 14px;
+  font-size: var(--text-base);
   line-height: 1;
   display: grid;
   place-items: center;
@@ -492,12 +492,12 @@
 .drop-overlay {
   position: absolute;
   inset: 8px;
-  z-index: 20;
+  z-index: var(--z-dropdown);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 2px dashed var(--line-strong);
-  border-radius: var(--radius-l);
+  border-radius: var(--radius-2xl);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   color: var(--text);
   font-size: var(--ui-small);
@@ -511,12 +511,12 @@
 .chip-kbd {
   margin-left: 6px;
   margin-right: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .queue-edit {
   min-width: 160px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 4px 8px;
   background: var(--bg-input);
 }
@@ -524,7 +524,7 @@
   width: 40px;
   height: 40px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .attach-card.is-thumb .attach-thumb {
   width: 100%;
@@ -537,9 +537,9 @@
   right: 2px;
   width: 16px;
   height: 16px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   background: color-mix(in srgb, var(--bg) 78%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .agent-chip {
@@ -548,7 +548,7 @@
   color: var(--faint);
   padding: 4px 6px;
   min-height: 24px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
 }
 .agent-chip.active {
   color: var(--text);

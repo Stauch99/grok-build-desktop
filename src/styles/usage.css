@@ -4,7 +4,7 @@
   display: inline-block;
   width: 48px;
   height: 4px;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   background: var(--line);
   overflow: hidden;
   flex: none;
@@ -51,8 +51,8 @@
 .plan-card {
   border: 1px solid var(--line);
   background: var(--bg-alt);
-  border-radius: var(--radius-m);
-  padding: 10px 12px;
+  border-radius: var(--radius-xl);
+  padding: 10px var(--space-3);
   margin: 0 0 16px;
 }
 .plan-card-head {
@@ -81,11 +81,11 @@
   margin-right: 6px;
   padding: 0 5px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-side);
   color: var(--faint);
   font-family: var(--font);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 16px;
   vertical-align: 1px;
 }
@@ -101,11 +101,11 @@
   padding: 1px 5px;
   min-height: 18px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--text) 10%, var(--bg-alt));
   color: var(--muted);
   font-family: var(--font);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -124,8 +124,8 @@
   bottom: -4px;
   min-height: 16px;
   padding: 1px 4px;
-  font-size: 10px;
-  box-shadow: var(--shadow);
+  font-size: var(--text-2xs);
+  box-shadow: var(--shadow-md);
 }
 .alt-send.shortcut-host {
   display: inline-flex;
@@ -181,7 +181,7 @@
   background: transparent;
   text-align: left;
   padding: 6px 4px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   color: var(--text);
   font-size: var(--ui-small);
 }

@@ -1,7 +1,7 @@
 .settings-layer {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: var(--z-rail);
   display: grid;
   place-items: center;
   padding: 28px 16px;
@@ -17,17 +17,17 @@
 .settings-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.42);
+  background: var(--scrim);
 }
 .settings-dialog {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
   width: min(880px, calc(100vw - 48px));
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-l);
   overflow: hidden;
   animation: rise-in var(--dur) var(--ease);
@@ -49,7 +49,7 @@
 .settings-head h2 {
   margin: 0;
   font-family: var(--display);
-  font-size: 17px;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 
@@ -67,8 +67,8 @@
 .set-block {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  padding: 12px 14px 10px;
+  border-radius: var(--radius-xl);
+  padding: var(--space-3) 14px 10px;
   margin: 0 0 12px;
 }
 .settings-pane > .set-block {
@@ -98,23 +98,23 @@
 }
 .set-row label, .set-stack label {
   display: block;
-  font-size: 13.5px;
+  font-size: var(--text-md);
   color: var(--text);
   margin: 0;
 }
-.set-stack label { margin-bottom: 6px; color: var(--muted); font-size: 12.5px; }
+.set-stack label { margin-bottom: 6px; color: var(--muted); font-size: var(--text-sm); }
 .set-stack input, .set-stack select {
   width: 100%;
   border: 1px solid var(--line);
   background: var(--bg-input);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
-  font-size: 13.5px;
+  font-size: var(--text-md);
 }
 .set-stack input[type="range"] { padding: 0; }
 .set-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.set-note { margin: 4px 2px 0; font-size: 12.5px; color: var(--muted); }
-.settings .hint { margin: 0 0 8px; font-size: 12.5px; color: var(--faint); line-height: 1.45; }
+.set-note { margin: 4px 2px 0; font-size: var(--text-sm); color: var(--muted); }
+.settings .hint { margin: 0 0 8px; font-size: var(--text-sm); color: var(--faint); line-height: 1.45; }
 
 .settings-layout {
   display: grid;
@@ -184,8 +184,8 @@
 .hub-body .set-block:first-child h3,
 .extra-dialog .set-block:first-child h3 { margin-top: 8px; }
 .health-list .set-row { min-height: 28px; }
-.health-list .set-row label { color: var(--muted); font-size: 12.5px; }
-.health-list .set-row p { margin: 0; font-size: 13.5px; text-align: right; }
+.health-list .set-row label { color: var(--muted); font-size: var(--text-sm); }
+.health-list .set-row p { margin: 0; font-size: var(--text-md); text-align: right; }
 .set-doctors {
   list-style: none;
   margin: 8px 0 12px;
@@ -196,7 +196,7 @@
 }
 .set-doctor-line {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.4;
   word-break: break-all;
   text-align: left;
@@ -212,18 +212,21 @@
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
 }
 
+/* Documented segmented variant: bordered track with divider buttons;
+   .choice-switch slides a thumb instead of tinting the button. The filled-track
+   anatomy shared by .side-view / .hub-nav / .review-panes lives in styles.css. */
 .locale-switch,
 .choice-switch {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   width: fit-content;
   position: relative;
@@ -251,7 +254,7 @@
   display: block;
   height: 100%;
   background: var(--bg-active);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .locale-switch button,
 .choice-switch button {
@@ -260,11 +263,11 @@
   margin: 0;
   padding: 6px 12px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--muted);
   cursor: pointer;
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
 }
 .locale-switch button + button { border-left: 1px solid var(--line); }
 .choice-switch button {

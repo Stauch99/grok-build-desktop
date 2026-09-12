@@ -4,8 +4,8 @@
   background: var(--bg);
   border: 1px solid var(--line);
   border-left: 3px solid var(--warn);
-  border-radius: var(--radius-m);
-  padding: 10px 12px;
+  border-radius: var(--radius-xl);
+  padding: 10px var(--space-3);
   animation: rise-in var(--dur) var(--ease);
 }
 .permission h4 {
@@ -21,13 +21,13 @@
   text-overflow: ellipsis;
   overflow-wrap: anywhere;
 }
-.permission p { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
+.permission p { margin: 0 0 8px; font-size: var(--text-sm); color: var(--muted); }
 .permission-cmd {
   margin: 0 0 8px;
   padding: 8px 10px;
   background: var(--bg-alt);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
@@ -43,7 +43,7 @@
 }
 .permission-hint {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 .opts {
@@ -61,7 +61,7 @@
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--text);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 7px 10px;
   font-size: var(--ui-small);
   line-height: 1.4;
@@ -78,11 +78,11 @@
   margin: 1px 0 0;
   padding: 0 5px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
   color: var(--muted);
   font-family: var(--font);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 16px;
 }
 .perm-opt:hover kbd,
@@ -104,7 +104,7 @@
 .btn {
   border: 0;
   background: var(--bg-hover);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   padding: 7px 12px;
   min-height: 32px;
   font-size: var(--ui-small);
@@ -126,7 +126,7 @@
   gap: 8px;
   justify-items: center;
   background: color-mix(in srgb, var(--bg) 70%, transparent);
-  z-index: 3;
+  z-index: var(--z-raise);
   color: var(--muted);
 }
 .spinner {
@@ -140,7 +140,7 @@
 .path-pill {
   margin: 0;
   padding: 8px 10px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
   border: 1px solid var(--line);
   font-family: var(--mono);
@@ -149,7 +149,7 @@
   word-break: break-all;
   color: var(--muted);
 }
-.meta-line { margin: 0 0 6px; font-size: 13.5px; color: var(--text); }
+.meta-line { margin: 0 0 6px; font-size: var(--text-md); color: var(--text); }
 .mcp-list { list-style: none; margin: 0; padding: 0; }
 .mcp-list li {
   display: flex;
@@ -158,7 +158,7 @@
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 13.5px;
+  font-size: var(--text-md);
 }
 .mcp-list li:last-child { border-bottom: 0; }
 .mcp-list .empty-row { color: var(--faint); }
@@ -168,15 +168,15 @@
   width: 100%;
   border: 1px solid var(--line);
   background: var(--bg-input);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .toggle {
   width: 36px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 0;
   background: var(--line-strong);
   position: relative;
@@ -196,12 +196,12 @@
 
 .menu {
   position: fixed;
-  z-index: 20;
+  z-index: var(--z-dropdown);
   min-width: 196px;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   padding: 4px;
   animation: menu-in var(--dur) var(--ease);
   transform-origin: var(--menu-origin, top left);
@@ -215,7 +215,7 @@
   padding: 8px 10px;
   min-height: 36px;
   font-size: var(--ui-small);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
 }
 .menu button:hover:not(:disabled) { background: var(--bg-hover); }
 .menu button:disabled { color: var(--faint); }
@@ -233,10 +233,10 @@
   background: var(--bg-card);
   border: 1px solid var(--line);
   padding: 12px 16px;
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   font-size: var(--ui-small);
   line-height: 1.4;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
   animation: toast-in var(--dur) var(--ease);
 }
 .toast.toast-out {
@@ -307,7 +307,7 @@
 .menu::-webkit-scrollbar-thumb,
 .mru-list::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb-dim);
-  border-radius: 20px;
+  border-radius: var(--radius-2xl);
 }
 .chat::-webkit-scrollbar-thumb:hover,
 .session-list::-webkit-scrollbar-thumb:hover {
@@ -347,7 +347,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 }
 .pin-label {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 
@@ -359,7 +359,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-alt);
   color: var(--muted);
   font-size: var(--ui-small);
@@ -368,9 +368,9 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 2px 6px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 .memory-inject-chip button:hover { background: var(--bg-hover); }
 
@@ -390,13 +390,13 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 .memory-dream-left { min-width: 0; }
 .memory-dream-left h3 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 .memory-dream-body {
   margin: 0 0 12px;
   white-space: pre-wrap;
-  font-size: 13.5px;
+  font-size: var(--text-md);
   line-height: 1.55;
   color: var(--text);
 }
@@ -428,7 +428,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   text-align: left;
   padding: 6px 8px;
   min-height: 32px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   font-size: var(--ui-small);
   color: var(--muted);
 }
@@ -458,18 +458,18 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 }
 .growth-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-hero);
   font-weight: 650;
   letter-spacing: -0.03em;
 }
 .growth-tagline {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .growth-stats {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
@@ -479,14 +479,14 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   top: calc(100% + 6px);
   right: 0;
   left: auto;
-  z-index: 6;
+  z-index: var(--z-raise);
 }
 .growth-toggle-wrap { display: flex; flex-direction: column; gap: 8px; }
 .growth-toggle-wrap .choice-switch {
   width: fit-content;
   min-width: 220px;
 }
-.growth-toggle-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.growth-toggle-hint { margin: 0; font-size: var(--text-sm); color: var(--muted); }
 .growth-heat {
   --heat-0: var(--bg-alt);
   --heat-1: color-mix(in srgb, var(--accent) 22%, var(--bg-alt));
@@ -513,7 +513,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 .growth-heat-months span {
   min-width: 0;
   width: 100%;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--faint);
   overflow: visible;
   white-space: nowrap;
@@ -534,7 +534,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--heat-0);
   font-size: 0;
   line-height: 0;
@@ -552,14 +552,14 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   gap: 10px;
   align-items: flex-start;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .growth-log-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .growth-log-body {
@@ -571,26 +571,26 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 .growth-paper {
   padding: 16px 18px 20px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   min-height: 160px;
 }
 .growth-paper-kicker {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 .growth-paper h3 {
   margin: 0 0 10px;
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 .growth-paper-body,
 .growth-paper-empty {
   margin: 0;
   font-family: var(--serif);
-  font-size: 14px;
+  font-size: var(--text-base);
   line-height: 1.65;
   white-space: pre-wrap;
 }
@@ -608,7 +608,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   border: 0;
   background: transparent;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text);
 }
@@ -616,7 +616,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 .growth-timeline ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .growth-timeline-chip,
 .growth-timeline-empty {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -664,7 +664,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
 .preview-actions .file-open[aria-pressed="true"] {
   color: var(--text);
   background: var(--bg-hover);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 .preview-body {
   flex: 1 1 auto;
@@ -695,7 +695,7 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 .preview-loading {
   flex: 1;
@@ -714,6 +714,6 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   flex: none;
   margin: 0;
   padding: 6px 12px 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }

@@ -15,32 +15,20 @@
   border-bottom: 0;
   flex: none;
 }
+/* segmented control — shared anatomy in styles.css */
 .hub-nav {
-  display: inline-flex;
   flex: none;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-alt);
-  border-radius: var(--radius-xl);
 }
 .hub-nav button {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font-size: var(--ui-smaller);
-  padding: 6px 10px;
   min-height: 32px;
-  border-radius: 10px;
 }
-.hub-nav button.active,
-.hub-nav button:hover { color: var(--text); background: var(--bg); }
 .hub-search {
   flex: 1;
   min-width: 100px;
   border: 0;
   background: transparent;
   outline: none;
-  font-size: 13px;
+  font-size: var(--text-md);
   padding: 6px 0;
 }
 .hub-search::placeholder { color: var(--faint); }
@@ -60,7 +48,7 @@
 .extra-dialog h3,
 .extra-dialog .set-block h3 {
   margin: 16px 0 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   color: var(--muted);
 }
@@ -101,14 +89,14 @@
 .hub-name,
 .hub-card-main strong,
 .hub-row-main strong {
-  font-size: 13.5px;
+  font-size: var(--text-md);
   font-weight: 500;
 }
 .hub-meta,
 .hub-card-main .hint,
 .hub-row-main .hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--faint);
   line-height: 1.4;
 }
@@ -145,7 +133,7 @@
   font-size: 12px;
   background: var(--bg-alt);
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   white-space: pre-wrap;
   max-height: 220px;
@@ -157,7 +145,7 @@
 .hub-group .file-folder {
   margin: 14px 0 2px;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .hub-compose {
@@ -169,7 +157,7 @@
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-md);
   padding: 4px 0;
 }
 .hub-compose-toggle:hover { color: var(--text); }
@@ -197,7 +185,7 @@
   color: var(--faint);
 }
 .permission-timeout { color: var(--danger); font-size: var(--ui-small); margin: 0 0 8px; }
-.search-hit { background: var(--bg-hover); border-radius: var(--radius); }
+.search-hit { background: var(--bg-hover); border-radius: var(--radius-md); }
 .git-log { list-style: none; margin: 0; padding: 0; }
 .git-log li { display: flex; gap: 8px; flex-wrap: wrap; font-size: var(--ui-smaller); padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
 .git-log li:last-child { border-bottom: 0; }
@@ -207,7 +195,7 @@
   height: 28px;
   min-height: 28px;
   color: var(--muted);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
 }
 .thread .set-block,
 .composer-wrap .set-block {
@@ -254,7 +242,7 @@
 .rail-stack .icon-btn {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   color: var(--muted);
 }
 .rail-stack .icon-btn:hover {
@@ -293,12 +281,12 @@
   position: absolute;
   left: calc(100% + 6px);
   top: -4px;
-  z-index: 21;
+  z-index: var(--z-dropdown);
   min-width: 168px;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
   padding: 4px;
 }
 .list-flyout::before {
@@ -364,11 +352,11 @@
   font-size: var(--md-size, 15px);
 }
 .dock-capsule-pill {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 5px 10px;
 }
 .dock-capsule-card {
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 8px 12px;
   background: var(--bg-alt);
 }
@@ -419,7 +407,7 @@
   color: var(--text);
   font-size: var(--md-size, 15px);
   padding: 2px 6px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 .dock-capsule-action:hover { background: var(--bg-hover); }
 .dock-capsule .icon-btn {

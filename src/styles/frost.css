@@ -34,12 +34,12 @@
 :root[data-theme-family="frost"] .agent-chip,
 :root[data-theme-family="frost"] .mode-chip,
 :root[data-theme-family="frost"] .composer-chips > * {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 /* ---- compact secondary labels ---- */
 :root[data-theme-family="frost"] .ws-band-label {
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   letter-spacing: 0.01em;
   color: var(--faint);
 }
@@ -48,7 +48,7 @@
 :root[data-theme-family="frost"] .mermaid-view {
   background-image: radial-gradient(var(--line) 1px, transparent 1px);
   background-size: 16px 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 
 :root[data-theme-family="frost"] .permission {
@@ -56,7 +56,7 @@
 }
 :root[data-theme-family="frost"] .permission .btn,
 :root[data-theme-family="frost"] .perm-opt {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 :root[data-theme-family="frost"] .growth-paper {
   box-shadow: 0 0 0 1px var(--line);

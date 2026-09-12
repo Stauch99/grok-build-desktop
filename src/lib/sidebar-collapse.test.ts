@@ -72,10 +72,10 @@ describe("sidebar project indent", () => {
   it("styles group titles like 置顶 / 项目 band labels", () => {
     const label = ruleBlock(".ws-band-label");
     const head = ruleBlock(".group-head");
-    expect(head).toMatch(/font-size:\s*11px/);
+    expect(head).toMatch(/font-size:\s*var\(--text-xs\)/);
     expect(head).toMatch(/color:\s*var\(--faint\)/);
     expect(head).toMatch(/font-weight:\s*500/);
-    expect(label).toMatch(/font-size:\s*11px/);
+    expect(label).toMatch(/font-size:\s*var\(--text-xs\)/);
     expect(label).toMatch(/color:\s*var\(--faint\)/);
   });
 

@@ -96,8 +96,8 @@ describe("composer dock stack", () => {
   it("stacks capsules in a column above the input", () => {
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.composer-dock\s*\{[^}]*flex-direction:\s*column/);
-    expect(sheet).toMatch(/\.dock-capsule-pill\s*\{[^}]*border-radius:\s*999px/);
-    expect(sheet).toMatch(/\.dock-capsule-card\s*\{[^}]*border-radius:\s*12px/);
+    expect(sheet).toMatch(/\.dock-capsule-pill\s*\{[^}]*border-radius:\s*var\(--radius-pill\)/);
+    expect(sheet).toMatch(/\.dock-capsule-card\s*\{[^}]*border-radius:\s*var\(--radius-lg\)/);
   });
 
   it("keeps subagents in the header catalog, not the composer dock", () => {
@@ -118,7 +118,7 @@ describe("composer dock stack", () => {
 describe("usage mix dashboard", () => {
   it("leads with a compact hero and a stacked token mix", () => {
     const sheet = css("src/styles.css");
-    expect(sheet).toMatch(/\.usage-hero-tokens strong\s*\{[^}]*font-size:\s*28px/);
+    expect(sheet).toMatch(/\.usage-hero-tokens strong\s*\{[^}]*font-size:\s*var\(--text-2xl\)/);
     expect(sheet).toMatch(/\.usage-mix-head strong\s*\{[^}]*color:\s*var\(--ok\)/);
     expect(sheet).toMatch(/\.usage-mix-track\s*\{[^}]*height:\s*8px/);
     expect(sheet).toMatch(/\.usage-facts\s*\{[^}]*grid-template-columns:\s*repeat\(3/);
@@ -131,7 +131,7 @@ describe("settings scrim", () => {
     const sheet = css("src/styles/settings.css");
     const block = sheet.match(/\.settings-backdrop\s*\{[^}]+\}/)?.[0];
     expect(block).toBeTruthy();
-    expect(block).toMatch(/rgba\(0,\s*0,\s*0,\s*0\.4[0-5]\)/);
+    expect(block).toMatch(/background:\s*var\(--scrim\)/);
   });
 });
 
@@ -270,7 +270,7 @@ describe("composer prompt", () => {
   it("pills the project, model, and effort chips", () => {
     const main = css("src/styles.css");
     const pill = main.match(/\.cwd-chip,\s*\.model-chip,\s*\.effort-chip,\s*\.agent-chip\s*\{[^}]+\}/)?.[0];
-    expect(pill).toMatch(/border-radius:\s*999px/);
+    expect(pill).toMatch(/border-radius:\s*var\(--radius-pill\)/);
     const shared = main.match(/\.model-chip, \.mode-chip, \.effort-chip, \.agent-chip\s*\{[^}]+\}/)?.[0];
     expect(shared).not.toMatch(/border-radius:\s*999px/);
   });

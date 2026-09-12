@@ -2,12 +2,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   max-width: var(--thread);
   margin: 0 auto 8px;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: var(--ui-small);
   color: var(--muted);
 }
@@ -46,7 +46,7 @@ iframe.html-frame {
   border: 0;
   padding: 0;
   background: var(--bg-alt);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   overflow: hidden;
   aspect-ratio: 1;
 }
@@ -64,7 +64,7 @@ iframe.html-frame {
   min-width: 3px;
   background: var(--text);
   opacity: 0.35;
-  border-radius: 2px 2px 0 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
 }
 .usage-stats {
   display: flex;
@@ -113,7 +113,7 @@ iframe.html-frame {
 }
 .usage-kicker {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .usage-hero-tokens {
@@ -123,7 +123,7 @@ iframe.html-frame {
   gap: 4px;
 }
 .usage-hero-tokens strong {
-  font-size: 28px;
+  font-size: var(--text-2xl);
   font-weight: 650;
   letter-spacing: -0.03em;
   line-height: 1.1;
@@ -131,7 +131,7 @@ iframe.html-frame {
 }
 .usage-hero-tokens span {
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 .usage-hero-kpis {
@@ -145,10 +145,10 @@ iframe.html-frame {
   gap: 4px;
   align-items: flex-end;
 }
-.usage-hero-kpis dt { font-size: 11px; color: var(--faint); }
+.usage-hero-kpis dt { font-size: var(--text-xs); color: var(--faint); }
 .usage-hero-kpis dd {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-hero);
   font-weight: 650;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
@@ -161,7 +161,7 @@ iframe.html-frame {
   align-items: baseline;
   gap: 12px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .usage-mix-head strong {
@@ -172,7 +172,7 @@ iframe.html-frame {
 .usage-mix-track {
   display: flex;
   height: 8px;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
   background: var(--bg-alt);
   gap: 1px;
@@ -196,14 +196,14 @@ iframe.html-frame {
   align-items: center;
   gap: 6px;
   margin: 0 0 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 .usage-facts dt::before {
   content: "";
   width: 6px;
   height: 6px;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   background: currentColor;
   flex: none;
 }
@@ -217,7 +217,7 @@ iframe.html-frame {
 .usage-facts [data-tone="cache"] dt::before { background: var(--ok); }
 .usage-facts dd {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 650;
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
@@ -225,7 +225,7 @@ iframe.html-frame {
 .usage-facts > div > span {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
@@ -242,7 +242,7 @@ iframe.html-frame {
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .usage-chart-plot {
@@ -281,7 +281,7 @@ iframe.html-frame {
 .usage-chart-bar {
   width: 100%;
   max-width: 22px;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   background: color-mix(in srgb, var(--text) 58%, transparent);
   flex: none;
 }
@@ -295,7 +295,7 @@ iframe.html-frame {
 }
 .usage-chart-note {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 .usage-chart-tip {
@@ -303,14 +303,14 @@ iframe.html-frame {
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 2;
+  z-index: var(--z-raise);
   padding: 4px 8px;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: 4px;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-md);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.35;
   white-space: nowrap;
   opacity: 0;
@@ -340,7 +340,7 @@ iframe.html-frame {
   flex: 1 1 0;
   min-width: 0;
   text-align: center;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -355,7 +355,7 @@ iframe.html-frame {
 }
 .usage-models-head {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .usage-models {
@@ -384,17 +384,17 @@ iframe.html-frame {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .usage-models strong {
   flex: none;
-  font-size: 13px;
+  font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
 .usage-model-track {
   height: 3px;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   background: var(--bg-alt);
   overflow: hidden;
 }
@@ -414,10 +414,10 @@ iframe.html-frame {
   text-align: left;
   padding: 6px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 400;
 }
-.shortcut-table th { color: var(--muted); font-size: 11px; }
+.shortcut-table th { color: var(--muted); font-size: var(--text-xs); }
 .shortcut-table input {
   width: 100%;
   border: 0;
@@ -427,7 +427,7 @@ iframe.html-frame {
 .shortcut-conflict {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--danger);
 }
 .extra-dialog .hub-nav { margin-bottom: 8px; }

@@ -34,7 +34,7 @@ describe("settings dialog height", () => {
 
 describe("compact density", () => {
   it("keeps persisted compact type and spacing overrides", () => {
-    expect(css("src/styles/tokens.css")).toMatch(/:root\[data-density="compact"\]\s*\{[^}]*--ui-small:\s*12px/);
+    expect(css("src/styles/tokens.css")).toMatch(/:root\[data-density="compact"\]\s*\{[^}]*--text-base:\s*12px/);
     expect(css("src/styles/composer.css")).toMatch(/:root\[data-density="compact"\]\s+\.composer\s*\{[^}]*padding:/);
     expect(css("src/styles/thread.css")).toMatch(/:root\[data-density="compact"\]\s+\.msg\s*\{/);
   });

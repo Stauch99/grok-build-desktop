@@ -2,7 +2,7 @@
 
 .diff {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg);
   margin: 0;
@@ -35,9 +35,9 @@
 .diff-tag {
   color: var(--muted);
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .diff-actions { flex: none; display: inline-flex; align-items: center; gap: 2px; }
 
@@ -97,20 +97,20 @@
   padding: 4px 8px;
   border-top: 1px solid var(--line);
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .rewind-dialog {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
   width: min(720px, 100%);
   max-height: min(78vh, 720px);
   display: flex;
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 .rewind-dialog h3 {
@@ -206,7 +206,7 @@
 .review-head {
   flex: 0 0 auto;
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raise);
   min-height: var(--header-h);
   display: flex;
   align-items: center;
@@ -220,26 +220,16 @@
   container-type: inline-size;
   container-name: review-head;
 }
+/* segmented control — shared anatomy in styles.css */
 .review-panes {
-  display: flex;
   flex: 1;
   min-width: 0;
   flex-wrap: nowrap;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-alt);
-  border-radius: var(--radius-xl);
 }
 .review-panes button {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font-size: var(--ui-smaller);
-  padding: 5px 6px;
   min-height: 28px;
   min-width: 44px;
   flex: 1 1 auto;
-  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -257,8 +247,6 @@
   line-height: 0;
 }
 .review-panes .tab-count { flex: none; }
-.review-panes button[aria-selected="true"],
-.review-panes button:hover { color: var(--text); background: var(--bg); }
 @container review-head (max-width: 380px) {
   .review-pane-label { display: none; }
   .review-pane-icon { display: grid; }
@@ -280,7 +268,7 @@
 .review-tabs {
   flex: 0 0 auto;
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
@@ -296,7 +284,7 @@
   align-items: center;
   gap: 4px;
   border: 0;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   padding: 4px 10px;
   background: transparent;
   color: var(--muted);
@@ -318,7 +306,7 @@
   margin-right: 0;
   gap: 4px;
 }
-.git-pane .git-bar .chip-wrap { z-index: 6; }
+.git-pane .git-bar .chip-wrap { z-index: var(--z-raise); }
 .git-pane .chip-menu.git-action-menu {
   left: 0;
   right: auto;
@@ -379,7 +367,7 @@
   color: var(--muted);
   font-size: var(--ui-smaller);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .git-branch-pills button:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -425,7 +413,7 @@
   display: inline-flex;
   align-items: center;
   max-width: 160px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: transparent;
 }
 .preview-tab[data-active="true"] { background: var(--bg-hover); }
@@ -446,7 +434,7 @@
   background: transparent;
   color: var(--faint);
   padding: 0 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1;
 }
 .preview-tab-close:hover { color: var(--text); }
@@ -463,7 +451,7 @@
   flex: 1;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--bg-input);
   color: var(--text);
   font-size: var(--ui-smaller);
@@ -497,7 +485,7 @@
 .preview-find-hit {
   background: color-mix(in srgb, var(--warn) 42%, transparent);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .preview-find-hit.current {
   background: color-mix(in srgb, var(--accent) 32%, transparent);
@@ -517,11 +505,11 @@
 @media (max-width: 900px) {
   .review-rail {
     position: absolute;
-    z-index: 8;
+    z-index: var(--z-sticky);
     inset: 0 0 0 auto;
     width: min(420px, calc(100% - 48px)) !important;
     max-width: none;
-    box-shadow: var(--shadow);
+    box-shadow: var(--shadow-md);
   }
   .workspace-stage > .resizer:has(+ .review-rail) { display: none; }
 }

@@ -28,16 +28,50 @@
   --code: #383a42;
   --code-keyword: #e45749;
   --code-string: #0d97b3;
-  --shadow: 0 2px 8px 0 #0000000a;
-  --shadow-l: 0 14px 62px #00000040;
+  --scrim: hsl(0 0% 0% / 32%);
+  --shadow-sm: 0 2px 8px 0 #0000000a;
+  --shadow-md: 0 8px 24px hsl(0 0% 0% / 12%);
+  --shadow-lg: 0 14px 62px hsl(0 0% 0% / 25%);
+  --shadow: var(--shadow-sm);
+  --shadow-l: var(--shadow-lg);
   --font: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
   --display: "HarmonyOS Sans CN", "HarmonyOS Sans SC", "HarmonyOS Sans", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
   --serif: "Noto Serif SC", "Noto Serif", "Source Serif 4", "Songti SC", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --radius: 8px;
-  --radius-xl: 12px;
-  --radius-m: 16px;
-  --radius-l: 24px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
+  --space-0_5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --text-hero: 20px;
+  --text-2xl: 28px;
+  --z-base: 0;
+  --z-raise: 5;
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-rail: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-palette: 60;
+  --z-toast: 70;
+  --z-drag: 80;
   --header-h: 56px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -45,9 +79,8 @@
   --dur-fast: 80ms;
   --dur: 160ms;
   --dur-slow: 240ms;
-  --ui-smaller: 13px;
-  --ui-small: 14px;
-  --ui-medium: 15px;
+  --ui-smaller: var(--text-md);
+  --ui-small: var(--text-base);
   --md-size: 15px;
   --scrollbar-thumb: #00000026;
   --scrollbar-thumb-dim: #0000000d;
@@ -83,8 +116,10 @@
   --code: #abb2bf;
   --code-keyword: #e16d76;
   --code-string: #58b6c2;
-  --shadow: 0 2px 8px 0 #00000066;
-  --shadow-l: 0 14px 62px #00000040;
+  --scrim: hsl(0 0% 0% / 55%);
+  --shadow-sm: 0 2px 8px 0 #00000066;
+  --shadow-md: 0 8px 24px hsl(0 0% 0% / 55%);
+  --shadow-lg: 0 14px 62px hsl(0 0% 0% / 70%);
   --scrollbar-thumb: #ffffff26;
   --scrollbar-thumb-dim: #ffffff0d;
   --usage-fg: #f4f0e8;
@@ -101,6 +136,7 @@
   --text: #2b2416;
   --muted: #6b5e45;
   --accent: hsl(28, 62%, 46%);
+  --accent-deep: hsl(28, 60%, 38%);
 }
 :root[data-theme="dark"][data-theme-family="paper"] {
   --bg: #1c1914;
@@ -111,11 +147,16 @@
   --line: #3d3428;
   --text: #efe6d4;
   --muted: #b3a48a;
+  --accent: hsl(28 70% 60%);
+  --accent-deep: hsl(28 72% 68%);
 }
 :root[data-theme-family="ink"] {
   --bg: #f4f6f8;
   --bg-side: #e8eef3;
   --bg-card: #ffffff;
+  --bg-alt: hsl(214 20% 94%);
+  --line: hsl(214 20% 87%);
+  --muted: hsl(214 16% 40%);
   --accent: hsl(222, 42%, 42%);
   --cta: #1b2430;
 }
@@ -123,6 +164,9 @@
   --bg: #12161c;
   --bg-side: #171c24;
   --bg-card: #12161c;
+  --bg-alt: hsl(214 18% 16%);
+  --bg-input: hsl(214 18% 14%);
+  --muted: hsl(214 14% 64%);
   --accent: hsl(210, 70%, 64%);
   --cta: #e8eef3;
   --cta-text: #12161c;
@@ -149,12 +193,16 @@
   --warn-fg: oklch(52% .13 75);
   --on-ok: oklch(24% .05 155);
   --danger: oklch(58% .19 25);
-  --shadow: 0 0 0 1px var(--line);
-  --shadow-l: 0 0 0 1px var(--line), 0 14px 44px oklch(24.7% .006 258 / 10%);
-  --radius: 6px;
-  --radius-xl: 10px;
-  --radius-m: 14px;
-  --radius-l: 20px;
+  --scrim: oklch(24.7% .006 258 / 30%);
+  --shadow-sm: 0 0 0 1px var(--line);
+  --shadow-md: 0 0 0 1px var(--line);
+  --shadow-lg: 0 0 0 1px var(--line), 0 14px 44px oklch(24.7% .006 258 / 10%);
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
 }
 :root[data-theme="dark"][data-theme-family="frost"] {
   --bg: oklch(20.9% .004 264.477);
@@ -178,11 +226,13 @@
   --warn-fg: oklch(82% .12 85);
   --on-ok: oklch(24% .05 155);
   --danger: oklch(68% .17 25);
-  --shadow: 0 0 0 1px var(--line);
-  --shadow-l: 0 0 0 1px var(--line), 0 14px 44px oklch(0% 0 0 / 40%);
+  --scrim: oklch(0% 0% 0 / 55%);
+  --shadow-sm: 0 0 0 1px var(--line);
+  --shadow-md: 0 0 0 1px var(--line);
+  --shadow-lg: 0 0 0 1px var(--line), 0 14px 44px oklch(0% 0% 0 / 40%);
 }
 :root[data-density="compact"] {
-  --ui-smaller: 11px;
-  --ui-small: 12px;
-  --ui-medium: 13.5px;
+  --text-md: 11px;
+  --text-base: 12px;
+  --text-lg: 13px;
 }

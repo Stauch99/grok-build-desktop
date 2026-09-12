@@ -22,9 +22,9 @@ describe("frost.css scope guard", () => {
     const src = cssFile("src/styles/frost.css");
     expect(src).toMatch(/border-top-style: dashed|1px dashed/);       // 虚线分隔
     expect(src).toMatch(/box-shadow: 0 0 0 1px var\(--line\)/);        // 描边代阴影
-    expect(src).toMatch(/border-radius: 999px/);                        // 胶囊
+    expect(src).toMatch(/border-radius: var\(--radius-pill\)/);          // 胶囊
     expect(src).toMatch(/radial-gradient\(var\(--line\) 1px/);          // 点状画布
-    expect(src).toMatch(/font-size: 11\.5px/);                          // 紧凑辅助字
+    expect(src).toMatch(/font-size: var\(--text-sm\)/);                 // 紧凑辅助字
   });
 
   it("is registered in main.tsx and css-source.ts", () => {
@@ -159,6 +159,6 @@ describe("cards and messages motion", () => {
   it("gives frost permission cards a hairline ring and pill buttons", () => {
     const src = cssFile("src/styles/frost.css");
     expect(src).toMatch(/:root\[data-theme-family="frost"\] \.permission\s*\{[^}]*box-shadow: 0 0 0 1px var\(--line\)/);
-    expect(src).toMatch(/:root\[data-theme-family="frost"\] \.permission \.btn[^{]*\{[^}]*border-radius: 999px/);
+    expect(src).toMatch(/:root\[data-theme-family="frost"\] \.permission \.btn[^{]*\{[^}]*border-radius: var\(--radius-pill\)/);
   });
 });

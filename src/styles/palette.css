@@ -3,7 +3,7 @@
 .palette-layer {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-overlay);
   display: grid;
   align-content: start;
   justify-items: center;
@@ -16,18 +16,18 @@
 .palette-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--scrim);
 }
 .palette {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
   width: min(560px, 100%);
   max-height: min(60vh, 480px);
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-l);
   overflow: hidden;
   animation: rise-in var(--dur) var(--ease);
@@ -39,7 +39,7 @@
   background: transparent;
   outline: none;
   padding: 14px 16px;
-  font-size: 15px;
+  font-size: var(--text-lg);
 }
 .palette-input:focus,
 .palette-input:focus-visible {
@@ -56,7 +56,7 @@
 }
 .palette-group {
   padding: 8px 10px 3px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 .palette-row {
@@ -68,7 +68,7 @@
   background: transparent;
   text-align: left;
   padding: 8px 10px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   font-size: var(--ui-small);
   color: var(--text);
 }
@@ -96,7 +96,7 @@
   color: var(--faint);
   font-size: var(--ui-small);
   border: 1px dashed var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   animation: rise-in var(--dur) var(--ease);
 }
 

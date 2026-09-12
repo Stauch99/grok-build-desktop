@@ -14,7 +14,7 @@
   font-size: var(--ui-smaller);
   padding: 6px 8px;
   min-height: 32px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -43,14 +43,14 @@
 .git-dirty {
   flex: none;
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raise);
   min-width: 15px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-alt);
   border: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 14px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -63,7 +63,7 @@
   height: 32px;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
   color: var(--text);
   font-size: var(--ui-smaller);
@@ -97,16 +97,16 @@
   color: var(--faint);
   font-size: var(--ui-smaller);
   padding: 3px 7px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 .float-tabs button.on { color: var(--text); background: var(--bg-hover); }
 .tab-count {
   min-width: 15px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-alt);
   border: 1px solid var(--line);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 14px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -145,7 +145,7 @@
 .change-stat {
   display: inline-flex;
   gap: 5px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -166,9 +166,9 @@
   min-width: 0;
   border: 1px solid var(--line);
   background: var(--bg-input);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
-  font-size: 13.5px;
+  font-size: var(--text-md);
   text-align: left;
   color: var(--text);
 }
@@ -196,20 +196,21 @@
   right: auto;
   top: calc(100% + 4px);
   bottom: auto;
-  z-index: 30;
+  z-index: var(--z-rail);
   max-height: 260px;
   overflow-y: auto;
   min-width: max(240px, 100%);
   max-width: min(420px, 70vw);
   outline: none;
 }
-/* composer.css .chip-menu { bottom: 36px } loads later at equal specificity; pin this. */
+/* composer.css .chip-menu { bottom: 36px } loads later at equal specificity; pin this.
+   z-order: see --z-* scale in tokens.css */
 .chip-menu.menu-select-list {
   top: calc(100% + 4px);
   bottom: auto;
   left: 0;
   right: auto;
-  z-index: 40;
+  z-index: var(--z-overlay);
 }
 .menu-select-list button { flex-direction: column; align-items: stretch; gap: 2px; }
 .menu-select-list button.on { background: var(--bg-hover); }
@@ -225,7 +226,7 @@
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   padding: 5px 9px;
   font-size: var(--md-size, 15px);
   white-space: nowrap;
@@ -254,7 +255,7 @@
 .user-turn-edit {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
   background: var(--bg-input);
   color: var(--text);
   padding: 10px 14px;
@@ -278,6 +279,6 @@
 .shortcut-table input:focus-visible {
   outline: 1px solid var(--line-strong);
   outline-offset: 2px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
 }
 
