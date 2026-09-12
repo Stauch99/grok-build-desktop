@@ -65,6 +65,7 @@
   --z-base: 0;
   --z-raise: 5;
   --z-sticky: 10;
+  --z-page: 15;
   --z-dropdown: 20;
   --z-rail: 30;
   --z-overlay: 40;

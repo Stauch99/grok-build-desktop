@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AgentIcon } from "../lib/agent-icons";
 import { useT } from "../lib/locale-context";
 import type { DashboardSession } from "../lib/app-view";
@@ -31,14 +32,22 @@ const COLUMNS: Array<{
   { id: "idle", key: "dashboard.idle", match: (s) => s === "idle" },
 ];
 
+const PAGE = 60;
+
 function ColumnBody({ rows, onOpen }: { rows: DashboardSession[]; onOpen: (id: string) => void }) {
   const t = useT();
+  const [limit, setLimit] = useState(PAGE);
+  // A column can swing from 500 idle cards to 0 — reset the window when the
+  // set changes rather than growing DOM without bound.
+  useEffect(() => setLimit(PAGE), [rows.length]);
   if (rows.length === 0) {
     return <p className="kanban-empty">{t("dashboard.colEmpty")}</p>;
   }
+  const shown = rows.slice(0, limit);
+  const hidden = rows.length - shown.length;
   return (
     <>
-      {rows.map((s) => {
+      {shown.map((s) => {
         const pill = sessionAgentPill(s.agentId);
         const foot = [
           relativeTime(s.updatedAt),
@@ -64,6 +73,11 @@ function ColumnBody({ rows, onOpen }: { rows: DashboardSession[]; onOpen: (id: s
           </button>
         );
       })}
+      {hidden > 0 ? (
+        <button type="button" className="kanban-more" onClick={() => setLimit((n) => n + PAGE)}>
+          {t("dashboard.more", { n: hidden })}
+        </button>
+      ) : null}
     </>
   );
 }

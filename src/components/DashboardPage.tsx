@@ -70,7 +70,7 @@ export function DashboardPage({
               className={active === null ? "on" : ""}
               onClick={() => setFilter(null)}
             >
-              {t("dashboard.allProjects")}
+              <span className="kanban-filter-label">{t("dashboard.allProjects")}</span>
               <span className="kanban-count">{sessions.length}</span>
             </button>
             {projects.map((p) => (
@@ -78,9 +78,10 @@ export function DashboardPage({
                 key={p.cwd}
                 type="button"
                 className={active === p.cwd ? "on" : ""}
+                data-tip={p.cwd}
                 onClick={() => setFilter(p.cwd)}
               >
-                {p.label}
+                <span className="kanban-filter-label">{p.label}</span>
                 <span className="kanban-count">{p.count}</span>
               </button>
             ))}

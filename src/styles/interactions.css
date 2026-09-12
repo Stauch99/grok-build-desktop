@@ -9,7 +9,7 @@
   left: 0;
   right: 0;
   bottom: 52px;
-  z-index: 9;
+  z-index: var(--z-sticky);
   width: fit-content;
   margin-inline: auto;
   padding: 2px var(--space-2);

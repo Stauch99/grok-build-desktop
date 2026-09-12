@@ -567,7 +567,7 @@ textarea.hub-preview {
 .dashboard-page {
   position: absolute;
   inset: 0;
-  z-index: var(--z-raise);
+  z-index: var(--z-page);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -623,3 +623,19 @@ textarea.hub-preview {
 }
 .kanban-filter button:hover { background: var(--bg-hover); color: var(--text); }
 .kanban-filter button.on { background: var(--bg-alt); color: var(--text); }
+.kanban-filter-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kanban-more {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: var(--radius-md);
+}
+.kanban-more:hover { background: var(--bg-hover); color: var(--muted); }
