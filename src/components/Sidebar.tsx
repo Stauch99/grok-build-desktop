@@ -77,6 +77,8 @@ export type SidebarProps = {
   onShortcuts: () => void;
   /** Open a global page (dashboard/memory/agents/usage/imagine) via the palette action id. */
   onOpenExtra?: (id: string) => void;
+  /** Currently open extra page — highlights the matching nav link. */
+  activeExtra?: string | null;
   onCollapseAll: () => void;
   onMarkAllRead: () => void;
   showTokens: boolean;
@@ -159,6 +161,7 @@ export const Sidebar = memo(function Sidebar({
   onExtensions,
   onShortcuts,
   onOpenExtra,
+  activeExtra,
   onCollapseAll,
   onMarkAllRead,
   showTokens,
@@ -933,26 +936,26 @@ export const Sidebar = memo(function Sidebar({
 
       {onOpenExtra && !collapsed ? (
         <div className="side-content" data-nav="extra">
-          <button type="button" className="side-link" onClick={() => onOpenExtra("act:dashboard")}>
-            <IconDashboard size={16} />
-            {t("extra.dashboard")}
-          </button>
-          <button type="button" className="side-link" onClick={() => onOpenExtra("act:memory")}>
-            <IconBook size={16} />
-            {t("extra.memory")}
-          </button>
-          <button type="button" className="side-link" onClick={() => onOpenExtra("act:agents")}>
-            <IconRobot size={16} />
-            {t("extra.agents")}
-          </button>
-          <button type="button" className="side-link" onClick={() => onOpenExtra("act:usage")}>
-            <IconChart size={16} />
-            {t("extra.usage")}
-          </button>
-          <button type="button" className="side-link" onClick={() => onOpenExtra("act:imagine")}>
-            <IconPhoto size={16} />
-            {t("extra.imagine")}
-          </button>
+          {(
+            [
+              ["act:dashboard", "dashboard", "extra.dashboard", <IconDashboard size={16} key="i" />],
+              ["act:memory", "memory", "extra.memory", <IconBook size={16} key="i" />],
+              ["act:agents", "agents", "extra.agents", <IconRobot size={16} key="i" />],
+              ["act:usage", "usage", "extra.usage", <IconChart size={16} key="i" />],
+              ["act:imagine", "imagine", "extra.imagine", <IconPhoto size={16} key="i" />],
+            ] as const
+          ).map(([act, page, key, icon]) => (
+            <button
+              key={act}
+              type="button"
+              className={`side-link${activeExtra === page ? " on" : ""}`}
+              aria-current={activeExtra === page ? "page" : undefined}
+              onClick={() => onOpenExtra(act)}
+            >
+              {icon}
+              {t(key)}
+            </button>
+          ))}
         </div>
       ) : null}
       <AccountMenu

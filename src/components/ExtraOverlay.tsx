@@ -5,10 +5,8 @@ import { useT } from "../lib/locale-context";
 import { usePresence } from "../lib/motion";
 import type { DiaryEntry, OverlayStatus } from "../lib/memory-view";
 import { AgentsPage, type AgentEntry } from "./AgentsPage";
-import { DashboardPanel, type DashboardSession } from "./DashboardPanel";
 import { ImagineGallery } from "./ImagineGallery";
 import { MemoryGrowthPage } from "./memory-growth/MemoryGrowthPage";
-import { ParallelSubagents, type ParallelSubagentItem } from "./ParallelSubagents";
 import { TokenChart } from "./TokenChart";
 
 export type ExtraPage =
@@ -33,11 +31,10 @@ export type ExtraOverlayProps = {
   onClose: () => void;
   onSlash: (cmd: string) => void;
   onOpenPath: (path: string) => void;
-  onOpenSession: (id: string) => void;
+
   images: string[];
   videos: string[];
   agents: AgentEntry[];
-  dashboard: DashboardSession[];
   memoryPath?: string;
   agentsPath?: string;
   cwd?: string;
@@ -59,7 +56,6 @@ export type ExtraOverlayProps = {
   usagePoints: { at: number; used: number; size: number }[];
   usageDays: 7 | 30;
   onUsageDays: (d: 7 | 30) => void;
-  subagents: ParallelSubagentItem[];
 };
 
 /**
@@ -71,11 +67,10 @@ export function ExtraOverlay({
   onClose,
   onSlash,
   onOpenPath,
-  onOpenSession,
+
   images,
   videos,
   agents,
-  dashboard,
   memoryPath,
   agentsPath,
   cwd,
@@ -97,7 +92,6 @@ export function ExtraOverlay({
   usagePoints,
   usageDays,
   onUsageDays,
-  subagents,
 }: ExtraOverlayProps) {
   const t = useT();
   const { shown, leaving } = usePresence(page != null);
@@ -137,7 +131,6 @@ export function ExtraOverlay({
               cwd={cwd}
             />
           ) : null}
-          {current === "dashboard" ? <DashboardPanel sessions={dashboard} onOpen={onOpenSession} /> : null}
           {current === "agents" ? <AgentsPage agents={agents} onOpen={onOpenPath} /> : null}
           {current === "memory" ? (
             <MemoryGrowthPage
@@ -165,9 +158,6 @@ export function ExtraOverlay({
           ) : null}
           {current === "usage" ? (
             <TokenChart points={usagePoints} days={usageDays} onDays={onUsageDays} />
-          ) : null}
-          {subagents.length > 0 && current === "dashboard" ? (
-            <ParallelSubagents items={subagents} />
           ) : null}
         </div>
       </div>

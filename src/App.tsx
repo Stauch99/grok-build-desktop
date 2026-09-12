@@ -39,6 +39,7 @@ import { selectPaneMentionSource } from "./lib/pane-mentions";
 import { derivePermissionView } from "./lib/permission-view";
 import { turnStatsFromItems } from "./lib/usage-split";
 import { PaneLayout } from "./components/PaneLayout";
+import { DashboardPage } from "./components/DashboardPage";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
 import { clearUnread } from "./lib/session-status";
@@ -1006,6 +1007,7 @@ return (
         onSearch={() => palette.setOpen(true)}
         searchHits={searchHits}
         onOpenHit={(id) => {
+          setExtraPage(null);
           const s = findSessionById(id);
           if (s) void openSession(s);
         }}
@@ -1037,7 +1039,10 @@ return (
         expandedIds={expandedIds}
         collapsedIds={collapsedIds}
         onToggleExpand={toggleExpand}
-        onOpenSession={(s) => void openSession(s)}
+        onOpenSession={(s) => {
+          setExtraPage(null);
+          void openSession(s);
+        }}
         onSessionMenu={(id, el, point) => openMenu("row", id, el, point)}
         onNewChat={() => void newChatInFocus()}
         onNewProjectSession={(path) => {
@@ -1067,7 +1072,14 @@ return (
         weeklyUsage={weeklyUsage}
         onSettings={() => setSettingsOpen(true)}
         onExtensions={() => openHub()}
-        onOpenExtra={(id) => palette.run(id)}
+        onOpenExtra={(id) => {
+          if (id === "act:dashboard" && extraPage === "dashboard") {
+            setExtraPage(null);
+            return;
+          }
+          palette.run(id);
+        }}
+        activeExtra={extraPage}
         onShortcuts={() => {
           setSettingsOpen(true);
           setSettingsFocus("shortcuts");
@@ -1532,6 +1544,19 @@ return (
         ) : null}
 
       </main>
+      {extraPage === "dashboard" ? (
+        <DashboardPage
+          sessions={dashboardSessions}
+          subagents={subagentCards}
+          inboxCwd={inboxCwd}
+          onOpen={(id) => {
+            setExtraPage(null);
+            const s = allSessions.find((x) => x.id === id);
+            if (s) void openSession(s);
+          }}
+          onClose={() => setExtraPage(null)}
+        />
+      ) : null}
       {reviewPresence.shown ? (
         <>
           <Resizer
@@ -1836,7 +1861,7 @@ return (
 
       <Suspense fallback={null}>
       <ExtraOverlay
-        page={extraPage}
+        page={extraPage === "dashboard" ? null : extraPage}
         onClose={() => setExtraPage(null)}
         onSlash={(cmd) => {
           setExtraPage(null);
@@ -1848,15 +1873,9 @@ return (
           setExtraPage(null);
           void openPath(p);
         }}
-        onOpenSession={(id) => {
-          setExtraPage(null);
-          const s = allSessions.find((x) => x.id === id);
-          if (s) void openSession(s);
-        }}
         images={imagineImages}
         videos={imagineVideos}
         agents={agentRows}
-        dashboard={[...dashboardSessions]}
         memoryPath={memoryPath}
         agentsPath={agentsMdPath}
         cwd={cwd || inboxCwd}
@@ -1882,11 +1901,6 @@ return (
         usagePoints={usageHistory}
         usageDays={usageDays}
         onUsageDays={setUsageDays}
-        subagents={subagentCards.map((s) => ({
-          id: s.id,
-          name: s.name,
-          status: s.status,
-        }))}
       />
       </Suspense>
 

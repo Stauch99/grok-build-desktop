@@ -535,7 +535,10 @@ export function useAppModel() {
           setImagineVideos: s.setImagineVideos,
           setAgentRows: s.setAgentRows,
           composerSetText: (text) => s.composerRef.current?.setText(text),
-          openSession: ws.openSession,
+          openSession: (session) => {
+            s.setExtraPage(null);
+            return ws.openSession(session);
+          },
           selectProject: ws.selectProject,
           runSlash: slash.runSlash,
           newChatInFocus: ws.newChatInFocus,

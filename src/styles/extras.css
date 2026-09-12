@@ -561,3 +561,65 @@ textarea.hub-preview {
   color: var(--faint);
   font-size: var(--text-xs);
 }
+
+/* ---- dashboard page: full-surface board over the workspace main area.
+   main stays mounted underneath so scroll/drafts survive the round trip. */
+.dashboard-page {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-raise);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+  animation: fade-in var(--dur) var(--ease);
+}
+.dash-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: var(--header-h);
+  border-bottom: 1px solid var(--line);
+}
+.dash-title {
+  font-family: var(--display);
+  font-size: var(--ui-small);
+  font-weight: 600;
+  flex: none;
+}
+.dash-close { margin-left: auto; }
+.dash-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 20px 28px;
+}
+.dash-body .kanban { max-width: 1400px; margin: 0 auto; }
+
+.kanban-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: var(--space-0_5);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.kanban-filter::-webkit-scrollbar { display: none; }
+.kanban-filter button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--ui-smaller);
+  padding: 4px 10px;
+  min-height: 28px;
+}
+.kanban-filter button:hover { background: var(--bg-hover); color: var(--text); }
+.kanban-filter button.on { background: var(--bg-alt); color: var(--text); }

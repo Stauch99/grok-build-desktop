@@ -706,3 +706,9 @@
 }
 .session-list.gliding .session-glide { opacity: 1; }
 .session-list .session { position: relative; z-index: var(--z-raise); }
+
+/* Global nav active state — the page id currently shown in the stage. */
+.side-link.on {
+  background: var(--bg-hover);
+  color: var(--text);
+}

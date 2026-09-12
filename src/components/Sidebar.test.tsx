@@ -243,7 +243,7 @@ describe("Sidebar global nav", () => {
     expect((html.match(/class="side-link"/g) ?? []).length).toBe(5);
     // Each row routes through a palette action id so imagine/agents preload.
     for (const act of ["act:dashboard", "act:memory", "act:agents", "act:usage", "act:imagine"]) {
-      expect(sidebarSrc).toContain(`onOpenExtra("${act}")`);
+      expect(sidebarSrc).toContain(`"${act}"`);
     }
   });
 
