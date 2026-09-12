@@ -51,7 +51,7 @@ describe("tauri CSP and asset protocol", () => {
   });
 
   it("denies secrets under home", () => {
-    const lib = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
+    const lib = readFileSync(join(root, "src-tauri/src/path_policy.rs"), "utf8");
     const block = lib.match(/const ASSET_SECRET_DENY: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? "";
     const rust = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
     expect(assetProtocol.scope.deny).toEqual(rust);
