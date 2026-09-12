@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { readTokenTurns } from "../api";
 import { MenuSelect } from "./MenuSelect";
+import { Skeleton } from "./Skeleton";
 import { IconRefresh } from "../icons";
 import { basename } from "../lib/text";
 import {
@@ -148,7 +149,7 @@ export function UsageStats() {
       </div>
 
       {error ? <p className="float-empty">{error}</p> : null}
-      {loading && turns.length === 0 ? <p className="float-empty">{t("usage.loading")}</p> : null}
+      {loading && turns.length === 0 ? <Skeleton label={t("usage.loading")} rows={4} /> : null}
       {!loading && !error && turns.length === 0 ? <p className="float-empty">{t("usage.empty")}</p> : null}
 
       {turns.length > 0 ? (

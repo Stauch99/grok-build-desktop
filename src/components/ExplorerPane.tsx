@@ -5,6 +5,7 @@ import { explorerDirOpen, flattenExplorerRows, type ExplorerFlatRow } from "../l
 import { FILE_TREE_VIRTUALIZE_AFTER } from "../lib/file-tree-window";
 import { IconFinder, IconFolder, IconFolderOpen, IconPaperclip } from "../icons";
 import { FileListRow } from "./FileListRow";
+import { Skeleton } from "./Skeleton";
 import { useT } from "../lib/locale-context";
 
 export type ExplorerPaneProps = {
@@ -93,6 +94,30 @@ function ExplorerEntryRow({
   );
 }
 
+/** "Reading…" status under an expanded dir gets a skeleton bar; "empty" stays text. */
+function ExplorerStatusRow({
+  status,
+  depth,
+  t,
+}: {
+  status: "loading" | "empty";
+  depth: number;
+  t: (key: string) => string;
+}) {
+  if (status === "loading") {
+    return (
+      <div className="explorer-loading" style={{ paddingLeft: 22 + depth * 12 }}>
+        <Skeleton label={t("explorer.loading")} rows={1} />
+      </div>
+    );
+  }
+  return (
+    <p className="float-empty explorer-loading" style={{ paddingLeft: 22 + depth * 12 }}>
+      {t("explorer.emptyFolder")}
+    </p>
+  );
+}
+
 function ExplorerVirtualRow({
   index,
   style,
@@ -108,9 +133,7 @@ function ExplorerVirtualRow({
   return (
     <div style={style}>
       {row.kind === "status" ? (
-        <p className="float-empty explorer-loading" style={{ paddingLeft: 22 + row.depth * 12 }}>
-          {t(row.status === "loading" ? "explorer.loading" : "explorer.emptyFolder")}
-        </p>
+        <ExplorerStatusRow status={row.status} depth={row.depth} t={t} />
       ) : (
         <ExplorerEntryRow
           entry={row.entry as WorkspaceEntry}
@@ -188,7 +211,7 @@ export function ExplorerPane({ cwd, expandedDirs, onToggleDir, onPreview, onReve
     return <p className="float-empty">{t("explorer.noWorkspace")}</p>;
   }
   if (roots === null) {
-    return <p className="float-empty">{t("explorer.loading")}</p>;
+    return <Skeleton label={t("explorer.loading")} rows={5} />;
   }
   if (roots.length === 0) {
     return <p className="float-empty">{t("explorer.noFiles")}</p>;
@@ -196,9 +219,7 @@ export function ExplorerPane({ cwd, expandedDirs, onToggleDir, onPreview, onReve
 
   const renderRow = (row: ExplorerFlatRow) =>
     row.kind === "status" ? (
-      <p key={row.key} className="float-empty explorer-loading" style={{ paddingLeft: 22 + row.depth * 12 }}>
-        {t(row.status === "loading" ? "explorer.loading" : "explorer.emptyFolder")}
-      </p>
+      <ExplorerStatusRow key={row.key} status={row.status} depth={row.depth} t={t} />
     ) : (
       <ExplorerEntryRow
         key={row.key}

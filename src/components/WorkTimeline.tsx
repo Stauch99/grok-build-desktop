@@ -121,6 +121,13 @@ export function WorkLiveRow({
       </span>
       <span className="spine-head static">
         <span className={`spine-verb${note ? "" : " shimmer-text"}`}>{label}</span>
+        {note ? null : (
+          <span className="waiting-dots" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
       </span>
     </button>
   );

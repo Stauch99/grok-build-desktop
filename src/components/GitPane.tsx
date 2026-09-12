@@ -7,6 +7,7 @@ import { sameCwd } from "../lib/inbox";
 import { basename } from "../lib/text";
 import { useT } from "../lib/locale-context";
 import { DiffSummary } from "./DiffSummary";
+import { Skeleton } from "./Skeleton";
 import type { DiffSummaryItem } from "../lib/diff-summary";
 import { IconGrokPlus } from "../grok-icons";
 
@@ -77,6 +78,12 @@ export function GitPane({
         onPush={onPush}
       />
       <div className="git-pane-body">
+        {status === null && cwd ? (
+          /* The first snapshot hasn't landed: `null` means loading, not
+             "not a repo" — don't let ChangesPanel claim otherwise. */
+          <Skeleton label={t("git.refresh")} rows={4} />
+        ) : (
+          <>
         <ChangesPanel
           changes={changes}
           isRepo={!!status?.isRepo}
@@ -132,6 +139,8 @@ export function GitPane({
           currentBranch={status?.branch}
           onCheckout={onCheckout}
         />
+          </>
+        )}
       </div>
     </div>
   );

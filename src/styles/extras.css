@@ -443,3 +443,38 @@ textarea.hub-preview {
   min-height: 160px;
 }
 
+/* First-token wait: three quiet dots beside the live "working" line. */
+.waiting-dots {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--faint);
+}
+.waiting-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  animation: waiting-dot 1.2s var(--ease-in-out) infinite backwards;
+}
+.waiting-dots i:nth-child(2) { animation-delay: calc(var(--dur-fast) * 2); }
+.waiting-dots i:nth-child(3) { animation-delay: calc(var(--dur-fast) * 4); }
+@keyframes waiting-dot {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+  60% { opacity: 0.25; transform: translateY(0); }
+}
+:root[data-window-blur] .waiting-dots i {
+  animation-play-state: paused !important;
+}
+
+/* In-tree "reading this folder" row: one compact bar at the child's depth. */
+.explorer-loading .skeleton-stack {
+  gap: 0;
+  padding: 7px 0;
+  width: 100%;
+}
+.explorer-loading .skeleton {
+  max-width: 160px;
+}
+
