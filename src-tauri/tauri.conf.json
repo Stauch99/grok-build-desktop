@@ -44,7 +44,14 @@
             "$HOME/.grok/auth.json",
             "$HOME/.config/**",
             "$HOME/.kube/**",
-            "$HOME/Library/Keychains/**"
+            "$HOME/.netrc",
+            "$HOME/.npmrc",
+            "$HOME/Library/Keychains/**",
+            "$HOME/.codex/auth.json",
+            "$HOME/.claude.json",
+            "$HOME/.kimi-code/credentials/**",
+            "$HOME/.git-credentials",
+            "$HOME/.docker/config.json"
           ],
           "requireLiteralLeadingDot": false
         }

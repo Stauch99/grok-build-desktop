@@ -51,14 +51,9 @@ describe("tauri CSP and asset protocol", () => {
   });
 
   it("denies secrets under home", () => {
-    expect(assetProtocol.scope.deny).toEqual([
-      "$HOME/.ssh/**",
-      "$HOME/.gnupg/**",
-      "$HOME/.aws/**",
-      "$HOME/.grok/auth.json",
-      "$HOME/.config/**",
-      "$HOME/.kube/**",
-      "$HOME/Library/Keychains/**",
-    ]);
+    const lib = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
+    const block = lib.match(/const ASSET_SECRET_DENY: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? "";
+    const rust = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(assetProtocol.scope.deny).toEqual(rust);
   });
 });

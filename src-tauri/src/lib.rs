@@ -369,11 +369,27 @@ pub(crate) fn resolve_grok() -> Option<PathBuf> {
     None
 }
 
-pub(crate) fn is_blocked_path(path: &Path) -> bool {
-    let home = dirs_home();
-    // Mirrors the assetProtocol deny list in tauri.conf.json so the IPC
-    // command surface cannot read what the asset protocol forbids.
-    let denied = [
+/// Asset-protocol deny globs. Must match `tauri.conf.json` `assetProtocol.scope.deny`
+/// and `src/lib/csp.test.ts`.
+pub(crate) const ASSET_SECRET_DENY: &[&str] = &[
+    "$HOME/.ssh/**",
+    "$HOME/.gnupg/**",
+    "$HOME/.aws/**",
+    "$HOME/.grok/auth.json",
+    "$HOME/.config/**",
+    "$HOME/.kube/**",
+    "$HOME/.netrc",
+    "$HOME/.npmrc",
+    "$HOME/Library/Keychains/**",
+    "$HOME/.codex/auth.json",
+    "$HOME/.claude.json",
+    "$HOME/.kimi-code/credentials/**",
+    "$HOME/.git-credentials",
+    "$HOME/.docker/config.json",
+];
+
+pub(crate) fn blocked_secret_paths(home: &Path) -> Vec<PathBuf> {
+    vec![
         home.join(".ssh"),
         home.join(".gnupg"),
         home.join(".aws"),
@@ -383,8 +399,31 @@ pub(crate) fn is_blocked_path(path: &Path) -> bool {
         home.join(".npmrc"),
         home.join("Library").join("Keychains"),
         grok_home().join("auth.json"),
-    ];
-    denied.iter().any(|d| path.starts_with(d) || path == d)
+        home.join(".codex").join("auth.json"),
+        home.join(".claude.json"),
+        home.join(".kimi-code").join("credentials"),
+        home.join(".git-credentials"),
+        home.join(".docker").join("config.json"),
+    ]
+}
+
+fn is_credential_filename(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    matches!(
+        name,
+        "auth.json"
+            | "credentials.json"
+            | ".credentials.json"
+            | "kimi-code.json"
+            | ".git-credentials"
+    )
+}
+
+pub(crate) fn is_blocked_path(path: &Path) -> bool {
+    let home = dirs_home();
+    blocked_secret_paths(&home)
+        .iter()
+        .any(|d| path == d || path.starts_with(d))
 }
 
 #[derive(Clone, Copy)]
@@ -1994,11 +2033,6 @@ fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: b
     if is_transient_path(canon) {
         return true;
     }
-    if let Ok(home) = dirs_home().canonicalize() {
-        if is_under(canon, &home) {
-            return true;
-        }
-    }
     false
 }
 
@@ -2009,7 +2043,7 @@ fn allow_text_read(canon: &Path, allow_root: Option<&Path>) -> bool {
 /// ACP reads follow the preview allowlist, plus user skill/agent homes that
 /// live outside the project (`~/.agents`, `~/.grok`, and the same roots other CLIs use).
 fn extra_skill_read_root(canon: &Path) -> bool {
-    if is_blocked_path(canon) || !canon.is_file() {
+    if is_blocked_path(canon) || !canon.is_file() || is_credential_filename(canon) {
         return false;
     }
     let home = dirs_home();
@@ -3758,11 +3792,10 @@ mod final_review_tests {
             Some(&nested),
             true
         ));
-        assert!(allow_text_read_candidate(
-            &home.join("Downloads/cover.md"),
-            Some(&nested),
-            true
-        ));
+        assert!(
+            !allow_text_read_candidate(&home.join("Downloads/cover.md"), Some(&nested), true),
+            "home files are not previewable just because a workspace is set"
+        );
         assert!(allow_text_read_candidate(
             &tmp.join("shot.png"),
             Some(&nested),
@@ -3774,6 +3807,57 @@ mod final_review_tests {
             true
         ));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn text_preview_rejects_cli_credential_files_even_with_workspace() {
+        let home = dirs_home();
+        let root = acp_path_root();
+        assert!(!allow_text_read_candidate(
+            &home.join(".codex").join("auth.json"),
+            Some(&root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".claude.json"),
+            Some(&root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".kimi-code").join("credentials").join("kimi-code.json"),
+            Some(&root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".git-credentials"),
+            Some(&root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".docker").join("config.json"),
+            Some(&root),
+            true
+        ));
+        assert!(!allow_text_read_candidate(
+            &home.join(".zsh_history"),
+            Some(&root),
+            true
+        ));
+        assert!(!extra_skill_read_root(
+            &home.join(".codex").join("auth.json")
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn asset_secret_deny_is_embedded_in_tauri_conf() {
+        let conf = include_str!("../tauri.conf.json");
+        for glob in ASSET_SECRET_DENY {
+            assert!(
+                conf.contains(&format!("\"{glob}\"")),
+                "tauri.conf.json missing {glob}"
+            );
+        }
     }
 
     #[test]
