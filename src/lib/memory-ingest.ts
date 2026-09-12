@@ -20,7 +20,9 @@ export type DailyLine = {
 };
 
 export function looksLikeSecret(text: string): boolean {
-  return /\b(sk-|ghp_|xai-|AKIA|api[_-]?key\s*[:=]|-----BEGIN)/i.test(text);
+  return /\b(sk-|sk_live_|sk_test_|ghp_|github_pat_|gho_|xai-|AKIA|api[_-]?key\s*[:=]|-----BEGIN|xox[bpar]-|glpat-|bearer\s+[A-Za-z0-9._\-]{8,})/i.test(
+    text,
+  );
 }
 
 export function filterIngestTurns(turns: IngestTurn[], forgotten: readonly string[]): DailyLine[] {

@@ -64,22 +64,52 @@ export function flushWebuiPersist(snapshot: WebuiSnapshot, pending: WebuiState):
   return buildWebuiState(snapshot, pending);
 }
 
+export function drainPendingWebuiPersist(
+  snapshot: WebuiSnapshot,
+  pending: WebuiState,
+): WebuiState | null {
+  if (Object.keys(pending).length === 0) return null;
+  return flushWebuiPersist(snapshot, pending);
+}
+
 export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) => void {
   const timer = useRef<number | null>(null);
   const snapRef = useRef(snapshot);
   const pendingRef = useRef<WebuiState>({});
   snapRef.current = snapshot;
-  useEffect(() => () => {
-    if (timer.current != null) window.clearTimeout(timer.current);
+
+  const flushNow = useCallback(() => {
+    if (timer.current != null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const next = drainPendingWebuiPersist(snapRef.current, pendingRef.current);
+    if (!next) return;
+    pendingRef.current = {};
+    void saveWebuiState(next);
   }, []);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    window.addEventListener("beforeunload", flushNow);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flushNow);
+      document.removeEventListener("visibilitychange", onHide);
+      flushNow();
+    };
+  }, [flushNow]);
+
   return useCallback((partial: WebuiState) => {
     pendingRef.current = accumulatePersistPartial(pendingRef.current, partial);
     if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = null;
-      const next = flushWebuiPersist(snapRef.current, pendingRef.current);
+      const next = drainPendingWebuiPersist(snapRef.current, pendingRef.current);
       pendingRef.current = {};
-      void saveWebuiState(next);
+      if (next) void saveWebuiState(next);
     }, WEBUI_PERSIST_MS);
   }, []);
 }

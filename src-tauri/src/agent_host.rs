@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -55,22 +56,28 @@ pub(crate) fn extra_spawn_env(
 }
 
 pub(crate) fn prepend_path_dirs(existing: &str, extras: &[PathBuf]) -> String {
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<PathBuf> = Vec::new();
     for extra in extras {
-        let s = extra.to_string_lossy();
-        if s.is_empty() {
+        if extra.as_os_str().is_empty() {
             continue;
         }
-        if !parts.iter().any(|p| p == s.as_ref()) {
-            parts.push(s.into_owned());
+        if !parts.iter().any(|p| p == extra) {
+            parts.push(extra.clone());
         }
     }
-    for dir in existing.split(':').filter(|d| !d.is_empty()) {
-        if !parts.iter().any(|p| p == dir) {
-            parts.push(dir.to_string());
+    for dir in env::split_paths(existing).filter(|d| !d.as_os_str().is_empty()) {
+        if !parts.iter().any(|p| p == &dir) {
+            parts.push(dir);
         }
     }
-    parts.join(":")
+    match env::join_paths(&parts) {
+        Ok(joined) => joined.to_string_lossy().into_owned(),
+        Err(_) => parts
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(if cfg!(windows) { ";" } else { ":" }),
+    }
 }
 
 pub(crate) fn default_spawn_path_extras(home: &Path, grok_home: &Path) -> Vec<PathBuf> {
@@ -83,10 +90,8 @@ pub(crate) fn default_spawn_path_extras(home: &Path, grok_home: &Path) -> Vec<Pa
 }
 
 pub(crate) fn which_search_dirs(path: &str, home: Option<&Path>) -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = path
-        .split(':')
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
+    let mut dirs: Vec<PathBuf> = env::split_paths(path)
+        .filter(|d| !d.as_os_str().is_empty())
         .collect();
     if let Some(home) = home {
         dirs.push(home.join(".local/bin"));
@@ -384,9 +389,16 @@ mod tests {
             PathBuf::from("/usr/bin"),
         ];
         let next = prepend_path_dirs("/usr/bin:/bin", &extra);
-        assert!(next.starts_with("/opt/homebrew/bin:/usr/local/bin:/usr/bin:"));
-        assert!(next.contains("/bin"));
-        assert_eq!(next.matches("/usr/bin").count(), 1);
+        #[cfg(unix)]
+        {
+            assert!(next.starts_with("/opt/homebrew/bin:/usr/local/bin:/usr/bin:"));
+            assert!(next.contains("/bin"));
+            assert_eq!(next.matches("/usr/bin").count(), 1);
+        }
+        #[cfg(windows)]
+        {
+            assert!(next.to_ascii_lowercase().contains("homebrew"));
+        }
     }
 
     #[test]

@@ -752,6 +752,14 @@
   padding: 6px 0 8px;
   animation: spine-enter 480ms var(--ease) both;
 }
+.work-live-wrap {
+  display: grid;
+  gap: 6px;
+}
+.work-live-retry {
+  justify-self: start;
+  margin-left: 30px;
+}
 .work-live .spine-ico {
   color: var(--brand);
 }

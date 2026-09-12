@@ -13,6 +13,7 @@ type PendingRequestCardProps = {
   onPick: (id: string) => void;
   onAlwaysAllow?: () => void;
   onCustomAnswer?: (text: string) => void;
+  canRemember?: boolean;
 };
 
 export function PendingRequestCard({
@@ -25,6 +26,7 @@ export function PendingRequestCard({
   onPick,
   onAlwaysAllow,
   onCustomAnswer,
+  canRemember = true,
 }: PendingRequestCardProps) {
   if (kind === "question") {
     return (
@@ -37,5 +39,5 @@ export function PendingRequestCard({
     );
   }
   if (!onAlwaysAllow) return null;
-  return <PermissionCard title={title} options={options} timedOut={timedOut} timeoutNotice={timeoutNotice} receivedAt={receivedAt} onPick={onPick} onAlwaysAllow={onAlwaysAllow} />;
+  return <PermissionCard title={title} options={options} timedOut={timedOut} timeoutNotice={timeoutNotice} receivedAt={receivedAt} onPick={onPick} onAlwaysAllow={onAlwaysAllow} canRemember={canRemember} />;
 }

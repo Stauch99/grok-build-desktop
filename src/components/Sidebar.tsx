@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "react-window";
 import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
@@ -20,6 +21,7 @@ import {
   type SidebarSection,
 } from "../lib/sidebar-list";
 import { sessionGlideMetrics } from "../lib/session-glide";
+import { flattenSidebarListItems, shouldVirtualizeSidebar, type SidebarListItem } from "../lib/sidebar-virtual-rows";
 import { AccountMenu } from "./AccountMenu";
 import { ShortcutKbd } from "./ShortcutHint";
 import { sessionTreeNav } from "../lib/session-tree-keys";
@@ -86,6 +88,16 @@ export type SidebarProps = {
 
 function rowMetaMap(rows: SidebarRow[]): Map<string, SidebarRow> {
   return new Map(rows.map((row) => [row.session.id, row]));
+}
+
+type SidebarVirtualCtx = {
+  items: SidebarListItem[];
+  renderItem: (item: SidebarListItem) => ReactNode;
+};
+
+function SidebarVirtualRow({ index, style, items, renderItem }: RowComponentProps<SidebarVirtualCtx>) {
+  const item = items[index];
+  return <div style={style}>{item ? renderItem(item) : null}</div>;
 }
 
 /**
@@ -159,6 +171,10 @@ export const Sidebar = memo(function Sidebar({
   const skipProjectToggle = useRef<string | null>(null);
   const [sessionPages, setSessionPages] = useState<Record<string, number>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const listItems = useMemo(() => flattenSidebarListItems(sections, openGroups), [sections, openGroups]);
+  const virtualize = shouldVirtualizeSidebar(listItems);
+  const listRef = useListRef(null);
+  const rowHeight = useDynamicRowHeight({ defaultRowHeight: 88 });
   const anchorId = useRef<string | null>(null);
   const modsRef = useRef({ shift: false, meta: false });
   const lastClickedId = useRef<string | null>(null);
@@ -480,6 +496,71 @@ export const Sidebar = memo(function Sidebar({
     );
   }
 
+  function renderListItem(item: SidebarListItem): ReactNode {
+    if (item.kind === "band-label") {
+      return (
+        <div
+          className={`ws-band-label${dropOver === "ungrouped" && item.bandId === "projects" ? " is-drop" : ""}`}
+          tabIndex={0}
+          data-group-tab
+          data-project-drop={item.bandId === "projects" ? "ungrouped" : undefined}
+        >
+          {t(`sidebar.${item.bandId}`)}
+        </div>
+      );
+    }
+    if (item.kind === "group-head") {
+      const groupOpen = openGroups[item.groupId] !== false;
+      return (
+        <div className="group-head-row" data-project-drop={`group:${item.groupId}`}>
+          <button
+            type="button"
+            className="group-head"
+            aria-expanded={groupOpen}
+            onClick={() => onToggleGroup?.(item.groupId)}
+          >
+            <span className="gname">{item.label}</span>
+          </button>
+        </div>
+      );
+    }
+    if (item.section.kind === "project") return renderProject(item.section);
+    const meta = rowMetaMap(item.section.rows);
+    const inbox = item.section.kind === "inbox";
+    return (
+      <div key={item.section.id} className="ws-section" role="listitem" aria-label={item.section.label} data-session-group>
+        {inbox
+          ? nestByParent(item.section.rows.map((row) => row.session)).map((node) => (
+              <SessionBranch
+                key={node.session.id}
+                node={node}
+                depth={0}
+                rowKind="inbox"
+                rowMeta={meta}
+                {...branchProps}
+                hideProjectSubtitle
+              />
+            ))
+          : item.section.rows.map((row) => (
+              <SessionBranch
+                key={row.session.id}
+                node={{ session: row.session, children: [] }}
+                depth={row.indent}
+                rowKind={row.subtitle === SIDEBAR_BAND_LABEL.inbox ? "inbox" : "project"}
+                projectPinned={row.projectPinned}
+                rowMeta={meta}
+                {...branchProps}
+              />
+            ))}
+      </div>
+    );
+  }
+
+  const virtualRowProps = useMemo(
+    () => ({ items: listItems, renderItem: renderListItem }),
+    [listItems, openProjects, sessionPages, sessionId, displayTitles, expandedIds, collapsedIds, dropOver],
+  );
+
   return (
     <aside className={`sidebar${collapsed ? " rail" : ""}${hiding ? " is-hiding" : ""}`}>
       <div className="side-traffic">
@@ -643,7 +724,7 @@ export const Sidebar = memo(function Sidebar({
       ) : null}
 
       <div
-        className={`session-list${selectedIds.length ? " is-batching" : ""}`}
+        className={`session-list${selectedIds.length ? " is-batching" : ""}${virtualize ? " virtualized" : ""}`}
         role="list"
         aria-label={t("sidebar.sessions")}
         onKeyDown={onSessionTreeKeyDown}
@@ -660,7 +741,18 @@ export const Sidebar = memo(function Sidebar({
         <span className="session-glide" aria-hidden="true" />
         {sections.length === 0 ? (
           <p className="footnote">{t("sidebar.empty")}</p>
-        ) : null}
+        ) : virtualize ? (
+          <List
+            className="sidebar-list"
+            listRef={listRef}
+            rowComponent={SidebarVirtualRow}
+            rowCount={listItems.length}
+            rowHeight={rowHeight}
+            rowProps={virtualRowProps}
+            overscanCount={8}
+          />
+        ) : (
+          <>
         {groupSidebarBands(sections).map((band) => {
           const labeled = isSidebarBandId(band.id);
           const groupId = parseGroupBandId(band.id);
@@ -795,6 +887,8 @@ export const Sidebar = memo(function Sidebar({
             </div>
           );
         })}
+          </>
+        )}
       </div>
 
       <AccountMenu

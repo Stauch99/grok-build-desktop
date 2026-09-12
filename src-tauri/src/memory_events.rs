@@ -148,6 +148,7 @@ pub fn read_events(root: &Path) -> Result<Vec<MemoryEvent>, String> {
     Ok(out)
 }
 
+#[allow(dead_code)]
 pub fn events_since<'a>(events: &'a [MemoryEvent], since_ms: i64, kind: &str) -> Vec<&'a MemoryEvent> {
     events
         .iter()
@@ -228,7 +229,7 @@ pub fn activity(root: &Path) -> Result<ActivitySnapshot, String> {
             "dream_sweep" => slot.mem_bytes += event.bytes.unwrap_or(0).max(0),
             _ => {}
         }
-        if earliest.as_ref().map_or(true, |d| &day < d) {
+        if earliest.as_ref().is_none_or(|d| &day < d) {
             earliest = Some(day);
         }
     }

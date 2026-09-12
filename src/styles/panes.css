@@ -188,6 +188,21 @@
   color: var(--faint);
 }
 .explorer-loading { padding-left: 22px; }
+.explorer-tree.virtualized,
+.file-list.virtualized {
+  flex: 1 1 0;
+  min-height: 240px;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.explorer-tree.virtualized .explorer-list,
+.file-list.virtualized .file-tree-list {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
 .explorer-twist {
   flex: none;
   width: 10px;

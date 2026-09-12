@@ -174,7 +174,7 @@ export async function openDreamAcp(opts: {
         "initialize",
         {
           protocolVersion: 1,
-          clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
+          clientInfo: { name: "grok-build-desktop", title: "Grok Build", version: "0.4.0" },
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
         },
         RPC_TIMEOUT_MS,

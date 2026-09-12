@@ -1,4 +1,30 @@
+import createDOMPurify, { type WindowLike } from "dompurify";
 import { tr } from "./i18n-bridge";
+
+/** DOMPurify default URI regexp plus `asset:` for Tauri convertFileSrc URLs. */
+const ALLOWED_URI =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|asset):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+const HTML_FORBID_TAGS = ["script", "iframe", "object", "embed", "base", "form", "meta"];
+
+type Purify = ReturnType<typeof createDOMPurify>;
+let htmlPurify: Purify | null = null;
+let svgPurify: Purify | null = null;
+
+function purifyWindow(): WindowLike {
+  if (typeof window !== "undefined" && window.document) return window as unknown as WindowLike;
+  throw new Error("sanitizeHtml requires a DOM");
+}
+
+function getHtmlPurify(): Purify {
+  if (!htmlPurify) htmlPurify = createDOMPurify(purifyWindow());
+  return htmlPurify;
+}
+
+function getSvgPurify(): Purify {
+  if (!svgPurify) svgPurify = createDOMPurify(purifyWindow());
+  return svgPurify;
+}
 
 export function basename(path: string): string {
   return path.replace(/\/+$/, "").split("/").pop() || path;
@@ -42,13 +68,20 @@ export function relativeTime(iso: string, now = Date.now()): string {
 }
 
 export function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
-    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<object\b[\s\S]*?<\/object>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/data:text\/html/gi, "");
+  return getHtmlPurify().sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: HTML_FORBID_TAGS,
+    FORBID_ATTR: ["srcdoc"],
+    ALLOWED_URI_REGEXP: ALLOWED_URI,
+  });
+}
+
+export function sanitizeSvg(svg: string): string {
+  return getSvgPurify().sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ["script", "foreignObject", "iframe", "object", "embed", "base", "form", "meta"],
+    ALLOWED_URI_REGEXP: ALLOWED_URI,
+  });
 }
 
 export function escapeText(text: string): string {
@@ -162,6 +195,7 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
       return h.replace(/^file:\/\//i, "");
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
   if (h.startsWith("//")) return null;
   if (h.startsWith("/")) return h;
   if (cwd && !h.includes("://")) {

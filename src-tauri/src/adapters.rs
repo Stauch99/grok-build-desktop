@@ -1,5 +1,21 @@
 use std::path::{Path, PathBuf};
 
+const DENIED_SPAWN_BASENAMES: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "fish",
+    "csh",
+    "ksh",
+    "cmd",
+    "powershell",
+    "pwsh",
+    "osascript",
+    "wscript",
+    "cscript",
+];
+
 pub(crate) fn doctor_homes(user_home: &Path, grok_home: &Path) -> [(&'static str, PathBuf); 4] {
     [
         ("grok", grok_home.to_path_buf()),
@@ -24,6 +40,68 @@ pub(crate) fn spawn_argv(
     spawn_argv_builtin(id, grok_bin)
 }
 
+pub(crate) fn toml_spawn_rejected(
+    id: crate::agent_host::AgentId,
+    grok_bin: Option<&Path>,
+    grok_bin_dir: &Path,
+    registry_toml: Option<&str>,
+) -> Option<String> {
+    let text = registry_toml?;
+    let (cmd, _) = crate::agent_registry::spawn_args_from_toml(text, id)?;
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return None;
+    }
+    if spawn_cmd_is_allowed(cmd, grok_bin, grok_bin_dir, crate::agent_host::which_on_path) {
+        return None;
+    }
+    Some(cmd.to_string())
+}
+
+fn spawn_basename(cmd: &str) -> String {
+    Path::new(cmd.trim())
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(cmd.trim())
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase()
+}
+
+pub(crate) fn spawn_cmd_is_allowed(
+    cmd: &str,
+    grok_bin: Option<&Path>,
+    grok_bin_dir: &Path,
+    lookup: impl Fn(&str) -> Option<PathBuf>,
+) -> bool {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return true;
+    }
+    let base = spawn_basename(cmd);
+    if DENIED_SPAWN_BASENAMES.contains(&base.as_str()) {
+        return false;
+    }
+    if matches!(base.as_str(), "grok" | "kimi" | "npx") && !Path::new(cmd).is_absolute() {
+        return true;
+    }
+    let path = Path::new(cmd);
+    if !path.is_absolute() {
+        return false;
+    }
+    if grok_bin == Some(path) {
+        return true;
+    }
+    if path.starts_with(grok_bin_dir) {
+        return true;
+    }
+    if let Some(found) = lookup(&base) {
+        if found == path {
+            return true;
+        }
+    }
+    false
+}
+
 fn resolve_spawn_cmd(
     id: crate::agent_host::AgentId,
     grok_bin: Option<&Path>,
@@ -38,6 +116,10 @@ fn resolve_spawn_cmd(
             args
         };
         return grok_bin.map(|p| (p.to_path_buf(), args));
+    }
+    let grok_bin_dir = crate::grok_home().join("bin");
+    if !spawn_cmd_is_allowed(cmd, grok_bin, &grok_bin_dir, crate::agent_host::which_on_path) {
+        return None;
     }
     if cmd == "npx" {
         let pkg = crate::agent_registry::pinned_npx_pkg(id)
@@ -147,5 +229,35 @@ mod tests {
                     || a.contains("claude-agent-acp")),
             "claude spawn should pin the ACP package, got {cmd:?} {args:?}"
         );
+    }
+
+    #[test]
+    fn spawn_allowlist_rejects_shells_and_unknown_binaries() {
+        let grok_bin = PathBuf::from("/Users/me/.grok/bin/grok");
+        let bin_dir = Path::new("/Users/me/.grok/bin");
+        let lookup = |name: &str| match name {
+            "kimi" => Some(PathBuf::from("/usr/bin/kimi")),
+            _ => None,
+        };
+        assert!(spawn_cmd_is_allowed("kimi", Some(&grok_bin), bin_dir, lookup));
+        assert!(spawn_cmd_is_allowed("npx", Some(&grok_bin), bin_dir, lookup));
+        assert!(spawn_cmd_is_allowed("/Users/me/.grok/bin/grok", Some(&grok_bin), bin_dir, lookup));
+        assert!(spawn_cmd_is_allowed("/usr/bin/kimi", None, bin_dir, lookup));
+        assert!(!spawn_cmd_is_allowed("sh", Some(&grok_bin), bin_dir, lookup));
+        assert!(!spawn_cmd_is_allowed("osascript", None, bin_dir, lookup));
+        assert!(!spawn_cmd_is_allowed("/tmp/evil", Some(&grok_bin), bin_dir, lookup));
+        assert!(!spawn_cmd_is_allowed("python3", None, bin_dir, lookup));
+        let sh_toml = r#"[agents.kimi]
+enabled = true
+command = "sh"
+args = ["-c", "id"]
+"#;
+        assert_eq!(
+            toml_spawn_rejected(AgentId::Kimi, None, bin_dir, Some(sh_toml)).as_deref(),
+            Some("sh")
+        );
+        let (cmd, args) = spawn_argv(AgentId::Kimi, None, Some(sh_toml)).unwrap();
+        assert_eq!(cmd, PathBuf::from("kimi"));
+        assert_eq!(args, vec!["acp".to_string()]);
     }
 }

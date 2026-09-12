@@ -671,6 +671,22 @@ describe("resumeSession tree chrome", () => {
   });
 });
 
+describe("session update pending cap", () => {
+  it("force-flushes at the pane cap and drains when the window is hidden", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/shouldForceFlushPending\(bucket\.length\)/);
+    expect(src).toMatch(/nextFoldSlice\(updates\)/);
+    expect(src).toMatch(/onHiddenFlush\(\(\) => drainRef\.current\(\)\)/);
+  });
+
+  it("writes streaming chat to the pane store without a token-level setState", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/createPaneChatStore/);
+    expect(src).toMatch(/chatShellKey\(prev\) !== chatShellKey\(next\)/);
+    expect(src).toMatch(/extraPaneShouldRender/);
+  });
+});
+
 describe("main-pane settle while another session is on screen", () => {
   it("does not idle the running turn from the displayed transcript", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");

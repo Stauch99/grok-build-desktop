@@ -84,4 +84,10 @@ describe("renderMd", () => {
     expect(html).toContain("<pre>");
     expect(html).toContain("const x = 1");
   });
+
+  it("does not let raw markdown HTML run scripts or javascript URLs", () => {
+    const html = renderMd(`<img src=x onerror="alert(1)">[x](javascript:alert(1))`);
+    expect(html).not.toMatch(/onerror/i);
+    expect(html).not.toMatch(/javascript:/i);
+  });
 });

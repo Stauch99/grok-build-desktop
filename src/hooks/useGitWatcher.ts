@@ -12,7 +12,7 @@ import {
   type GitCommit,
   type GitStatus,
 } from "../api";
-import { loadGitSnapshot, parseWorktreePorcelain, workspaceMtimeChanged, type GitWorktree } from "../lib/git";
+import { loadGitSnapshot, workspaceMtimeChanged, type GitWorktree } from "../lib/git";
 import { GIT_FALLBACK_MS } from "../lib/persist-cache";
 
 export { GIT_FALLBACK_MS };
@@ -49,25 +49,15 @@ export function useGitWatcher(opts: {
         changes: gitChanges,
         log: gitLog,
         branches: gitBranches,
+        worktrees: gitListWorktrees,
       });
-      if (next.git?.isRepo) {
-        const porcelain = await gitListWorktrees(dir).catch(() => "");
-        setSnap({
-          git: next.git,
-          changes: next.changes,
-          commits: next.commits,
-          branches: next.branches,
-          worktrees: parseWorktreePorcelain(porcelain),
-        });
-      } else {
-        setSnap({
-          git: next.git,
-          changes: next.changes,
-          commits: next.commits,
-          branches: next.branches,
-          worktrees: [],
-        });
-      }
+      setSnap({
+        git: next.git,
+        changes: next.changes,
+        commits: next.commits,
+        branches: next.branches,
+        worktrees: next.git?.isRepo ? next.worktrees : [],
+      });
     } catch {
       setSnap({ git: null, changes: [], commits: [], branches: [], worktrees: [] });
     }

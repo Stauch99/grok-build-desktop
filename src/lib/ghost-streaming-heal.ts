@@ -1,10 +1,14 @@
 import type { ChatItem, ChatState } from "./chat";
+import { stallLevel } from "./stall";
 
 /** Wait this long after optimistic send if session/prompt never left the client. */
 export const GHOST_STREAMING_GRACE_MS = 45_000;
 
 /** Poll while a pre-token echoed user is showing. */
 export const GHOST_STREAMING_POLL_MS = 5_000;
+
+/** Bound `session/prompt` waiters so a wedged CLI cannot leak forever. Do not auto-resend. */
+export const PROMPT_RPC_TIMEOUT_MS = 10 * 60_000;
 
 export type GhostTurn = {
   dropIds: string[];
@@ -35,6 +39,21 @@ export function shouldHealGhostStreaming(e: GhostStreamingEvidence): boolean {
   const grace = e.graceMs ?? GHOST_STREAMING_GRACE_MS;
   if (e.nowMs - e.turnStartedAt < grace) return false;
   return findOptimisticGhostTurn(e.items) != null;
+}
+
+export type WedgedRetryEvidence = {
+  busy: boolean;
+  pendingPermission: boolean;
+  /** False once session/prompt has left the client. Ghost heal covers the in-flight case. */
+  sendInFlight: boolean;
+  lastActivityAt: number;
+  nowMs: number;
+};
+
+/** Prompt already written, turn quiet long enough to be stuck — offer stop-and-retry, never auto-resend. */
+export function shouldOfferWedgedRetry(e: WedgedRetryEvidence): boolean {
+  if (!e.busy || e.sendInFlight || e.pendingPermission) return false;
+  return stallLevel(e.nowMs - e.lastActivityAt) === "stuck";
 }
 
 export function applyGhostHeal(chat: ChatState, turn: GhostTurn): ChatState {

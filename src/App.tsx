@@ -42,7 +42,7 @@ import { PaneLayout } from "./components/PaneLayout";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
 import { INBOX_PIN } from "./lib/sidebar-list";
-import { allowForGrant, allowForSession, findAlwaysOption, parseToolName, pickAllowOption } from "./lib/permission-allow";
+import { allowForGrant, allowForSession, findAlwaysOption, isHighRiskTool, parseToolName, pickAllowOption } from "./lib/permission-allow";
 import type { QueuedPermission } from "./lib/permission-queue";
 import { subagentChips } from "./lib/subagent-tree";
 import { friendlyError } from "./lib/error-copy";
@@ -60,7 +60,9 @@ import { ExplorerPane } from "./components/ExplorerPane";
 import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
-import { handleMdClick, ThreadColumn } from "./components/Thread";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ChatPane } from "./components/ChatPane";
+import { handleMdClick } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
 import { GitPane } from "./components/GitPane";
@@ -76,7 +78,7 @@ import { AppModal } from "./components/AppModal";
 import { RewindDialog } from "./components/RewindDialog";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
-import { IconChevron, IconGitFork, IconHierarchy2 } from "./icons";
+import { IconGitFork, IconHierarchy2 } from "./icons";
 import { TodoMark } from "./components/TodoMark";
 import { ShortcutKbd, ShortcutProvider } from "./components/ShortcutHint";
 import { useAppModel } from "./hooks/useAppModel";
@@ -272,6 +274,7 @@ export function App() {
     setSelectedAgentId,
     sessionIdRef,
     chat,
+    paneChatStore,
     ready,
     connecting,
     loadingSession,
@@ -347,8 +350,6 @@ export function App() {
     menuSession,
     findSessionById,
     usage,
-    userTurns,
-    urlChips,
     openSettings,
     allSessions,
     palette,
@@ -377,6 +378,7 @@ export function App() {
     goalView,
     health,
     runStatus,
+    mainWedged,
     turnStats,
     sounds,
     setSounds,
@@ -410,18 +412,21 @@ export function App() {
 
   function rememberGrant(perm: QueuedPermission, paneCwd: string, paneSid: string | null) {
     const tool = parseToolName(perm.title, perm.toolKind);
-    let next = allowForGrant(allowedTools, perm.agentId, paneCwd, tool);
+    let next = allowedTools;
     if (paneSid) next = allowForSession(next, paneSid, tool);
+    if (!isHighRiskTool(tool)) next = allowForGrant(next, perm.agentId, paneCwd, tool);
     setAllowedTools(next);
     persist({ allowedTools: [...next] });
-    const pick = findAlwaysOption(perm.options) ?? pickAllowOption(perm.options);
+    const pick = (isHighRiskTool(tool) ? null : findAlwaysOption(perm.options)) ?? pickAllowOption(perm.options);
     if (pick) void answerPermission(perm, pick);
   }
 
   function inspectJob(job: { id: string; paneId: string }) {
     setJobsOpen(false);
     if (job.paneId !== focusedPaneId) focusPane(job.paneId);
-    const items = job.paneId === MAIN_PANE ? chat.items : extraPanes[job.paneId]?.chat.items;
+    const items = job.paneId === MAIN_PANE
+      ? paneChatStore.getMain().chat.items
+      : paneChatStore.getExtra(job.paneId).chat.items;
     const item = items?.find((it) => it.kind === "tool" && it.id === job.id);
     if (item && item.kind === "tool") review.inspectTool(item);
   }
@@ -429,6 +434,25 @@ export function App() {
   function stopJob(job: { paneId: string }) {
     setJobsOpen(false);
     void cancelTurn(job.paneId);
+  }
+
+  function stopAndRetry(paneId: string) {
+    const items =
+      paneId === MAIN_PANE ? paneChatStore.getMain().chat.items : paneChatStore.getExtra(paneId).chat.items;
+    let text = "";
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.kind === "user" && item.text.trim()) {
+        text = item.text;
+        break;
+      }
+    }
+    void cancelTurn(paneId).then(() => {
+      if (!text) return;
+      if (paneId === MAIN_PANE) onDraftChange(text);
+      else onExtraDraftChange(paneId, text);
+      showToast(t(locale, "toast.wedgedRetry"));
+    });
   }
 
   function jobsMenu() {
@@ -452,13 +476,16 @@ export function App() {
     );
   }
 
-  function copyConversationBtn(items: typeof chat.items) {
+  function copyConversationBtn(pane: string) {
     return (
       <button
         type="button"
         className="icon-btn"
         aria-label={t(locale, "thread.copyAll")}
-        onClick={() => copyAllConversation(items)}
+        onClick={() => {
+          const items = pane === MAIN_PANE ? paneChatStore.getMain().chat.items : paneChatStore.getExtra(pane).chat.items;
+          copyAllConversation(items);
+        }}
       >
         <IconGrokCopy size={16} />
       </button>
@@ -499,6 +526,7 @@ export function App() {
             receivedAt={item.receivedAt}
             onPick={(id) => void answerPermission(item, id)}
             onAlwaysAllow={() => rememberGrant(item, paneCwd, paneSid)}
+            canRemember={!isHighRiskTool(parseToolName(item.title, item.toolKind))}
           />
         ))}
         {perm && kind && visible && (
@@ -512,6 +540,7 @@ export function App() {
             onPick={(id) => void answerPermission(perm, id)}
             onAlwaysAllow={kind === "permission" ? () => rememberGrant(perm, paneCwd, paneSid) : undefined}
             onCustomAnswer={kind === "question" ? customAnswerFor(perm, paneId) : undefined}
+            canRemember={!isHighRiskTool(parseToolName(perm.title, perm.toolKind))}
           />
         )}
       </>
@@ -550,7 +579,6 @@ export function App() {
       pendingKind: permView.kind,
       plan: paneId === MAIN_PANE && showPlanComplete,
     });
-    const paneTurns = paneChat.items.filter((i): i is Extract<typeof i, { kind: "user" }> => i.kind === "user");
     const paneCatalog = subagentChips(paneChat.items, allSessions, {
       parentSessionId: sid,
       agentId: extra?.agentId ?? selectedAgentId,
@@ -575,6 +603,7 @@ export function App() {
         paneChat.plan.every((e) => e.status === "completed")) ||
       (paneId === MAIN_PANE && planMarkedComplete);
     return (
+      <ErrorBoundary locale={locale}>
       <WorkPane
         paneId={paneId}
         focused={focusedPaneId === paneId}
@@ -676,7 +705,7 @@ export function App() {
                 ) : null}
               </div>
             )}
-            {sid ? copyConversationBtn(paneChat.items) : null}
+            {sid ? copyConversationBtn(paneId) : null}
             <button
               type="button"
               className="icon-btn shortcut-host"
@@ -699,20 +728,18 @@ export function App() {
           </div>
         </header>
         <div className="chat-shell">
-          <ThreadColumn
+          <ChatPane
+            store={paneChatStore}
             paneId={paneId}
-            chat={paneChat}
             chatWidth={chatWidth}
             dark={resolvedTheme === "dark"}
             cwd={paneCwd}
             showThinking={showThinking}
-            empty={paneChat.items.length === 0}
             emptyTitle=""
             sessionModel={paneSession?.model ?? null}
-            urlChips={[]}
-            busy={paneBusy}
             stallNote={paneId === MAIN_PANE && runStatus.kind === "stalled" ? runStatus.detail : undefined}
             onCancel={() => void cancelTurn(paneId)}
+            onStopAndRetry={paneId === MAIN_PANE && mainWedged ? () => stopAndRetry(paneId) : undefined}
             chatRef={paneChatRef}
             pinToLatest={paneAtBottom}
             sessionId={sid}
@@ -723,7 +750,6 @@ export function App() {
               if (paneId === MAIN_PANE) setAtBottomFrame(at);
               else onExtraAtBottom(paneId, at);
             }}
-            turns={paneTurns}
             onResendUser={(text) => submitPrompt(text, paneId)}
             rewindFor={rewindForItem}
             onForkTurn={() => void sendPrompt(forkAtSlash(), paneId)}
@@ -732,9 +758,19 @@ export function App() {
             highlightQuery={searchJump}
             jumpId={jumpTurnId}
             onDraftUser={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
+            atBottom={paneAtBottom}
+            onJumpBottom={() => {
+              if (paneId === MAIN_PANE) {
+                setAtBottom(true);
+                if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
+              } else {
+                onExtraAtBottom(paneId, true);
+                const el = extraChatEls.current[paneId];
+                if (el) el.scrollTop = el.scrollHeight;
+              }
+            }}
             emptyNode={
-              paneChat.items.length === 0 ? (
-                <EmptyState
+              <EmptyState
                   doctor={doctors.find((d) => d.agentId === selectedAgentId) ?? null}
                   agentLabel={agentChipLabel(selectedAgentId)}
                   cwd={paneCwd}
@@ -750,28 +786,8 @@ export function App() {
                   onUseLastPrompt={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                   onUseExample={(text) => (paneId === MAIN_PANE ? onDraftChange(text) : onExtraDraftChange(paneId, text))}
                 />
-              ) : undefined
             }
           />
-          {!paneAtBottom && paneChat.items.length > 0 && (
-            <button
-              type="button"
-              className="jump-bottom"
-              aria-label={t(locale, "thread.scrollBottom")}
-              onClick={() => {
-                if (paneId === MAIN_PANE) {
-                  setAtBottom(true);
-                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
-                } else {
-                  onExtraAtBottom(paneId, true);
-                  const el = extraChatEls.current[paneId];
-                  if (el) el.scrollTop = el.scrollHeight;
-                }
-              }}
-            >
-              <IconChevron size={16} />
-            </button>
-          )}
         </div>
         <Composer
           ref={(el) => {
@@ -859,6 +875,7 @@ export function App() {
           ) : null}
         </Composer>
       </WorkPane>
+      </ErrorBoundary>
     );
   }
 
@@ -1046,6 +1063,7 @@ return (
           </div>
         )}
         {paneCount === 1 ? (
+        <ErrorBoundary locale={locale}>
         <WorkPane paneId={MAIN_PANE} focused className="solo" onFocus={() => focusPane(MAIN_PANE)}>
           <div className="pane-body">
           <div className="work-col" ref={workColRef}>
@@ -1153,7 +1171,7 @@ return (
                   ) : null}
                 </div>
               )}
-              {sessionId ? copyConversationBtn(chat.items) : null}
+              {sessionId ? copyConversationBtn(MAIN_PANE) : null}
               {(
                 <button
                   type="button"
@@ -1173,14 +1191,13 @@ return (
             </div>
           </header>
           <div className="chat-shell">
-            <ThreadColumn
+            <ChatPane
+              store={paneChatStore}
               paneId="main"
-              chat={chat}
               chatWidth={chatWidth}
               dark={resolvedTheme === "dark"}
               cwd={cwd}
               showThinking={showThinking}
-              empty={chat.items.length === 0 && !loadingSession}
               emptyTitle=""
               emptyNode={
                 <EmptyState
@@ -1200,10 +1217,9 @@ return (
                   onUseExample={(text) => onDraftChange(text)}
                 />
               }
-              urlChips={urlChips}
-              busy={mainPaneBusy}
               stallNote={runStatus.kind === "stalled" ? runStatus.detail : undefined}
               onCancel={() => void cancelTurn("main")}
+              onStopAndRetry={mainWedged ? () => stopAndRetry(MAIN_PANE) : undefined}
               sessionModel={sessionModel}
               chatRef={chatEl}
               pinToLatest={atBottom}
@@ -1213,7 +1229,6 @@ return (
                 markScrolling(el);
                 setAtBottomFrame(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
               }}
-              turns={userTurns}
               onResendUser={(text) => submitPrompt(text)}
               rewindFor={rewindForItem}
               onForkTurn={() => void sendPrompt(forkAtSlash())}
@@ -1222,20 +1237,12 @@ return (
               highlightQuery={searchJump}
               jumpId={jumpTurnId}
               onDraftUser={onDraftChange}
+              atBottom={atBottom}
+              onJumpBottom={() => {
+                setAtBottom(true);
+                if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
+              }}
             />
-            {!atBottom && chat.items.length > 0 && (
-              <button
-                type="button"
-                className="jump-bottom"
-                aria-label={t(locale, "thread.scrollBottom")}
-                onClick={() => {
-                  setAtBottom(true);
-                  if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
-                }}
-              >
-                <IconChevron size={16} />
-              </button>
-            )}
           </div>
           {loadingSession && (
             <div className="overlay">
@@ -1360,6 +1367,7 @@ return (
           </div>
           </div>
         </WorkPane>
+        </ErrorBoundary>
         ) : (
           <div className="work-panes" ref={workColRef}>
             <PaneLayout tree={paneTree} onRatio={onPaneRatio} renderLeaf={renderSplitLeaf} />
@@ -1434,7 +1442,13 @@ return (
                 <div className="review-stack">
                   <button type="button" className="btn primary" disabled={!reviewCwd} onClick={() => {
                     if (!reviewCwd) return;
-                    void openInTerminal(reviewCwd).catch((e) => showToast(friendlyError(e)));
+                    void openInTerminal(reviewCwd)
+                      .then((result) => {
+                        if (result.opened) return;
+                        void navigator.clipboard.writeText(result.cd).catch(() => undefined);
+                        showToast(t(locale, "toast.terminalCd", { cmd: result.cd }));
+                      })
+                      .catch((e) => showToast(friendlyError(e)));
                   }}> {t(locale, "rail.openProject")}</button>
                   {terminalTools.length === 0 ? (
                     <p className="float-empty">{t(locale, "rail.emptyTerminal")}</p>
@@ -1541,6 +1555,7 @@ return (
                 <IconGrokClose size={16} />
               </button>
             </div>
+            <ErrorBoundary locale={locale}>
             <SettingsPanel
               focusSection={settingsFocus}
               onConsumedFocus={() => setSettingsFocus(null)}
@@ -1647,10 +1662,12 @@ return (
               }}
               info={info}
             />
+            </ErrorBoundary>
           </div>
         </div>
       )}
 
+      <ErrorBoundary locale={locale}>
       <ExtensionsHub
         open={hubOpen}
         tab={hubTab}
@@ -1664,6 +1681,7 @@ return (
           void sendPrompt(text);
         }}
       />
+      </ErrorBoundary>
 
       <ExtraOverlay
         page={extraPage}

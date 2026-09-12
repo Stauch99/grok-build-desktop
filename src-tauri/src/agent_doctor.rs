@@ -57,6 +57,8 @@ pub struct AgentDoctorDto {
     pub auth_present: bool,
     pub auth_kind: String,
     pub login_hint: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spawn_rejected: Option<String>,
 }
 
 pub(crate) fn doctor_from_evidence(
@@ -76,6 +78,7 @@ pub(crate) fn doctor_from_evidence(
         auth_present: has_subscription || has_api_key,
         auth_kind: auth_kind_str(kind).to_string(),
         login_hint: login_hint_for(agent_id),
+        spawn_rejected: None,
     }
 }
 

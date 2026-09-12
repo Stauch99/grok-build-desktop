@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetPageSrc, assetRoots, isAssetAllowed, safeFileSrc, safeHtmlSrc } from "./asset-src";
+import { assetPageSrc, assetRoots, isAssetAllowed, rewriteHtmlResourceUrls, rewritePreviewResourceUrl, safeFileSrc, safeHtmlSrc } from "./asset-src";
 
 describe("asset-src", () => {
   const roots = assetRoots("/Users/me/proj", "/Users/me/.grok");
@@ -70,5 +70,45 @@ describe("safeHtmlSrc", () => {
       "asset://localhost/%2Fwork/out/index.html",
     );
     expect(safeHtmlSrc("/etc/passwd", ["/work"], convert)).toBeNull();
+  });
+});
+
+describe("rewritePreviewResourceUrl", () => {
+  const convert = (p: string) => `asset://localhost/${encodeURIComponent(p)}`;
+
+  it("rewrites a relative css href against the html file directory", () => {
+    expect(rewritePreviewResourceUrl("_assets/kit.css", "/work/out/index.html", ["/work"], convert)).toBe(
+      "asset://localhost/%2Fwork/out/_assets/kit.css",
+    );
+  });
+
+  it("drops javascript, protocol-relative, and out-of-root urls", () => {
+    expect(rewritePreviewResourceUrl("javascript:alert(1)", "/work/out/index.html", ["/work"], convert)).toBe("");
+    expect(rewritePreviewResourceUrl("//evil.example/x", "/work/out/index.html", ["/work"], convert)).toBe("");
+    expect(rewritePreviewResourceUrl("../../etc/passwd", "/work/out/index.html", ["/work"], convert)).toBe("");
+  });
+
+  it("keeps https and already-safe asset urls", () => {
+    expect(rewritePreviewResourceUrl("https://example.com/a.css", "/work/out/index.html", ["/work"], convert)).toBe(
+      "https://example.com/a.css",
+    );
+    expect(rewritePreviewResourceUrl("asset://localhost/%2Fwork/out/a.css", "/work/out/index.html", ["/work"], convert)).toBe(
+      "asset://localhost/%2Fwork/out/a.css",
+    );
+  });
+});
+
+describe("rewriteHtmlResourceUrls", () => {
+  const convert = (p: string) => `asset://localhost/${encodeURIComponent(p)}`;
+
+  it("rewrites relative href and src in a file-backed preview", () => {
+    const html = rewriteHtmlResourceUrls(
+      `<link rel="stylesheet" href="_assets/kit.css"><img src="hero.png">`,
+      "/work/out/index.html",
+      ["/work"],
+      convert,
+    );
+    expect(html).toContain("asset://localhost/%2Fwork/out/_assets/kit.css");
+    expect(html).toContain("asset://localhost/%2Fwork/out/hero.png");
   });
 });

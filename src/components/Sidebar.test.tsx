@@ -110,6 +110,12 @@ function render(
 }
 
 describe("Sidebar project session window", () => {
+  it("virtualizes the session list with react-window after 24 flattened rows", () => {
+    expect(sidebarSrc).toContain("shouldVirtualizeSidebar");
+    expect(sidebarSrc).toContain("SidebarVirtualRow");
+    expect(sidebarSrc).toContain("session-glide");
+  });
+
   it("renders the glide hover indicator inside the session list", () => {
     const html = render(3);
     expect(html).toContain('class="session-glide"');

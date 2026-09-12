@@ -12,6 +12,7 @@ import {
   type SessionSummary,
   type WebuiState,
 } from "../api";
+import type { PaneChatStore } from "../lib/pane-chat-store";
 import { emptyChat, type ChatItem, type ChatState } from "../lib/chat";
 import { canMoveInboxSession, sameCwd } from "../lib/inbox";
 import { t, type Locale } from "../lib/i18n";
@@ -87,6 +88,7 @@ export type AppWorkspaceDeps = {
   titles: Record<string, string>;
   projectGroups: ProjectGroupState;
   chat: ChatState;
+  paneChatStore: PaneChatStore;
   draft: string;
   busy: boolean;
   atBottom: boolean;
@@ -232,9 +234,9 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     return {
       sessionId: d.sessionIdRef.current,
       cwd: d.cwd,
-      chat: d.chat,
+      chat: d.paneChatStore.getMain().chat,
       draft: d.draft,
-      busy: d.busy,
+      busy: d.paneChatStore.getMain().busy,
       atBottom: d.atBottom,
       queue: d.queueRef.current,
       agentId: d.mainAgentIdRef.current,
@@ -243,8 +245,10 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
 
   function applyMainFromExtra(extra: ExtraPaneState) {
     const d = depsRef.current;
+    const paneId = Object.entries(d.extraPanesRef.current).find(([, pane]) => pane.sessionId === extra.sessionId)?.[0];
+    const live = paneId ? d.paneChatStore.getExtra(paneId) : undefined;
     d.adoptSession(extra.sessionId);
-    d.setChat(extra.chat);
+    d.setChat(live?.chat ?? extra.chat);
     d.setCwd(extra.cwd);
     d.setDraft(extra.draft);
     d.setAtBottom(extra.atBottom);

@@ -12,7 +12,7 @@ import { deriveRunStatus, mainPaneIsBusy } from "../lib/run-status";
 import { derivePermissionView } from "../lib/permission-view";
 import { selectPanePermissions, selectTimedOutPermissions, type QueuedPermission } from "../lib/permission-queue";
 import { deriveReviewTabs, reconcileReviewTab, type ReviewTab } from "../lib/review-rail";
-import { stallNote } from "../lib/stall";
+import { stallLevel, stallNote } from "../lib/stall";
 import { paneComposerTakeover, heroLayout } from "../lib/shell-ia";
 import { shouldBlockIdleComposer } from "../lib/agent-warmup";
 import { turnStatsFromItems } from "../lib/usage-split";
@@ -233,7 +233,9 @@ export function useAppModelView(input: AppModelViewInput) {
     sessionId: input.sessionId,
     runningSessionId: input.runningSessionId,
   });
-  const stallText = mainPaneBusy ? stallNote(Date.now() - input.lastActivityAt) : "";
+  const stallMs = Date.now() - input.lastActivityAt;
+  const stallText = mainPaneBusy ? stallNote(stallMs) : "";
+  const mainWedged = mainPaneBusy && stallLevel(stallMs) === "stuck";
   const takeover = paneComposerTakeover({
     pane: "main",
     pendingPane: mainPermissionView.pane,
@@ -336,6 +338,7 @@ export function useAppModelView(input: AppModelViewInput) {
     goal,
     health,
     runStatus,
+    mainWedged,
     turnStats,
     skillCommands,
     recapText,

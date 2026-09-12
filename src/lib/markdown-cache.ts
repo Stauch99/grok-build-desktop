@@ -1,6 +1,6 @@
 import { renderMd, type MarkdownToSrc } from "./markdown";
 
-const MAX = 80;
+export const MARKDOWN_CACHE_MAX = 400;
 const cache = new Map<string, string>();
 
 export function memoizeMarkdown(text: string, cwd: string, toSrc: MarkdownToSrc): string {
@@ -13,7 +13,7 @@ export function memoizeMarkdown(text: string, cwd: string, toSrc: MarkdownToSrc)
   }
   const html = renderMd(text, cwd, toSrc);
   cache.set(key, html);
-  if (cache.size > MAX) {
+  if (cache.size > MARKDOWN_CACHE_MAX) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }

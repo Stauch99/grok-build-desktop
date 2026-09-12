@@ -394,7 +394,8 @@ export const listSessionSpills = (sessionId: string) =>
   invoke<string[]>("list_session_spills", { sessionId });
 export const listImagineArtifacts = (cwd?: string | null) =>
   invoke<string[]>("list_imagine_artifacts", { cwd: cwd ?? null });
-export const openInTerminal = (cwd: string) => invoke<void>("open_in_terminal", { cwd });
+export const openInTerminal = (cwd: string) =>
+  invoke<{ opened: boolean; cd: string }>("open_in_terminal", { cwd });
 export const readManagedConfig = () =>
   invoke<{ path: string; text: string; exists: boolean }>("read_managed_config");
 export const setNotifyTarget = (sessionId: string | null) =>

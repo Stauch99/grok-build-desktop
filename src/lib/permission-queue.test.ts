@@ -126,8 +126,10 @@ describe("permission timeout countdown", () => {
   });
 
   it("labels the remaining reject window", () => {
-    expect(rejectCountdownLabel(12, "zh")).toBe("将在 12s 后拒绝");
+    expect(rejectCountdownLabel(12, "zh")).toBe("仍在等待（12s）");
     expect(rejectCountdownLabel(12, "en")).toContain("12");
+    expect(rejectCountdownLabel(12, "en")).not.toContain("Declining");
+    expect(rejectCountdownLabel(12, "zh")).not.toContain("拒绝");
     expect(rejectCountdownLabel(12, "en")).not.toBe(rejectCountdownLabel(12, "zh"));
   });
 });

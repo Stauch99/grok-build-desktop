@@ -5,7 +5,7 @@ use crate::{
     AppState,
 };
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
@@ -324,7 +324,7 @@ fn mime_from_path(path: &Path) -> &'static str {
 
 fn b64_encode(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     let mut i = 0;
     while i + 3 <= data.len() {
         let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | data[i + 2] as u32;
@@ -1167,7 +1167,7 @@ pub async fn list_file_tree(cwd: String, query: Option<String>) -> AppResult<Val
                 "path": entry.path().to_string_lossy(),
                 "kind": if entry.file_type().is_dir() { "dir" } else { "file" },
             }));
-            if out.len() >= 200 {
+            if out.len() >= crate::WORKSPACE_ENTRY_CAP {
                 break;
             }
         }
@@ -1270,7 +1270,7 @@ pub struct CreateSkillInput {
 
 fn skill_name_ok(name: &str) -> bool {
     let len = name.chars().count();
-    if len < 2 || len > 64 {
+    if !(2..=64).contains(&len) {
         return false;
     }
     let mut chars = name.chars();
@@ -1512,22 +1512,108 @@ pub async fn list_imagine_artifacts(cwd: Option<String>) -> AppResult<Vec<String
     .map_err(|e| AppError::Message(e.to_string()))?
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTerminalResult {
+    pub opened: bool,
+    pub cd: String,
+}
+
+pub(crate) fn terminal_cd_command(dir: &Path) -> String {
+    let raw = dir.to_string_lossy();
+    if raw
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '\\' | ':' | '.' | '_' | '-' | ' '))
+        && !raw.contains('\'')
+    {
+        if raw.contains(' ') {
+            return format!("cd '{raw}'");
+        }
+        return format!("cd {raw}");
+    }
+    format!("cd '{}'", raw.replace('\'', "'\\''"))
+}
+
+#[cfg(target_os = "macos")]
+fn terminal_launch_argv(dir: &Path) -> Vec<(String, Vec<String>)> {
+    vec![(
+        "open".into(),
+        vec![
+            "-a".into(),
+            "Terminal.app".into(),
+            "--".into(),
+            dir.to_string_lossy().into_owned(),
+        ],
+    )]
+}
+
+#[cfg(target_os = "linux")]
+fn terminal_launch_argv(dir: &Path) -> Vec<(String, Vec<String>)> {
+    let path = dir.to_string_lossy().into_owned();
+    vec![
+        (
+            "x-terminal-emulator".into(),
+            vec![format!("--working-directory={path}")],
+        ),
+        ("xdg-terminal-exec".into(), vec![]),
+        (
+            "gnome-terminal".into(),
+            vec![format!("--working-directory={path}")],
+        ),
+        ("konsole".into(), vec![format!("--workdir={path}")]),
+        (
+            "xfce4-terminal".into(),
+            vec![format!("--working-directory={path}")],
+        ),
+        ("xterm".into(), vec![]),
+    ]
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_launch_argv(dir: &Path) -> Vec<(String, Vec<String>)> {
+    let path = dir.to_string_lossy().into_owned();
+    vec![
+        ("wt".into(), vec!["-d".into(), path.clone()]),
+        (
+            "cmd".into(),
+            vec![
+                "/C".into(),
+                "start".into(),
+                "cmd".into(),
+                "/K".into(),
+                format!("cd /d {path}"),
+            ],
+        ),
+    ]
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn terminal_launch_argv(_dir: &Path) -> Vec<(String, Vec<String>)> {
+    vec![]
+}
+
+async fn spawn_project_terminal(dir: &Path) -> bool {
+    for (program, args) in terminal_launch_argv(dir) {
+        let spawned = Command::new(&program)
+            .args(&args)
+            .current_dir(dir)
+            .spawn();
+        if spawned.is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
 #[tauri::command]
-pub async fn open_in_terminal(cwd: String) -> AppResult<()> {
+pub async fn open_in_terminal(cwd: String) -> AppResult<OpenTerminalResult> {
     let dir = PathBuf::from(cwd.trim());
     if !dir.is_dir() {
         return Err(AppError::Message("目录不存在".into()));
     }
-    let status = Command::new("open")
-        .args(["-a", "Terminal.app", "--"])
-        .arg(&dir)
-        .status()
-        .await
-        .map_err(|e| AppError::Message(e.to_string()))?;
-    if !status.success() {
-        return Err(AppError::Message("无法打开 Terminal.app".into()));
-    }
-    Ok(())
+    let cd = terminal_cd_command(&dir);
+    let opened = spawn_project_terminal(&dir).await;
+    Ok(OpenTerminalResult { opened, cd })
 }
 
 #[tauri::command]
@@ -2206,6 +2292,37 @@ mod security_tests {
     fn grok_argv_ok_allows_inspect_json() {
         let args = vec!["inspect".to_string(), "--json".to_string()];
         assert!(grok_argv_ok(&args));
+    }
+
+    #[test]
+    fn terminal_cd_command_quotes_spaces() {
+        assert_eq!(
+            terminal_cd_command(Path::new("/tmp/my project")),
+            "cd '/tmp/my project'"
+        );
+        assert_eq!(terminal_cd_command(Path::new("/tmp/ok")), "cd /tmp/ok");
+    }
+
+    #[test]
+    fn terminal_launch_argv_is_platform_specific() {
+        let dir = Path::new("/tmp/proj");
+        let cmds = terminal_launch_argv(dir);
+        assert!(!cmds.is_empty());
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(cmds[0].0, "open");
+            assert!(cmds[0].1.iter().any(|a| a == "Terminal.app"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(cmds[0].0, "x-terminal-emulator");
+            assert!(cmds.iter().any(|(p, _)| p == "xdg-terminal-exec"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(cmds[0].0, "wt");
+            assert!(cmds.iter().any(|(p, _)| p == "cmd"));
+        }
     }
 
     #[test]

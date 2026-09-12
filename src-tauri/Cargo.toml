@@ -1,7 +1,7 @@
 [package]
 name = "grok-build-webui"
 version = "0.6.5"
-description = "WebUI desktop client for Grok Build"
+description = "Desktop ACP workbench for Grok Build"
 authors = ["Stauch"]
 edition = "2021"
 default-run = "grok-build-webui"

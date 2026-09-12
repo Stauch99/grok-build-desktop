@@ -27,6 +27,7 @@ import {
   type SidebarListPrefs,
 } from "../lib/sidebar-list";
 import { keepLiveAgentOnHydrate } from "../lib/session-agent";
+import { migrateAllowedTools } from "../lib/permission-allow";
 import type { AgentId } from "../lib/agent-id";
 import { normalizeAccentId, type AccentId } from "../lib/accent";
 import type { AgentDoctor } from "../lib/agent-doctor";
@@ -94,43 +95,21 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
   try {
     void doctorAll().then(d.setDoctors).catch(() => d.setDoctors([]));
     void importAgentsMcpFirstOpen().catch(() => undefined);
-    const [doc, state, cliState] = await Promise.all([
-      doctor(),
+    const [state, cliState] = await Promise.all([
       loadWebuiState().catch(() => ({}) as WebuiState),
       readCliSettings().catch(() => null),
     ]);
     d.setSelectedAgentId(
       keepLiveAgentOnHydrate(d.agentPickedRef.current, state.lastAgent, d.selectedAgentIdLiveRef.current),
     );
-    d.setInfo(doc);
     if (cliState) {
       d.setCli(cliState);
       d.setShowThinking(cliState.showThinking);
       if (cliState.yolo) d.setMode("yolo");
     }
     const adopted = adoptManualProjects(state.projects, state.manualProjects);
-    const live = new Set<string>();
-    await Promise.all(
-      adopted.projects.map(async (p) => {
-        if (await pathIsDir(p).catch(() => false)) live.add(p);
-      }),
-    );
-    const kept = keepExistingDirs(adopted.projects, (p) => live.has(p));
-    d.setProjects(kept);
+    d.setProjects(adopted.projects);
     d.setManualProjects(true);
-    if (adopted.reset || kept.length < adopted.projects.length || state.manualProjects !== true) {
-      d.persist({
-        projects: kept,
-        pinnedProjects: prunePinnedProjects(
-          Array.isArray(state.pinnedProjects)
-            ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
-            : [],
-          kept,
-        ),
-        lastWorkspace: adopted.reset ? "" : state.lastWorkspace,
-        manualProjects: true,
-      });
-    }
     const themePref = parseThemePref(state.theme);
     if (themePref) d.setTheme(themePref);
     if (typeof state.chatWidth === "number" && state.chatWidth >= 480 && state.chatWidth <= 1100) {
@@ -173,7 +152,7 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     if (typeof state.hideToTray === "boolean") d.setHideToTray(state.hideToTray);
     if (typeof state.sounds === "boolean") d.setSounds(state.sounds);
     if (Array.isArray(state.allowedTools)) {
-      d.setAllowedTools(new Set(state.allowedTools.filter((k) => typeof k === "string")));
+      d.setAllowedTools(new Set(migrateAllowedTools(state.allowedTools.filter((k) => typeof k === "string"))));
     }
     if (state.defaultRail === "tasks" || state.defaultRail === "changes") {
       d.setDefaultRail(state.defaultRail);
@@ -187,11 +166,59 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     d.setSidebarWidth(loadWidth(state.sidebarWidth, SIDEBAR));
     d.setPreviewWidth(loadWidth(state.previewWidth, PREVIEW));
     d.setSidebarList(loadSidebarList(state.sidebarList));
-    d.setLastWorkspace(adopted.reset ? "" : typeof state.lastWorkspace === "string" ? state.lastWorkspace : "");
+    const lastWorkspace = adopted.reset ? "" : typeof state.lastWorkspace === "string" ? state.lastWorkspace : "";
+    d.setLastWorkspace(lastWorkspace);
     const pinnedRaw = Array.isArray(state.pinnedProjects)
       ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
       : [];
-    d.setPinnedProjects(prunePinnedProjects(pinnedRaw, kept));
+    d.setPinnedProjects(prunePinnedProjects(pinnedRaw, adopted.projects));
+    d.setProjectGroups(pruneProjectGroups(loadProjectGroups(state.projectGroups), adopted.projects));
+    const paintedCwd = lastWorkspace || adopted.projects[0] || "";
+    if (paintedCwd) d.setCwd(paintedCwd);
+    d.setSettingsHydrated(true);
+    void hydrateRemoteSessions(d, state, adopted, lastWorkspace, paintedCwd);
+  } catch (e) {
+    d.showToast(friendlyError(e));
+    d.setSettingsHydrated(true);
+  }
+}
+
+async function hydrateRemoteSessions(
+  d: HydrateWebuiDeps,
+  state: WebuiState,
+  adopted: ReturnType<typeof adoptManualProjects>,
+  lastWorkspace: string,
+  paintedCwd: string,
+): Promise<void> {
+  void doctor()
+    .then(d.setInfo)
+    .catch(() => undefined);
+  try {
+    const live = new Set<string>();
+    await Promise.all(
+      adopted.projects.map(async (p) => {
+        if (await pathIsDir(p).catch(() => false)) live.add(p);
+      }),
+    );
+    const kept = keepExistingDirs(adopted.projects, (p) => live.has(p));
+    d.setProjects(kept);
+    if (adopted.reset || kept.length < adopted.projects.length || state.manualProjects !== true) {
+      d.persist({
+        projects: kept,
+        pinnedProjects: prunePinnedProjects(
+          Array.isArray(state.pinnedProjects)
+            ? state.pinnedProjects.filter((p): p is string => typeof p === "string")
+            : [],
+          kept,
+        ),
+        lastWorkspace: adopted.reset ? "" : state.lastWorkspace,
+        manualProjects: true,
+      });
+    }
+    d.setPinnedProjects(prunePinnedProjects(
+      Array.isArray(state.pinnedProjects) ? state.pinnedProjects.filter((p): p is string => typeof p === "string") : [],
+      kept,
+    ));
     d.setProjectGroups(pruneProjectGroups(loadProjectGroups(state.projectGroups), kept));
     const inbox = await ensureInbox(state.inboxCwd ?? null);
     d.setInboxCwd(inbox);
@@ -199,12 +226,14 @@ export async function hydrateWebuiState(d: HydrateWebuiDeps): Promise<void> {
     d.applySessionUnion(all, inbox, kept);
     const tokenRaw = state.sessionTokens && typeof state.sessionTokens === "object" ? state.sessionTokens : {};
     d.setSessionTokens(pruneSessionTokens(tokenRaw, all.map((s) => s.id)));
-    const initial = kept[0] || inbox;
-    if (initial) d.setCwd(initial);
-    void d.refreshInspect(initial || inbox);
+    const initial = lastWorkspace || kept[0] || inbox;
+    if (initial && initial !== paintedCwd) d.setCwd(initial);
+    else if (!paintedCwd && initial) d.setCwd(initial);
+    await d.refreshInspect(initial || inbox).catch(() => {
+      d.setInspect?.(null);
+    });
   } catch (e) {
     d.showToast(friendlyError(e));
-  } finally {
-    d.setSettingsHydrated(true);
+    d.setInspect?.(null);
   }
 }

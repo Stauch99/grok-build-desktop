@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { getMermaidSvg, loadMermaid, setMermaidSvg } from "../lib/mermaid-once";
 import { useT } from "../lib/locale-context";
+import { sanitizeSvg } from "../lib/text";
 
 type Props = {
   text: string;
@@ -41,9 +42,10 @@ export default function MermaidBlock({ text, closed, dark }: Props) {
       })
       .then((out) => {
         if (cancelled) return;
-        setMermaidSvg(text, dark, out.svg);
+        const clean = sanitizeSvg(out.svg);
+        setMermaidSvg(text, dark, clean);
         setError(null);
-        setSvg(out.svg);
+        setSvg(clean);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -66,5 +68,5 @@ export default function MermaidBlock({ text, closed, dark }: Props) {
     );
   }
 
-  return <div className="mermaid-view" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className="mermaid-view" dangerouslySetInnerHTML={{ __html: sanitizeSvg(svg) }} />;
 }

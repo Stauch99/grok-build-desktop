@@ -9,5 +9,5 @@ export function permissionModeHint(mode: string, locale: Locale = "zh"): string 
 }
 
 export function permissionTimeoutNotice(locale: Locale = "zh"): string {
-  return t(locale, "perm.wait");
+  return t(locale, "perm.timeout");
 }

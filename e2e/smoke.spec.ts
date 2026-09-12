@@ -94,11 +94,27 @@ test.describe("desktop chrome smoke", () => {
     await page.goto("/");
     await expect(page.locator("#root")).toBeVisible();
     const fonts = await page.evaluate(async () => {
-      await document.fonts.ready;
+      const notoLoaded = () =>
+        [...document.fonts].some((face) => /Noto Serif/i.test(face.family) && face.status === "loaded");
+      const notoCheck = () =>
+        document.fonts.check('600 18px "Noto Serif"', "H") ||
+        document.fonts.check('600 18px "Noto Serif SC"', "标");
       const thread = document.createElement("div");
       thread.className = "thread";
       thread.innerHTML = `<div class="md"><h2>标题 Heading</h2><p>正文 paragraph with enough words to wrap.</p></div>`;
       document.body.appendChild(thread);
+      // latin-600 / chinese-simplified-600 download on first paint. fonts.ready before
+      // insert, or check() with no matching glyph, is false on a cold CI Chromium.
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        await Promise.all([
+          document.fonts.load('600 18px "Noto Serif"', "H"),
+          document.fonts.load('600 18px "Noto Serif SC"', "标"),
+        ]);
+        await document.fonts.ready;
+        if (notoLoaded() || notoCheck()) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       const heading = getComputedStyle(thread.querySelector("h2")!);
       const body = getComputedStyle(thread.querySelector("p")!);
       return {
@@ -107,7 +123,7 @@ test.describe("desktop chrome smoke", () => {
         headingLead: parseFloat(heading.lineHeight) / parseFloat(heading.fontSize),
         bodyFamily: body.fontFamily,
         bodyLead: parseFloat(body.lineHeight) / parseFloat(body.fontSize),
-        notoReady: document.fonts.check('600 18px "Noto Serif SC"') || document.fonts.check('600 18px "Noto Serif"'),
+        notoReady: notoLoaded() || notoCheck(),
       };
     });
     expect(fonts.bodyFamily).toMatch(/system-ui|PingFang|Segoe UI|Hiragino|Apple System/i);

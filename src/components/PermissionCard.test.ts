@@ -48,6 +48,20 @@ describe("PermissionCard timeout", () => {
     );
     expect(html).toMatch(/class="permission-cmd"[^>]*>Execute a very long shell script/);
   });
+
+  it("hides Always allow for high-risk tools", () => {
+    const html = renderToStaticMarkup(
+      createElement(PermissionCard, {
+        title: "Bash: rm -rf",
+        options,
+        onPick: () => {},
+        onAlwaysAllow: () => {},
+        canRemember: false,
+      }),
+    );
+    expect(html).toMatch(/写入与执行每次会话都需要确认/);
+    expect(html).not.toMatch(/此会话内记住/);
+  });
 });
 
 describe("QuestionCard title", () => {

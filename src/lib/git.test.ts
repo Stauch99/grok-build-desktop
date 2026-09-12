@@ -445,7 +445,7 @@ describe("loadGitSnapshot", () => {
 
   it("clears everything when there is no directory", () => {
     return expect(loadGitSnapshot("", io)).resolves.toEqual({
-      git: null, changes: [], commits: [], branches: [],
+      git: null, changes: [], commits: [], branches: [], worktrees: [],
     });
   });
 
@@ -455,6 +455,7 @@ describe("loadGitSnapshot", () => {
     expect(snap.changes).toHaveLength(1);
     expect(snap.commits).toEqual([{ hash: "abc", subject: "fix", date: "2026-08-30" }]);
     expect(snap.branches).toEqual(["main", "feat"]);
+    expect(snap.worktrees).toEqual([]);
   });
 
   it("keeps status but clears history when the folder is not a repo", async () => {
@@ -466,5 +467,29 @@ describe("loadGitSnapshot", () => {
     expect(snap.changes).toEqual([]);
     expect(snap.commits).toEqual([]);
     expect(snap.branches).toEqual([]);
+  });
+
+  it("loads worktrees in the same Promise.all as history", async () => {
+    let worktreesStarted = false;
+    let releaseChanges!: () => void;
+    const holdChanges = new Promise<void>((resolve) => {
+      releaseChanges = resolve;
+    });
+    const snapP = loadGitSnapshot("/repo", {
+      ...io,
+      changes: async () => {
+        await holdChanges;
+        return [];
+      },
+      worktrees: async () => {
+        worktreesStarted = true;
+        return "worktree /repo/.worktrees/fix\nbranch refs/heads/grok/fix\n";
+      },
+    });
+    await Promise.resolve();
+    expect(worktreesStarted).toBe(true);
+    releaseChanges();
+    const snap = await snapP;
+    expect(snap.worktrees).toEqual([{ path: "/repo/.worktrees/fix", branch: "grok/fix" }]);
   });
 });

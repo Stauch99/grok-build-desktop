@@ -5,6 +5,9 @@ import { DREAM_LINE_MAX_CHARS } from "./memory-weight";
 describe("looksLikeSecret", () => {
   it("flags key-shaped strings", () => {
     expect(looksLikeSecret("sk-abc")).toBe(true);
+    expect(looksLikeSecret("xoxb-1234-slack")).toBe(true);
+    expect(looksLikeSecret("glpat-abc")).toBe(true);
+    expect(looksLikeSecret("Bearer eyJhbGciOi")).toBe(true);
     expect(looksLikeSecret("hello")).toBe(false);
   });
 });

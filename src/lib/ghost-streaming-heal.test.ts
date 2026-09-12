@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { emptyChat, type ChatItem, type ChatState } from "./chat";
+import { STALL_HARD_MS } from "./stall";
 import {
   GHOST_STREAMING_GRACE_MS,
+  PROMPT_RPC_TIMEOUT_MS,
   applyGhostHeal,
   findOptimisticGhostTurn,
   shouldHealGhostStreaming,
+  shouldOfferWedgedRetry,
   stampMainTurnClock,
 } from "./ghost-streaming-heal";
 
@@ -57,6 +60,35 @@ describe("shouldHealGhostStreaming", () => {
     expect(shouldHealGhostStreaming({ ...base, nowMs: GHOST_STREAMING_GRACE_MS - 1 })).toBe(false);
     expect(shouldHealGhostStreaming({ ...base, busy: false })).toBe(false);
     expect(shouldHealGhostStreaming({ ...base, pendingPermission: true })).toBe(false);
+  });
+});
+
+describe("shouldOfferWedgedRetry", () => {
+  const base = {
+    busy: true,
+    pendingPermission: false,
+    sendInFlight: false,
+    lastActivityAt: 0,
+    nowMs: STALL_HARD_MS,
+  };
+
+  it("offers stop-and-retry after the prompt was written and the turn is stuck", () => {
+    expect(shouldOfferWedgedRetry(base)).toBe(true);
+  });
+
+  it("does not auto-offer while session/prompt is still in flight (ghost heal owns that)", () => {
+    expect(shouldOfferWedgedRetry({ ...base, sendInFlight: true })).toBe(false);
+  });
+
+  it("does not offer before stall=stuck, when idle, or while a permission card is up", () => {
+    expect(shouldOfferWedgedRetry({ ...base, nowMs: STALL_HARD_MS - 1 })).toBe(false);
+    expect(shouldOfferWedgedRetry({ ...base, busy: false })).toBe(false);
+    expect(shouldOfferWedgedRetry({ ...base, pendingPermission: true })).toBe(false);
+  });
+
+  it("keeps prompt RPC timeout long enough not to abort a healthy turn", () => {
+    expect(PROMPT_RPC_TIMEOUT_MS).toBe(10 * 60_000);
+    expect(PROMPT_RPC_TIMEOUT_MS).toBeGreaterThan(STALL_HARD_MS);
   });
 });
 

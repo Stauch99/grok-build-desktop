@@ -32,8 +32,9 @@ export function billingKindFromDoctors(
 }
 
 export function doctorOverviewLine(
-  d: Pick<AgentDoctor, "agentId" | "authKind" | "binary" | "version">,
+  d: Pick<AgentDoctor, "agentId" | "authKind" | "binary" | "version" | "spawnRejected">,
 ): string {
+  if (d.spawnRejected) return `${d.agentId} · 启动命令被拒绝`;
   if (!d.binary) return `${d.agentId} · 未安装`;
   const suffix =
     d.authKind === "none" ? "未登录" : d.authKind === "api" ? "API" : "已登录";

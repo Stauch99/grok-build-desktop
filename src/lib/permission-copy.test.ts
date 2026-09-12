@@ -15,6 +15,12 @@ describe("permission copy", () => {
     expect(notice).not.toContain("已自动拒绝");
   });
 
+  it("uses the timeout copy rather than a generic wait line", () => {
+    expect(permissionTimeoutNotice("en")).toMatch(/timed out/i);
+    expect(permissionTimeoutNotice("en")).not.toMatch(/was declined/);
+    expect(permissionTimeoutNotice("en")).toMatch(/will not auto-decline/i);
+  });
+
   it("says ask mode will not auto-reject on timeout", () => {
     const hint = permissionModeHint("ask");
     expect(hint).toContain("每次");

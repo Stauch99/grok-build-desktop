@@ -14,6 +14,7 @@ export type PermissionCardProps = {
   timeoutNotice?: string;
   locale?: Locale;
   receivedAt?: number;
+  canRemember?: boolean;
 };
 
 export type PermissionPickContext = {
@@ -47,6 +48,7 @@ export function PermissionCard({
   timeoutNotice,
   locale,
   receivedAt,
+  canRemember = true,
 }: PermissionCardProps) {
   const ctxLocale = useLocale();
   const loc = locale ?? ctxLocale;
@@ -72,7 +74,7 @@ export function PermissionCard({
 
   const left = timedOut ? 0 : secondsUntilReject(startedAt, now);
   const showTimeoutNotice = timedOut || left <= 0;
-  const pickCtx: PermissionPickContext = { options, remember, timedOut, onPick, onAlwaysAllow };
+  const pickCtx: PermissionPickContext = { options, remember: remember && canRemember, timedOut, onPick, onAlwaysAllow };
 
   if (timedOut && !expanded) {
     const mins = Math.max(1, Math.round((now - startedAt) / 60_000));
@@ -86,7 +88,7 @@ export function PermissionCard({
   }
 
   const allowOnce = () => {
-    if (remember) {
+    if (remember && canRemember) {
       onAlwaysAllow();
       return;
     }
@@ -145,15 +147,19 @@ export function PermissionCard({
           <p className="permission-hint">{t(loc, "perm.hint")}</p>
         </>
       )}
-      <label className="permission-hint">
-        <input
-          type="checkbox"
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-        />
-        {" "}
-        {t(loc, "perm.remember")}
-      </label>
+      {canRemember ? (
+        <label className="permission-hint">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          {" "}
+          {t(loc, "perm.remember")}
+        </label>
+      ) : (
+        <p className="permission-hint">{t(loc, "perm.highRiskHint")}</p>
+      )}
       <div className="opts">
         {options.map((opt, i) => {
           const hotkey = i < 9 ? String(i + 1) : undefined;
@@ -179,7 +185,7 @@ export function PermissionCard({
           data-always-allow="true"
           onClick={allowOnce}
         >
-          {t(loc, remember ? "perm.alwaysBtn" : "perm.allowOnce")}
+          {t(loc, remember && canRemember ? "perm.alwaysBtn" : "perm.allowOnce")}
         </button>
       </div>
     </div>

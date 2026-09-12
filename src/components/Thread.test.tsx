@@ -26,6 +26,13 @@ describe("ChatRow assistant copy", () => {
   });
 });
 
+describe("thread markdown clicks", () => {
+  it("prevents default even when the href cannot be opened", () => {
+    const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/e\.preventDefault\(\);\s*if \(!target\) return;/);
+  });
+});
+
 describe("thread open scroll", () => {
   it("keeps the current turn's work cluster live while the pane is busy", () => {
     const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
@@ -54,9 +61,28 @@ describe("thread open scroll", () => {
     const src = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/pinToLatest=\{paneAtBottom\}/);
     expect(src).toMatch(/pinToLatest=\{atBottom\}/);
+    expect(src).toMatch(/<ChatPane/);
+    expect(src).toMatch(/store=\{paneChatStore\}/);
     expect(src).toMatch(/sessionId=\{sid\}/);
     expect(src).toMatch(/sessionId=\{sessionId\}/);
     expect(src).toMatch(/loading=\{loadingSession\}/);
     expect(src).not.toMatch(/behavior:\s*"smooth"/);
+  });
+
+  it("wraps each pane, settings, and hub in an error boundary", () => {
+    const src = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<WorkPane paneId=\{MAIN_PANE\}/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<SettingsPanel/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<ExtensionsHub/);
+    expect(src).not.toMatch(/location\.reload/);
+  });
+});
+
+describe("thread truncated hydrate banner", () => {
+  it("renders the truncated notice from chat.truncated", () => {
+    const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/chat\.truncated/);
+    expect(src).toMatch(/thread\.truncated/);
   });
 });
