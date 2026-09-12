@@ -37,6 +37,33 @@ describe("PermissionCard timeout", () => {
     expect(html).toMatch(/点击继续处理/);
   });
 
+  it("keeps the per-second countdown out of the live region", () => {
+    const html = renderToStaticMarkup(
+      createElement(PermissionCard, {
+        title: "Edit file",
+        options,
+        onPick: () => {},
+        onAlwaysAllow: () => {},
+      }),
+    );
+    // The countdown re-renders every second; it must not be announced.
+    expect(html).toMatch(/<p class="permission-hint" aria-hidden="true">[^<]*仍在等待/);
+    expect(html).not.toContain('role="status"');
+  });
+
+  it("announces the timeout notice once via role=status", () => {
+    const html = renderToStaticMarkup(
+      createElement(PermissionCard, {
+        title: "Edit file",
+        options,
+        onPick: () => {},
+        onAlwaysAllow: () => {},
+        receivedAt: 0,
+      }),
+    );
+    expect(html).toMatch(/<p class="permission-timeout" role="status">/);
+  });
+
   it("keeps the command text on the card when the heading clamps", () => {
     const html = renderToStaticMarkup(
       createElement(PermissionCard, {

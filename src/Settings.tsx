@@ -1153,6 +1153,7 @@ export function SettingsPanel({
       {note && <p className="set-note">{busy ? t(locale, "settings.writing") : note}</p>}
       <AppModal
         open={!!confirm}
+        danger
         title={confirm?.title ?? ""}
         body={confirm?.body ?? ""}
         confirmLabel={confirm?.confirmLabel ?? t(locale, "settings.ok")}

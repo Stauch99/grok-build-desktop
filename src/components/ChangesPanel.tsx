@@ -102,6 +102,7 @@ export function ChangesPanel({
       )}
       <AppModal
         open={pendingDiscard != null}
+        danger
         title={t("git.discardTitle")}
         body={discardConfirm(pendingDiscard ?? "")}
         confirmLabel={t("git.discard")}

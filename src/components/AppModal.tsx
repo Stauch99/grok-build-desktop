@@ -7,6 +7,8 @@ export type AppModalProps = {
   title: string;
   body: string;
   confirmLabel: string;
+  /** Destructive confirms focus Cancel on open so Enter cannot trigger them. */
+  danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -15,14 +17,15 @@ export type AppModalProps = {
  * Theme-matched confirm dialog. Replaces window.confirm so the main thread
  * is not blocked and the chrome stays on palette-layer styles.
  */
-export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel }: AppModalProps) {
+export function AppModal({ open, title, body, confirmLabel, danger, onConfirm, onCancel }: AppModalProps) {
   const t = useT();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const { shown, leaving } = usePresence(open);
 
   useEffect(() => {
     if (!shown) return;
-    confirmRef.current?.focus();
+    (danger ? cancelRef : confirmRef).current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -31,7 +34,7 @@ export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shown, onCancel]);
+  }, [shown, danger, onCancel]);
 
   if (!shown) return null;
 
@@ -44,7 +47,7 @@ export function AppModal({ open, title, body, confirmLabel, onConfirm, onCancel 
         </div>
         <p className="hint rewind-summary">{body}</p>
         <div className="set-actions rewind-actions">
-          <button type="button" className="btn" onClick={onCancel}>
+          <button type="button" className="btn" ref={cancelRef} onClick={onCancel}>
             {t("composer.cancel")}
           </button>
           <button type="button" className="btn primary" ref={confirmRef} onClick={onConfirm}>

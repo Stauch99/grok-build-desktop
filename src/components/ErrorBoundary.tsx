@@ -1,6 +1,6 @@
 import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 import { crashReportText } from "../lib/crash-report";
-import { fallbackCopy, type Locale } from "../lib/i18n";
+import { fallbackCopy, t, type Locale } from "../lib/i18n";
 
 type Props = {
   children: ReactNode;
@@ -11,13 +11,16 @@ type State = {
   error: Error | null;
   stack: string;
   generation: number;
+  copyState: "idle" | "copied" | "failed";
 };
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null, stack: "", generation: 0 };
+  state: State = { error: null, stack: "", generation: 0, copyState: "idle" };
+
+  private copyTimer = 0;
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    return { error };
+    return { error, copyState: "idle" };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -25,12 +28,36 @@ export class ErrorBoundary extends Component<Props, State> {
     this.setState({ stack: info.componentStack ?? "" });
   }
 
+  componentWillUnmount() {
+    window.clearTimeout(this.copyTimer);
+  }
+
+  private copyDiagnostics(report: string) {
+    void navigator.clipboard.writeText(report).then(
+      () => this.flashCopyState("copied"),
+      () => this.flashCopyState("failed"),
+    );
+  }
+
+  private flashCopyState(copyState: "copied" | "failed") {
+    window.clearTimeout(this.copyTimer);
+    this.setState({ copyState });
+    this.copyTimer = window.setTimeout(() => this.setState({ copyState: "idle" }), 1200);
+  }
+
   render() {
     if (!this.state.error) {
       return <Fragment key={this.state.generation}>{this.props.children}</Fragment>;
     }
-    const copy = fallbackCopy(this.props.locale ?? "zh");
+    const loc = this.props.locale ?? "zh";
+    const copy = fallbackCopy(loc);
     const report = crashReportText(this.state.error, this.state.stack);
+    const copyLabel =
+      this.state.copyState === "copied"
+        ? t(loc, "toast.copied")
+        : this.state.copyState === "failed"
+          ? t(loc, "hub.health.failed")
+          : copy.copy;
     return (
       <div className="settings" role="alert">
         <div className="set-card">
@@ -40,7 +67,12 @@ export class ErrorBoundary extends Component<Props, State> {
               type="button"
               className="btn primary"
               onClick={() =>
-                this.setState((s) => ({ error: null, stack: "", generation: s.generation + 1 }))
+                this.setState((s) => ({
+                  error: null,
+                  stack: "",
+                  generation: s.generation + 1,
+                  copyState: "idle",
+                }))
               }
             >
               {copy.retry}
@@ -48,9 +80,16 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               className="btn ghost"
-              onClick={() => void navigator.clipboard.writeText(report)}
+              onClick={() => this.copyDiagnostics(report)}
             >
-              {copy.copy}
+              {copyLabel}
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => window.location.reload()}
+            >
+              {t(loc, "common.refresh")}
             </button>
           </div>
         </div>

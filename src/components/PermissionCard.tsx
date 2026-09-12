@@ -141,7 +141,7 @@ export function PermissionCard({
         </p>
       ) : (
         <>
-          <p className="permission-hint" role="status">
+          <p className="permission-hint" aria-hidden="true">
             {rejectCountdownLabel(left, loc)}
           </p>
           <p className="permission-hint">{t(loc, "perm.hint")}</p>

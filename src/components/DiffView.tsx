@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { diffLines, rowMark } from "../lib/diff";
 import { basename } from "../lib/text";
-import { IconCopy, IconFinder, IconMaximize, IconMinimize } from "../icons";
+import { IconCheck, IconClose, IconCopy, IconFinder, IconMaximize, IconMinimize } from "../icons";
 import { useT } from "../lib/locale-context";
 
 export type DiffViewProps = {
@@ -22,12 +22,26 @@ export type DiffViewProps = {
 export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const result = useMemo(
     () => diffLines(oldText, newText ?? "", { context: expanded ? 999 : 3 }),
     [oldText, newText, expanded],
   );
 
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const id = window.setTimeout(() => setCopyState("idle"), 1200);
+    return () => window.clearTimeout(id);
+  }, [copyState]);
+
   const created = oldText === null || oldText === undefined;
+
+  const copyNew = () => {
+    void navigator.clipboard.writeText(newText ?? "").then(
+      () => setCopyState("copied"),
+      () => setCopyState("failed"),
+    );
+  };
 
   return (
     <div className="diff">
@@ -55,10 +69,22 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
           <button
             type="button"
             className="file-open"
-            aria-label={t("diff.copyNew")}
-            onClick={() => void navigator.clipboard.writeText(newText ?? "")}
+            aria-label={
+              copyState === "copied"
+                ? t("toast.copied")
+                : copyState === "failed"
+                  ? t("hub.health.failed")
+                  : t("diff.copyNew")
+            }
+            onClick={copyNew}
           >
-            <IconCopy size={14} />
+            {copyState === "copied" ? (
+              <IconCheck size={14} />
+            ) : copyState === "failed" ? (
+              <IconClose size={14} />
+            ) : (
+              <IconCopy size={14} />
+            )}
           </button>
           {onOpen && path ? (
             <button
