@@ -6,7 +6,33 @@
     <title>Grok Build</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        html, body { margin: 0; background: #f5f2ed; }
+        .boot {
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          color: #96897a;
+          font: 600 14px/1 Georgia, "Times New Roman", serif;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+        }
+        .boot span { display: flex; align-items: center; gap: 12px; }
+        .boot i {
+          width: 13px; height: 13px; border-radius: 50%;
+          border: 2px solid currentColor; border-top-color: transparent;
+          animation: boot-spin 0.9s linear infinite;
+        }
+        @keyframes boot-spin { to { transform: rotate(360deg); } }
+        @media (prefers-color-scheme: dark) {
+          html, body { background: #131110; }
+          .boot { color: #6f675c; }
+        }
+        @media (prefers-reduced-motion: reduce) { .boot i { animation: none; } }
+      </style>
+      <div class="boot"><span><i aria-hidden="true"></i>Grok Build</span></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

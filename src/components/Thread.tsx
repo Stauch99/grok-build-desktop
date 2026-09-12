@@ -600,6 +600,8 @@ export function ThreadColumn({
   const liveStartedAt = trailingWorkStartedAt(chat.items);
   const itemsRef = useRef(chat.items);
   itemsRef.current = chat.items;
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
   const copyReady = useCallback(
     (id: string) => assistantCopyReady(itemsRef.current, id, busy),
     [busy],
@@ -714,28 +716,35 @@ export function ThreadColumn({
     pinToEnd(false);
   }, [pinToLatest, loading, listActive, blocks.length, chat.items]);
 
+  // Rebuild the TOC observer only when the set of user turns changes — `blocks`
+  // gets a fresh identity on every streaming flush, so key off the joined ids.
+  const turnKey = turns.map((u) => u.id).join("\0");
   useEffect(() => {
     const root = (listActive ? listRef.current?.element : chatRef.current) ?? null;
     if (!root || turns.length < 2) return;
-    const seen = new Map<string, number>();
+    const seen = new Map<string, { ratio: number; el: Element }>();
     const obs = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           const id = (entry.target as HTMLElement).dataset.turnId;
           if (!id) continue;
-          seen.set(id, entry.intersectionRatio);
+          seen.set(id, { ratio: entry.intersectionRatio, el: entry.target });
         }
-        const id = tocActiveId([...seen.entries()].map(([id, ratio]) => ({ id, ratio })));
+        const id = tocActiveId(
+          [...seen.entries()]
+            .filter(([, v]) => v.el.isConnected)
+            .map(([id, v]) => ({ id, ratio: v.ratio })),
+        );
         if (!id) return;
         setTocActive(id);
-        const idx = blocks.findIndex((b) => b.kind === "item" && b.item.id === id);
+        const idx = blocksRef.current.findIndex((b) => b.kind === "item" && b.item.id === id);
         if (idx >= 0) anchorIndexRef.current = idx;
       },
       { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
     root.querySelectorAll("[data-turn-id]").forEach((el) => obs.observe(el));
     return () => obs.disconnect();
-  }, [listActive, blocks, turns.length, chatRef, listRef]);
+  }, [listActive, turnKey, turns.length, chatRef, listRef]);
 
   useEffect(() => {
     const latest = latestAssistantText(chat.items);

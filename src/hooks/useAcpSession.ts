@@ -47,6 +47,7 @@ import { tryEnqueue, emptyQueue, dequeue, putSessionQueue, swapSessionQueue, typ
 import { blockedAgentToast, type AgentDoctor } from "../lib/agent-doctor";
 import { lastWorkspaceAfterOpen, projectForSession, resolveLastWorkspace, resumeWorkspaceCwd } from "../lib/sidebar-list";
 import { getDraft, setDraft as writeDraft, resumeComposerDraft, isStaleSentDraftChange } from "../lib/session-drafts";
+import { DRAFT_PERSIST_MS, createTrailingFlush } from "../lib/trailing-flush";
 import { isLiveRosterId } from "../lib/live-roster";
 import { agentIdForPaneDest, planOpenSession, sessionCancelNotification, sessionNewMeta, shouldCancelAcpOnNewChat, shouldCreateAcpSessionOnNewChat, shouldUnbindBeforeNewChat } from "../lib/session-agent";
 import { clearUnread, markUnread, type UnreadMap } from "../lib/session-status";
@@ -348,6 +349,13 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const drainRef = useRef<() => void>(() => {});
   const depsRef = useRef(deps);
   depsRef.current = deps;
+  // Keystroke drafts coalesce to one trailing persist; send/switch/unload force a flush.
+  const [draftsPersist] = useState(() =>
+    createTrailingFlush(
+      (drafts: Record<string, string>) => depsRef.current.persist({ drafts }),
+      DRAFT_PERSIST_MS,
+    ),
+  );
   const extraChatRef = useRef<Record<string, ChatState>>({});
   const extraBusyKey = Object.entries(deps.extraPanes)
     .filter(([, pane]) => pane.busy)
@@ -371,6 +379,23 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (next !== prev) setBusyState(next);
   };
   useEffect(() => onHiddenFlush(() => drainRef.current()), []);
+  // Feeds pending drafts into the shared persist before its own unload flush
+  // drains them (this hook is called before useWebuiPersist in useAppModel).
+  useEffect(() => {
+    const flush = () => draftsPersist.flush();
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      flush();
+    };
+  }, [draftsPersist]);
   useEffect(() => {
     turnStartedAtRef.current = stampMainTurnClock(busy, turnStartedAtRef.current, Date.now());
     if (!busy) seenAssistantAtRef.current = null;
@@ -411,7 +436,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         d.setDraft(ghostTurn.restoreComposerText);
         const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, ghostTurn.restoreComposerText);
         d.setSessionDrafts(drafts);
-        d.persist({ drafts });
+        draftsPersist.push(drafts);
         d.showToast(t(d.locale ?? "zh", "toast.ghostHeal"));
         return;
       }
@@ -597,6 +622,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function adoptSession(id: string | null) {
     const prev = sessionIdRef.current;
     if (id !== prev) {
+      draftsPersist.flush();
       setChat((chat) => chatAfterBoundSessionChange(chat, prev, id));
       const d = depsRef.current;
       const swapped = swapSessionQueue({
@@ -1315,7 +1341,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (restore !== stored) {
         const drafts = writeDraft(d.sessionDrafts, s.id, restore);
         d.setSessionDrafts(drafts);
-        d.persist({ drafts });
+        draftsPersist.push(drafts);
       }
       if (chatHasPromptHistory(next.items)) startedRef.current = markStarted(startedRef.current, s.id);
       void refreshUsage(s.id);
@@ -1562,7 +1588,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     if (sessionIdRef.current) {
       const drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
       d.setSessionDrafts(drafts);
-      d.persist({ drafts });
+      draftsPersist.pushNow(drafts);
     }
     return true;
   }
@@ -1744,7 +1770,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     lastSentRef.current = text;
     let drafts = writeDraft(d.sessionDrafts, sessionIdRef.current, "");
     d.setSessionDrafts(drafts);
-    d.persist({ drafts });
+    draftsPersist.pushNow(drafts);
     d.setAtBottom(true);
     pendingPrompt.current = "main";
     const existing = sessionIdRef.current;
@@ -1782,7 +1808,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (sid !== existing) {
         drafts = writeDraft(writeDraft(drafts, existing, ""), sid, "");
         d.setSessionDrafts(drafts);
-        d.persist({ drafts });
+        draftsPersist.pushNow(drafts);
         sendSid = sid;
         beginMainRun(sid);
         mainGen = promptGen.current[MAIN_PANE] ?? mainGen;
@@ -1794,7 +1820,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await promptWait;
       drafts = writeDraft(drafts, sid, "");
       d.setSessionDrafts(drafts);
-      d.persist({ drafts });
+      draftsPersist.pushNow(drafts);
       startedRef.current = markStarted(startedRef.current, sid);
       if (wrapInjected) {
         const next = markInjected(injectedRef.current, sid, true);
@@ -1857,7 +1883,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     d.setDraft(value);
     const next = writeDraft(d.sessionDrafts, sessionIdRef.current, value);
     d.setSessionDrafts(next);
-    d.persist({ drafts: next });
+    draftsPersist.push(next);
   }
 
   return {
