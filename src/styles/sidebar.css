@@ -124,7 +124,7 @@
   color: var(--muted);
 }
 .side-actions .icon-btn.ready { color: var(--ok); }
-.side-actions .icon-btn.wait { color: var(--warn); }
+.side-actions .icon-btn.wait { color: var(--warn-fg); }
 
 .side-pad { padding: 0 12px 6px; }
 

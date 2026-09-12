@@ -283,7 +283,7 @@
 }
 .work-col .chat-shell { flex: 1 1 0; min-width: 0; }
 .thread .hub-row {
-  max-width: 680px;
+  max-width: var(--thread, 680px);
   margin: 0 auto 6px;
   border-bottom: 0;
   padding: 6px 2px;
@@ -774,7 +774,7 @@
 }
 .work-live.stalled .spine-ico,
 .work-live.stalled .spine-verb {
-  color: color-mix(in srgb, var(--warn) 82%, var(--muted));
+  color: color-mix(in srgb, var(--warn-fg) 82%, var(--muted));
 }
 .work-live:hover .spine-verb:not(.shimmer-text) {
   color: color-mix(in srgb, var(--text) 64%, transparent);

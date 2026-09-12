@@ -54,7 +54,7 @@ describe("usage chip tone", () => {
   it("keeps ok muted and paints warn/hot text so percent can be read", () => {
     const sheet = css("src/styles.css");
     expect(sheet).toMatch(/\.usage-chip-ok\s*\{[^}]*color:\s*var\(--faint\)/);
-    expect(sheet).toMatch(/\.usage-chip-warn\s*\{[^}]*color:\s*var\(--warn\)/);
+    expect(sheet).toMatch(/\.usage-chip-warn\s*\{[^}]*color:\s*var\(--warn-fg\)/);
     expect(sheet).toMatch(/\.usage-chip-hot\s*\{[^}]*color:\s*var\(--danger\)/);
     expect(sheet).toMatch(/\.usage-chip-hot\s*\{[^}]*font-size:\s*var\(--ui-small\)/);
     expect(sheet).toMatch(/\.usage-chip-hot \.usage-bar-fill\s*\{[^}]*background:\s*var\(--danger\)/);

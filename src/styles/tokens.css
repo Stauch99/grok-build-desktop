@@ -22,6 +22,8 @@
   --cta-text: hsl(0 0% 99%);
   --ok: hsl(142 42% 32%);
   --warn: rgb(224, 205, 99);
+  --warn-fg: hsl(38 92% 30%);
+  --on-ok: hsl(0 0% 99%);
   --danger: hsl(356 42% 46%);
   --code: #383a42;
   --code-keyword: #e45749;
@@ -75,6 +77,8 @@
   --cta-text: hsl(30 5% 7%);
   --ok: hsl(138 36% 55%);
   --warn: rgb(196, 180, 94);
+  --warn-fg: rgb(196 180 94);
+  --on-ok: hsl(145 45% 10%);
   --danger: hsl(356 42% 66%);
   --code: #abb2bf;
   --code-keyword: #e16d76;
@@ -142,6 +146,8 @@
   --cta-text: oklch(98.5% .001 286.376);
   --ok: oklch(55% .12 155);
   --warn: oklch(80% .13 85);
+  --warn-fg: oklch(52% .13 75);
+  --on-ok: oklch(24% .05 155);
   --danger: oklch(58% .19 25);
   --shadow: 0 0 0 1px var(--line);
   --shadow-l: 0 0 0 1px var(--line), 0 14px 44px oklch(24.7% .006 258 / 10%);
@@ -169,6 +175,8 @@
   --cta-text: oklch(20.9% .004 264.477);
   --ok: oklch(72% .13 155);
   --warn: oklch(82% .12 85);
+  --warn-fg: oklch(82% .12 85);
+  --on-ok: oklch(24% .05 155);
   --danger: oklch(68% .17 25);
   --shadow: 0 0 0 1px var(--line);
   --shadow-l: 0 0 0 1px var(--line), 0 14px 44px oklch(0% 0 0 / 40%);

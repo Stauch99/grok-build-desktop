@@ -231,14 +231,14 @@
   white-space: nowrap;
 }
 .alt-send:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
-.wait-pill.stalled { color: color-mix(in srgb, var(--warn) 80%, var(--muted)); }
+.wait-pill.stalled { color: color-mix(in srgb, var(--warn-fg) 80%, var(--muted)); }
 .wait-note {
   flex: none;
-  color: var(--warn);
+  color: var(--warn-fg);
   font-size: var(--md-size, 15px);
   white-space: nowrap;
 }
-.pin-label.attention { color: var(--warn); }
+.pin-label.attention { color: var(--warn-fg); }
 
 /* ---- remaining fills: file panel, inline edit, child count ---- */
 

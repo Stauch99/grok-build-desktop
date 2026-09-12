@@ -1,6 +1,6 @@
 .permission {
   margin: 0 auto 10px;
-  max-width: 680px;
+  width: min(100%, var(--thread, 680px));
   background: var(--bg);
   border: 1px solid var(--line);
   border-left: 3px solid var(--warn);

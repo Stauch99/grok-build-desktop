@@ -140,7 +140,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .conn-chip.ready {
   opacity: 1;
   background-color: var(--ok);
-  color: #fff;
+  color: var(--on-ok);
 }
 
 .sidebar, .workspace, .workspace-stage {

@@ -16,7 +16,7 @@
   border-radius: inherit;
 }
 .usage-chip-ok { color: var(--faint); }
-.usage-chip-warn { color: var(--warn); }
+.usage-chip-warn { color: var(--warn-fg); }
 .usage-chip-warn .usage-bar-fill { background: var(--warn); }
 .usage-chip-hot { color: var(--danger); font-size: var(--ui-small); }
 .usage-chip-hot .usage-bar-fill { background: var(--danger); }
