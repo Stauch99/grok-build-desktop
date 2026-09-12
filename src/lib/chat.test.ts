@@ -389,6 +389,22 @@ describe("session update cursor", () => {
       null,
     );
   });
+
+  it("keeps the truncated flag sticky across later pages", () => {
+    const cursors = new Map();
+    const first = applySessionPage(cursors, "s1", {
+      rows: [upd("user_message_chunk", { content: { text: "hi" } })],
+      nextByte: 40,
+      truncated: true,
+    });
+    expect(first.truncated).toBe(true);
+    const second = applySessionPage(cursors, "s1", {
+      rows: [upd("agent_message_chunk", { content: { text: "yo" } })],
+      nextByte: 80,
+      truncated: false,
+    });
+    expect(second.truncated).toBe(true);
+  });
 });
 
 describe("groupWorkRuns", () => {

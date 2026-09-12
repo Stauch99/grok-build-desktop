@@ -66,4 +66,21 @@ describe("thread open scroll", () => {
     expect(src).toMatch(/loading=\{loadingSession\}/);
     expect(src).not.toMatch(/behavior:\s*"smooth"/);
   });
+
+  it("wraps each pane, settings, and hub in an error boundary", () => {
+    const src = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<WorkPane paneId=\{MAIN_PANE\}/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<SettingsPanel/);
+    expect(src).toMatch(/<ErrorBoundary locale=\{locale\}>\s*\n\s*<ExtensionsHub/);
+    expect(src).not.toMatch(/location\.reload/);
+  });
+});
+
+describe("thread truncated hydrate banner", () => {
+  it("renders the truncated notice from chat.truncated", () => {
+    const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/chat\.truncated/);
+    expect(src).toMatch(/thread\.truncated/);
+  });
 });

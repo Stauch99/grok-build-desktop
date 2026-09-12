@@ -1417,12 +1417,8 @@ async fn read_session_updates(
     dir: Option<String>,
 ) -> AppResult<SessionUpdates> {
     tokio::task::spawn_blocking(move || {
-        let hinted = dir
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
-            .filter(|p| p.exists());
+        let roots = crate::session_lookup::session_roots(&dirs_home(), &grok_home());
+        let hinted = crate::session_lookup::resolve_hydrate_dir(dir.as_deref(), &roots);
         let Some(path) = hinted.or_else(|| find_session_dir(&session_id)) else {
             return Ok(empty_session_updates());
         };

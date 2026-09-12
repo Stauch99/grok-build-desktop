@@ -794,6 +794,11 @@ export function ThreadColumn({
         className="thread"
         style={{ ["--thread" as string]: chatWidthCss(chatWidth) }}
       >
+        {chat.truncated ? (
+          <p className="preview-note" role="status">
+            {t("thread.truncated")}
+          </p>
+        ) : null}
         {empty ? (
           emptyNode ?? (
             <div className="empty">

@@ -83,13 +83,21 @@ pub(crate) fn resolve_delete_path(
     dir: Option<&str>,
     roots: &[(String, PathBuf)],
 ) -> Option<PathBuf> {
-    if let Some(raw) = dir.map(str::trim).filter(|s| !s.is_empty()) {
-        let path = PathBuf::from(raw);
-        if path_under_roots(&path, roots) && (path.is_file() || path.is_dir()) {
-            return Some(path);
-        }
+    if let Some(path) = resolve_hydrate_dir(dir, roots) {
+        return Some(path);
     }
     find_session_dir_in(session_id, roots).map(|(_, path)| path)
+}
+
+/// Hydrate only from a caller-supplied path that already lives under a session home.
+pub(crate) fn resolve_hydrate_dir(dir: Option<&str>, roots: &[(String, PathBuf)]) -> Option<PathBuf> {
+    let raw = dir.map(str::trim).filter(|s| !s.is_empty())?;
+    let path = PathBuf::from(raw);
+    if path_under_roots(&path, roots) && path.exists() {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 /// Delete a session path returned by `find_session_dir_in`.
@@ -444,6 +452,31 @@ mod tests {
         let roots = session_roots(&base, &grok);
         let found = resolve_delete_path("abc", None, &roots).unwrap();
         assert_eq!(found, session_dir);
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn resolve_hydrate_dir_accepts_a_path_under_session_roots() {
+        let base = uniq("hydrate_dir_ok");
+        let grok = base.join(".grok");
+        let sessions = grok.join("sessions").join("proj").join("abc");
+        fs::create_dir_all(&sessions).unwrap();
+        let roots = session_roots(&base, &grok);
+        let found = resolve_hydrate_dir(Some(&sessions.to_string_lossy()), &roots).unwrap();
+        assert_eq!(found, sessions);
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn resolve_hydrate_dir_rejects_a_path_outside_session_roots() {
+        let base = uniq("hydrate_dir_reject");
+        let grok = base.join(".grok");
+        fs::create_dir_all(grok.join("sessions")).unwrap();
+        let outside = base.join("Downloads").join("cover.md");
+        fs::create_dir_all(outside.parent().unwrap()).unwrap();
+        fs::write(&outside, "hi").unwrap();
+        let roots = session_roots(&base, &grok);
+        assert!(resolve_hydrate_dir(Some(&outside.to_string_lossy()), &roots).is_none());
         fs::remove_dir_all(base).ok();
     }
 }

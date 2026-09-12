@@ -51,6 +51,8 @@ export type ChatState = {
   plan: PlanEntry[];
   artifacts: Artifact[];
   commands: SlashCommand[];
+  /** True when hydrate skipped earlier transcript bytes. */
+  truncated?: boolean;
 };
 
 export type ApplyOptions = {
@@ -657,7 +659,10 @@ export function applySessionPage(
   page: SessionUpdatePage,
 ): ChatState {
   const prev = cursors.get(sessionId);
-  const chat = hydrateFromUpdates(page.rows, prev?.chat);
+  const chat = {
+    ...hydrateFromUpdates(page.rows, prev?.chat),
+    truncated: Boolean(prev?.chat.truncated || page.truncated),
+  };
   const stop = foldTurnStopCursor(
     {
       lastTurnStopReason: prev?.lastTurnStopReason ?? null,

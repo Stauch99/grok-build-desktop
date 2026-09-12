@@ -671,6 +671,15 @@ describe("resumeSession tree chrome", () => {
   });
 });
 
+describe("session update pending cap", () => {
+  it("force-flushes at the pane cap and drains when the window is hidden", () => {
+    const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/shouldForceFlushPending\(bucket\.length\)/);
+    expect(src).toMatch(/nextFoldSlice\(updates\)/);
+    expect(src).toMatch(/onHiddenFlush\(\(\) => drainRef\.current\(\)\)/);
+  });
+});
+
 describe("main-pane settle while another session is on screen", () => {
   it("does not idle the running turn from the displayed transcript", () => {
     const src = readFileSync(new URL("./useAcpSession.ts", import.meta.url), "utf8");

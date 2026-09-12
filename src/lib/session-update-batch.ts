@@ -81,8 +81,29 @@ export function shouldClearBusyOnSessionUpdate(
 
 /** Coalesce session updates onto a short timeout so tool floods paint together. */
 export const SESSION_UPDATE_COALESCE_MS = 32;
+/** Per-pane pending cap; overflow forces an immediate fold so the queue cannot grow unbounded. */
+export const SESSION_UPDATE_PANE_CAP = 200;
+/** Fold at most this many updates per drain so a 2k-tool flood does not freeze the main thread. */
+export const SESSION_UPDATE_FOLD_CHUNK = 80;
+
+export function shouldForceFlushPending(count: number, cap = SESSION_UPDATE_PANE_CAP): boolean {
+  return count >= cap;
+}
+
+export function nextFoldSlice<T>(batch: T[], chunk = SESSION_UPDATE_FOLD_CHUNK): { head: T[]; rest: T[] } {
+  if (batch.length <= chunk) return { head: batch, rest: [] };
+  return { head: batch.slice(0, chunk), rest: batch.slice(chunk) };
+}
 
 export function scheduleSessionUpdateFlush(apply: () => void): () => void {
   const id = setTimeout(apply, SESSION_UPDATE_COALESCE_MS);
   return () => clearTimeout(id);
+}
+
+export function onHiddenFlush(apply: () => void): () => void {
+  const onVis = () => {
+    if (document.visibilityState === "hidden") apply();
+  };
+  document.addEventListener("visibilitychange", onVis);
+  return () => document.removeEventListener("visibilitychange", onVis);
 }

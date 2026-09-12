@@ -60,6 +60,7 @@ import { ExplorerPane } from "./components/ExplorerPane";
 import { BashCommandRow } from "./components/BashCommandRow";
 import { RunStatusRegion } from "./components/RunStatusRegion";
 import { MemoryInjectChip } from "./components/MemoryInjectChip";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { handleMdClick, ThreadColumn } from "./components/Thread";
 import { UsageRing } from "./components/UsageRing";
 import { GitChip } from "./components/GitBar";
@@ -575,6 +576,7 @@ export function App() {
         paneChat.plan.every((e) => e.status === "completed")) ||
       (paneId === MAIN_PANE && planMarkedComplete);
     return (
+      <ErrorBoundary locale={locale}>
       <WorkPane
         paneId={paneId}
         focused={focusedPaneId === paneId}
@@ -859,6 +861,7 @@ export function App() {
           ) : null}
         </Composer>
       </WorkPane>
+      </ErrorBoundary>
     );
   }
 
@@ -1046,6 +1049,7 @@ return (
           </div>
         )}
         {paneCount === 1 ? (
+        <ErrorBoundary locale={locale}>
         <WorkPane paneId={MAIN_PANE} focused className="solo" onFocus={() => focusPane(MAIN_PANE)}>
           <div className="pane-body">
           <div className="work-col" ref={workColRef}>
@@ -1360,6 +1364,7 @@ return (
           </div>
           </div>
         </WorkPane>
+        </ErrorBoundary>
         ) : (
           <div className="work-panes" ref={workColRef}>
             <PaneLayout tree={paneTree} onRatio={onPaneRatio} renderLeaf={renderSplitLeaf} />
@@ -1541,6 +1546,7 @@ return (
                 <IconGrokClose size={16} />
               </button>
             </div>
+            <ErrorBoundary locale={locale}>
             <SettingsPanel
               focusSection={settingsFocus}
               onConsumedFocus={() => setSettingsFocus(null)}
@@ -1647,10 +1653,12 @@ return (
               }}
               info={info}
             />
+            </ErrorBoundary>
           </div>
         </div>
       )}
 
+      <ErrorBoundary locale={locale}>
       <ExtensionsHub
         open={hubOpen}
         tab={hubTab}
@@ -1664,6 +1672,7 @@ return (
           void sendPrompt(text);
         }}
       />
+      </ErrorBoundary>
 
       <ExtraOverlay
         page={extraPage}

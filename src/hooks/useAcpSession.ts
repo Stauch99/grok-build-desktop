@@ -32,9 +32,12 @@ import {
 } from "../lib/chat";
 import {
   foldSessionUpdates,
+  nextFoldSlice,
+  onHiddenFlush,
   scheduleSessionUpdateFlush,
   shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
+  shouldForceFlushPending,
   shouldResumeBusyOnSessionUpdate,
 } from "../lib/session-update-batch";
 import { filterCommands, type CommandDef } from "../lib/commands";
@@ -625,6 +628,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     .map(([id]) => id)
     .join(",");
   const seenAssistantAtRef = useRef<number | null>(null);
+  useEffect(() => onHiddenFlush(() => drainRef.current()), []);
   useEffect(() => {
     turnStartedAtRef.current = stampMainTurnClock(busy, turnStartedAtRef.current, Date.now());
     if (!busy) seenAssistantAtRef.current = null;
@@ -769,11 +773,17 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   function drainPending() {
     const batches = pendingByPane.current;
     pendingByPane.current = {};
+    let leftover = false;
     for (const [paneId, updates] of Object.entries(batches)) {
       if (!updates.length) continue;
+      const { head, rest } = nextFoldSlice(updates);
+      if (rest.length) {
+        leftover = true;
+        pendingByPane.current[paneId] = rest;
+      }
       if (paneId === MAIN_PANE) {
         setChat((prev) => {
-          const next = foldSessionUpdates(prev, updates, {
+          const next = foldSessionUpdates(prev, head, {
             skipUser: echoedUser.current,
             agentId: paneAgent(MAIN_PANE),
           });
@@ -784,7 +794,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       const skipUser = !!echoedExtra.current[paneId];
       patchExtra(paneId, (prev) => {
-        const next = foldSessionUpdates(prev.chat, updates, {
+        const next = foldSessionUpdates(prev.chat, head, {
           skipUser,
           agentId: paneAgent(paneId),
         });
@@ -792,6 +802,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         return { ...prev, chat: next };
       });
     }
+    if (leftover) schedulePendingFlush();
   }
   drainRef.current = drainPending;
 
@@ -828,7 +839,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const bucket = pendingByPane.current[dest] ?? [];
     bucket.push(params);
     pendingByPane.current[dest] = bucket;
-    if (shouldFlushSessionUpdateNow(params)) applyPendingNow();
+    if (shouldFlushSessionUpdateNow(params) || shouldForceFlushPending(bucket.length)) applyPendingNow();
     else schedulePendingFlush();
   }
 

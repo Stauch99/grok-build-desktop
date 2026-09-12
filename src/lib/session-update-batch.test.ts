@@ -2,10 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { applyChatUpdate, emptyChat } from "./chat";
 import {
   foldSessionUpdates,
+  nextFoldSlice,
+  onHiddenFlush,
   scheduleSessionUpdateFlush,
   SESSION_UPDATE_COALESCE_MS,
+  SESSION_UPDATE_FOLD_CHUNK,
+  SESSION_UPDATE_PANE_CAP,
   shouldClearBusyOnSessionUpdate,
   shouldFlushSessionUpdateNow,
+  shouldForceFlushPending,
   shouldResumeBusyOnSessionUpdate,
 } from "./session-update-batch";
 
@@ -152,5 +157,50 @@ describe("scheduleSessionUpdateFlush", () => {
     vi.advanceTimersByTime(SESSION_UPDATE_COALESCE_MS);
     expect(apply).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+});
+
+describe("pending session-update cap", () => {
+  it("forces a flush once a pane hits the 200-update cap", () => {
+    expect(SESSION_UPDATE_PANE_CAP).toBe(200);
+    expect(shouldForceFlushPending(199)).toBe(false);
+    expect(shouldForceFlushPending(200)).toBe(true);
+    expect(shouldForceFlushPending(201)).toBe(true);
+  });
+
+  it("folds oversized batches in 80-update slices", () => {
+    expect(SESSION_UPDATE_FOLD_CHUNK).toBe(80);
+    const batch = Array.from({ length: 200 }, (_, i) => i);
+    const first = nextFoldSlice(batch);
+    expect(first.head).toHaveLength(80);
+    expect(first.rest).toHaveLength(120);
+    const second = nextFoldSlice(first.rest);
+    expect(second.head).toHaveLength(80);
+    expect(second.rest).toHaveLength(40);
+    expect(nextFoldSlice(second.rest)).toEqual({ head: second.rest, rest: [] });
+  });
+
+  it("drains immediately when the document is hidden", () => {
+    const apply = vi.fn();
+    const added: Array<[string, EventListener]> = [];
+    const add = vi.spyOn(document, "addEventListener").mockImplementation((type, listener) => {
+      added.push([type, listener as EventListener]);
+    });
+    const remove = vi.spyOn(document, "removeEventListener").mockImplementation(() => {});
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    const stop = onHiddenFlush(apply);
+    const handler = added.find(([type]) => type === "visibilitychange")?.[1];
+    expect(handler).toBeTypeOf("function");
+    visibility.mockReturnValue("visible");
+    handler?.call(document, {} as Event);
+    expect(apply).not.toHaveBeenCalled();
+    visibility.mockReturnValue("hidden");
+    handler?.call(document, {} as Event);
+    expect(apply).toHaveBeenCalledTimes(1);
+    stop();
+    expect(remove).toHaveBeenCalled();
+    add.mockRestore();
+    remove.mockRestore();
+    visibility.mockRestore();
   });
 });

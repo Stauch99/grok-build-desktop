@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { DEFAULT_SIDEBAR_LIST } from "../lib/sidebar-list";
 import {
   accumulatePersistPartial,
   buildWebuiState,
+  drainPendingWebuiPersist,
   flushWebuiPersist,
   WEBUI_PERSIST_MS,
   type WebuiSnapshot,
@@ -77,6 +79,13 @@ describe("webui persist throttle", () => {
   it("debounces writes at 500 ms", () => {
     expect(WEBUI_PERSIST_MS).toBe(500);
   });
+
+  it("flushes pending state on unmount instead of dropping the timer", () => {
+    const src = readFileSync(new URL("./useWebuiPersist.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/beforeunload/);
+    expect(src).toMatch(/flushNow\(\);/);
+    expect(src).not.toMatch(/if \(timer\.current != null\) window\.clearTimeout\(timer\.current\);\s*\}, \[\]\);/);
+  });
 });
 
 describe("persist partial accumulation", () => {
@@ -88,5 +97,14 @@ describe("persist partial accumulation", () => {
     const stale = { ...base, drafts: { "grok/s1": "already sent" } };
     expect(flushWebuiPersist(stale, pending).drafts).toEqual({});
     expect(flushWebuiPersist(stale, pending).unread).toEqual({ s1: "done" });
+  });
+
+  it("unmount flush writes pending drafts and allowedTools", () => {
+    const pending = accumulatePersistPartial({}, { drafts: { "grok/s1": "hi" }, allowedTools: ["bash"] });
+    expect(drainPendingWebuiPersist(base, pending)).toMatchObject({
+      drafts: { "grok/s1": "hi" },
+      allowedTools: ["bash"],
+    });
+    expect(drainPendingWebuiPersist(base, {})).toBeNull();
   });
 });

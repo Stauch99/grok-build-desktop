@@ -73,8 +73,8 @@ describe("i18n", () => {
   });
 
   it("interpolates numbered placeholders", () => {
-    expect(t("zh", "perm.rejectIn", { n: 12 })).toBe("将在 12s 后拒绝");
-    expect(t("en", "perm.rejectIn", { n: 12 })).toBe("Declining in 12s");
+    expect(t("zh", "perm.rejectIn", { n: 12 })).toBe("仍在等待（12s）");
+    expect(t("en", "perm.rejectIn", { n: 12 })).toBe("Still waiting (12s)");
     expect(t("en", "account.weekly", { n: 50 })).toBe("Weekly 50%");
   });
 
