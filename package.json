@@ -1,5 +1,5 @@
 {
-  "name": "grok-build-webui",
+  "name": "grok-build-desktop",
   "private": true,
   "version": "0.6.5",
   "type": "module",

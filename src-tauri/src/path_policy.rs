@@ -295,6 +295,7 @@ pub(crate) fn allow_text_read(canon: &Path, allow_root: Option<&Path>) -> bool {
 
 /// ACP reads follow the preview allowlist, plus user skill/agent homes that
 /// live outside the project (`~/.agents`, `~/.grok`, and the same roots other CLIs use).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn extra_skill_read_root(canon: &Path) -> bool {
     if is_blocked_path(canon) || !canon.is_file() || is_credential_filename(canon) {
         return false;
@@ -341,6 +342,7 @@ fn allow_acp_read(canon: &Path, allow_root: Option<&Path>) -> bool {
 }
 
 /// True when `explorer` would treat `target` as a switch (`/select`, `/e`) rather than a path.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn explorer_slash_switch(target: &str) -> bool {
     let t = target.trim();
     if t.starts_with("//") {

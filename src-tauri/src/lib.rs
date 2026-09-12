@@ -65,6 +65,7 @@ pub(crate) use path_policy::{
 
 pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
+pub(crate) const WORKSPACE_ENTRY_CAP: usize = 2000;
 
 const ALLOWED_CLI_PATCH_KEYS: &[&str] = &[
     "model",
@@ -369,8 +370,8 @@ pub(crate) fn resolve_grok() -> Option<PathBuf> {
         return Some(home_bin);
     }
     if let Ok(path) = std::env::var("PATH") {
-        for dir in path.split(':') {
-            let candidate = Path::new(dir).join("grok");
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("grok");
             if candidate.is_file() {
                 return Some(candidate);
             }
@@ -1578,7 +1579,7 @@ async fn ensure_inbox(path: Option<String>) -> AppResult<String> {
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default_inbox_cwd);
-    if dir == PathBuf::from("/") || dir == grok_home() {
+    if dir == Path::new("/") || dir == grok_home() {
         return Err(AppError::Message("请选择具体目录，不要选系统根目录".into()));
     }
     tokio::fs::create_dir_all(&dir)
@@ -1673,7 +1674,7 @@ async fn inspect_brief(state: State<'_, Arc<AppState>>, cwd: Option<String>) -> 
 async fn list_project_files(cwd: String, query: Option<String>) -> AppResult<Vec<String>> {
     tokio::task::spawn_blocking(move || {
         let root = PathBuf::from(cwd);
-        if !root.is_dir() || root == PathBuf::from("/") || root == dirs_home() {
+        if !root.is_dir() || root == Path::new("/") || root == dirs_home() {
             return Ok(vec![]);
         }
         let q = query.unwrap_or_default().to_lowercase();
@@ -1731,7 +1732,7 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
         let Ok(canon) = root.canonicalize() else {
             return Ok(vec![]);
         };
-        if !canon.is_dir() || canon == PathBuf::from("/") || canon == dirs_home() {
+        if !canon.is_dir() || canon == Path::new("/") || canon == dirs_home() {
             return Ok(vec![]);
         }
         if let Ok(home) = dirs_home().canonicalize() {
@@ -1766,11 +1767,11 @@ async fn list_workspace_entries(cwd: String) -> AppResult<Vec<WorkspaceEntry>> {
                 files.push(row);
             }
         }
-        dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        dirs.sort_by_key(|a| a.name.to_lowercase());
+        files.sort_by_key(|a| a.name.to_lowercase());
         let mut out = dirs;
         out.append(&mut files);
-        out.truncate(40);
+        out.truncate(WORKSPACE_ENTRY_CAP);
         Ok(out)
     })
     .await
@@ -1986,7 +1987,7 @@ async fn list_memory_changes() -> AppResult<Vec<MemoryChangeRow>> {
                 mtime,
             });
         }
-        out.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        out.sort_by_key(|a| std::cmp::Reverse(a.mtime));
         out.truncate(40);
         Ok(out)
     })
@@ -3073,8 +3074,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let scope = app.asset_protocol_scope();
-            let _ = scope.allow_directory(&grok_asset_root(), true);
-            let _ = scope.allow_directory(&std::env::temp_dir(), true);
+            let _ = scope.allow_directory(grok_asset_root(), true);
+            let _ = scope.allow_directory(std::env::temp_dir(), true);
             if let Some(window) = app.get_webview_window("main") {
                 let min = tauri::LogicalSize::new(1024.0, 720.0);
                 let _ = window.set_min_size(Some(min));

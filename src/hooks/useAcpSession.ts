@@ -809,7 +809,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       spawning[id] = false;
       const initializeResult = await rpc("initialize", {
         protocolVersion: 1,
-        clientInfo: { name: "grok-build-webui", title: "Grok Build", version: "0.4.0" },
+        clientInfo: { name: "grok-build-desktop", title: "Grok Build", version: "0.4.0" },
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       }, { agentId: id, timeoutMs: initializeTimeoutMs(id) });
       promptCapsByAgent[id] = promptCapabilitiesFromInitialize(initializeResult);

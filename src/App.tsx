@@ -1442,7 +1442,13 @@ return (
                 <div className="review-stack">
                   <button type="button" className="btn primary" disabled={!reviewCwd} onClick={() => {
                     if (!reviewCwd) return;
-                    void openInTerminal(reviewCwd).catch((e) => showToast(friendlyError(e)));
+                    void openInTerminal(reviewCwd)
+                      .then((result) => {
+                        if (result.opened) return;
+                        void navigator.clipboard.writeText(result.cd).catch(() => undefined);
+                        showToast(t(locale, "toast.terminalCd", { cmd: result.cd }));
+                      })
+                      .catch((e) => showToast(friendlyError(e)));
                   }}> {t(locale, "rail.openProject")}</button>
                   {terminalTools.length === 0 ? (
                     <p className="float-empty">{t(locale, "rail.emptyTerminal")}</p>

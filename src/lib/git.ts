@@ -227,6 +227,7 @@ export type GitSnapshot = {
   changes: GitChange[];
   commits: GitCommit[];
   branches: string[];
+  worktrees: GitWorktree[];
 };
 
 export type GitSnapshotIo = {
@@ -234,21 +235,23 @@ export type GitSnapshotIo = {
   changes: (dir: string) => Promise<GitChange[]>;
   log: (dir: string) => Promise<GitCommit[]>;
   branches: (dir: string) => Promise<string[]>;
+  worktrees?: (dir: string) => Promise<string>;
 };
 
-const EMPTY_SNAPSHOT: GitSnapshot = { git: null, changes: [], commits: [], branches: [] };
+const EMPTY_SNAPSHOT: GitSnapshot = { git: null, changes: [], commits: [], branches: [], worktrees: [] };
 
-/** Status, dirty files, log, and branches in one refresh so history does not lag. */
+/** Status, dirty files, log, branches, and worktrees in one refresh so history does not lag. */
 export async function loadGitSnapshot(dir: string, io: GitSnapshotIo): Promise<GitSnapshot> {
   if (!dir) return EMPTY_SNAPSHOT;
   const git = await io.status(dir);
-  if (!git.isRepo) return { git, changes: [], commits: [], branches: [] };
-  const [changes, commits, branches] = await Promise.all([
+  if (!git.isRepo) return { git, changes: [], commits: [], branches: [], worktrees: [] };
+  const [changes, commits, branches, porcelain] = await Promise.all([
     io.changes(dir).catch(() => [] as GitChange[]),
     io.log(dir).catch(() => [] as GitCommit[]),
     io.branches(dir).catch(() => [] as string[]),
+    io.worktrees ? io.worktrees(dir).catch(() => "") : Promise.resolve(""),
   ]);
-  return { git, changes, commits, branches };
+  return { git, changes, commits, branches, worktrees: parseWorktreePorcelain(porcelain) };
 }
 
 /** First mtime sample is a baseline; later ticks refresh only when the value changes. */

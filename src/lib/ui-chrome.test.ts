@@ -381,6 +381,15 @@ describe("pane pointer focus", () => {
   });
 });
 
+describe("split pane rewind and queue", () => {
+  it("keeps rewind and queue edit on extra-pane composers", () => {
+    const src = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(src).toMatch(/rewindFor=\{rewindForItem\}/);
+    expect(src).toMatch(/onEditQueued=\{\(id, text\) => \{/);
+    expect(src).toMatch(/onReorderQueued=\{\(from, to\) => \{/);
+  });
+});
+
 describe("tauri window drag capability", () => {
   it("allows startDragging for overlay titlebar regions", () => {
     const caps = readFileSync(join(root, "src-tauri/capabilities/default.json"), "utf8");

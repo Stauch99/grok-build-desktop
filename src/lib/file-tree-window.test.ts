@@ -1,16 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { FILE_TREE_WINDOW, windowedList } from "./file-tree-window";
+import {
+  FILE_TREE_VIRTUALIZE_AFTER,
+  WORKSPACE_ENTRY_CAP,
+  flattenFileTreeRows,
+  shouldVirtualizeFileTree,
+} from "./file-tree-window";
 
-describe("windowedList", () => {
-  it("leaves a short list untouched", () => {
-    expect(windowedList(["a", "b"], 10)).toEqual({ shown: ["a", "b"], hidden: 0 });
+describe("file tree rows", () => {
+  it("leaves a short list unvirtualized", () => {
+    const rows = flattenFileTreeRows(
+      [{ name: "src", path: "/p/src", kind: "dir" }],
+      [{ name: "a.ts", path: "/p/a.ts", kind: "file" }],
+    );
+    expect(shouldVirtualizeFileTree(rows)).toBe(false);
+    expect(rows[0]).toEqual({ kind: "heading", key: "folders", labelKey: "file.folders" });
   });
 
-  it("caps a long list and reports how many were hidden", () => {
-    const items = Array.from({ length: FILE_TREE_WINDOW + 3 }, (_, i) => i);
-    const next = windowedList(items);
-    expect(next.shown).toHaveLength(FILE_TREE_WINDOW);
-    expect(next.hidden).toBe(3);
-    expect(next.shown[0]).toBe(0);
+  it("virtualizes after the thread threshold and keeps a large backend cap", () => {
+    const files = Array.from({ length: FILE_TREE_VIRTUALIZE_AFTER + 3 }, (_, i) => ({
+      name: `${i}.ts`,
+      path: `/p/${i}.ts`,
+      kind: "file" as const,
+    }));
+    expect(shouldVirtualizeFileTree(flattenFileTreeRows([], files))).toBe(true);
+    expect(WORKSPACE_ENTRY_CAP).toBe(2000);
   });
 });

@@ -31,13 +31,60 @@ pub fn looks_like_secret(text: &str) -> bool {
 
 fn regex_lite_secret(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    lower.contains("sk-")
+    if lower.contains("sk-")
+        || lower.contains("sk_live_")
+        || lower.contains("sk_test_")
         || lower.contains("ghp_")
+        || lower.contains("github_pat_")
+        || lower.contains("gho_")
         || lower.contains("xai-")
         || lower.contains("akia")
         || lower.contains("api_key")
         || lower.contains("api-key")
         || lower.contains("-----begin")
+        || lower.contains("xoxb-")
+        || lower.contains("xoxp-")
+        || lower.contains("xoxa-")
+        || lower.contains("xoxr-")
+        || lower.contains("glpat-")
+        || lower.contains("bearer ")
+    {
+        return true;
+    }
+    quoted_high_entropy(text)
+}
+
+fn quoted_high_entropy(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            if looks_tokenish(&text[start..i]) {
+                return true;
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+fn looks_tokenish(s: &str) -> bool {
+    if s.len() < 32 {
+        return false;
+    }
+    let digits = s.chars().filter(|c| c.is_ascii_digit()).count();
+    let alnum = s.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+    digits >= 4 && alnum * 100 / s.len() >= 80
 }
 
 pub fn compact_user_md(text: &str, limit: usize) -> String {
@@ -45,8 +92,6 @@ pub fn compact_user_md(text: &str, limit: usize) -> String {
     let trimmed = text.trim_end_matches(|c: char| c.is_whitespace() && c != '\n');
     let src = if ends_nl && !trimmed.ends_with('\n') {
         format!("{trimmed}\n")
-    } else if ends_nl {
-        trimmed.to_string()
     } else {
         trimmed.to_string()
     };
@@ -109,6 +154,7 @@ fn with_lock<T>(root: &Path, f: impl FnOnce() -> Result<T, String>) -> Result<T,
     }
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&path)
@@ -148,11 +194,7 @@ fn tool_error(id: &Value, message: &str) -> Value {
 
 pub fn handle_rpc(ctx: &McpCtx, req: &Value) -> Option<Value> {
     let method = req.get("method")?.as_str()?.to_string();
-    let id = req.get("id");
-    if id.is_none() {
-        return None;
-    }
-    let id = id.unwrap().clone();
+    let id = req.get("id")?.clone();
     let params = req.get("params").cloned().unwrap_or(json!({}));
     let out = match method.as_str() {
         "initialize" => ok_result(
@@ -272,7 +314,7 @@ fn memory_recall(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
             }
         }
     }
-    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    hits.sort_by_key(|a| std::cmp::Reverse(a.0));
     hits.truncate(limit);
     let out: Vec<Value> = hits
         .into_iter()
@@ -637,6 +679,19 @@ mod tests {
             .collect();
         let resp = call(&ctx, "memory_append", json!({"agent":"grok","lines": too_many}));
         assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[test]
+    fn looks_like_secret_covers_slack_gitlab_pem_and_bearer() {
+        assert!(looks_like_secret("sk-abc"));
+        assert!(looks_like_secret("xoxb-1234-slack"));
+        assert!(looks_like_secret("glpat-abc"));
+        assert!(looks_like_secret("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(looks_like_secret("Authorization: Bearer eyJhbGciOi"));
+        assert!(looks_like_secret(
+            r#"token="aB3dE5fG7hI9jK1lM2nO3pQ4rS5tU6vW""#
+        ));
+        assert!(!looks_like_secret("prefer pnpm for this repo"));
     }
 
     #[test]

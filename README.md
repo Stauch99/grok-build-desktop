@@ -130,6 +130,8 @@ The workbench copies a `memory-mcp` sidecar to `~/.acp-workbench/bin/` and regis
 
 Tools: `memory_get`, `memory_recall`, `memory_append`, `memory_timeline`, `memory_forget`. Appends go to `daily/`; only the desktop dream sweep writes `USER.md`.
 
+Memory files (`USER.md`, `daily/*.md`) are **plaintext on disk**. The MCP server drops Slack/GitLab/PEM/Bearer-shaped strings and other key-like tokens, but that is a heuristic — do not treat memory as a secret store.
+
 ## Architecture in one picture
 
 ```
@@ -146,7 +148,7 @@ UI talks to sessions only through `AgentPort`. Skills and MCP go through `Agents
 
 - Desktop-only. No browser mode, no remote control plane.
 - “Rewind to here” restores files that have a **known session diff**. It is not a full workspace rollback.
-- “Open in terminal” currently launches macOS Terminal.app.
+- “Open in terminal” launches Terminal.app on macOS, `x-terminal-emulator` / `xdg-terminal-exec` on Linux, and Windows Terminal / `cmd`. If none start, the `cd` command is copied so you can paste it.
 - Imagine / video stays on the existing Grok path. Other providers are out of scope for this wave.
 - No in-app auto-update. Install new builds yourself.
 
