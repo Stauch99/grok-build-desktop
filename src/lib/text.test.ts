@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent, textFromRawOutput } from "./text";
+import { basename, cleanLogLine, dirname, escapeText, groupArtifactsByFolder, linkifyLocalPaths, relativeTime, resolveOpenTarget, sanitizeHtml, sanitizeSvg, shouldClearBusyOnAgentStderr, surfaceStderr, textFromContent, textFromRawOutput } from "./text";
 
 describe("basename", () => {
   it("takes the last path segment", () => {
@@ -52,11 +52,58 @@ describe("sanitizeHtml", () => {
   it("strips script and event handlers", () => {
     const dirty = `<p>hi</p><script>alert(1)</script><img src=x onerror="alert(2)">`;
     const clean = sanitizeHtml(dirty);
-    expect(clean).not.toMatch(/script/i);
+    expect(clean).not.toMatch(/<script/i);
     expect(clean).not.toMatch(/onerror/i);
+    expect(clean).toContain("<p>hi</p>");
   });
   it("strips javascript urls", () => {
     expect(sanitizeHtml(`<a href="javascript:alert(1)">x</a>`)).not.toMatch(/javascript:/i);
+  });
+  it("strips entity-encoded javascript URLs", () => {
+    const clean = sanitizeHtml(`<a href="javascrip&#116;:alert(1)">x</a>`);
+    expect(clean).not.toMatch(/javascript:/i);
+    expect(clean).not.toMatch(/alert\(/i);
+  });
+  it("strips unclosed iframe, object, and embed", () => {
+    const clean = sanitizeHtml(
+      `<p>keep</p><iframe src="https://evil.test"><object data="x"><embed src="y">`,
+    );
+    expect(clean).not.toMatch(/<iframe/i);
+    expect(clean).not.toMatch(/<object/i);
+    expect(clean).not.toMatch(/<embed/i);
+    expect(clean).toContain("<p>keep</p>");
+  });
+  it("strips base href and meta refresh", () => {
+    const clean = sanitizeHtml(
+      `<base href="https://evil.test/"><meta http-equiv="refresh" content="0;url=https://evil.test"><p>ok</p>`,
+    );
+    expect(clean).not.toMatch(/<base/i);
+    expect(clean).not.toMatch(/<meta/i);
+    expect(clean).toContain("<p>ok</p>");
+  });
+  it("strips svg and math mutation XSS", () => {
+    const clean = sanitizeHtml(
+      `<svg><script>alert(1)</script></svg><math><mi xlink:href="javascript:alert(1)">x</mi></math><p>ok</p>`,
+    );
+    expect(clean).not.toMatch(/<script/i);
+    expect(clean).not.toMatch(/javascript:/i);
+    expect(clean).toContain("<p>ok</p>");
+  });
+  it("keeps http(s) links and checked asset: URLs", () => {
+    const clean = sanitizeHtml(
+      `<a href="https://example.com/a">docs</a><img src="asset://localhost/%2Fwork/out/hero.png">`,
+    );
+    expect(clean).toContain('href="https://example.com/a"');
+    expect(clean).toContain("asset://localhost/%2Fwork/out/hero.png");
+  });
+});
+
+describe("sanitizeSvg", () => {
+  it("keeps a mermaid svg and strips nested script", () => {
+    const clean = sanitizeSvg(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><g id="ok"/></svg>`);
+    expect(clean).toMatch(/<svg/i);
+    expect(clean).not.toMatch(/<script/i);
+    expect(clean).toMatch(/id="ok"/);
   });
 });
 
