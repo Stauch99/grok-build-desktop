@@ -23,22 +23,23 @@ describe("memoizeMarkdown", () => {
     expect(calls).toBe(1);
   });
 
-  it("evicts the oldest entry when the 81st unique key is added", async () => {
-    const { memoizeMarkdown } = await loadCache();
+  it("evicts the oldest entry when the cache grows past the LRU cap", async () => {
+    const { memoizeMarkdown, MARKDOWN_CACHE_MAX } = await loadCache();
     let calls = 0;
     const toSrc = () => {
       calls += 1;
       return `asset://n-${calls}`;
     };
     const text = (i: number) => `![n](/img/${i}.png)`;
-    for (let i = 0; i < 80; i++) memoizeMarkdown(text(i), "/cwd", toSrc);
+    for (let i = 0; i < MARKDOWN_CACHE_MAX; i++) memoizeMarkdown(text(i), "/cwd", toSrc);
     const afterFill = calls;
-    memoizeMarkdown(text(79), "/cwd", toSrc);
+    memoizeMarkdown(text(MARKDOWN_CACHE_MAX - 1), "/cwd", toSrc);
     expect(calls).toBe(afterFill);
 
-    memoizeMarkdown(text(80), "/cwd", toSrc);
+    memoizeMarkdown(text(MARKDOWN_CACHE_MAX), "/cwd", toSrc);
     const afterEvict = calls;
     memoizeMarkdown(text(0), "/cwd", toSrc);
     expect(calls).toBeGreaterThan(afterEvict);
+    expect(MARKDOWN_CACHE_MAX).toBe(400);
   });
 });

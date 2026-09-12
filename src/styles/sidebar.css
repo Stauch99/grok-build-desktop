@@ -136,6 +136,17 @@
   padding: 0 8px var(--session-list-end-pad);
   overscroll-behavior: contain;
 }
+.session-list.virtualized {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+.session-list.virtualized .sidebar-list {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
 .session-list.inbox-list {
   padding-bottom: 0;
 }
