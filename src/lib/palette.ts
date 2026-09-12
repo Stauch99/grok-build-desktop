@@ -42,7 +42,7 @@ const CORE_ACTIONS: PaletteItem[] = [
   { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
   { id: "act:export", label: "复制全部对话", group: "操作", hint: "/export" },
   { id: "act:theme", label: "切换浅色 / 深色", group: "操作" },
-  { id: "act:panel", label: "Dashboard", group: "操作", hint: "当前会话实时状态" },
+  { id: "act:panel", label: "审阅", group: "操作", hint: "当前会话实时状态" },
   { id: "act:context", label: "计划与规则", group: "操作" },
   { id: "act:dashboard", label: "会话总览", group: "操作", hint: "跨会话浏览" },
   { id: "act:imagine", label: "图片", group: "操作" },

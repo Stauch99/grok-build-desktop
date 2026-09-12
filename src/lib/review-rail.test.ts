@@ -28,11 +28,11 @@ describe("review rail model", () => {
     ]);
     expect([...REVIEW_SUBTABS]).toEqual(["progress", "files", "terminal"]);
     expect(REVIEW_PEERS.map((pane) => pane.id)).toEqual(["review", "git", "preview", "explorer"]);
-    expect(REVIEW_PEERS[0]?.label).toBe("Dashboard");
+    expect(REVIEW_PEERS[0]?.label).toBe("审阅");
     expect(REVIEW_PEERS.find((pane) => pane.id === "explorer")?.label).toBe("文件管理");
     expect(reviewPaneLabel("zh", "explorer")).toBe("文件管理");
     expect(reviewPaneLabel("en", "explorer")).toBe("Files");
-    expect(reviewPaneLabel("en", "review")).toBe("Dashboard");
+    expect(reviewPaneLabel("en", "review")).toBe("Review");
     expect(reviewTabLabel("en", "progress")).toBe("Progress");
     expect(reviewTabLabel("en", "terminal")).toBe("Terminal");
   });

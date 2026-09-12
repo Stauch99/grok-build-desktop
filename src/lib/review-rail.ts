@@ -18,7 +18,7 @@ export const REVIEW_TABS: ReadonlyArray<{ id: ReviewTab; label: string }> = [
 export const REVIEW_SUBTABS: ReadonlySet<ReviewTab> = new Set(["progress", "files", "terminal"]);
 
 export const REVIEW_PEERS: ReadonlyArray<{ id: ReviewPeerPane; label: string }> = [
-  { id: "review", label: "Dashboard" },
+  { id: "review", label: "审阅" },
   { id: "git", label: "Git" },
   { id: "preview", label: "预览" },
   { id: "explorer", label: "文件管理" },
@@ -54,7 +54,7 @@ const ACTION_TAB: Record<ReviewOpenAction, ReviewTab> = {
 export function reviewTabForAction(action: ReviewOpenAction): ReviewTab { return ACTION_TAB[action]; }
 
 export function reviewTabLabel(locale: Locale, id: ReviewTab): string {
-  if (id === "home" || id === "details" || id === "context") return "Dashboard";
+  if (id === "home" || id === "details" || id === "context") return t(locale, "rail.review");
   const key = id === "changes" ? "git" : id;
   return t(locale, `rail.${key}`);
 }

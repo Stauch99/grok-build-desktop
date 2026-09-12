@@ -118,7 +118,7 @@ describe("buildPaletteItems", () => {
     expect(items.some((i) => i.id === "act:worktree")).toBe(false);
     expect(items.some((i) => i.id === "act:finder")).toBe(false);
     expect(items.find((i) => i.id === "act:panel")).toMatchObject({
-      label: "Dashboard",
+      label: "审阅",
       hint: "当前会话实时状态",
     });
     expect(items.find((i) => i.id === "act:dashboard")).toMatchObject({
@@ -142,7 +142,7 @@ describe("buildPaletteItems", () => {
       hint: "Browse across sessions",
     });
     expect(items.find((i) => i.id === "act:panel")).toMatchObject({
-      label: "Dashboard",
+      label: "Review",
       hint: "Live status for this session",
     });
   });
