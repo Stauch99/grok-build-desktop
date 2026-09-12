@@ -1,4 +1,6 @@
 import type { SessionSummary } from "../api";
+import { compareByUpdatedAtDesc } from "./session-time";
+import { UNTITLED_SESSION_LABEL, clipSessionTitle, isUntitledSessionTitle } from "./session-title";
 import { basename } from "./text";
 
 export type ProjectNode = {
@@ -6,6 +8,19 @@ export type ProjectNode = {
   name: string;
   sessions: SessionSummary[];
 };
+
+/**
+ * Projects are an allow-list the user adds. Session-scan discovery used to
+ * merge every historical cwd into that list; `manualProjects` marks the
+ * cutover so we do not keep those auto-imported folders.
+ */
+export function adoptManualProjects(
+  saved: string[] | undefined,
+  alreadyManual: boolean | undefined,
+): { projects: string[]; reset: boolean } {
+  if (alreadyManual) return { projects: Array.isArray(saved) ? saved : [], reset: false };
+  return { projects: [], reset: true };
+}
 
 export function mergeProjectPaths(saved: string[], discovered: string[]): string[] {
   const out: string[] = [];
@@ -17,6 +32,22 @@ export function mergeProjectPaths(saved: string[], discovered: string[]): string
     out.push(n);
   }
   return out.sort((a, b) => basename(a).localeCompare(basename(b), "zh"));
+}
+
+/** Drop saved project paths whose directory no longer exists. */
+export function keepExistingDirs(
+  paths: string[],
+  isDir: (path: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of paths) {
+    const n = p.replace(/\/+$/, "");
+    if (!n || seen.has(n) || !isDir(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
 }
 
 export type SessionNode = {
@@ -36,7 +67,7 @@ export function nestByParent(sessions: SessionSummary[]): SessionNode[] {
     }
   }
   const attached = new Set([...kids.values()].flat().map((s) => s.id));
-  const sort = (xs: SessionSummary[]) => [...xs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const sort = (xs: SessionSummary[]) => [...xs].sort(compareByUpdatedAtDesc);
   const build = (s: SessionSummary): SessionNode => ({
     session: s,
     children: sort(kids.get(s.id) ?? []).map(build),
@@ -54,16 +85,20 @@ export function groupSessions(projects: string[], sessions: SessionSummary[]): P
     name: basename(path),
     sessions: sessions
       .filter((s) => s.cwd === path)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      .sort(compareByUpdatedAtDesc),
   }));
 }
 
 export function displayTitle(
   s: { id: string; title: string },
   titles: Record<string, string> = {},
+  preview?: Record<string, string>,
 ): string {
   const o = titles[s.id]?.trim();
-  return o || s.title || "未命名会话";
+  if (o) return o;
+  if (!isUntitledSessionTitle(s.id, s.title)) return s.title.trim();
+  const clip = clipSessionTitle(preview?.[s.id] ?? "");
+  return clip || s.title.trim() || UNTITLED_SESSION_LABEL;
 }
 
 export function setTitleOverride(
@@ -78,6 +113,19 @@ export function setTitleOverride(
     return next;
   }
   return { ...titles, [id]: t };
+}
+
+export type TitleCommit =
+  | { action: "cancel" }
+  | { action: "reject-auto" }
+  | { action: "apply"; id: string; title: string };
+
+export function decideTitleCommit(raw: string, editingTitleId: string | null): TitleCommit {
+  if (!editingTitleId) return { action: "cancel" };
+  const t = raw.trim();
+  if (t === "--auto") return { action: "reject-auto" };
+  if (!t) return { action: "cancel" };
+  return { action: "apply", id: editingTitleId, title: t };
 }
 
 export function filterProjectTree(

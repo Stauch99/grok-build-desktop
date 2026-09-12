@@ -1,0 +1,326 @@
+/* Preview is a peer of the whole conversation column, so the composer
+   stays aligned to the thread instead of spanning both. */
+.pane-body {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.work-panes {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.pane-split {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.pane-split-col { flex-direction: row; }
+.pane-split-row { flex-direction: column; }
+.pane-split-branch {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.pane-split-branch > .pane,
+.pane-split-branch > .pane-split {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+.resizer-row {
+  flex: 0 0 5px;
+  margin: -2px 0;
+  cursor: row-resize;
+}
+.resizer-row .resizer-grip {
+  width: 100%;
+  height: 1px;
+}
+.resizer-row:hover .resizer-grip,
+.resizer-row:focus-visible .resizer-grip,
+:root.resizing-row .resizer-row:active .resizer-grip {
+  background: var(--accent);
+  height: 2px;
+  width: 100%;
+}
+:root.resizing-row, :root.resizing-row * { cursor: row-resize !important; user-select: none !important; }
+
+.pane-drop-target {
+  position: fixed;
+  pointer-events: none;
+  z-index: 80;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 8px;
+}
+.pane-drop-target.is-blocked {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.pane-drop-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 81;
+  min-width: 140px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pane-drop-ghost strong {
+  font-size: var(--ui-small);
+  font-weight: 500;
+  color: var(--text);
+}
+.pane-drop-ghost span {
+  font-size: var(--ui-smaller);
+  color: var(--muted);
+}
+:root.pane-dropping, :root.pane-dropping * { cursor: grabbing !important; }
+:root.pane-dropping-blocked, :root.pane-dropping-blocked * { cursor: not-allowed !important; }
+
+/* ---- column resizers ---- */
+
+.resizer {
+  flex: 0 0 5px;
+  margin: 0 -2px;
+  position: relative;
+  z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.resizer-grip {
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.resizer:hover .resizer-grip,
+.resizer:focus-visible .resizer-grip,
+:root.resizing .resizer:active .resizer-grip {
+  background: var(--accent);
+  width: 2px;
+}
+.resizer:focus-visible { outline: none; }
+/* A drag must not select text or flip the cursor over child elements. */
+:root.resizing, :root.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+:root.resizing .pane-split-branch > * {
+  pointer-events: none;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.file-row .file-item { flex: 1; }
+.file-entry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.file-entry-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 3px 4px;
+  margin: 0;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+}
+.file-entry-main:hover { background: var(--bg-hover); }
+.file-entry-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--muted);
+  display: inline-flex;
+}
+.file-entry-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.file-entry-name,
+.file-crumb {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.file-entry-name {
+  font-size: var(--ui-small);
+  line-height: 1.35;
+  color: var(--text);
+}
+.file-crumb {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--faint);
+}
+.explorer-loading { padding-left: 22px; }
+.explorer-tree.virtualized,
+.file-list.virtualized {
+  flex: 1 1 0;
+  min-height: 240px;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.explorer-tree.virtualized .explorer-list,
+.file-list.virtualized .file-tree-list {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+.explorer-twist {
+  flex: none;
+  width: 10px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.bash-cmd { position: relative; min-width: 0; }
+.bash-cmd-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.bash-cmd-preview:hover { background: var(--bg-hover); }
+.bash-cmd-card {
+  position: fixed;
+  z-index: 40;
+  padding: 8px 10px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  user-select: text;
+}
+.bash-cmd-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--ui-smaller);
+  color: var(--muted);
+}
+.bash-cmd-full {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.float-card .hub-search {
+  width: 100%;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.file-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  line-height: 1;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  padding: 4px;
+  min-width: 22px;
+  min-height: 22px;
+  border-radius: 4px;
+}
+.file-open:hover { color: var(--text); background: var(--bg-hover); }
+.file-open svg { display: block; }
+.file-entry .file-finder,
+.file-entry .file-attach { opacity: 0; }
+.file-entry:hover .file-finder,
+.file-entry:focus-within .file-finder,
+.file-finder:focus-visible,
+.file-entry:hover .file-attach,
+.file-entry:focus-within .file-attach,
+.file-attach:focus-visible { opacity: 1; }
+
+.mru-list {
+  position: fixed;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 40;
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+.mru-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: calc(var(--radius-l) - 4px);
+  font-size: var(--ui-small);
+}
+.mru-list button.on, .mru-list button:hover { background: var(--bg-hover); }
+
+.model-chip.differs { color: var(--accent-deep); }
+

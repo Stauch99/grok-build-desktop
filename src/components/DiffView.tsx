@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { diffLines, rowMark } from "../lib/diff";
 import { basename } from "../lib/text";
+import { IconCopy, IconFinder, IconMaximize, IconMinimize } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type DiffViewProps = {
   path: string;
@@ -18,6 +20,7 @@ export type DiffViewProps = {
  * clickable row rather than scrolling the interesting part off screen.
  */
 export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const result = useMemo(
     () => diffLines(oldText, newText ?? "", { context: expanded ? 999 : 3 }),
@@ -29,13 +32,13 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
   return (
     <div className="diff">
       <div className="diff-head">
-        <span className="diff-path" title={path}>
+        <span className="diff-path">
           {basename(path) || path}
         </span>
         <span className="diff-stat">
           {result.added > 0 && <span className="stat-add">+{result.added}</span>}
           {result.removed > 0 && <span className="stat-del">−{result.removed}</span>}
-          {created && <span className="diff-tag">新建</span>}
+          {created && <span className="diff-tag">{t("diff.new")}</span>}
         </span>
         <span className="diff-actions">
           {result.rows.some((r) => r.kind === "gap") || expanded ? (
@@ -44,28 +47,27 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
               className="file-open"
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
+              aria-label={expanded ? t("diff.collapse") : t("diff.expand")}
             >
-              {expanded ? "折叠" : "全文"}
+              {expanded ? <IconMinimize size={14} /> : <IconMaximize size={14} />}
             </button>
           ) : null}
           <button
             type="button"
             className="file-open"
-            title="复制新内容"
-            aria-label="复制新内容"
+            aria-label={t("diff.copyNew")}
             onClick={() => void navigator.clipboard.writeText(newText ?? "")}
           >
-            复制
+            <IconCopy size={14} />
           </button>
           {onOpen && path ? (
             <button
               type="button"
               className="file-open"
-              title="在访达中打开"
-              aria-label="在访达中打开"
+              aria-label={t("finder.open")}
               onClick={() => onOpen(path)}
             >
-              访达
+              <IconFinder size={14} />
             </button>
           ) : null}
         </span>
@@ -81,7 +83,7 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
                 className="diff-gap"
                 onClick={() => setExpanded(true)}
               >
-                ⋯ {row.count} 行未改动
+                {t("diff.unchanged", { n: row.count })}
               </button>
             );
           }
@@ -97,7 +99,7 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
           );
         })}
         {result.truncated && (
-          <div className="diff-more">改动过大，只显示前 {result.rows.length} 行</div>
+          <div className="diff-more">{t("diff.tooLarge", { n: result.rows.length })}</div>
         )}
       </div>
     </div>

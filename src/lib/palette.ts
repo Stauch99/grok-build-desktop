@@ -1,3 +1,8 @@
+import { frecencyScore, type FrecencyMap } from "./frecency";
+import { t, type Locale } from "./i18n";
+import { basename } from "./text";
+import { displayTitle } from "./projects";
+
 export type PaletteGroup = "操作" | "会话" | "项目" | "命令";
 
 export type PaletteItem = {
@@ -6,6 +11,115 @@ export type PaletteItem = {
   hint?: string;
   group: PaletteGroup;
 };
+
+export type PaletteSession = { id: string; cwd: string; title: string };
+export type PaletteCommand = { name: string; hint?: string };
+
+export type PaletteSources = {
+  sessions: PaletteSession[];
+  projects: string[];
+  commands: PaletteCommand[];
+  titles: Record<string, string>;
+  cwd: string;
+  isRepo: boolean;
+};
+
+export type PaletteAction =
+  | { kind: "session"; id: string }
+  | { kind: "project"; path: string }
+  | { kind: "slash"; name: string }
+  | { kind: "act"; act: string };
+
+const CORE_ACTIONS: PaletteItem[] = [
+  { id: "act:new-chat", label: "新对话", group: "操作", hint: "不绑目录" },
+  { id: "act:new-session", label: "在当前项目新开会话", group: "操作" },
+  { id: "act:settings", label: "打开设置", group: "操作" },
+  { id: "act:hub-skills", label: "扩展中心 · 技能", group: "操作", hint: "/skills" },
+  { id: "act:hub-mcp", label: "扩展中心 · MCP", group: "操作", hint: "/mcps" },
+  { id: "act:hub-plugins", label: "扩展中心 · 技能", group: "操作", hint: "/plugins" },
+  { id: "act:hub-hooks", label: "扩展中心 · Hooks", group: "操作", hint: "/hooks" },
+  { id: "act:hub-market", label: "扩展中心 · 市场", group: "操作", hint: "/marketplace" },
+  { id: "act:fork", label: "分叉会话", group: "操作", hint: "/fork" },
+  { id: "act:export", label: "复制全部对话", group: "操作", hint: "/export" },
+  { id: "act:theme", label: "切换浅色 / 深色", group: "操作" },
+  { id: "act:panel", label: "Dashboard", group: "操作", hint: "当前会话实时状态" },
+  { id: "act:context", label: "计划与规则", group: "操作" },
+  { id: "act:dashboard", label: "会话总览", group: "操作", hint: "跨会话浏览" },
+  { id: "act:imagine", label: "图片", group: "操作" },
+  { id: "act:agents", label: "代理", group: "操作" },
+  { id: "act:memory", label: "记忆", group: "操作" },
+  { id: "act:usage", label: "用量", group: "操作" },
+  { id: "act:add-project", label: "添加项目…", group: "操作" },
+];
+
+const ACTION_I18N: Record<string, { label: string; hint?: string }> = {
+  "act:new-chat": { label: "palette.newChat", hint: "palette.newChatHint" },
+  "act:new-session": { label: "palette.newSession" },
+  "act:settings": { label: "palette.settings" },
+  "act:hub-skills": { label: "palette.hubSkills" },
+  "act:hub-mcp": { label: "palette.hubMcp" },
+  "act:hub-plugins": { label: "palette.hubPlugins" },
+  "act:hub-hooks": { label: "palette.hubHooks" },
+  "act:hub-market": { label: "palette.hubMarket" },
+  "act:fork": { label: "palette.fork" },
+  "act:export": { label: "palette.export" },
+  "act:theme": { label: "palette.theme" },
+  "act:panel": { label: "palette.panel", hint: "palette.panelHint" },
+  "act:context": { label: "palette.context" },
+  "act:dashboard": { label: "palette.dashboard", hint: "palette.dashboardHint" },
+  "act:imagine": { label: "palette.imagine" },
+  "act:agents": { label: "palette.agents" },
+  "act:memory": { label: "palette.memory" },
+  "act:usage": { label: "palette.usage" },
+  "act:add-project": { label: "palette.addProject" },
+  "act:worktree": { label: "palette.worktree" },
+  "act:finder": { label: "palette.finder" },
+};
+
+function localizePaletteItem(item: PaletteItem, locale: Locale): PaletteItem {
+  const keys = ACTION_I18N[item.id];
+  if (!keys) return item;
+  return {
+    ...item,
+    label: t(locale, keys.label),
+    hint: keys.hint ? t(locale, keys.hint) : item.hint,
+  };
+}
+
+export function buildPaletteItems(source: PaletteSources, locale: Locale = "zh"): PaletteItem[] {
+  const out: PaletteItem[] = CORE_ACTIONS.map((item) => localizePaletteItem(item, locale));
+  if (source.isRepo) {
+    out.push(localizePaletteItem({ id: "act:worktree", label: "在新 worktree 里开会话", group: "操作" }, locale));
+  }
+  if (source.cwd) out.push(localizePaletteItem({ id: "act:finder", label: "在访达中打开工作目录", group: "操作" }, locale));
+  for (const s of source.sessions.slice(0, 60)) {
+    out.push({
+      id: `session:${s.id}`,
+      label: displayTitle(s, source.titles),
+      hint: basename(s.cwd),
+      group: "会话",
+    });
+  }
+  for (const p of source.projects) {
+    out.push({ id: `project:${p}`, label: basename(p), hint: p, group: "项目" });
+  }
+  for (const c of source.commands) {
+    out.push({ id: `slash:${c.name}`, label: c.name, hint: c.hint, group: "命令" });
+  }
+  return out;
+}
+
+/** Parse a palette row id (`act:new-chat`, `session:…`) into a typed action. */
+export function parsePaletteAction(id: string): PaletteAction | null {
+  const [kind, ...rest] = id.split(":");
+  const arg = rest.join(":");
+  if (!kind || !arg) return null;
+  if (kind === "session") return { kind: "session", id: arg };
+  if (kind === "project") return { kind: "project", path: arg };
+  if (kind === "slash") return { kind: "slash", name: arg };
+  if (kind === "act") return { kind: "act", act: arg };
+  return null;
+}
 
 const GROUP_ORDER: PaletteGroup[] = ["操作", "会话", "项目", "命令"];
 
@@ -40,6 +154,8 @@ export function filterPalette(
   items: PaletteItem[],
   query: string,
   limit = 40,
+  frecency?: FrecencyMap,
+  now = Date.now(),
 ): PaletteItem[] {
   const scored: { item: PaletteItem; score: number; order: number }[] = [];
   items.forEach((item, order) => {
@@ -49,6 +165,11 @@ export function filterPalette(
   });
   const q = query.trim();
   scored.sort((a, b) => {
+    if (frecency) {
+      const fa = frecencyScore(frecency[a.item.id]?.uses ?? 0, frecency[a.item.id]?.lastAt ?? 0, now);
+      const fb = frecencyScore(frecency[b.item.id]?.uses ?? 0, frecency[b.item.id]?.lastAt ?? 0, now);
+      if (fb !== fa) return fb - fa;
+    }
     if (!q) {
       const g = GROUP_ORDER.indexOf(a.item.group) - GROUP_ORDER.indexOf(b.item.group);
       if (g !== 0) return g;
@@ -58,6 +179,35 @@ export function filterPalette(
     return a.order - b.order;
   });
   return scored.slice(0, limit).map((s) => s.item);
+}
+
+export type PaletteKeyState = {
+  index: number;
+  hits: PaletteItem[];
+  query: string;
+};
+
+export type PaletteKeyNext = PaletteKeyState & {
+  action: "none" | "close" | "pick" | "search";
+  id?: string;
+  search?: string;
+};
+
+export function paletteKey(state: PaletteKeyState, key: string): PaletteKeyNext {
+  if (key === "Escape") return { ...state, action: "close" };
+  if (key === "ArrowDown") {
+    return { ...state, index: clampIndex(state.index + 1, state.hits.length), action: "none" };
+  }
+  if (key === "ArrowUp") {
+    return { ...state, index: clampIndex(state.index - 1, state.hits.length), action: "none" };
+  }
+  if (key === "Enter") {
+    const result = paletteSubmit(state.query, state.hits, state.index);
+    if (result.kind === "pick") return { ...state, action: "pick", id: result.id };
+    if (result.kind === "search") return { ...state, action: "search", search: result.query };
+    return { ...state, action: "none" };
+  }
+  return { ...state, action: "none" };
 }
 
 export function paletteSubmit(

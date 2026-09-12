@@ -1,3 +1,5 @@
+import { useT } from "../lib/locale-context";
+
 export type DashboardSession = {
   id: string;
   title: string;
@@ -9,30 +11,31 @@ export type DashboardPanelProps = {
   onOpen: (id: string) => void;
 };
 
-const GROUPS: { status: DashboardSession["status"]; label: string }[] = [
-  { status: "needs-input", label: "等你" },
-  { status: "running", label: "进行中" },
-  { status: "idle", label: "空闲" },
+const GROUPS: Array<{ status: DashboardSession["status"]; key: string }> = [
+  { status: "needs-input", key: "dashboard.needsYou" },
+  { status: "running", key: "dashboard.running" },
+  { status: "idle", key: "dashboard.idle" },
 ];
 
 /**
  * /dashboard: sessions bucketed by Needs input / Running / Idle.
  */
 export function DashboardPanel({ sessions, onOpen }: DashboardPanelProps) {
+  const t = useT();
   const filled = GROUPS.map((group) => ({
     ...group,
     rows: sessions.filter((s) => s.status === group.status),
   })).filter((group) => group.rows.length > 0);
 
   if (filled.length === 0) {
-    return <p className="float-empty">还没有会话。从左侧打开一次对话。</p>;
+    return <p className="float-empty">{t("dashboard.empty")}</p>;
   }
 
   return (
     <div>
       {filled.map((group) => (
         <section key={group.status}>
-          <h3>{group.label}</h3>
+          <h3>{t(group.key)}</h3>
           <div className="file-list">
             {group.rows.map((s) => (
               <button
@@ -41,7 +44,7 @@ export function DashboardPanel({ sessions, onOpen }: DashboardPanelProps) {
                 className="file-item"
                 onClick={() => onOpen(s.id)}
               >
-                {s.title || "未命名会话"}
+                {s.title || t("dashboard.untitled")}
               </button>
             ))}
           </div>

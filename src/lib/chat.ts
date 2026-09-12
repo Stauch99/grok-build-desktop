@@ -1,5 +1,10 @@
-import { asRecord, textFromContent } from "./text";
+import { parseAcpRecord } from "./acp-events";
+import type { AgentId } from "./agent-id";
+import { stripInjectedMemory } from "./memory-inject";
+import { stickyToolName, isSubagentPollTool } from "./subagent";
+import { asRecord, textFromContent, textFromRawOutput } from "./text";
 import { parseUsageSplit, type UsageSplit } from "./usage-split";
+import { tr } from "./i18n-bridge";
 
 export type { Mode } from "./mode";
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled";
@@ -12,6 +17,8 @@ export type ItemTime = {
   at?: number;
   /** ms since epoch of the last chunk appended to this item. */
   until?: number;
+  /** Which CLI produced this item, when known. */
+  agentId?: AgentId;
 };
 
 export type ChatItem =
@@ -23,6 +30,7 @@ export type ChatItem =
       id: string;
       title: string;
       toolKind?: string;
+      toolName?: string;
       status: ToolStatus;
       detail?: string;
       diff?: DiffBlock;
@@ -43,13 +51,73 @@ export type ChatState = {
   plan: PlanEntry[];
   artifacts: Artifact[];
   commands: SlashCommand[];
+  /** True when hydrate skipped earlier transcript bytes. */
+  truncated?: boolean;
 };
 
 export type ApplyOptions = {
   skipUser?: boolean;
   /** Clock override for live updates that carry no timestamp. Tests pass this. */
   now?: number;
+  /** Disk replay: missing clocks must not glue adjacent user turns. */
+  hydrate?: boolean;
+  /** Tag new items with the pane's agent. */
+  agentId?: AgentId;
 };
+
+/** User chunks closer than this belong to one streamed message, not a new turn. */
+export const USER_CHUNK_MERGE_MS = 1_500;
+
+const HARNESS_USER_PREFIXES = [
+  "<local-command-caveat>",
+  "<command-name>",
+  "<command-message>",
+  "<command-args>",
+  "<local-command-stdout>",
+  "<task-notification>",
+  "<system-reminder>",
+  "<INSTRUCTIONS",
+  "<permissions",
+  "<multi_agent_mode>",
+];
+
+const WORKFLOW_TOOL_TITLES = new Set([
+  "taskupdate",
+  "taskcreate",
+  "taskget",
+  "tasklist",
+  "todowrite",
+  "todoread",
+  "exitplanmode",
+]);
+
+export function isHarnessUserText(text: string): boolean {
+  const t = text.trimStart();
+  if (/^\[Request interrupted by user\]\s*$/i.test(t)) return true;
+  return HARNESS_USER_PREFIXES.some((prefix) => t.startsWith(prefix));
+}
+
+export function isWorkflowToolTitle(title: string): boolean {
+  const token = (title.trim().split(/[\s:/]+/)[0] ?? "").toLowerCase();
+  return WORKFLOW_TOOL_TITLES.has(token);
+}
+
+/** Workflow pings and subagent output polls are not a live turn. */
+export function isBusyNoiseTool(title: string, toolName?: string): boolean {
+  return isWorkflowToolTitle(title) || isSubagentPollTool(title, toolName);
+}
+
+export function shouldMergeUserChunk(
+  last: ChatItem | undefined,
+  at: number,
+  opts?: { hydrate?: boolean; stamped?: boolean },
+): boolean {
+  if (last?.kind !== "user") return false;
+  if (opts?.hydrate && !opts.stamped) return false;
+  const prev = last.until ?? last.at;
+  if (prev == null) return !opts?.hydrate;
+  return at - prev <= USER_CHUNK_MERGE_MS;
+}
 
 export type WorkItem = Extract<ChatItem, { kind: "thought" } | { kind: "tool" }>;
 
@@ -81,9 +149,9 @@ export function workRunLabel(items: WorkItem[]): string {
   const thoughts = items.filter((i) => i.kind === "thought").length;
   const tools = items.filter((i) => i.kind === "tool").length;
   const parts: string[] = [];
-  if (thoughts) parts.push(`${thoughts} 段思考`);
-  if (tools) parts.push(`${tools} 次调用`);
-  return parts.join(" · ") || "工作";
+  if (thoughts) parts.push(tr("work.thoughts", { n: thoughts }));
+  if (tools) parts.push(tr("work.calls", { n: tools }));
+  return parts.join(" · ") || tr("work.default");
 }
 
 export function workRunMeta(items: WorkItem[]): string | undefined {
@@ -106,18 +174,115 @@ export function liveWorkStatus(items: ChatItem[]): string {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if (it.kind === "tool" && (it.status === "in_progress" || it.status === "pending")) {
-      return it.title || it.toolKind || "调用中";
+      if (isWorkflowToolTitle(it.title)) continue;
+      return it.title || it.toolKind || tr("work.calling");
     }
-    if (it.kind === "thought") return "思考中";
+    if (it.kind === "thought") return tr("work.thinking");
     if (it.kind === "assistant" || it.kind === "user") break;
   }
-  return "工作中";
+  return tr("work.working");
+}
+
+/** Latest user prompt before this item, for retrying a failed tool. */
+export function lastUserTextBefore(items: ChatItem[], itemId: string): string | null {
+  let last: string | null = null;
+  for (const it of items) {
+    if (it.id === itemId) break;
+    if (it.kind === "user") {
+      const visible = stripInjectedMemory(it.text);
+      if (visible) last = visible;
+    }
+  }
+  return last;
+}
+
+/** Items after the latest user message — the in-flight turn, or empty while waiting. */
+export function itemsAfterLastUser(items: ChatItem[]): ChatItem[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.kind === "user") return items.slice(i + 1);
+  }
+  return items;
+}
+
+export function turnHasOpenTools(items: ChatItem[]): boolean {
+  return itemsAfterLastUser(items).some(
+    (it) =>
+      it.kind === "tool" &&
+      (it.status === "pending" || it.status === "in_progress") &&
+      !isBusyNoiseTool(it.title, it.toolName),
+  );
+}
+
+/** Quiet this long with no ACP activity and the sidebar/work timer must idle. */
+export const BUSY_HARD_IDLE_MS = 10 * 60 * 1000;
+
+function lastTurnActivityMs(items: ChatItem[]): number | null {
+  const turn = itemsAfterLastUser(items);
+  let last = 0;
+  for (const it of turn) {
+    if (it.kind === "tool" && isBusyNoiseTool(it.title, it.toolName)) continue;
+    const t = it.until ?? it.at;
+    if (typeof t === "number" && t > last) last = t;
+  }
+  return last || null;
+}
+
+/** Some CLIs stream the reply and never send `session/prompt` `stopReason`. */
+export const SETTLED_TURN_MS = 4_000;
+
+export function shouldClearBusyOnSettledChat(opts: {
+  busy: boolean;
+  now: number;
+  items: ChatItem[];
+  settleMs?: number;
+  /** Wall time when assistant text first appeared, if items have no clocks. */
+  seenAssistantAt?: number | null;
+  /** Last ACP session/update for this turn. */
+  lastActivityAt?: number | null;
+  hardIdleMs?: number;
+}): boolean {
+  if (!opts.busy) return false;
+  const last =
+    lastTurnActivityMs(opts.items) ?? opts.seenAssistantAt ?? opts.lastActivityAt ?? null;
+  if (last != null && opts.now - last >= (opts.hardIdleMs ?? BUSY_HARD_IDLE_MS)) {
+    return true;
+  }
+  const turn = itemsAfterLastUser(opts.items);
+  if (turnHasOpenTools(opts.items)) {
+    return false;
+  }
+  let tail: (typeof turn)[number] | undefined;
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const it = turn[i];
+    if (it.kind === "tool" && isBusyNoiseTool(it.title, it.toolName)) continue;
+    tail = it;
+    break;
+  }
+  // A completed tool or a thought means the model is still in the turn — Grok
+  // xhigh often pauses 4s+ between tool batches and the next token.
+  if (!tail || tail.kind !== "assistant" || !tail.text.trim()) return false;
+  const replyClock = tail.until ?? tail.at ?? opts.seenAssistantAt ?? 0;
+  if (!replyClock) return false;
+  return opts.now - replyClock >= (opts.settleMs ?? SETTLED_TURN_MS);
+}
+
+/** Start of the current turn (after the last user message), for “工作了 …”. */
+export function trailingWorkStartedAt(items: ChatItem[]): number | undefined {
+  let start: number | undefined;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "user") {
+      if (start == null) start = it.at;
+      break;
+    }
+    if (it.at != null) start = it.at;
+  }
+  return start;
 }
 
 /**
- * Copy sits under an assistant bubble. Hide it while that turn is still
- * streaming — otherwise the button wedges itself between later chunks.
- * Finished turns keep the control even if a later turn is in flight.
+ * Streaming cursor follows the in-flight assistant turn. Finished turns
+ * stay settled even if a later turn is in flight.
  */
 export function assistantCopyReady(
   items: ChatItem[],
@@ -132,13 +297,13 @@ export function assistantCopyReady(
 
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}秒`;
+  if (s < 60) return tr("elapsed.sec", { n: s });
   const m = Math.floor(s / 60);
   const r = s % 60;
-  if (m < 60) return r ? `${m}分${r}秒` : `${m}分`;
+  if (m < 60) return r ? tr("elapsed.minSec", { n: m, s: r }) : tr("elapsed.min", { n: m });
   const h = Math.floor(m / 60);
   const rest = m % 60;
-  return rest ? `${h}小时${rest}分` : `${h}小时`;
+  return rest ? tr("elapsed.hourMin", { n: h, m: rest }) : tr("elapsed.hour", { n: h });
 }
 
 function usageFromUpdate(
@@ -148,7 +313,15 @@ function usageFromUpdate(
   const kind = String(update.sessionUpdate ?? "");
   if (kind === "usage_update") {
     const next = parseUsageSplit(update, prev);
-    if (!next.size) return prev;
+    if (
+      next.used == null &&
+      next.size == null &&
+      next.input == null &&
+      next.output == null &&
+      next.cache == null
+    ) {
+      return prev;
+    }
     return next;
   }
   if (kind === "auto_compact_started") {
@@ -182,7 +355,7 @@ function asStatus(v: unknown, fallback: ToolStatus): ToolStatus {
   return TOOL_STATUS.includes(v as ToolStatus) ? (v as ToolStatus) : fallback;
 }
 
-export function toolLabel(update: Record<string, unknown>, fallback = "工具调用"): string {
+export function toolLabel(update: Record<string, unknown>, fallback = tr("tool.call")): string {
   const titled = String(update.title ?? "").trim();
   if (titled && titled !== "undefined") return titled;
   const kind = String(update.kind ?? update.toolName ?? "").trim();
@@ -209,8 +382,17 @@ function extractToolBits(update: Record<string, unknown>): {
         };
       } else if (b.type === "content") {
         detail = (detail || "") + textFromContent(b.content);
+      } else if (b.type === "text" || b.text != null) {
+        detail = (detail || "") + textFromContent(b);
       }
     }
+  } else if (update.content) {
+    const fromContent = textFromContent(update.content);
+    if (fromContent) detail = fromContent;
+  }
+  if (update.rawOutput) {
+    const fromOut = textFromRawOutput(update.rawOutput);
+    if (fromOut) detail = fromOut;
   }
   if (update.rawInput && !detail) {
     try {
@@ -226,6 +408,16 @@ export function emptyChat(): ChatState {
   return { items: [], nextId: 1, plan: [], artifacts: [], commands: [] };
 }
 
+/** Switching the bound session must not keep the previous row's token usage. */
+export function chatAfterBoundSessionChange(
+  chat: ChatState,
+  prevId: string | null,
+  nextId: string | null,
+): ChatState {
+  if (prevId === nextId || !chat.usage) return chat;
+  return { ...chat, usage: undefined };
+}
+
 export function applyChatUpdate(
   state: ChatState,
   params: Record<string, unknown>,
@@ -235,9 +427,14 @@ export function applyChatUpdate(
   const kind = String(update.sessionUpdate ?? "");
   // Rust injects `_ts` from the record's own timestamp when replaying from
   // disk; a live notification has none, so it happened just now.
-  const at = typeof params._ts === "number" && Number.isFinite(params._ts)
-    ? params._ts
-    : opts.now ?? Date.now();
+  const rawTs = params._ts;
+  let stamped = false;
+  let at = opts.now ?? Date.now();
+  if (typeof rawTs === "number" && Number.isFinite(rawTs)) {
+    stamped = true;
+    at = rawTs;
+  }
+  const mergeOpts = { hydrate: opts.hydrate, stamped };
   const meta = asRecord(update._meta);
   let nextId = state.nextId;
   const nid = (prefix: string) => {
@@ -245,121 +442,128 @@ export function applyChatUpdate(
     return `${prefix}-${nextId}`;
   };
 
-  if (kind === "user_message_chunk") {
-    if (opts.skipUser) return state;
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
-    const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
-    if (last?.kind === "user") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_message_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "assistant") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "assistant", id: nid("a"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "agent_thought_chunk") {
-    const text = textFromContent(update.content);
-    if (!text) return state;
-    const items = [...state.items];
-    const last = items[items.length - 1];
-    if (last?.kind === "thought") {
-      items[items.length - 1] = { ...last, text: last.text + text, until: at };
-    } else {
-      items.push({ kind: "thought", id: nid("t"), text, at, until: at });
-    }
-    return { ...state, items, nextId };
-  }
-
-  if (kind === "tool_call" || kind === "tool_call_update") {
-    const id = String(update.toolCallId ?? nid("tool"));
-    const { detail, diff } = extractToolBits(update);
-    const items = [...state.items];
-    const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
-    if (idx >= 0) {
-      const cur = items[idx];
-      if (cur.kind === "tool") {
-        items[idx] = {
-          ...cur,
-          title: toolLabel(update, cur.title),
-          toolKind: String(update.kind ?? cur.toolKind ?? ""),
-          status: asStatus(update.status, cur.status),
-          detail: detail ?? cur.detail,
-          diff: diff ?? cur.diff,
-          until: at,
-        };
+  switch (kind) {
+    case "user_message_chunk": {
+      if (opts.skipUser) return state;
+      const text = textFromContent(update.content);
+      if (!text || isHarnessUserText(text)) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      const model = typeof meta.modelId === "string" ? meta.modelId : undefined;
+      const turn = typeof meta.promptIndex === "number" ? meta.promptIndex : undefined;
+      if (last?.kind === "user" && last.text === text && shouldMergeUserChunk(last, at, mergeOpts)) {
+        return state;
       }
-    } else {
-      items.push({
-        kind: "tool",
-        id,
-        title: toolLabel(update),
-        toolKind: String(update.kind ?? ""),
-        status: asStatus(update.status, "pending"),
-        detail,
-        diff,
-        at,
-        until: at,
-      });
+      if (last?.kind === "user" && shouldMergeUserChunk(last, at, mergeOpts)) {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "user", id: nid("u"), text, model, turn, at, until: at, agentId: opts.agentId });
+      }
+      return { ...state, items, nextId };
     }
-    const artifacts = mergeArtifacts(state.artifacts, update, diff);
-    return { ...state, items, nextId, artifacts };
-  }
-
-  if (kind === "plan") {
-    const entries = Array.isArray(update.entries)
-      ? (update.entries as PlanEntry[])
-      : [];
-    return { ...state, nextId, plan: entries };
-  }
-
-  if (kind === "available_commands") {
-    const raw = Array.isArray(update.commands) ? update.commands : [];
-    const commands = raw.map((c) => {
-      const rec = asRecord(c);
-      return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
-    }).filter((c) => c.name);
-    return { ...state, nextId, commands };
-  }
-
-  const usage = usageFromUpdate(update, state.usage);
-  if (usage) {
-    if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
-      const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
-      const items = [
-        ...state.items,
-        {
-          kind: "compact" as const,
-          id: nid("compact"),
-          phase,
-          used: usage.used,
-          size: usage.size,
+    case "agent_message_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "assistant") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "assistant", id: nid("a"), text, at, until: at, agentId: opts.agentId });
+      }
+      return { ...state, items, nextId };
+    }
+    case "agent_thought_chunk": {
+      const text = textFromContent(update.content);
+      if (!text) return state;
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "thought") {
+        items[items.length - 1] = { ...last, text: last.text + text, until: at };
+      } else {
+        items.push({ kind: "thought", id: nid("t"), text, at, until: at, agentId: opts.agentId });
+      }
+      return { ...state, items, nextId };
+    }
+    case "tool_call":
+    case "tool_call_update": {
+      const id = String(update.toolCallId ?? nid("tool"));
+      const { detail, diff } = extractToolBits(update);
+      const items = [...state.items];
+      const idx = items.findIndex((it) => it.kind === "tool" && it.id === id);
+      if (idx >= 0) {
+        const cur = items[idx];
+        if (cur.kind === "tool") {
+          const title = toolLabel(update, cur.title);
+          items[idx] = {
+            ...cur,
+            title,
+            toolName: stickyToolName(cur.toolName, String(update.title ?? "")),
+            toolKind: String(update.kind ?? cur.toolKind ?? ""),
+            status: asStatus(update.status, cur.status),
+            detail: detail ?? cur.detail,
+            diff: diff ?? cur.diff,
+            until: at,
+          };
+        }
+      } else {
+        const title = toolLabel(update);
+        items.push({
+          kind: "tool",
+          id,
+          title,
+          toolName: stickyToolName(undefined, String(update.title ?? title)),
+          toolKind: String(update.kind ?? ""),
+          status: asStatus(update.status, "pending"),
+          detail,
+          diff,
           at,
           until: at,
-        },
-      ];
-      return { ...state, items, nextId, usage };
+          agentId: opts.agentId,
+        });
+      }
+      const artifacts = mergeArtifacts(state.artifacts, update, diff);
+      return { ...state, items, nextId, artifacts };
     }
-    return { ...state, nextId, usage };
+    case "plan": {
+      const entries = Array.isArray(update.entries)
+        ? (update.entries as PlanEntry[])
+        : [];
+      return { ...state, nextId, plan: entries };
+    }
+    case "available_commands": {
+      const raw = Array.isArray(update.commands) ? update.commands : [];
+      const commands = raw.map((c) => {
+        const rec = asRecord(c);
+        return { name: String(rec.name ?? rec.command ?? ""), hint: String(rec.hint ?? rec.description ?? "") };
+      }).filter((c) => c.name);
+      return { ...state, nextId, commands };
+    }
+    default: {
+      const usage = usageFromUpdate(update, state.usage);
+      if (usage) {
+        if (kind === "auto_compact_started" || kind === "auto_compact_completed") {
+          const phase: "started" | "completed" = kind === "auto_compact_started" ? "started" : "completed";
+          const items = [
+            ...state.items,
+            {
+              kind: "compact" as const,
+              id: nid("compact"),
+              phase,
+              used: usage.used,
+              size: usage.size,
+              at,
+              until: at,
+              agentId: opts.agentId,
+            },
+          ];
+          return { ...state, items, nextId, usage };
+        }
+        return { ...state, nextId, usage };
+      }
+      return state;
+    }
   }
-
-  return state;
 }
 
 function mergeArtifacts(prev: Artifact[], update: Record<string, unknown>, diff?: DiffBlock): Artifact[] {
@@ -382,20 +586,104 @@ export function latestPlan(state: ChatState): PlanEntry[] {
   return state.plan;
 }
 
-export function hydrateFromUpdates(rows: unknown[]): ChatState {
-  let state = emptyChat();
+export function hydrateFromUpdates(rows: unknown[], prev?: ChatState): ChatState {
+  let state = prev ?? emptyChat();
   for (const row of rows) {
-    const rec = asRecord(row);
+    const rec = parseAcpRecord(row);
+    if (!rec) continue;
     const params = rec.params ? asRecord(rec.params) : rec;
-    state = applyChatUpdate(state, params);
+    state = applyChatUpdate(state, params, { hydrate: true });
   }
   return state;
+}
+
+export type SessionUpdatePage = {
+  rows: unknown[];
+  nextByte: number;
+  truncated: boolean;
+};
+
+export type SessionUpdateCursor = {
+  nextByte: number;
+  chat: ChatState;
+  lastTurnStopReason?: string | null;
+  userAfterLastStop?: boolean;
+};
+
+export function lastTurnCompletedStopReason(rows: unknown[]): string | null {
+  return foldTurnStopCursor(undefined, rows).lastTurnStopReason;
+}
+
+export function foldLastTurnStopReason(
+  prev: string | null | undefined,
+  rows: unknown[],
+): string | null {
+  return foldTurnStopCursor({ lastTurnStopReason: prev ?? null, userAfterLastStop: false }, rows)
+    .lastTurnStopReason;
+}
+
+export function foldTurnStopCursor(
+  prev: { lastTurnStopReason: string | null; userAfterLastStop: boolean } | undefined,
+  rows: unknown[],
+): { lastTurnStopReason: string | null; userAfterLastStop: boolean } {
+  let lastTurnStopReason = prev?.lastTurnStopReason ?? null;
+  let userAfterLastStop = prev?.userAfterLastStop ?? false;
+  for (const row of rows) {
+    const rec = parseAcpRecord(row);
+    if (!rec) continue;
+    const params = rec.params ? asRecord(rec.params) : rec;
+    const update = params.update ? asRecord(params.update) : params;
+    const kind = String(update.sessionUpdate ?? "");
+    if (kind === "turn_completed") {
+      lastTurnStopReason = String(update.stop_reason ?? update.stopReason ?? "");
+      userAfterLastStop = false;
+      continue;
+    }
+    if (kind === "user_message_chunk" && lastTurnStopReason != null) {
+      userAfterLastStop = true;
+    }
+  }
+  return { lastTurnStopReason, userAfterLastStop };
+}
+
+export function afterByteFor(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+): number | undefined {
+  return cursors.get(sessionId)?.nextByte;
+}
+
+export function applySessionPage(
+  cursors: Map<string, SessionUpdateCursor>,
+  sessionId: string,
+  page: SessionUpdatePage,
+): ChatState {
+  const prev = cursors.get(sessionId);
+  const chat = {
+    ...hydrateFromUpdates(page.rows, prev?.chat),
+    truncated: Boolean(prev?.chat.truncated || page.truncated),
+  };
+  const stop = foldTurnStopCursor(
+    {
+      lastTurnStopReason: prev?.lastTurnStopReason ?? null,
+      userAfterLastStop: prev?.userAfterLastStop ?? false,
+    },
+    page.rows,
+  );
+  cursors.set(sessionId, {
+    nextByte: page.nextByte,
+    chat,
+    lastTurnStopReason: stop.lastTurnStopReason,
+    userAfterLastStop: stop.userAfterLastStop,
+  });
+  return chat;
 }
 
 export function shouldKeepSessionUpdate(
   currentId: string | null,
   incomingId: string | null,
 ): boolean {
-  if (!incomingId || !currentId) return true;
+  if (!currentId) return false;
+  if (!incomingId) return true;
   return incomingId === currentId;
 }

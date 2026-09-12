@@ -171,6 +171,16 @@ export function qualifySkillName(skill: InspectSkill, all: InspectSkill[]): stri
   return `${scope}:${skill.name}`;
 }
 
+/** Slash names the composer can offer for installed, user-invocable skills. */
+export function skillSlashCommands(skills: InspectSkill[]): { name: string; hint: string }[] {
+  return skills
+    .filter((skill) => skill.name.trim() && skill.disabled !== true && skill.userInvocable !== false)
+    .map((skill) => ({
+      name: qualifySkillName(skill, skills),
+      hint: skill.description?.trim() || "技能",
+    }));
+}
+
 export function mcpSourceBadge(server: InspectMcp): McpBadge {
   if (server.vendor === "claude") return "claude";
   if (server.vendor === "cursor") return "cursor";

@@ -16,6 +16,41 @@ export type RevertPlan = {
   unknown: string[];
 };
 
+export type RevertPreviewRow = {
+  path: string;
+  kind: "restore" | "delete";
+  /** Last known file contents after the edits being undone. */
+  current: string;
+  /** Contents after rewind. Empty when the file will be deleted. */
+  restored: string;
+};
+
+export const REWIND_MAX_CHARS = 2 * 1024 * 1024;
+export const REWIND_CONFIRM_PLACEHOLDER = "输入 rewind 确认";
+export const REWIND_SKIP_NOTE = "将跳过（二进制或超过 2MB）";
+
+/** Type-to-confirm: button stays disabled until this matches (case-insensitive). */
+export function rewindPhraseConfirmed(input: string): boolean {
+  return input.trim().toLowerCase() === "rewind";
+}
+
+/**
+ * Binary if restored text contains a NUL or is empty on a non-delete row.
+ * Too large if restored text is longer than 2MB characters.
+ */
+export function rewindSkipReason(row: RevertPreviewRow): "binary" | "too_large" | null {
+  if (row.kind === "delete") return null;
+  const text = row.restored;
+  if (text.includes("\0") || text.length === 0) return "binary";
+  if (text.length > REWIND_MAX_CHARS) return "too_large";
+  return null;
+}
+
+function stepSkipReason(step: RevertStep): "binary" | "too_large" | null {
+  if (step.kind === "delete") return null;
+  return rewindSkipReason({ path: step.path, kind: "restore", current: "", restored: step.text });
+}
+
 /** Index of every user turn, oldest first. These are the checkpoint anchors. */
 export function checkpointIndexes(items: ChatItem[]): number[] {
   const out: number[] = [];
@@ -25,15 +60,7 @@ export function checkpointIndexes(items: ChatItem[]): number[] {
   return out;
 }
 
-/**
- * Build the plan that returns the workspace to its state just before
- * `items[afterIndex]` ran.
- *
- * Walks forward from the checkpoint and keeps the FIRST diff seen per path,
- * because that diff's `oldText` is the content as of the checkpoint. Later
- * edits to the same file are already covered by restoring that content.
- */
-export function planRevert(items: ChatItem[], afterIndex: number): RevertPlan {
+function collectRevert(items: ChatItem[], afterIndex: number): RevertPlan {
   const seen = new Set<string>();
   const steps: RevertStep[] = [];
   const unknown: string[] = [];
@@ -60,21 +87,27 @@ export function planRevert(items: ChatItem[], afterIndex: number): RevertPlan {
   return { steps, unknown };
 }
 
-export type RevertPreviewRow = {
-  path: string;
-  kind: "restore" | "delete";
-  /** Last known file contents after the edits being undone. */
-  current: string;
-  /** Contents after rewind. Empty when the file will be deleted. */
-  restored: string;
-};
+/**
+ * Build the plan that returns the workspace to its state just before
+ * `items[afterIndex]` ran.
+ *
+ * Walks forward from the checkpoint and keeps the FIRST diff seen per path,
+ * because that diff's `oldText` is the content as of the checkpoint. Later
+ * edits to the same file are already covered by restoring that content.
+ * Binary and oversized restores are omitted so restore_text_file never writes them.
+ */
+export function planRevert(items: ChatItem[], afterIndex: number): RevertPlan {
+  const raw = collectRevert(items, afterIndex);
+  return { steps: raw.steps.filter((step) => stepSkipReason(step) == null), unknown: raw.unknown };
+}
 
 /**
- * Same plan as `planRevert`, plus the last `newText` per path so the dialog
- * can render current → restored without reading the disk.
+ * Same walk as `planRevert`, plus the last `newText` per path so the dialog
+ * can render current → restored without reading the disk. Skipped rows stay
+ * in the preview so the dialog can label them.
  */
 export function previewRevert(items: ChatItem[], afterIndex: number): RevertPreviewRow[] {
-  const plan = planRevert(items, afterIndex);
+  const plan = collectRevert(items, afterIndex);
   const lastNew = new Map<string, string>();
   for (let i = Math.max(0, afterIndex); i < items.length; i++) {
     const item = items[i];

@@ -78,8 +78,94 @@ export function filterMentions(input: {
   return hits;
 }
 
+/** True when the prompt should offer @-mentions (slash input wins). */
+export const MENTION_CONTENT_CAP = 100_000;
+
+export function canAttachMentionContent(hit: MentionHit): boolean {
+  return hit.group === "file" || hit.group === "change";
+}
+
+export function mentionPath(hit: MentionHit): string {
+  return hit.insert.replace(/^@/, "").replace(/\/$/, "");
+}
+
+function fenceLang(path: string): string {
+  const base = path.split(/[\\/]/).pop() ?? path;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) return "";
+  return base.slice(dot + 1).toLowerCase();
+}
+
+/** `@path` plus a fenced copy of the file, truncated to `cap` characters. */
+export function formatMentionWithContent(path: string, text: string, cap = MENTION_CONTENT_CAP): string {
+  const body = text.length > cap ? text.slice(0, cap) : text;
+  const lang = fenceLang(path);
+  return `@${path}\n\n\`\`\`${lang}\n${body}\n\`\`\``;
+}
+
+export function resolveMentionReadPath(cwd: string, path: string): string {
+  if (!path) return path;
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return path;
+  if (!cwd) return path;
+  return `${cwd.replace(/[\\/]+$/, "")}/${path}`;
+}
+
+export function applyMentionPick(input: {
+  value: string;
+  hit: MentionHit;
+  includeContent: boolean;
+  content?: string;
+}): string {
+  const at = input.value.lastIndexOf("@");
+  const prefix = at >= 0 ? input.value.slice(0, at) : input.value;
+  const insert =
+    input.includeContent && canAttachMentionContent(input.hit) && input.content != null
+      ? formatMentionWithContent(mentionPath(input.hit), input.content)
+      : input.hit.insert;
+  return `${prefix}${insert} `;
+}
+
+export function mentionMenuVisible(query: string): boolean {
+  if (query.startsWith("/")) return false;
+  const at = query.lastIndexOf("@");
+  return at >= 0 && !query.slice(at + 1).includes("\n");
+}
+
 export function mentionRequestIsCurrent(input: { requestGeneration: number; currentGeneration: number; requestQuery: string; currentQuery: string; visible: boolean; requestOwner: string; currentOwner: string }): boolean {
   return input.visible && input.requestGeneration === input.currentGeneration && input.requestQuery === input.currentQuery && input.requestOwner === input.currentOwner;
+}
+
+export type MentionPick = {
+  generation: number;
+  value: string;
+  visible: false;
+};
+
+/** Close the menu and snapshot composer text before any file read. */
+export function beginMentionPick(input: { generation: number; value: string }): MentionPick {
+  return { generation: input.generation + 1, value: input.value, visible: false };
+}
+
+export function mentionPickIsCurrent(input: { pickGeneration: number; currentGeneration: number }): boolean {
+  return input.pickGeneration === input.currentGeneration;
+}
+
+export function applyMentionPickIfCurrent(input: {
+  pick: MentionPick;
+  currentGeneration: number;
+  hit: MentionHit;
+  includeContent: boolean;
+  content?: string;
+}): string | null {
+  if (!mentionPickIsCurrent({ pickGeneration: input.pick.generation, currentGeneration: input.currentGeneration })) {
+    return null;
+  }
+  return applyMentionPick({
+    value: input.pick.value,
+    hit: input.hit,
+    includeContent: input.includeContent,
+    content: input.content,
+  });
 }
 
 type MentionRequestToken = {

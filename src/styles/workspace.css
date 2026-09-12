@@ -1,0 +1,283 @@
+/* ---- git bar ---- */
+
+.git-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  min-width: 0;
+}
+.git-chip {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--ui-smaller);
+  padding: 6px 8px;
+  min-height: 32px;
+  border-radius: var(--radius-xl);
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+  white-space: nowrap;
+}
+.git-chip-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  min-width: max-content;
+}
+.git-chip:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.git-chip.ghost { color: var(--faint); }
+.git-chip .grok-ico { flex: none; }
+.git-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-dirty {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.git-msg {
+  flex: 0 1 140px;
+  width: 140px;
+  min-width: 72px;
+  max-width: 140px;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: var(--ui-smaller);
+  outline: none;
+}
+.git-msg:disabled { opacity: 0.55; }
+.git-worktree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container workspace-head (max-width: 640px) {
+  .git-worktree-label { display: none; }
+  .git-msg { width: 96px; flex-basis: 96px; }
+}
+
+/* ---- float card tabs + changes list ---- */
+
+.float-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.float-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+  padding: 3px 7px;
+  border-radius: var(--radius);
+}
+.float-tabs button.on { color: var(--text); background: var(--bg-hover); }
+.tab-count {
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.changes { min-width: 0; }
+.changes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.changes-total {
+  font-size: var(--ui-smaller);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.change-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.change-row .file-item { padding-left: 2px; }
+.change-mark {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+  text-align: center;
+}
+.change-mark.added, .change-mark.untracked { color: var(--ok); }
+.change-mark.deleted { color: var(--danger); }
+.change-mark.renamed { color: var(--accent); }
+.change-stat {
+  display: inline-flex;
+  gap: 5px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stat-add { color: var(--ok); }
+.stat-del { color: var(--danger); }
+
+/* ---- MenuSelect: replaces native <select> (tray breaks their VoiceOver) ---- */
+
+.menu-select { position: relative; min-width: 0; }
+.menu-select.field { width: 100%; }
+.menu-select.inline { flex: none; }
+.menu-select-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13.5px;
+  text-align: left;
+  color: var(--text);
+}
+.menu-select-btn:hover:not(:disabled) { border-color: var(--line-strong); }
+.menu-select-btn:disabled { opacity: 0.55; }
+.menu-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-select.inline .menu-select-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--ui-small);
+  padding: 2px 4px;
+  max-width: 152px;
+}
+.menu-select.inline .menu-select-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.menu-select-list {
+  left: 0;
+  right: auto;
+  top: calc(100% + 4px);
+  bottom: auto;
+  z-index: 30;
+  max-height: 260px;
+  overflow-y: auto;
+  min-width: max(240px, 100%);
+  max-width: min(420px, 70vw);
+  outline: none;
+}
+/* composer.css .chip-menu { bottom: 36px } loads later at equal specificity; pin this. */
+.chip-menu.menu-select-list {
+  top: calc(100% + 4px);
+  bottom: auto;
+  left: 0;
+  right: auto;
+  z-index: 40;
+}
+.menu-select-list button { flex-direction: column; align-items: stretch; gap: 2px; }
+.menu-select-list button.on { background: var(--bg-hover); }
+.menu-select-list .hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- steer / stall ---- */
+
+.alt-send {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 5px 9px;
+  font-size: var(--md-size, 15px);
+  white-space: nowrap;
+}
+.alt-send:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.wait-pill.stalled { color: color-mix(in srgb, var(--warn) 80%, var(--muted)); }
+.wait-note {
+  flex: none;
+  color: var(--warn);
+  font-size: var(--md-size, 15px);
+  white-space: nowrap;
+}
+.pin-label.attention { color: var(--warn); }
+
+/* ---- remaining fills: file panel, inline edit, child count ---- */
+
+.file-panel { min-width: 0; position: relative; }
+.file-panel-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 26px;
+  height: 26px;
+}
+.file-panel > .file-folder:first-child { padding-top: 0; }
+.user-turn-edit {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 10px 14px;
+  font-family: var(--font);
+  font-size: var(--md-size, 16px);
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.user-turn-edit:focus { border-color: var(--accent); }
+
+/* ---- keyboard focus ---- */
+
+:focus { outline: none; }
+:focus-visible,
+.hub-search:focus-visible,
+.git-msg:focus-visible,
+.user-turn-edit:focus-visible,
+.title-input:focus-visible,
+.search:focus-visible,
+.shortcut-table input:focus-visible {
+  outline: 1px solid var(--line-strong);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+

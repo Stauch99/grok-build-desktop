@@ -1,3 +1,5 @@
+import { tr } from "./i18n-bridge";
+
 /**
  * Stall detection for a running turn.
  *
@@ -31,9 +33,9 @@ export function stallNote(sinceLastActivityMs: number): string {
   const secs = Math.floor(sinceLastActivityMs / 1000);
   if (level === "stuck") {
     const mins = Math.floor(secs / 60);
-    return `已 ${mins} 分钟没有新输出，可能卡住了`;
+    return tr("stall.stuck", { mins });
   }
-  return `已 ${secs} 秒没有新输出`;
+  return tr("stall.quiet", { secs });
 }
 
 /**

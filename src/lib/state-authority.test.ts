@@ -4,6 +4,7 @@ import { authorityForState, normalizeShowThinking, stateAuthorityExplanation } f
 describe("state authority", () => {
   it.each([
     ["theme", "desktop-preferences", "webui.json"],
+    ["accentId", "desktop-preferences", "webui.json"],
     ["defaultRail", "desktop-preferences", "webui.json"],
     ["model", "cli-defaults", "config.toml"],
     ["showThinking", "cli-defaults", "config.toml"],
@@ -14,6 +15,7 @@ describe("state authority", () => {
     ["saveWebuiState", "desktop-preferences", "webui.json"],
     ["lastWorkspace", "desktop-preferences", "webui.json"],
     ["pinnedProjects", "desktop-preferences", "webui.json"],
+    ["projectGroups", "desktop-preferences", "webui.json"],
     ["sessionTokens", "desktop-preferences", "webui.json"],
     ["sidebarList", "desktop-preferences", "webui.json"],
   ] as const)("classifies %s under %s", (key, kind, location) => {

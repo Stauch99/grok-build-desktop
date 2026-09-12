@@ -46,10 +46,17 @@ const BUILTIN = new Set([
   "hooks-trust",
 ]);
 
+const SKILL_PREFIXES = new Set(["user", "local", "repo", "cwd", "plugin", "compat"]);
+
 export function commandGroup(cmd: CommandDef): SlashGroup {
   const bare = cmd.name.replace(/^\//, "");
   if (cmd.local) return "builtin";
-  if (bare.includes(":")) return "plugin";
+  const colon = bare.indexOf(":");
+  if (colon > 0) {
+    const prefix = bare.slice(0, colon);
+    if (SKILL_PREFIXES.has(prefix)) return "skill";
+    return "plugin";
+  }
   if (BUILTIN.has(bare)) return "builtin";
   if (cmd.hint.toLowerCase().includes("plugin")) return "plugin";
   return "skill";
@@ -69,13 +76,12 @@ export function groupSlashCommands(cmds: CommandDef[]): Array<{ group: SlashGrou
     .map((group) => ({ group, items: buckets.get(group) ?? [] }));
 }
 
-export type HubTab = "skills" | "mcp" | "plugins" | "marketplace" | "hooks";
+export type HubTab = "skills" | "mcp" | "marketplace" | "hooks";
 
 export function hubTabForSlash(name: string): HubTab | null {
   const bare = name.replace(/^\//, "").toLowerCase();
-  if (bare === "skills" || bare === "create-skill") return "skills";
+  if (bare === "skills" || bare === "create-skill" || bare === "plugins") return "skills";
   if (bare === "mcps" || bare === "mcp") return "mcp";
-  if (bare === "plugins") return "plugins";
   if (bare === "marketplace") return "marketplace";
   if (bare === "hooks" || bare === "hooks-trust") return "hooks";
   return null;

@@ -1,16 +1,32 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "@fontsource/source-serif-4/400.css";
 import "@fontsource/source-serif-4/600.css";
+import "@fontsource/noto-serif/latin-600.css";
+import "@fontsource/noto-serif-sc/chinese-simplified-600.css";
+import "./styles/tokens.css";
 import "./styles.css";
+import "./styles/shell.css";
+import "./styles/overlays.css";
+import "./styles/panes.css";
+import "./styles/palette.css";
+import "./styles/workspace.css";
+import "./styles/usage.css";
+import "./styles/hub.css";
+import "./styles/extras.css";
+import "./styles/sidebar.css";
+import "./styles/thread.css";
+import "./styles/composer.css";
+import "./styles/settings.css";
+import "./styles/review.css";
+import "./styles/frost.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

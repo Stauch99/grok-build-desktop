@@ -1,20 +1,34 @@
+import { t, type Locale } from "./i18n";
+import { draftKey } from "./session-drafts";
+
 export type QueuedPrompt = { id: number; text: string };
 
 export type QueueState = { items: QueuedPrompt[]; nextId: number };
 
 export const emptyQueue = (): QueueState => ({ items: [], nextId: 1 });
 
-const MAX_QUEUED = 10;
+export const QUEUE_MAX = 10;
+
+export type EnqueueResult =
+  | { ok: true; state: QueueState }
+  | { ok: false; reason: "empty" | "full"; state: QueueState };
 
 /** Blank text is dropped; the queue is capped so a stuck turn cannot grow it forever. */
-export function enqueue(state: QueueState, text: string): QueueState {
-  const t = text.trim();
-  if (!t) return state;
-  if (state.items.length >= MAX_QUEUED) return state;
+export function tryEnqueue(state: QueueState, text: string): EnqueueResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, reason: "empty", state };
+  if (state.items.length >= QUEUE_MAX) return { ok: false, reason: "full", state };
   return {
-    items: [...state.items, { id: state.nextId, text: t }],
-    nextId: state.nextId + 1,
+    ok: true,
+    state: {
+      items: [...state.items, { id: state.nextId, text: trimmed }],
+      nextId: state.nextId + 1,
+    },
   };
+}
+
+export function enqueue(state: QueueState, text: string): QueueState {
+  return tryEnqueue(state, text).state;
 }
 
 export function dequeue(state: QueueState): { next: QueuedPrompt | null; rest: QueueState } {
@@ -45,8 +59,8 @@ export function reorderQueue(state: QueueState, from: number, to: number): Queue
   return { ...state, items: next };
 }
 
-export function queueLabel(state: QueueState): string {
-  return state.items.length === 0 ? "" : `已排队 ${state.items.length} 条`;
+export function queueLabel(state: QueueState, locale: Locale = "zh"): string {
+  return state.items.length === 0 ? "" : t(locale, "queue.count", { n: state.items.length });
 }
 
 /** Replace queued text. Blank replacement removes the item. */
@@ -57,4 +71,41 @@ export function editQueued(state: QueueState, id: number, text: string): QueueSt
   if (!next) return removeQueued(state, id);
   const items = state.items.map((q) => (q.id === id ? { ...q, text: next } : q));
   return { ...state, items };
+}
+
+export type SessionQueues = Record<string, QueueState>;
+
+export function getSessionQueue(
+  map: SessionQueues,
+  sessionId: string | null | undefined,
+): QueueState {
+  return map[draftKey(sessionId)] ?? emptyQueue();
+}
+
+export function putSessionQueue(
+  map: SessionQueues,
+  sessionId: string | null | undefined,
+  queue: QueueState,
+): SessionQueues {
+  const key = draftKey(sessionId);
+  if (queue.items.length === 0) {
+    if (!(key in map)) return map;
+    const next = { ...map };
+    delete next[key];
+    return next;
+  }
+  return { ...map, [key]: queue };
+}
+
+export function swapSessionQueue(opts: {
+  queues: SessionQueues;
+  fromId: string | null;
+  toId: string | null;
+  fromQueue: QueueState;
+}): { queues: SessionQueues; displayed: QueueState } {
+  if (opts.fromId === opts.toId) {
+    return { queues: putSessionQueue(opts.queues, opts.fromId, opts.fromQueue), displayed: opts.fromQueue };
+  }
+  const queues = putSessionQueue(opts.queues, opts.fromId, opts.fromQueue);
+  return { queues, displayed: getSessionQueue(queues, opts.toId) };
 }

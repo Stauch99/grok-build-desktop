@@ -14,7 +14,6 @@ export type MenuSelectProps<T extends string> = {
   /** Accessible name. Rendered by the caller's own label element. */
   ariaLabel: string;
   disabled?: boolean;
-  title?: string;
   /** `field` fills its container (Settings rows); `inline` hugs its text. */
   variant?: "field" | "inline";
   className?: string;
@@ -23,10 +22,10 @@ export type MenuSelectProps<T extends string> = {
 /**
  * Replacement for a native `<select>`.
  *
- * A tray icon makes WKWebView's native select unreadable to VoiceOver on macOS
- * (tauri#15221), and this app ships a tray. This uses the same listbox pattern
- * as the composer chips so every picker in the app behaves identically and
- * stays keyboard- and screen-reader-navigable.
+ * A native `<select>` is unreadable to VoiceOver on macOS WKWebView
+ * (tauri#15221). This uses the same listbox pattern as the composer chips
+ * so every picker in the app behaves identically and stays keyboard- and
+ * screen-reader-navigable.
  */
 export function MenuSelect<T extends string>({
   value,
@@ -34,7 +33,6 @@ export function MenuSelect<T extends string>({
   onChange,
   ariaLabel,
   disabled,
-  title,
   variant = "field",
   className,
 }: MenuSelectProps<T>) {
@@ -76,7 +74,6 @@ export function MenuSelect<T extends string>({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         disabled={disabled}
-        title={title}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -128,7 +125,6 @@ export function MenuSelect<T extends string>({
               role="option"
               aria-selected={o.value === value}
               className={i === active ? "on" : undefined}
-              title={o.hint || o.label}
               onMouseEnter={() => setActive(i)}
               onClick={() => commit(o.value)}
             >

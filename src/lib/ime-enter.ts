@@ -1,0 +1,53 @@
+export const IME_ENTER_GRACE_MS = 50;
+
+export type ImeEnterState = {
+  composing: boolean;
+  endedAt: number;
+};
+
+export type EnterKeyLike = {
+  key: string;
+  isComposing?: boolean;
+  keyCode?: number;
+  which?: number;
+};
+
+export function emptyImeEnterState(): ImeEnterState {
+  return { composing: false, endedAt: 0 };
+}
+
+export function applyImeComposition(
+  _state: ImeEnterState,
+  phase: "start" | "end",
+  now: number,
+): ImeEnterState {
+  if (phase === "start") return { composing: true, endedAt: 0 };
+  return { composing: false, endedAt: now };
+}
+
+/** True when Enter is confirming an IME candidate, not sending the prompt. */
+export function imeBlocksEnter(e: EnterKeyLike, ime: ImeEnterState, now = 0): boolean {
+  if (e.isComposing) return true;
+  if (e.key === "Process") return true;
+  if (e.keyCode === 229 || e.which === 229) return true;
+  if (ime.composing) return true;
+  if (ime.endedAt > 0 && now - ime.endedAt < IME_ENTER_GRACE_MS) return true;
+  return false;
+}
+
+/**
+ * After compositionend the leftover Enter must not insert a newline or send.
+ * While the IME is still composing, leave the event alone so the candidate can confirm.
+ */
+export function imeEnterShouldPreventDefault(e: EnterKeyLike, ime: ImeEnterState, now = 0): boolean {
+  if (e.isComposing) return false;
+  if (e.key === "Process") return false;
+  if (e.keyCode === 229 || e.which === 229) return false;
+  if (ime.composing) return false;
+  return ime.endedAt > 0 && now - ime.endedAt < IME_ENTER_GRACE_MS;
+}
+
+/** ⌘1–9 must not steal IME candidate selection. */
+export function imeBlocksDigitHotkey(e: { isComposing?: boolean }): boolean {
+  return !!e.isComposing;
+}

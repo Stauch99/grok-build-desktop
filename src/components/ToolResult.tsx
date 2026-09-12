@@ -1,4 +1,5 @@
 import { classifyTool, previewLines } from "../lib/tool-render";
+import { useT } from "../lib/locale-context";
 import { DiffView } from "./DiffView";
 
 export type ToolResultDiff = {
@@ -14,15 +15,8 @@ export type ToolResultProps = {
   detail?: string;
   diff?: ToolResultDiff;
   onOpenPath?: (path: string) => void;
-};
-
-const KIND_LABEL: Record<string, string> = {
-  bash: "终端",
-  read: "读取",
-  edit: "编辑",
-  search: "搜索",
-  write: "写入",
-  other: "工具",
+  onRetry?: () => void;
+  onDraft?: () => void;
 };
 
 /**
@@ -37,15 +31,19 @@ export function ToolResult({
   detail,
   diff,
   onOpenPath,
+  onRetry,
+  onDraft,
 }: ToolResultProps) {
+  const t = useT();
   const kind = classifyTool(title, toolKind);
   const preview = previewLines(detail);
+  const kindLabel = t(`tool.${kind}`);
 
   return (
     <div className="tool-result" data-tool-class={kind} data-status={status}>
       <div className="tool-result-title">
-        <span className="tool-kind">{KIND_LABEL[kind] ?? kind}</span>
-        <span className="tool-title">{title || toolKind || "工具调用"}</span>
+        <span className="tool-kind">{kindLabel}</span>
+        <span className="tool-title">{title || toolKind || t("tool.call")}</span>
         {status ? <span className={`fold-meta ${status}`}>{status}</span> : null}
       </div>
       {diff ? (
@@ -58,8 +56,32 @@ export function ToolResult({
       ) : preview ? (
         <pre>{preview}</pre>
       ) : (
-        <p className="tool-empty">无详细输出</p>
+        <p className="tool-empty">{t("tool.empty")}</p>
       )}
+      {status === "failed" && (onRetry || onDraft) ? (
+        <div style={{ padding: "6px 8px", display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+          {onDraft ? (
+            <button
+              type="button"
+              className="secondary-btn small"
+              onClick={onDraft}
+              style={{ fontSize: "12px", padding: "3px 10px", cursor: "pointer" }}
+            >
+              {t("error.draft")}
+            </button>
+          ) : null}
+          {onRetry ? (
+            <button
+              type="button"
+              className="secondary-btn small"
+              onClick={onRetry}
+              style={{ fontSize: "12px", padding: "3px 10px", cursor: "pointer" }}
+            >
+              {t("error.retry")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

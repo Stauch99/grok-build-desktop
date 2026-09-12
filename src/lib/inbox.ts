@@ -1,4 +1,4 @@
-export const DEFAULT_INBOX_NAME = "Grok Chats";
+export const DEFAULT_INBOX_NAME = "Agent Chats";
 
 export function normalizeCwd(path: string): string {
   return path.replace(/\/+$/, "");

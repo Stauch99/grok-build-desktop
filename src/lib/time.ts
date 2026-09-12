@@ -19,6 +19,13 @@ export function thoughtDuration(at?: number, until?: number): string | undefined
   return formatElapsed(ms);
 }
 
+/** Timeline label: 思考中 / 思考了 1分5秒 / 思考. */
+export function thoughtLineLabel(at?: number, until?: number, live = false): string {
+  if (live) return "思考中";
+  const d = thoughtDuration(at, until);
+  return d ? `思考了 ${d}` : "思考";
+}
+
 /**
  * Label above a user turn. `turn` is the ACP promptIndex when present;
  * otherwise pass a 1-based count of user messages so far.

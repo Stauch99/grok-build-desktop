@@ -1,0 +1,114 @@
+name: Triage
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled]
+  pull_request_target:
+    types: [opened, ready_for_review, reopened, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  issue:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+            const number = issue.number;
+            const labels = (issue.labels || []).map((l) => l.name);
+
+            async function ensure(label) {
+              if (labels.includes(label)) return;
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [label] });
+              labels.push(label);
+            }
+
+            if (context.payload.action === 'opened') {
+              await ensure('needs-triage');
+              const title = (issue.title || '').toLowerCase();
+              if (title.startsWith('[bug]') || title.includes('crash')) await ensure('bug');
+              if (title.startsWith('[feat]') || title.startsWith('[feature]')) await ensure('enhancement');
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: [
+                  'Thanks for opening this.',
+                  '',
+                  '- Bugs: include agent, OS, and steps. Never paste credentials.',
+                  '- Features: read [docs/HANDOFF.md](https://github.com/Stauch99/grok-build-desktop/blob/feat/multi-agent-workbench/docs/HANDOFF.md) so the change lands in the right layer.',
+                  '',
+                  'A maintainer will drop `needs-triage` when this has a home. Automation will also mark issues stale after 90 days of silence.',
+                ].join('\n'),
+              });
+            }
+
+            if (context.payload.action === 'labeled' || context.payload.action === 'unlabeled') {
+              const meaningful = labels.filter((n) => n !== 'needs-triage');
+              if (meaningful.length && labels.includes('needs-triage')) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: 'needs-triage' });
+                } catch (err) {
+                  if (err.status !== 404) throw err;
+                }
+              }
+            }
+
+  pr:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const number = pr.number;
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+            const count = files.length;
+            const size = count <= 8 ? 'size/S' : count <= 30 ? 'size/M' : 'size/L';
+            const current = (pr.labels || []).map((l) => l.name);
+            const sizes = ['size/S', 'size/M', 'size/L'];
+            const toRemove = sizes.filter((s) => s !== size && current.includes(s));
+            for (const name of toRemove) {
+              try { await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name }); } catch (e) { if (e.status !== 404) throw e; }
+            }
+            if (!current.includes(size)) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [size] });
+            }
+            if (files.some((f) => f.filename.startsWith('src-tauri/src/agent_') || f.filename.includes('adapters.rs'))) {
+              if (!current.includes('agent-host')) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: ['agent-host'] });
+              }
+            }
+            if (files.some((f) => f.filename.startsWith('docs/') || f.filename === 'README.md' || f.filename === 'CONTRIBUTING.md')) {
+              if (!current.includes('documentation')) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: ['documentation'] });
+              }
+            }
+
+            const body = (pr.body || '').replace(/<!--[\s\S]*?-->/g, '').trim();
+            const opened = context.payload.action === 'opened' || context.payload.action === 'reopened' || context.payload.action === 'ready_for_review';
+            if (opened && body.length < 40) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: 'This PR body is too thin for review. Please fill in the template (summary, kind, test plan). CI still runs on the head branch.',
+              });
+            }
+            if (opened && !pr.draft) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: [
+                  'Thanks for the PR.',
+                  '',
+                  `- Auto-labeled **${size}** (${count} files).`,
+                  '- CI: `npm test` and `npm run typecheck`.',
+                  '- Host/adapter changes also need `cargo test --manifest-path src-tauri/Cargo.toml` locally.',
+                ].join('\n'),
+              });
+            }
