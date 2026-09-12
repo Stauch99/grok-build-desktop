@@ -63,8 +63,8 @@ export function handleMdClick(
   const a = el.closest("a");
   if (!(a instanceof HTMLAnchorElement)) return;
   const target = resolveOpenTarget(a.getAttribute("href") || "", cwd);
-  if (!target) return;
   e.preventDefault();
+  if (!target) return;
   const isWeb = /^https?:\/\//i.test(target);
   if (!isWeb && onPreview && !e.metaKey && !e.ctrlKey) {
     onPreview(target);

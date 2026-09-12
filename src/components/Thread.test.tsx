@@ -26,6 +26,13 @@ describe("ChatRow assistant copy", () => {
   });
 });
 
+describe("thread markdown clicks", () => {
+  it("prevents default even when the href cannot be opened", () => {
+    const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/e\.preventDefault\(\);\s*if \(!target\) return;/);
+  });
+});
+
 describe("thread open scroll", () => {
   it("keeps the current turn's work cluster live while the pane is busy", () => {
     const src = readFileSync(new URL("./Thread.tsx", import.meta.url), "utf8");

@@ -195,6 +195,7 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
       return h.replace(/^file:\/\//i, "");
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
   if (h.startsWith("//")) return null;
   if (h.startsWith("/")) return h;
   if (cwd && !h.includes("://")) {

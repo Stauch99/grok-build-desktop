@@ -121,6 +121,11 @@ describe("resolveOpenTarget", () => {
     expect(resolveOpenTarget("//evil.example/x")).toBeNull();
     expect(resolveOpenTarget("javascript:alert(1)")).toBeNull();
   });
+  it("drops unknown schemes so the webview cannot navigate them", () => {
+    expect(resolveOpenTarget("ftp://evil.example/x")).toBeNull();
+    expect(resolveOpenTarget("mailto:user@example.com")).toBeNull();
+    expect(resolveOpenTarget("custom:payload")).toBeNull();
+  });
   it("joins relative paths to cwd", () => {
     expect(resolveOpenTarget("src/App.tsx", "/proj")).toBe("/proj/src/App.tsx");
   });

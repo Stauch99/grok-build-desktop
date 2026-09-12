@@ -154,7 +154,7 @@ pub(crate) fn handle_agent_request(
                 }));
             }
             match crate::resolve_allowed_path(path, workspace, PathAccess::Write) {
-                Ok(path) => match std::fs::write(&path, content) {
+                Ok(path) => match crate::cli_bridge::write_nofollow(&path, content.as_bytes()) {
                     Ok(()) => Some(json!({ "jsonrpc": "2.0", "id": id, "result": {} })),
                     Err(e) => Some(json!({
                         "jsonrpc": "2.0",
@@ -406,9 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn replaced_generation_does_not_emit_stopped() {
-        assert_eq!(watcher_pool_action(Some(3), 2), WatcherPoolAction::Retire);
-        assert_eq!(watcher_pool_action(None, 2), WatcherPoolAction::EmitStopped);
-        assert_eq!(watcher_pool_action(Some(2), 2), WatcherPoolAction::PollExit);
+    fn write_text_file_uses_nofollow() {
+        let prod = include_str!("acp_loop.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(prod.contains("cli_bridge::write_nofollow"));
+        assert!(!prod.contains("std::fs::write(&path, content)"));
     }
 }

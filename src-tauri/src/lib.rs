@@ -2437,6 +2437,49 @@ fn open_path_arg_rejected(trimmed: &str) -> bool {
     cfg!(target_os = "windows") && explorer_slash_switch(trimmed)
 }
 
+fn path_looks_like_app_or_executable(path: &Path) -> bool {
+    let lower = path.to_string_lossy().to_lowercase();
+    if lower
+        .split(['/', '\\'])
+        .any(|part| part.ends_with(".app") || part.ends_with(".command"))
+    {
+        return true;
+    }
+    matches!(
+        path.extension()
+            .and_then(|v| v.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop" | "command")
+    )
+}
+
+fn unix_executable_mode(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::fs::symlink_metadata(path)
+            .map(|m| {
+                use std::os::unix::fs::PermissionsExt;
+                m.permissions().mode() & 0o111 != 0
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Local `open_path` targets: blocked secrets, apps, and executables stay closed.
+fn open_path_local_rejected(target: &str) -> bool {
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return false;
+    }
+    let path = Path::new(target);
+    is_blocked_path(path) || path_looks_like_app_or_executable(path) || unix_executable_mode(path)
+}
+
 #[tauri::command]
 fn path_is_dir(path: String) -> bool {
     let trimmed = path.trim();
@@ -2574,29 +2617,12 @@ fn validate_review_open_target(
         return Err(AppError::Message("Review 目标不在当前工作区".into()));
     }
     confirm_unfollowed(&unfollowed)?;
-    let lower = unfollowed.to_string_lossy().to_lowercase();
-    if lower.split('/').any(|part| part.ends_with(".app"))
-        || matches!(
-            unfollowed
-                .extension()
-                .and_then(|v| v.to_str())
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("exe" | "com" | "bat" | "cmd" | "appimage" | "desktop")
-        )
-    {
+    if path_looks_like_app_or_executable(&unfollowed) {
         return Err(AppError::Message(
             "Review 不允许打开应用或可执行文件".into(),
         ));
     }
-    #[cfg(unix)]
-    if std::fs::symlink_metadata(&unfollowed)
-        .map(|m| {
-            use std::os::unix::fs::PermissionsExt;
-            m.permissions().mode() & 0o111 != 0
-        })
-        .unwrap_or(false)
-    {
+    if unix_executable_mode(&unfollowed) {
         return Err(AppError::Message("Review 不允许打开可执行文件".into()));
     }
     Ok(unfollowed)
@@ -2642,7 +2668,7 @@ async fn open_path(path: String) -> AppResult<()> {
     };
     if !target.starts_with("http://")
         && !target.starts_with("https://")
-        && open_path_arg_rejected(&target)
+        && (open_path_arg_rejected(&target) || open_path_local_rejected(&target))
     {
         return Err(AppError::Message("invalid path".into()));
     }
@@ -4111,6 +4137,18 @@ mod final_review_tests {
             assert!(open_path_arg_rejected("/select,C:\\Windows"));
             assert!(!open_path_arg_rejected("C:\\Users\\me"));
         }
+    }
+
+    #[test]
+    fn open_path_local_rejects_secrets_apps_and_commands() {
+        let home = dirs_home();
+        assert!(open_path_local_rejected(
+            home.join(".ssh").join("id_rsa").to_str().unwrap()
+        ));
+        assert!(open_path_local_rejected("/Applications/Foo.app"));
+        assert!(open_path_local_rejected("/tmp/run.command"));
+        assert!(!open_path_local_rejected("https://example.com/a"));
+        assert!(!open_path_local_rejected("/tmp/readme.md"));
     }
 }
 
