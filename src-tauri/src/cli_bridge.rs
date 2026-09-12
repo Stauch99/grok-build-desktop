@@ -1381,6 +1381,88 @@ Write the procedure here.
     Ok(json!({ "path": path.display().to_string() }))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSkillInput {
+    path: String,
+    cwd: Option<String>,
+}
+
+/// Deletes a managed skill folder. Allowed roots: ~/.agents/skills (canonical;
+/// vendor symlinks are unlinked first), vendor skill dirs under ~, and
+/// .agents/.grok/skills inside the trusted project.
+#[tauri::command]
+pub async fn delete_skill(
+    state: State<'_, Arc<AppState>>,
+    input: DeleteSkillInput,
+) -> AppResult<()> {
+    let raw = PathBuf::from(input.path.trim());
+    if raw.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
+        return Err(AppError::Message("只能删除 SKILL.md".into()));
+    }
+    let resolved = raw
+        .canonicalize()
+        .map_err(|_| AppError::Message("技能文件不存在".into()))?;
+    if resolved.file_name().and_then(|n| n.to_str()) != Some("SKILL.md")
+        || is_blocked_path(&resolved)
+    {
+        return Err(AppError::Message("不能删除这个路径".into()));
+    }
+    let skill_dir = resolved
+        .parent()
+        .ok_or_else(|| AppError::Message("不能删除这个路径".into()))?;
+    let skills_root = skill_dir
+        .parent()
+        .ok_or_else(|| AppError::Message("不能删除这个路径".into()))?;
+    if skills_root.file_name().and_then(|n| n.to_str()) != Some("skills") {
+        return Err(AppError::Message("不能删除这个路径".into()));
+    }
+
+    let home = dirs_home();
+    let agents_home = agents_home_from(&home, std::env::var("ACP_AGENTS_HOME").ok().as_deref());
+    let canonical_root = agents_home.join("skills");
+    let vendor_roots = [
+        home.join(".grok/skills"),
+        home.join(".kimi-code/skills"),
+        home.join(".claude/skills"),
+        home.join(".codex/skills"),
+    ];
+    let mut allowed =
+        skills_root == canonical_root || vendor_roots.iter().any(|r| skills_root == *r);
+    if !allowed {
+        if let (Some(cwd), Some(trusted)) = (input.cwd.as_deref(), state.workspace.lock().await.clone()) {
+            let raw_dir = PathBuf::from(cwd.trim());
+            if let (Ok(dir), Ok(trusted_dir)) =
+                (raw_dir.canonicalize(), trusted.canonicalize())
+            {
+                if dir == trusted_dir && dir != Path::new("/") {
+                    allowed = skills_root == dir.join(".agents/skills")
+                        || skills_root == dir.join(".grok/skills");
+                }
+            }
+        }
+    }
+    if !allowed {
+        return Err(AppError::Message("只能删除受管理的技能".into()));
+    }
+
+    if skills_root == canonical_root {
+        if let Some(name) = skill_dir.file_name().and_then(|n| n.to_str()) {
+            let flags = [
+                ("grok", false),
+                ("kimi", false),
+                ("claude", false),
+                ("codex", false),
+            ];
+            let _ = crate::skill_sync::sync_skill_to_agents(skill_dir, &home, name, &flags);
+        }
+    }
+    tokio::fs::remove_dir_all(skill_dir)
+        .await
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn patch_skills_disabled(names: Vec<String>) -> AppResult<()> {
     tokio::task::spawn_blocking(move || {

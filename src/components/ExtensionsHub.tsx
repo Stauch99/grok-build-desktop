@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createSkill,
+  deleteSkill,
   inspectBrief,
   onGrokCliLog,
   openPath,
@@ -393,6 +394,17 @@ export function ExtensionsHub({
               }
               onCreateSlash={() => onForwardSlash?.("/create-skill")}
               onClosePreview={() => setSkillPreview(null)}
+              confirm={confirm}
+              onDelete={(skill) => {
+                const path = sourcePath(skill.source);
+                if (!path) return;
+                askDanger(`skill-rm:${path}`, () =>
+                  void runNoted(async () => {
+                    await deleteSkill({ path, cwd: cwd || null });
+                    if (skillPreview?.path === path) setSkillPreview(null);
+                  }),
+                );
+              }}
             />
           )}
           {tab === "mcp" && (
@@ -542,6 +554,8 @@ function SkillsTab({
   setNewSkill,
   onPreview,
   onClosePreview,
+  confirm,
+  onDelete,
   onToggle,
   onCreate,
   onCreateSlash,
@@ -561,6 +575,8 @@ function SkillsTab({
   onToggle: (name: string, disable: boolean) => void;
   onCreate: () => void;
   onCreateSlash: () => void;
+  confirm: ConfirmState | null;
+  onDelete: (s: InspectSkill) => void;
 }) {
   const groups = groupSkills(skills, cwd);
   return (
@@ -581,6 +597,7 @@ function SkillsTab({
                 qname !== skill.name ? t(locale, "hub.slashName", { name: qname }) : null,
               ].filter(Boolean);
               const previewing = preview != null && path != null && preview.path === path;
+              const deletable = Boolean(path) && (g.scope === "cwd" || g.scope === "repo" || g.scope === "user");
               return (
                 <li key={`${skill.name}:${path}`} className={`hub-row${previewing ? " previewing" : ""}`}>
                   <button
@@ -593,6 +610,15 @@ function SkillsTab({
                     {bits.length > 0 ? <span className="hub-meta">{bits.join(" · ")}</span> : null}
                   </button>
                   <div className="hub-row-side">
+                    {deletable ? (
+                      <button
+                        type="button"
+                        className={`btn ghost${isArmed(confirm, `skill-rm:${path}`, Date.now()) ? " armed" : ""}`}
+                        onClick={() => onDelete(skill)}
+                      >
+                        {dangerCaption(confirm, `skill-rm:${path}`, t(locale, "hub.deleteName", { name: skill.name }), t(locale, "hub.deleteAgain", { name: skill.name }))}
+                      </button>
+                    ) : null}
                     {path ? (
                       <button
                         type="button"
@@ -796,6 +822,16 @@ function McpTab({
           );
         })}
       </ul>
+      <div className="hub-quickadd">
+        <span className="hub-group-label">{t(locale, "hub.quickAdd")}</span>
+        <div className="set-actions">
+          {POPULAR_MCP.map((p) => (
+            <button key={p.name} type="button" className="btn ghost" onClick={() => onPopular(p)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="hub-compose">
         <button type="button" className="hub-compose-toggle" onClick={() => setCompose(!compose)}>
           {compose ? t(locale, "hub.collapseAdd") : t(locale, "hub.addServer")}
@@ -836,16 +872,19 @@ function McpTab({
             />
           </div>
         )}
-        <div className="set-stack">
-          <label>{t(locale, "hub.envHint")}</label>
-          <textarea value={envDraft} onChange={(e) => setEnvDraft(e.target.value)} rows={3} />
-        </div>
-        {form.transport !== "stdio" && (
+        <details className="hub-advanced">
+          <summary>{t(locale, "hub.advanced")}</summary>
           <div className="set-stack">
-            <label>{t(locale, "hub.headersHint")}</label>
-            <textarea value={headerDraft} onChange={(e) => setHeaderDraft(e.target.value)} rows={3} />
+            <label>{t(locale, "hub.envHint")}</label>
+            <textarea value={envDraft} onChange={(e) => setEnvDraft(e.target.value)} rows={3} />
           </div>
-        )}
+          {form.transport !== "stdio" && (
+            <div className="set-stack">
+              <label>{t(locale, "hub.headersHint")}</label>
+              <textarea value={headerDraft} onChange={(e) => setHeaderDraft(e.target.value)} rows={3} />
+            </div>
+          )}
+        </details>
         <div className="set-stack">
           <label>{t(locale, "hub.scope")}</label>
           <MenuSelect
@@ -864,43 +903,39 @@ function McpTab({
             {t(locale, "hub.add")}
           </button>
         </div>
-        <div className="set-actions">
-          {POPULAR_MCP.map((p) => (
-            <button key={p.name} type="button" className="btn ghost" onClick={() => onPopular(p)}>
-              {p.label}
+        <details className="hub-advanced">
+          <summary>{t(locale, "hub.rawToml")}</summary>
+          <div className="set-actions">
+            <button type="button" className="btn ghost" onClick={() => onLoadToml("user")}>
+              {t(locale, "hub.editUserToml")}
             </button>
-          ))}
-        </div>
-        <div className="set-actions">
-          <button type="button" className="btn ghost" onClick={() => onLoadToml("user")}>
-            {t(locale, "hub.editUserToml")}
-          </button>
-          <button type="button" className="btn ghost" onClick={() => onLoadToml("project")} disabled={!cwd}>
-            {t(locale, "hub.editProjectToml")}
-          </button>
-        </div>
-        {tomlOpen && (
-          <>
-            <MenuSelect
-              ariaLabel={t(locale, "hub.tomlScope")}
-              value={tomlScope}
-              options={[
-                { value: "user", label: t(locale, "hub.userToml") },
-                { value: "project", label: t(locale, "hub.projectToml") },
-              ]}
-              onChange={(next) => setTomlScope(next as "user" | "project")}
-            />
-            <textarea className="hub-toml" value={tomlText} onChange={(e) => setTomlText(e.target.value)} rows={12} />
-            <div className="set-actions">
-              <button type="button" className="btn primary" onClick={onSaveToml}>
-                {t(locale, "preview.save")}
-              </button>
-              <button type="button" className="btn ghost" onClick={() => setTomlOpen(false)}>
-                {t(locale, "hub.collapse")}
-              </button>
-            </div>
-          </>
-        )}
+            <button type="button" className="btn ghost" onClick={() => onLoadToml("project")} disabled={!cwd}>
+              {t(locale, "hub.editProjectToml")}
+            </button>
+          </div>
+          {tomlOpen ? (
+            <>
+              <MenuSelect
+                ariaLabel={t(locale, "hub.tomlScope")}
+                value={tomlScope}
+                options={[
+                  { value: "user", label: t(locale, "hub.userToml") },
+                  { value: "project", label: t(locale, "hub.projectToml") },
+                ]}
+                onChange={(next) => setTomlScope(next as "user" | "project")}
+              />
+              <textarea className="hub-toml" value={tomlText} onChange={(e) => setTomlText(e.target.value)} rows={12} />
+              <div className="set-actions">
+                <button type="button" className="btn primary" onClick={onSaveToml}>
+                  {t(locale, "preview.save")}
+                </button>
+                <button type="button" className="btn ghost" onClick={() => setTomlOpen(false)}>
+                  {t(locale, "hub.collapse")}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </details>
           </>
         ) : null}
       </div>

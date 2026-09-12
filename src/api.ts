@@ -391,6 +391,8 @@ export const createSkill = (input: {
   cwd?: string | null;
   template?: string;
 }) => invoke<{ path: string }>("create_skill", { input });
+export const deleteSkill = (input: { path: string; cwd?: string | null }) =>
+  invoke<void>("delete_skill", { input });
 export const patchSkillsDisabled = (names: string[]) =>
   invoke<void>("patch_skills_disabled", { names });
 export const patchCompat = (vendor: "claude" | "cursor", surface: string, enabled: boolean) =>

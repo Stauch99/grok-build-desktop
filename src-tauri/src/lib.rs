@@ -40,8 +40,9 @@ use acp_loop::{spawn_reader, spawn_writer};
 use agent_host::{extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool};
 use agent_models::{patch_agent_model_settings, read_agent_model_source};
 use cli_bridge::{
-    create_skill, git_blame, git_branches, git_commit, git_discard, git_log, git_pull, git_push,
-    git_remote_add, git_status_untracked, hide_window, import_dropped_file, list_agents_dir,
+    create_skill, delete_skill, git_blame, git_branches, git_commit, git_discard, git_log,
+    git_pull, git_push, git_remote_add, git_status_untracked, hide_window, import_dropped_file,
+    list_agents_dir,
     list_file_tree, list_imagine_artifacts, list_models_text, list_session_spills,
     open_in_terminal, patch_compat, patch_skills_disabled, read_config_text, read_managed_config,
     read_models_cache, read_token_turns, read_usage_history, run_grok, run_grok_stream,
@@ -3169,6 +3170,7 @@ pub fn run() {
             patch_agent_model_settings,
             trust_folder,
             create_skill,
+            delete_skill,
             import_agents_mcp_first_open,
             read_agents_file,
             write_agents_file,
