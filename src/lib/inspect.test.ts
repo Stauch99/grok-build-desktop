@@ -8,6 +8,7 @@ import {
   parseInspect,
   qualifySkillName,
   skillScope,
+  skillSlashCommands,
   toolQualifiedName,
 } from "./inspect";
 
@@ -85,6 +86,22 @@ describe("skill grouping and collisions", () => {
     expect(qualifySkillName(user, report.skills)).toBe("user:login");
     expect(qualifySkillName(plugin, report.skills)).toBe("acme:login");
     expect(qualifySkillName(report.skills[2], report.skills)).toBe("review");
+  });
+
+  it("turns invocable skills into slash extras", () => {
+    const report = parseInspect({
+      skills: [
+        { name: "review-pr", description: "审 PR", source: { type: "user" }, userInvocable: true },
+        { name: "hidden", source: { type: "user" }, userInvocable: false },
+        { name: "off", source: { type: "user" }, disabled: true },
+        { name: "login", source: { type: "plugin", plugin_name: "acme" } },
+      ],
+    });
+    const extras = skillSlashCommands(report.skills);
+    expect(extras).toEqual([
+      { name: "review-pr", hint: "审 PR" },
+      { name: "login", hint: "技能" },
+    ]);
   });
 
   it("treats claude/cursor paths as compat", () => {

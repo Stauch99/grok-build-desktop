@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { IconCheck, IconChevron } from "../icons";
+import { trapFocus } from "../lib/trap-focus";
 
 export type MenuSelectOption<T extends string> = {
   value: T;
@@ -14,7 +15,6 @@ export type MenuSelectProps<T extends string> = {
   /** Accessible name. Rendered by the caller's own label element. */
   ariaLabel: string;
   disabled?: boolean;
-  title?: string;
   /** `field` fills its container (Settings rows); `inline` hugs its text. */
   variant?: "field" | "inline";
   className?: string;
@@ -23,10 +23,10 @@ export type MenuSelectProps<T extends string> = {
 /**
  * Replacement for a native `<select>`.
  *
- * A tray icon makes WKWebView's native select unreadable to VoiceOver on macOS
- * (tauri#15221), and this app ships a tray. This uses the same listbox pattern
- * as the composer chips so every picker in the app behaves identically and
- * stays keyboard- and screen-reader-navigable.
+ * A native `<select>` is unreadable to VoiceOver on macOS WKWebView
+ * (tauri#15221). This uses the same listbox pattern as the composer chips
+ * so every picker in the app behaves identically and stays keyboard- and
+ * screen-reader-navigable.
  */
 export function MenuSelect<T extends string>({
   value,
@@ -34,13 +34,14 @@ export function MenuSelect<T extends string>({
   onChange,
   ariaLabel,
   disabled,
-  title,
   variant = "field",
   className,
 }: MenuSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
   const listId = useId();
 
   const current = options.find((o) => o.value === value);
@@ -53,12 +54,29 @@ export function MenuSelect<T extends string>({
 
   useEffect(() => {
     if (!open) return;
+    previousActive.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onDown = (e: MouseEvent) => {
       if (e.target instanceof Node && wrapRef.current?.contains(e.target)) return;
       setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      // Focus return: reclaim only when focus is still inside (or fell to body
+      // because the listbox unmounted); an outside click keeps its own target.
+      const prev = previousActive.current;
+      previousActive.current = null;
+      const activeEl = document.activeElement;
+      const inside = !!(
+        wrapRef.current &&
+        activeEl instanceof Node &&
+        wrapRef.current.contains(activeEl)
+      );
+      if (!inside && activeEl !== document.body) return;
+      const target = prev?.isConnected ? prev : btnRef.current;
+      target?.focus();
+    };
   }, [open]);
 
   const commit = (next: T) => {
@@ -70,13 +88,13 @@ export function MenuSelect<T extends string>({
     <div className={`menu-select ${variant}${className ? ` ${className}` : ""}`} ref={wrapRef}>
       <button
         type="button"
+        ref={btnRef}
         className="menu-select-btn"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         disabled={disabled}
-        title={title}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -98,6 +116,10 @@ export function MenuSelect<T extends string>({
           tabIndex={-1}
           ref={(el) => el?.focus()}
           onKeyDown={(e) => {
+            if (e.key === "Tab") {
+              trapFocus(e.currentTarget, e.nativeEvent);
+              return;
+            }
             if (e.key === "Escape") {
               e.preventDefault();
               e.stopPropagation();
@@ -128,7 +150,6 @@ export function MenuSelect<T extends string>({
               role="option"
               aria-selected={o.value === value}
               className={i === active ? "on" : undefined}
-              title={o.hint || o.label}
               onMouseEnter={() => setActive(i)}
               onClick={() => commit(o.value)}
             >

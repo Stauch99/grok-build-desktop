@@ -1,46 +1,51 @@
-import { useState } from "react";
 import { usageTone } from "../lib/time";
-import { usageBreakdownLines, usageRingPercents, type UsageSplit } from "../lib/usage-split";
+import { useLocale } from "../lib/locale-context";
+import { usageHoverLines, usageRingDash, usageRingPercents, type UsageSplit } from "../lib/usage-split";
 
 export type UsageRingProps = {
   usage: UsageSplit;
   compactPercent?: number;
+  onCompact?: (pct: number) => void;
 };
 
+const RING_SIZE = 14;
+const RING_RADIUS = 5;
+
 /**
- * Window fill as a single bar. Click for input / output / cache. Auto-compact stays on the CLI.
+ * Window fill as a quiet ring.
+ * Clicking triggers a compact prompt when context usage is high.
  */
-export function UsageRing({ usage, compactPercent = 85 }: UsageRingProps) {
-  const [open, setOpen] = useState(false);
+export function UsageRing({ usage, compactPercent = 85, onCompact }: UsageRingProps) {
+  const locale = useLocale();
   const p = usageRingPercents(usage);
   const tone = usageTone(p.used, compactPercent);
-  const lines = usageBreakdownLines(usage);
-  const title =
-    p.used >= compactPercent
-      ? `上下文 ${p.used}%，已达自动压缩阈值`
-      : `上下文 ${p.used}%`;
+  const lines = usageHoverLines(usage, locale);
+  const { circumference, dash } = usageRingDash(p.used, RING_RADIUS);
+  const label = lines[0] ?? "";
+  const canCompact = !!onCompact && p.used >= compactPercent;
 
   return (
-    <span className={`usage-chip usage-chip-${tone}`} title={title}>
-      <button
-        type="button"
-        className="usage-chip-btn"
-        aria-label={title}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="usage-bar" aria-hidden>
-          <span className="usage-bar-fill" style={{ width: `${p.used}%` }} />
-        </span>
-        {p.used}%
-      </button>
-      {open && lines.length > 0 ? (
-        <span className="usage-pop" role="status">
-          {lines.map((l) => (
-            <span key={l}>{l}</span>
-          ))}
-        </span>
-      ) : null}
-    </span>
+    <button
+      type="button"
+      className={`usage-chip usage-chip-${tone}${canCompact ? " clickable" : ""}`}
+      tabIndex={0}
+      aria-label={label}
+      onClick={canCompact ? () => onCompact(p.used ?? compactPercent) : undefined}
+      style={{ background: "none", border: "none", padding: 0, cursor: canCompact ? "pointer" : "default" }}
+    >
+      <svg className="usage-ring" width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} aria-hidden>
+        <circle className="usage-ring-track" cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_RADIUS} />
+        {dash > 0 ? (
+          <circle
+            className="usage-ring-fill"
+            cx={RING_SIZE / 2}
+            cy={RING_SIZE / 2}
+            r={RING_RADIUS}
+            strokeDasharray={`${dash} ${circumference}`}
+            transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+          />
+        ) : null}
+      </svg>
+    </button>
   );
 }

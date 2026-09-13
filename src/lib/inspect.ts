@@ -1,4 +1,5 @@
 /** Normalize `grok inspect --json` into the shapes the Extensions hub consumes. */
+import { tr } from "./i18n-bridge";
 
 export type InspectSource = {
   type: string;
@@ -169,6 +170,16 @@ export function qualifySkillName(skill: InspectSkill, all: InspectSkill[]): stri
   if (scope === "user") return `user:${skill.name}`;
   if (scope === "plugin") return `plugin:${skill.name}`;
   return `${scope}:${skill.name}`;
+}
+
+/** Slash names the composer can offer for installed, user-invocable skills. */
+export function skillSlashCommands(skills: InspectSkill[]): { name: string; hint: string }[] {
+  return skills
+    .filter((skill) => skill.name.trim() && skill.disabled !== true && skill.userInvocable !== false)
+    .map((skill) => ({
+      name: qualifySkillName(skill, skills),
+      hint: skill.description?.trim() || tr("hub.skill"),
+    }));
 }
 
 export function mcpSourceBadge(server: InspectMcp): McpBadge {

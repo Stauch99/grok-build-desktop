@@ -1,0 +1,121 @@
+import { useEffect, useRef } from "react";
+import type { HeaderJob } from "../lib/jobs-header";
+import { useT } from "../lib/locale-context";
+import { trapFocus } from "../lib/trap-focus";
+import { IconChecklist, IconStop } from "../icons";
+
+export type JobsMenuProps = {
+  jobs: HeaderJob[];
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onInspect: (job: HeaderJob) => void;
+  onStop: (job: HeaderJob) => void;
+  sessionHint?: Record<string, string>;
+  currentSessionId?: string | null;
+};
+
+export function JobsMenu({
+  jobs,
+  open,
+  onToggle,
+  onClose,
+  onInspect,
+  onStop,
+  sessionHint,
+  currentSessionId,
+}: JobsMenuProps) {
+  const t = useT();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    previousActive.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menuRef.current?.querySelector<HTMLElement>("button")?.focus();
+    const onDown = (e: MouseEvent) => {
+      if (e.target instanceof Node && wrapRef.current?.contains(e.target)) return;
+      onClose();
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      const prev = previousActive.current;
+      previousActive.current = null;
+      const active = document.activeElement;
+      const inside = !!(
+        wrapRef.current &&
+        active instanceof Node &&
+        wrapRef.current.contains(active)
+      );
+      if (!inside && active !== document.body) return;
+      const target = prev?.isConnected ? prev : triggerRef.current;
+      target?.focus();
+    };
+  }, [open, onClose]);
+
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="chip-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        ref={triggerRef}
+        className="icon-btn head-count-btn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("jobs.count", { n: jobs.length })}
+        onClick={onToggle}
+      >
+        <IconChecklist size={16} />
+        <span className="head-count">{jobs.length}</span>
+      </button>
+      {open ? (
+        <div
+          className="chip-menu jobs-menu"
+          role="menu"
+          ref={menuRef}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+              return;
+            }
+            if (e.key === "Tab" && wrapRef.current) trapFocus(wrapRef.current, e.nativeEvent);
+          }}
+        >
+          {jobs.map((job) => {
+            const hint =
+              job.sessionId && job.sessionId !== currentSessionId ? sessionHint?.[job.sessionId] : undefined;
+            return (
+              <div key={`${job.paneId}:${job.id}`} className="jobs-row" role="none">
+                <button
+                  type="button"
+                  className="jobs-inspect"
+                  role="menuitem"
+                  onClick={() => onInspect(job)}
+                >
+                  <span className="menu-hint-label">{job.title}</span>
+                  {hint ? <span className="menu-hint-text">{hint}</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className="jobs-stop"
+                  role="menuitem"
+                  onClick={() => onStop(job)}
+                  aria-label={t("thread.stop")}
+                >
+                  <IconStop size={16} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}

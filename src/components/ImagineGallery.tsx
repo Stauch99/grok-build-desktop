@@ -1,4 +1,9 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { useMemo, useState } from "react";
+import { assetRoots, parentDir, safeFileSrc } from "../lib/asset-src";
 import { basename } from "../lib/text";
+import { useT } from "../lib/locale-context";
+import { IconPhoto, IconPlayerPlay } from "../icons";
 
 export type ImagineGalleryProps = {
   images: string[];
@@ -6,16 +11,55 @@ export type ImagineGalleryProps = {
   onOpen: (path: string) => void;
   onSlash: (cmd: string) => void;
   mode?: "image" | "video";
+  cwd?: string;
+  grokHome?: string;
 };
+
+function GalleryTile({ path, video, roots, onOpen }: { path: string; video: boolean; roots: string[]; onOpen: (p: string) => void }) {
+  const [broken, setBroken] = useState(false);
+  const src = broken ? null : safeFileSrc(path, roots, convertFileSrc);
+  const name = basename(path);
+  return (
+    <button key={path} type="button" onClick={() => onOpen(path)} aria-label={name}>
+      {src ? (
+        video ? (
+          <video src={src} muted preload="metadata" playsInline onError={() => setBroken(true)} />
+        ) : (
+          <img src={src} alt={name} loading="lazy" onError={() => setBroken(true)} />
+        )
+      ) : (
+        <span className="gallery-fallback" aria-hidden>
+          {video ? <IconPlayerPlay size={22} /> : <IconPhoto size={22} />}
+        </span>
+      )}
+      <span className="gallery-cap">{name}</span>
+    </button>
+  );
+}
 
 /**
  * Local /imagine artifacts. Generation stays on the slash — this is not a
  * second media studio.
  */
-export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: ImagineGalleryProps) {
+export function ImagineGallery({
+  images,
+  videos,
+  onOpen,
+  onSlash,
+  mode,
+  cwd = "",
+  grokHome = "",
+}: ImagineGalleryProps) {
+  const t = useT();
   const showVideo = mode === "video";
   const paths = showVideo ? videos : images;
   const empty = paths.length === 0;
+  const roots = useMemo(() => {
+    // Artifacts can live outside cwd/grok-sessions roots (~/Downloads,
+    // ~/.grok/downloads) — allow each returned file's own directory.
+    const dirs = new Set(paths.map(parentDir));
+    return [...assetRoots(cwd, grokHome), ...dirs];
+  }, [cwd, grokHome, paths]);
 
   return (
     <div>
@@ -26,26 +70,14 @@ export function ImagineGallery({ images, videos, onOpen, onSlash, mode }: Imagin
       </div>
       {empty ? (
         <p className="float-empty">
-          {showVideo ? "还没有视频。点 /imagine-video 生成。" : "还没有图片。点 /imagine 生成。"}
+          {showVideo ? t("imagine.emptyVideo") : t("imagine.emptyImage")}
         </p>
       ) : null}
-      {showVideo ? (
-        <div className="file-list">
-          {paths.map((path) => (
-            <button key={path} type="button" className="file-item" title={path} onClick={() => onOpen(path)}>
-              {basename(path)}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="gallery-grid">
-          {paths.map((path) => (
-            <button key={path} type="button" title={path} onClick={() => onOpen(path)}>
-              <img src={path.startsWith("file:") ? path : `file://${path}`} alt={basename(path)} />
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="gallery-grid">
+        {paths.map((path) => (
+          <GalleryTile key={path} path={path} video={showVideo} roots={roots} onOpen={onOpen} />
+        ))}
+      </div>
     </div>
   );
 }

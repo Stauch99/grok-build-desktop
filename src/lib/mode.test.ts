@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODE_OPTIONS, modeLabel, modeNeedsConfirm, nextMode, slashForMode, type Mode } from "./mode";
+import { MODE_OPTIONS, modeLabel, modeNeedsConfirm, nextMode, shouldSendModeSlash, slashForMode, type Mode } from "./mode";
 
 describe("mode helpers", () => {
   it("labels never say Auto", () => {
@@ -10,16 +10,39 @@ describe("mode helpers", () => {
     expect(MODE_OPTIONS.every((o) => !/auto/i.test(o.label))).toBe(true);
   });
 
+  it("keeps Agent/Plan English and translates always-approve", () => {
+    expect(modeLabel("agent", "en")).toBe("Agent");
+    expect(modeLabel("plan", "zh")).toBe("Plan");
+    expect(modeLabel("yolo", "zh")).toBe("始终批准");
+    expect(modeLabel("yolo", "en")).toBe("Always approve");
+  });
+
   it("maps slashes without a /yolo command", () => {
     expect(slashForMode("agent")).toBe("/auto");
     expect(slashForMode("plan")).toBe("/plan");
     expect(slashForMode("yolo")).toBe("/always-approve");
   });
 
+  it("maps devin mode slashes to its own commands", () => {
+    expect(slashForMode("agent", "devin")).toBe("/normal");
+    expect(slashForMode("plan", "devin")).toBe("/plan");
+    expect(slashForMode("yolo", "devin")).toBe("/bypass");
+    expect(slashForMode("agent", "grok")).toBe("/auto");
+    expect(slashForMode("yolo", "kimi")).toBe("/always-approve");
+  });
+
   it("cycles Agent → Plan → 始终批准 → Agent", () => {
     expect(nextMode("agent")).toBe("plan");
     expect(nextMode("plan")).toBe("yolo");
     expect(nextMode("yolo")).toBe("agent");
+  });
+
+  it("does not send /always-approve when the CLI is already always-approve (toggle would turn it off)", () => {
+    expect(shouldSendModeSlash("yolo", { yolo: true, permissionMode: "ask" })).toBe(false);
+    expect(shouldSendModeSlash("yolo", { yolo: false, permissionMode: "always-approve" })).toBe(false);
+    expect(shouldSendModeSlash("yolo", { yolo: false, permissionMode: "ask" })).toBe(true);
+    expect(shouldSendModeSlash("plan", { yolo: true, permissionMode: "always-approve" })).toBe(true);
+    expect(shouldSendModeSlash("agent", { yolo: false, permissionMode: "ask" })).toBe(true);
   });
 
   it("asks before switching into 始终批准", () => {

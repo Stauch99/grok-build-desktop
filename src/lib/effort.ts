@@ -1,13 +1,27 @@
+import { tr } from "./i18n-bridge";
+
 export type Effort = "low" | "medium" | "high" | "xhigh";
 
 export const DEFAULT_EFFORT: Effort = "medium";
 
+/** `hint` is a getter so callers that read the option directly still get the live locale. */
 export const EFFORT_OPTIONS: { id: Effort; label: string; hint: string }[] = [
-  { id: "low", label: "快速", hint: "更快、更省" },
-  { id: "medium", label: "标准", hint: "默认" },
-  { id: "high", label: "深入", hint: "多想一会儿" },
-  { id: "xhigh", label: "最强", hint: "尽量想透" },
+  { id: "low", label: "Low", get hint() { return tr("effort.hint.low"); } },
+  { id: "medium", label: "Medium", get hint() { return tr("effort.hint.medium"); } },
+  { id: "high", label: "High", get hint() { return tr("effort.hint.high"); } },
+  { id: "xhigh", label: "xHigh", get hint() { return tr("effort.hint.xhigh"); } },
 ];
+
+const EXTRA_EFFORT: Record<string, { label: string; hint: string }> = {
+  max: { label: "Max", get hint() { return tr("effort.hint.max"); } },
+  none: { label: "Off", get hint() { return tr("effort.hint.none"); } },
+  ultracode: { label: "Ultracode", get hint() { return tr("effort.hint.ultracode"); } },
+};
+
+function titleCase(id: string): string {
+  if (!id) return "";
+  return id.slice(0, 1).toUpperCase() + id.slice(1);
+}
 
 export function normalizeEffort(value: string | null | undefined): Effort {
   if (value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
@@ -15,8 +29,29 @@ export function normalizeEffort(value: string | null | undefined): Effort {
 }
 
 export function effortLabel(effort: Effort | string): string {
-  const id = normalizeEffort(typeof effort === "string" ? effort : effort);
-  return EFFORT_OPTIONS.find((o) => o.id === id)?.label ?? "标准";
+  const id = typeof effort === "string" ? effort : effort;
+  const grok = EFFORT_OPTIONS.find((o) => o.id === id);
+  if (grok) return grok.label;
+  const extra = EXTRA_EFFORT[id];
+  if (extra) return extra.label;
+  if (!id) return EFFORT_OPTIONS.find((o) => o.id === DEFAULT_EFFORT)?.label ?? "Medium";
+  return titleCase(id);
+}
+
+export function effortHint(effort: string): string {
+  const grok = EFFORT_OPTIONS.find((o) => o.id === effort);
+  if (grok) return grok.hint;
+  return EXTRA_EFFORT[effort]?.hint ?? "";
+}
+
+export function effortMenuOptions(ids: string[]): { id: string; label: string; hint: string }[] {
+  return ids.map((id) => ({ id, label: effortLabel(id), hint: effortHint(id) }));
+}
+
+export function coerceEffort(value: string | undefined, allowed: string[], fallback?: string): string {
+  if (value && allowed.includes(value)) return value;
+  if (fallback && allowed.includes(fallback)) return fallback;
+  return allowed[0] ?? "";
 }
 
 export function nextEffort(effort: Effort): Effort {

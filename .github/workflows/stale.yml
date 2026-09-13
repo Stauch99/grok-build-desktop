@@ -1,0 +1,29 @@
+name: Stale
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 90
+          days-before-issue-close: 14
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: "good first issue,help wanted"
+          stale-issue-message: "This issue has been quiet for 90 days. Comment to keep it open, or it will close in 14 days."
+          stale-pr-message: "This PR has been quiet for 45 days. Comment or push to keep it open, or it will close in 14 days."
+          close-issue-message: "Closed as stale. Open a new issue if this is still real."
+          close-pr-message: "Closed as stale. Please open a new PR against the current branch."
+          operations-per-run: 40

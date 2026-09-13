@@ -1,9 +1,102 @@
+import { marked } from "marked";
+import { rewriteLocalMediaHtml } from "./media";
+import { linkifyLocalPaths, sanitizeHtml } from "./text";
+
 export type AssistantBlock =
   | { kind: "md"; text: string }
   | { kind: "mermaid"; text: string; closed: boolean };
 
 const OPEN = /^```mermaid[ \t]*\r?$/i;
 const CLOSE = /^```[ \t]*\r?$/;
+const FENCE_LINE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+const FENCE_LANG = /^[a-zA-Z][\w+#.-]{0,30}$/;
+const BLOCK_NEXT = /^(#{1,6}\s|`{3,}|~{3,}|\s*[-*+]\s|\s*\d+[.)]\s|\s*>|\s*\|)/;
+const CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f]/;
+
+/** Opening fence: empty info, or a short language id — not a Chinese sentence glued to ```. */
+export function isMarkdownFenceOpen(line: string): boolean {
+  const m = line.match(FENCE_LINE);
+  if (!m) return false;
+  const info = m[3].trim();
+  if (!info) return true;
+  return FENCE_LANG.test(info.split(/\s+/)[0] ?? "");
+}
+
+function isMarkdownFenceClose(line: string, mark: string): boolean {
+  const m = line.match(FENCE_LINE);
+  if (!m) return false;
+  if (!line.trim().startsWith(mark)) return false;
+  return m[3].trim() === "";
+}
+
+function escapeAccidentalFence(line: string): string {
+  return line.replace(/^(\s*)(`{3,}|~{3,})/, (_all, ws: string, ticks: string) => {
+    const ent = ticks.startsWith("`") ? "&#96;" : "&#126;";
+    return `${ws}${ent.repeat(ticks.length)}`;
+  });
+}
+
+function isCjk(ch: string): boolean {
+  return CJK.test(ch);
+}
+
+function shouldJoinMarkdownLines(prev: string, next: string): boolean {
+  if (prev === "" || next === "") return false;
+  if (BLOCK_NEXT.test(next)) return false;
+  if (/^\s{0,3}#{1,6}\s/.test(prev)) return false;
+  if (/^(\s*[-*+] |\s*\d+[.)] )/.test(prev)) return false;
+  if (/(  |\\)$/.test(prev)) return false;
+  if (/^\s{4,}\S/.test(prev) || /^\s{4,}\S/.test(next)) return false;
+  return true;
+}
+
+function joinGlue(prev: string, next: string): string {
+  if (/\s$/.test(prev) || /^\s/.test(next)) return "";
+  const a = prev[prev.length - 1] ?? "";
+  const b = next[0] ?? "";
+  if (isCjk(a) && isCjk(b)) return "";
+  if (isCjk(a) && /[\p{P}\p{S}]/u.test(b)) return "";
+  if (/[\p{P}\p{S}]/u.test(a) && isCjk(b)) return "";
+  return " ";
+}
+
+/** LLM replies wrap CJK prose at a column; those newlines are not paragraphs. */
+export function unwrapMarkdownSoftBreaks(src: string): string {
+  const lines = src.split("\n");
+  const out: string[] = [];
+  let fenceMark: string | null = null;
+  for (const raw of lines) {
+    const line: string =
+      !fenceMark && FENCE_LINE.test(raw) && !isMarkdownFenceOpen(raw) ? escapeAccidentalFence(raw) : raw;
+    if (fenceMark) {
+      out.push(line);
+      if (isMarkdownFenceClose(line, fenceMark)) fenceMark = null;
+      continue;
+    }
+    if (isMarkdownFenceOpen(line)) {
+      const open = line.match(FENCE_LINE);
+      fenceMark = open?.[2] ?? "```";
+      out.push(line);
+      continue;
+    }
+    const prev = out.length ? out[out.length - 1] : null;
+    if (prev != null && shouldJoinMarkdownLines(prev, line)) {
+      out[out.length - 1] = prev + joinGlue(prev, line) + line;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+export type MarkdownToSrc = (path: string) => string;
+
+export function renderMd(text: string, cwd = "", toSrc?: MarkdownToSrc): string {
+  const html = linkifyLocalPaths(
+    sanitizeHtml(marked.parse(unwrapMarkdownSoftBreaks(text), { async: false, gfm: true, breaks: false }) as string),
+  );
+  return toSrc ? rewriteLocalMediaHtml(html, cwd, toSrc) : html;
+}
 
 export function splitAssistantBlocks(src: string): AssistantBlock[] {
   const lines = src.split("\n");
@@ -37,3 +130,4 @@ export function splitAssistantBlocks(src: string): AssistantBlock[] {
   flushMd();
   return out.length ? out : [{ kind: "md", text: src }];
 }
+

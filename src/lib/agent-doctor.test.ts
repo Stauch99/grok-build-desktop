@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+import {
+  agentSendBlockReason,
+  blockedAgentToast,
+  defaultAgentHome,
+  defaultInstallHint,
+  defaultLoginHint,
+  doctorActionHint,
+  emptyDoctor,
+  emptyDoctorKind,
+} from "./agent-doctor";
+
+describe("defaultAgentHome", () => {
+  it("maps each CLI to its native home", () => {
+    expect(defaultAgentHome("/Users/me/", "grok")).toBe("/Users/me/.grok");
+    expect(defaultAgentHome("/Users/me", "kimi")).toBe("/Users/me/.kimi-code");
+    expect(defaultAgentHome("/Users/me", "claude")).toBe("/Users/me/.claude");
+    expect(defaultAgentHome("/Users/me", "codex")).toBe("/Users/me/.codex");
+    expect(defaultAgentHome("/Users/me", "devin")).toBe("/Users/me/.config/devin");
+  });
+});
+
+describe("emptyDoctor", () => {
+  it("starts unauthenticated and reports no binary", () => {
+    expect(emptyDoctor("kimi", "/Users/me")).toEqual({
+      agentId: "kimi",
+      binary: null,
+      version: null,
+      home: "/Users/me/.kimi-code",
+      authPresent: false,
+      authKind: "none",
+      loginHint: ["kimi login"],
+    });
+    expect(defaultLoginHint("grok")).toEqual(["grok auth login"]);
+    expect(defaultLoginHint("claude")).toEqual(["claude auth login"]);
+    expect(defaultLoginHint("codex")).toEqual(["codex login"]);
+    expect(defaultLoginHint("devin")).toEqual(["devin auth login"]);
+    expect(defaultInstallHint("devin")).toEqual([
+      "Install Devin CLI (bundled with the Devin app) and put devin on PATH",
+    ]);
+  });
+});
+
+describe("agentSendBlockReason", () => {
+  it("says 未安装 when the binary is missing", () => {
+    expect(agentSendBlockReason("kimi", [emptyDoctor("kimi", "/Users/me")])).toBe("Kimi 未安装");
+  });
+
+  it("says 未登录 when the CLI is installed but has no auth", () => {
+    expect(
+      agentSendBlockReason("kimi", [{ agentId: "kimi", authPresent: false, binary: "/usr/bin/kimi" }]),
+    ).toBe("Kimi 未登录");
+  });
+
+  it("blocks devin only when the binary is missing — ACP auth is the in-app card", () => {
+    expect(agentSendBlockReason("devin", [emptyDoctor("devin", "/Users/me")])).toBe("Devin 未安装");
+    expect(
+      agentSendBlockReason("devin", [
+        { agentId: "devin", authPresent: false, binary: "/usr/bin/devin" },
+      ]),
+    ).toBeNull();
+    expect(
+      agentSendBlockReason("devin", [
+        { agentId: "devin", authPresent: true, binary: "/usr/bin/devin" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("does not block a logged-in CLI or an unknown doctor", () => {
+    expect(
+      agentSendBlockReason("kimi", [{ agentId: "kimi", authPresent: true, binary: "/usr/bin/kimi" }]),
+    ).toBeNull();
+    expect(agentSendBlockReason("kimi", [])).toBeNull();
+  });
+
+  it("appends the copyable next step to the chip toast", () => {
+    expect(blockedAgentToast("kimi", [emptyDoctor("kimi", "/Users/me")])).toBe(
+      `Kimi 未安装 · ${defaultInstallHint("kimi")[0]}`,
+    );
+    expect(
+      blockedAgentToast("claude", [
+        { agentId: "claude", authPresent: false, binary: "/usr/bin/claude", loginHint: ["claude auth login"] },
+      ]),
+    ).toBe("Claude 未登录 · claude auth login");
+    expect(
+      blockedAgentToast("grok", [{ agentId: "grok", authPresent: true, binary: "/usr/bin/grok", loginHint: [] }]),
+    ).toBeNull();
+  });
+});
+
+describe("doctorActionHint", () => {
+  it("offers an install command when the binary is missing", () => {
+    expect(doctorActionHint(emptyDoctor("claude", "/Users/me"))).toEqual(defaultInstallHint("claude"));
+  });
+
+  it("offers the login command when installed but logged out", () => {
+    expect(
+      doctorActionHint({
+        agentId: "codex",
+        binary: "/opt/homebrew/bin/codex",
+        authPresent: false,
+        loginHint: ["codex login"],
+      }),
+    ).toEqual(["codex login"]);
+  });
+
+  it("is empty when the CLI is ready", () => {
+    expect(
+      doctorActionHint({
+        agentId: "grok",
+        binary: "/Users/me/.grok/bin/grok",
+        authPresent: true,
+        loginHint: ["grok auth login"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports a rejected spawn command before install/login hints", () => {
+    expect(
+      doctorActionHint({
+        agentId: "kimi",
+        binary: "/usr/bin/kimi",
+        authPresent: true,
+        loginHint: ["kimi login"],
+        spawnRejected: "sh",
+      }),
+    ).toEqual(["启动命令被拒绝（sh）"]);
+  });
+});
+
+describe("emptyDoctorKind", () => {
+  it("asks for the selected agent's CLI, not grok by default", () => {
+    expect(emptyDoctorKind({ doctor: emptyDoctor("kimi", "/Users/me"), cwd: "", projectCount: 0 })).toBe("cli");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: false },
+        cwd: "",
+        projectCount: 0,
+      }),
+    ).toBe("auth");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: true },
+        cwd: "",
+        projectCount: 0,
+      }),
+    ).toBe("project");
+    expect(
+      emptyDoctorKind({
+        doctor: { ...emptyDoctor("kimi", "/Users/me"), binary: "/usr/bin/kimi", authPresent: true },
+        cwd: "/repo",
+        projectCount: 1,
+      }),
+    ).toBe("ready");
+  });
+});
+

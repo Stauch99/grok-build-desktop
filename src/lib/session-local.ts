@@ -1,3 +1,5 @@
+import { tr } from "./i18n-bridge";
+
 export type SessionInfoBits = {
   id: string;
   cwd: string;
@@ -13,7 +15,7 @@ export function formatSessionInfo(bits: SessionInfoBits): string {
       ? `${bits.usage.used ?? 0}/${bits.usage.size}`
       : "—";
   return [
-    `会话 ${bits.title}`,
+    tr("session.infoHead", { title: bits.title }),
     `id ${bits.id}`,
     `cwd ${bits.cwd || "—"}`,
     `model ${bits.model || "—"}`,

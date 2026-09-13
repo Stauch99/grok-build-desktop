@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useT } from "../lib/locale-context";
 
 export type PlanCompleteCardProps = {
   title?: string;
@@ -8,43 +9,45 @@ export type PlanCompleteCardProps = {
 };
 
 /**
- * Plan 完成：批准执行 / 拒绝 / 反馈.
+ * Plan complete: approve, reject, or send feedback.
  */
 export function PlanCompleteCard({
-  title = "计划完成",
+  title,
   onApprove,
   onReject,
   onFeedback,
 }: PlanCompleteCardProps) {
+  const t = useT();
   const [text, setText] = useState("");
   const id = useId();
+  const heading = title ?? t("plan.complete");
 
   return (
     <section className="permission">
-      <h4>{title}</h4>
-      <p className="permission-hint">计划写完了。批准后执行，或写下要改的地方。</p>
+      <h4>{heading}</h4>
+      <p className="permission-hint">{t("plan.doneHint")}</p>
       <div className="set-stack">
-        <label htmlFor={id}>反馈</label>
+        <label htmlFor={id}>{t("plan.feedback")}</label>
         <input
           id={id}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="要改什么"
+          placeholder={t("plan.feedbackPh")}
         />
       </div>
       <div className="set-actions">
         <button type="button" className="btn primary" onClick={onApprove}>
-          批准执行
+          {t("plan.approve")}
         </button>
         <button type="button" className="btn ghost" onClick={onReject}>
-          拒绝
+          {t("plan.reject")}
         </button>
         <button
           type="button"
           className="btn"
-          onClick={() => onFeedback(text.trim() || "继续聊这个计划")}
+          onClick={() => onFeedback(text.trim() || t("plan.keepTalkingDefault"))}
         >
-          继续聊计划
+          {t("plan.keepTalking")}
         </button>
       </div>
     </section>

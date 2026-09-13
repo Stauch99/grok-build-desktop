@@ -1,3 +1,31 @@
+import createDOMPurify, { type WindowLike } from "dompurify";
+import { tr } from "./i18n-bridge";
+
+/** DOMPurify default URI regexp plus `asset:` for Tauri convertFileSrc URLs. */
+const ALLOWED_URI =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|asset):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+const HTML_FORBID_TAGS = ["script", "iframe", "object", "embed", "base", "form", "meta"];
+
+type Purify = ReturnType<typeof createDOMPurify>;
+let htmlPurify: Purify | null = null;
+let svgPurify: Purify | null = null;
+
+function purifyWindow(): WindowLike {
+  if (typeof window !== "undefined" && window.document) return window as unknown as WindowLike;
+  throw new Error("sanitizeHtml requires a DOM");
+}
+
+function getHtmlPurify(): Purify {
+  if (!htmlPurify) htmlPurify = createDOMPurify(purifyWindow());
+  return htmlPurify;
+}
+
+function getSvgPurify(): Purify {
+  if (!svgPurify) svgPurify = createDOMPurify(purifyWindow());
+  return svgPurify;
+}
+
 export function basename(path: string): string {
   return path.replace(/\/+$/, "").split("/").pop() || path;
 }
@@ -31,22 +59,29 @@ export function relativeTime(iso: string, now = Date.now()): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return "";
   const d = now - t;
-  if (d < 60_000) return "刚刚";
+  if (d < 60_000) return tr("time.justNow");
   const m = Math.round(d / 60000);
-  if (m < 60) return `${m} 分钟前`;
+  if (m < 60) return tr("time.minutesAgo", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.round(h / 24)} 天前`;
+  if (h < 24) return tr("time.hoursAgo", { n: h });
+  return tr("time.daysAgo", { n: Math.round(h / 24) });
 }
 
 export function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
-    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<object\b[\s\S]*?<\/object>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/data:text\/html/gi, "");
+  return getHtmlPurify().sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: HTML_FORBID_TAGS,
+    FORBID_ATTR: ["srcdoc"],
+    ALLOWED_URI_REGEXP: ALLOWED_URI,
+  });
+}
+
+export function sanitizeSvg(svg: string): string {
+  return getSvgPurify().sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ["script", "foreignObject", "iframe", "object", "embed", "base", "form", "meta"],
+    ALLOWED_URI_REGEXP: ALLOWED_URI,
+  });
 }
 
 export function escapeText(text: string): string {
@@ -59,10 +94,37 @@ export function escapeText(text: string): string {
 export function textFromContent(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
-  if (typeof content === "object" && content !== null && "text" in content) {
-    return String((content as { text?: unknown }).text ?? "");
+  if (Array.isArray(content)) {
+    return content.map(textFromContent).join("");
+  }
+  if (typeof content === "object" && content !== null) {
+    const rec = content as { text?: unknown; thinking?: unknown; think?: unknown };
+    if (rec.text != null) return String(rec.text);
+    if (rec.thinking != null) return String(rec.thinking);
+    if (rec.think != null) return String(rec.think);
   }
   return "";
+}
+
+/** Tool verbose / result payload from ACP `rawOutput` (Grok, Codex, Kimi). */
+export function textFromRawOutput(raw: unknown): string {
+  if (!raw) return "";
+  if (typeof raw === "string") return raw;
+  const rec = asRecord(raw);
+  if (typeof rec.formatted_output === "string") return rec.formatted_output;
+  if (typeof rec.output === "string") return rec.output;
+  const nested = rec.Content ?? rec.content;
+  if (typeof nested === "string") return nested;
+  const inner = asRecord(nested);
+  if (typeof inner.content === "string") return inner.content;
+  if (typeof inner.text === "string") return inner.text;
+  const fromContent = textFromContent(raw);
+  if (fromContent) return fromContent;
+  try {
+    return JSON.stringify(raw, null, 2);
+  } catch {
+    return "";
+  }
 }
 
 export function asRecord(v: unknown): Record<string, unknown> {
@@ -77,18 +139,51 @@ export function cleanLogLine(s: string): string {
     .trim();
 }
 
+/** Known-benign stderr chatter that never deserves a toast. */
+const STDERR_NOISE =
+  /worker quit|Transport channel closed|request::Error|os error 61|Connection reset|DeprecationWarning|ExperimentalWarning|npm warn|npm notice|^npm |^\s*\d+\s*[|>]|\[B  /i;
+
+/** Error markers in English and Chinese; stderr is not always English. */
+const STDERR_ERROR =
+  /error|fail|fatal|panic|exception|expired|unauthorized|forbidden|refused|denied|invalid|错误|失败|异常|致命|超时|无法|找不到|认证|授权|登录已过期|未登录|连接被拒绝/i;
+
+function stripTs(t: string): string {
+  return t.replace(/^\d{4}-\d{2}-\d{2}[T ][\d:.Z+-]+\s*/i, "");
+}
+
+/**
+ * Picks the toast-worthy line out of a stderr batch (the Rust side merges
+ * lines on a 200ms cadence, so `line` may be multi-line). Known noise is
+ * dropped; everything else surfaces (error markers first).
+ */
 export function surfaceStderr(line: string): string | null {
-  const t = cleanLogLine(line);
-  if (!t) return null;
-  if (/worker quit|Transport channel closed|request::Error|os error 61|Connection reset/i.test(t)) {
-    return null;
+  let fallback: string | null = null;
+  for (const raw of line.split("\n")) {
+    const t = cleanLogLine(raw);
+    if (!t || STDERR_NOISE.test(t)) continue;
+    const serious = shouldClearBusyOnAgentStderr(raw);
+    const trimmed = stripTs(t).slice(0, 140);
+    if (serious) return trimmed;
+    if (STDERR_ERROR.test(t)) {
+      fallback ??= trimmed;
+      continue;
+    }
+    fallback ??= trimmed;
   }
-  if (!/error|fail|fatal|panic/i.test(t)) return null;
-  return t.replace(/^\d{4}-\d{2}-\d{2}[T ][\d:.Z+-]+\s*/i, "").slice(0, 140);
+  return fallback;
+}
+
+export function shouldClearBusyOnAgentStderr(line: string): boolean {
+  const t = cleanLogLine(line);
+  if (!t) return false;
+  return /\[SYSTEM_ERROR\]|Authentication required|Prompt for session .+\sfailed|未登录|登录已过期|认证失败|鉴权失败/i.test(
+    t,
+  );
 }
 
 export function resolveOpenTarget(href: string, cwd = ""): string | null {
-  const h = href.trim();
+  let h = href.trim();
+  if (h.startsWith("@") && h.length > 1) h = h.slice(1);
   if (!h || /^javascript:/i.test(h) || /^data:/i.test(h)) return null;
   if (/^https?:\/\//i.test(h)) return h;
   if (/^file:\/\//i.test(h)) {
@@ -100,6 +195,7 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
       return h.replace(/^file:\/\//i, "");
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
   if (h.startsWith("//")) return null;
   if (h.startsWith("/")) return h;
   if (cwd && !h.includes("://")) {
@@ -110,9 +206,9 @@ export function resolveOpenTarget(href: string, cwd = ""): string | null {
 
 /** Extensions worth turning into a clickable, previewable file reference. */
 const LINKABLE_EXT =
-  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp";
+  "md|markdown|txt|json|jsonl|toml|ts|tsx|js|jsx|mjs|cjs|css|html|htm|rs|py|sh|zsh|bash|yml|yaml|xml|csv|log|svg|lock|sql|go|rb|java|kt|swift|c|h|cpp|hpp|png|jpg|jpeg|gif|webp|bmp|ico|tif|tiff|heic|avif|mp4|webm|mov|m4v|ogv";
 
-const ABSOLUTE_PATH = /(^|[\s(])(\/(?:Users|home|tmp|var|opt)\/[^\s<)'"]+|~\/[^\s<)'"]+)/g;
+const ABSOLUTE_PATH = /(^|[\s(])(@?(?:\/(?:Users|home|tmp|var|opt)\/[^\s<)'"]+|~\/[^\s<)'"]+))/g;
 
 /**
  * Relative workspace paths like `src/lib/chat.ts`. Requires a slash and a known
@@ -135,8 +231,10 @@ export function linkifyLocalPaths(html: string): string {
     const linked = text
       .replace(
         ABSOLUTE_PATH,
-        (_m, lead: string, path: string) =>
-          `${lead}<a class="file-link" href="${path}">${path}</a>`,
+        (_m, lead: string, path: string) => {
+          const href = path.replace(/^@/, "");
+          return `${lead}<a class="file-link" href="${href}">${path}</a>`;
+        },
       )
       .replace(RELATIVE_PATH, (m, lead: string, path: string) => {
         // Skip anything the absolute pass already wrapped.

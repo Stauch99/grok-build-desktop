@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { digitFromEvent, isMod, isMruSwitch } from "../lib/shortcuts";
+import { imeBlocksDigitHotkey } from "../lib/ime-enter";
 
 export type SessionHotkeysOptions = {
   enabled: boolean;
@@ -40,6 +41,7 @@ export function useSessionHotkeys({
 
       const digit = digitFromEvent(e);
       if (digit === null || !isMod(e)) return;
+      if (imeBlocksDigitHotkey(e)) return;
       const index = digit - 1;
       if (index < 0 || index > 8) return;
       if (index >= sessionIds.length) return;

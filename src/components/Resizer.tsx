@@ -53,7 +53,9 @@ export function Resizer({
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
     const delta = (e.clientX - startX.current) * direction;
-    onChange(clamp(startValue.current + delta));
+    const next = clamp(startValue.current + delta);
+    latest.current = next;
+    onChange(next);
   };
 
   const endDrag = (e: PointerEvent<HTMLDivElement>) => {

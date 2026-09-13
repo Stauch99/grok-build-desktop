@@ -1,4 +1,6 @@
-export const DEFAULT_INBOX_NAME = "Grok Chats";
+import { tr } from "./i18n-bridge";
+
+export const DEFAULT_INBOX_NAME = "Agent Chats";
 
 export function normalizeCwd(path: string): string {
   return path.replace(/\/+$/, "");
@@ -30,8 +32,8 @@ export function encodeCwd(cwd: string): string {
 }
 
 export function canMoveInboxSession(sourceCwd: string, destCwd: string, inboxCwd: string): string | null {
-  if (!sameCwd(sourceCwd, inboxCwd)) return "只能把独立对话移入项目";
-  if (sameCwd(destCwd, inboxCwd)) return "目标不能是收件箱";
-  if (!destCwd.trim()) return "没有目标项目";
+  if (!sameCwd(sourceCwd, inboxCwd)) return tr("inbox.moveOnly");
+  if (sameCwd(destCwd, inboxCwd)) return tr("inbox.destInbox");
+  if (!destCwd.trim()) return tr("inbox.noDest");
   return null;
 }

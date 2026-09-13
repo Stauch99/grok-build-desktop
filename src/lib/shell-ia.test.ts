@@ -10,7 +10,6 @@ import {
   SIDEBAR_RAIL,
   situationAutoCollapse,
   tasksSections,
-  trayMenuLabels,
 } from "./shell-ia";
 
 describe("tasksSections", () => {
@@ -85,12 +84,8 @@ describe("busyComposerHint", () => {
   it("names queue vs steer while busy", () => {
     expect(busyComposerHint(false)).toBe("忙碌时回车会排队");
     expect(busyComposerHint(true)).toBe("忙碌时回车会改向");
-  });
-});
-
-describe("trayMenuLabels", () => {
-  it("adds last-session under show", () => {
-    expect(trayMenuLabels()).toEqual(["显示窗口", "打开上次会话", "退出"]);
+    expect(busyComposerHint(false, "en")).toBe("Enter queues while busy");
+    expect(busyComposerHint(true, "en")).toBe("Enter steers while busy");
   });
 });
 

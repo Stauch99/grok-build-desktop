@@ -27,6 +27,19 @@ describe("mcpAddArgv", () => {
     ]);
   });
 
+  it("emits a single -- before the stdio command, with no later --flags", () => {
+    const argv = mcpAddArgv({
+      name: "x",
+      transport: "stdio",
+      commandOrUrl: "npx",
+      args: ["-y", "@mcp/server"],
+    });
+    expect(argv.filter((token) => token === "--")).toHaveLength(1);
+    const after = argv.slice(argv.indexOf("--") + 1);
+    expect(after[0]).toBe("npx");
+    expect(after.some((token) => token.startsWith("--"))).toBe(false);
+  });
+
   it("builds http add with headers", () => {
     expect(
       mcpAddArgv({

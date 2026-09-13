@@ -1,3 +1,5 @@
+import { useT } from "../lib/locale-context";
+
 export type ParallelSubagentItem = {
   id: string;
   name: string;
@@ -13,11 +15,12 @@ export type ParallelSubagentsProps = {
  * not spawn or steer them here.
  */
 export function ParallelSubagents({ items }: ParallelSubagentsProps) {
+  const t = useT();
   if (items.length === 0) return null;
 
   return (
     <section>
-      <h3>子代理 · {items.length}</h3>
+      <h3>{t("subagent.heading", { n: items.length })}</h3>
       <ul className="hub-rows">
         {items.map((item) => (
           <li key={item.id} className="hub-row">

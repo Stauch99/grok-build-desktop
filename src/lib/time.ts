@@ -1,4 +1,5 @@
 import { formatElapsed } from "./chat";
+import { tr } from "./i18n-bridge";
 
 /** Wall clock for a chat item. Same calendar day → `14:32`; otherwise `8/15 14:32`. */
 export function formatClock(ms: number, now = Date.now()): string {
@@ -19,6 +20,13 @@ export function thoughtDuration(at?: number, until?: number): string | undefined
   return formatElapsed(ms);
 }
 
+/** Timeline label: 思考中 / 思考了 1分5秒 / 思考. */
+export function thoughtLineLabel(at?: number, until?: number, live = false): string {
+  if (live) return tr("workRun.ariaThinking");
+  const d = thoughtDuration(at, until);
+  return d ? tr("workRun.thoughtFor", { d }) : tr("time.thought");
+}
+
 /**
  * Label above a user turn. `turn` is the ACP promptIndex when present;
  * otherwise pass a 1-based count of user messages so far.
@@ -30,7 +38,7 @@ export function turnSeparatorLabel(
 ): string {
   const n = turn != null && Number.isFinite(turn) && turn >= 0 ? Math.floor(turn) + 1 : undefined;
   const clock = at != null ? formatClock(at, now) : "";
-  const head = n != null ? `第 ${n} 轮` : "新一轮";
+  const head = n != null ? tr("time.turnN", { n }) : tr("time.turnNew");
   return clock ? `${head} · ${clock}` : head;
 }
 

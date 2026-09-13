@@ -1,0 +1,68 @@
+/* Interaction affordances owned by the composer/thread components:
+   new-message count over the jump button, queued-permission count,
+   and the question card's custom-answer row. */
+
+/* Count of items that arrived while scrolled up. Sits just above the
+   .jump-bottom chevron (bottom 12px + 32px tall) inside .chat-shell. */
+.jump-count {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 52px;
+  z-index: var(--z-sticky);
+  width: fit-content;
+  margin-inline: auto;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  pointer-events: none;
+  animation: rise-in var(--dur) var(--ease);
+}
+
+/* "还有 N 个" line under the option rows of a permission card. */
+.perm-more {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+/* Free-text answer row inside a question card. */
+.perm-custom-row {
+  margin-top: var(--space-3);
+  display: flex;
+  gap: 6px;
+}
+.perm-custom-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 4px var(--space-2);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: var(--text-md);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.perm-custom-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.perm-custom-send {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  background: var(--bg-hover);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.perm-custom-send:hover {
+  background: var(--bg-active);
+}
+.perm-custom-send:disabled {
+  opacity: 0.5;
+}

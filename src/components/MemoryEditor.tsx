@@ -1,4 +1,6 @@
 import { basename } from "../lib/text";
+import { IconFinder } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type MemoryEditorProps = {
   path: string;
@@ -18,11 +20,12 @@ export function MemoryEditor({
   onSave,
   onReveal,
 }: MemoryEditorProps) {
+  const t = useT();
   const label = basename(path) || path;
 
   return (
     <div className="hub-compose">
-      {dirty ? <p className="hub-meta">未保存</p> : null}
+      {dirty ? <p className="hub-meta">{t("memory.unsaved")}</p> : null}
       <textarea
         className="hub-preview"
         value={text}
@@ -39,10 +42,10 @@ export function MemoryEditor({
       />
       <div className="set-actions">
         <button type="button" className="btn" onClick={onSave} disabled={dirty === false}>
-          保存
+          {t("preview.save")}
         </button>
-        <button type="button" className="btn ghost" onClick={onReveal}>
-          访达
+        <button type="button" className="file-open" onClick={onReveal} aria-label={t("finder.open")}>
+          <IconFinder size={14} />
         </button>
       </div>
     </div>

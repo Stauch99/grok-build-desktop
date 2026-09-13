@@ -1,4 +1,5 @@
 import type { SessionSummary } from "../api";
+import { updatedAtMs } from "./session-time";
 
 export function toggleId(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
@@ -14,14 +15,23 @@ export function isArchived(archived: string[], id: string): boolean {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Grok composer stubs are 0-message with no disk dir. Imported CLI rows stay listed. */
+export function isEmptyDraft(s: SessionSummary): boolean {
+  if (s.sessionKind === "subagent") return false;
+  if ((s.numMessages ?? 0) > 0) return false;
+  if (s.dir) return false;
+  if (s.agentId && s.agentId !== "grok") return false;
+  return true;
+}
+
 function isStale(
   updatedAt: string,
   autoArchiveDays: number,
   now: number,
 ): boolean {
   if (autoArchiveDays <= 0) return false;
-  const t = Date.parse(updatedAt);
-  if (Number.isNaN(t)) return false;
+  const t = updatedAtMs(updatedAt);
+  if (t <= 0) return false;
   return t < now - autoArchiveDays * DAY_MS;
 }
 
@@ -39,7 +49,7 @@ export function visibleSessions(
 ): SessionSummary[] {
   const { pinned, archived, view, autoArchiveDays, now } = opts;
   return sessions.filter((s) => {
-    if (s.numMessages === 0) return false;
+    if (isEmptyDraft(s)) return false;
     const archivedId = isArchived(archived, s.id);
     const auto =
       !isPinned(pinned, s.id) && isStale(s.updatedAt, autoArchiveDays, now);
@@ -66,11 +76,13 @@ export function partitionPinned(
   return { pinned, rest };
 }
 
-export function shouldAutoExpand(
-  _parentId: string,
-  activeId: string | null | undefined,
-  childrenIds: string[],
-): boolean {
-  if (!activeId) return false;
-  return childrenIds.includes(activeId);
+/** Count-circle expand/collapse. Opening a session never changes this. */
+export function sessionKidsOpen(opts: {
+  hasKids: boolean;
+  expanded: boolean;
+  collapsed: boolean;
+}): boolean {
+  if (!opts.hasKids) return false;
+  if (opts.collapsed) return false;
+  return opts.expanded;
 }

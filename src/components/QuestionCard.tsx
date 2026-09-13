@@ -1,4 +1,11 @@
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
+import { useT } from "../lib/locale-context";
+import {
+  applyImeComposition,
+  emptyImeEnterState,
+  imeBlocksEnter,
+  imeEnterShouldPreventDefault,
+} from "../lib/ime-enter";
 
 export type QuestionOption = { id: string; label: string };
 
@@ -6,13 +13,25 @@ export type QuestionCardProps = {
   title: string;
   options: QuestionOption[];
   onPick: (id: string) => void;
+  onCustomAnswer?: (text: string) => void;
 };
 
 /**
  * Structured AskUserQuestion options. Digits 1–9 pick a row.
+ * A custom text entry allows answering when the preset choices don't fit.
  */
-export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
+export function QuestionCard({ title, options, onPick, onCustomAnswer }: QuestionCardProps) {
+  const t = useT();
   const [index, setIndex] = useState(0);
+  const [customText, setCustomText] = useState("");
+  const imeRef = useRef(emptyImeEnterState());
+
+  const submitCustom = () => {
+    const trimmed = customText.trim();
+    if (!trimmed) return;
+    setCustomText("");
+    onCustomAnswer?.(trimmed);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (/^[1-9]$/.test(e.key)) {
@@ -54,7 +73,7 @@ export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
       onKeyDown={onKeyDown}
     >
       <h4>{title}</h4>
-      <p className="permission-hint">按 1–9 选择</p>
+      <p className="permission-hint">{t("perm.pickNine")}</p>
       <div className="opts">
         {options.map((opt, i) => {
           const hotkey = i < 9 ? String(i + 1) : undefined;
@@ -74,6 +93,58 @@ export function QuestionCard({ title, options, onPick }: QuestionCardProps) {
           );
         })}
       </div>
+      {onCustomAnswer ? (
+        <form
+          className="perm-custom-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitCustom();
+          }}
+        >
+          <input
+            type="text"
+            className="perm-custom-input"
+            placeholder={t("question.freeText")}
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setCustomText("");
+                e.currentTarget.blur();
+                return;
+              }
+              if (e.key !== "Enter") return;
+              const keyLike = {
+                key: e.key,
+                isComposing: e.nativeEvent.isComposing,
+                keyCode: e.nativeEvent.keyCode,
+              };
+              // Enter confirming an IME candidate must not submit the form.
+              if (imeBlocksEnter(keyLike, imeRef.current, Date.now())) {
+                if (imeEnterShouldPreventDefault(keyLike, imeRef.current, Date.now())) {
+                  e.preventDefault();
+                }
+              }
+            }}
+            onCompositionStart={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+            }}
+            onCompositionEnd={() => {
+              imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+            }}
+          />
+          <button
+            type="submit"
+            className="perm-custom-send"
+            disabled={!customText.trim()}
+          >
+            {t("question.freeSend")}
+          </button>
+        </form>
+      ) : null}
+      {onCustomAnswer ? <p className="permission-hint">{t("question.freeHint")}</p> : null}
     </div>
   );
 }

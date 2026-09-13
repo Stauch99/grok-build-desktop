@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { derivePermissionView, pendingRequestCardKind } from "./permission-view";
+import { derivePermissionView, pendingRequestCardKind, requestPermissionKind } from "./permission-view";
 
 describe("permission view model", () => {
+  it("keeps bash execute prompts as permission cards, not questions", () => {
+    expect(requestPermissionKind({ title: "Bash: git status", toolKind: "execute" })).toBe("permission");
+    expect(requestPermissionKind({ title: "Run shell command" })).toBe("permission");
+  });
+
+  it("does not treat a long execute script as a question just because the body mentions 选择 or mask", () => {
+    const title = `Execute 'WORK="/tmp/docx-b-fix" $PY - <<'PY'\nfrom pathlib import Path\n# mask 脱敏 keys first\n选择课程套餐与退费条款\nPY'`;
+    expect(requestPermissionKind({ title, toolKind: "execute" })).toBe("permission");
+    expect(requestPermissionKind({ title })).toBe("permission");
+  });
+
   it("recognizes questions and assigns an explicit split session to the split pane", () => {
     expect(derivePermissionView({ request: { title: "Choose an option", toolKind: "question", sessionId: "split-1" }, mainSessionId: "main-1", runningMainSessionId: "main-1", splitSessionId: "split-1", mainBusy: true, splitBusy: true }))
       .toEqual({ kind: "question", pane: "split", mainVisible: false, splitVisible: true, statusPending: null });

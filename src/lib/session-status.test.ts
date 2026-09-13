@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  attentionCount,
+  busySessionIds,
   clearUnread,
   deriveStatus,
   isAttention,
   loadUnread,
   markUnread,
   pruneUnread,
+  sidebarWorkingIds,
   statusLabel,
   statusOrder,
   type UnreadMap,
@@ -103,12 +104,82 @@ describe("unread map", () => {
   });
 });
 
-describe("attentionCount", () => {
-  it("counts errors plus a live permission prompt", () => {
-    expect(attentionCount({ s1: "error", s2: "done", s3: "error" }, "s9")).toBe(3);
+describe("busySessionIds", () => {
+  it("marks a new session that is busy before runningSessionId catches up", () => {
+    expect(
+      busySessionIds({
+        busy: true,
+        sessionId: "new-1",
+        runningSessionId: null,
+      }),
+    ).toEqual(["new-1"]);
   });
 
-  it("does not count plain completions", () => {
-    expect(attentionCount({ s1: "done", s2: "done" }, null)).toBe(0);
+  it("prefers the running id when the open pane is a different session", () => {
+    expect(
+      busySessionIds({
+        busy: true,
+        sessionId: "open",
+        runningSessionId: "run",
+      }),
+    ).toEqual(["run"]);
+  });
+
+  it("stays empty when nothing is running", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: null,
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps a background session working while the open pane is idle", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: "run",
+      }),
+    ).toEqual(["run"]);
+  });
+
+  it("includes every live lease id, not only the primary", () => {
+    expect(
+      busySessionIds({
+        busy: false,
+        sessionId: "open",
+        runningSessionId: "run",
+        runningIds: ["run", "other"],
+      }),
+    ).toEqual(["run", "other"]);
   });
 });
+
+describe("sidebarWorkingIds", () => {
+  it("does not keep live children working after this window has idled", () => {
+    expect(
+      sidebarWorkingIds({
+        busy: false,
+        sessionId: "parent",
+        runningSessionId: null,
+        liveRosterIds: ["live:grok:c1"],
+        runningChildIds: ["child-1"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("includes live children only while this window is driving a turn", () => {
+    expect(
+      sidebarWorkingIds({
+        busy: true,
+        sessionId: "parent",
+        runningSessionId: "parent",
+        liveRosterIds: ["live:grok:c1"],
+        runningChildIds: ["child-1"],
+      }),
+    ).toEqual(["parent", "live:grok:c1", "child-1"]);
+  });
+});
+

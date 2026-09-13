@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { SessionSummary } from "../api";
 import {
   isArchived,
+  isEmptyDraft,
   isPinned,
   partitionPinned,
-  shouldAutoExpand,
+  sessionKidsOpen,
   toggleId,
   visibleSessions,
 } from "./session-chrome";
@@ -51,6 +52,19 @@ describe("visibleSessions", () => {
       { pinned: [], archived: [], view: "active", autoArchiveDays: 0, now },
     );
     expect(list.map((x) => x.id)).toEqual(["live"]);
+  });
+
+  it("keeps imported CLI sessions that still report zero messages", () => {
+    const kimi = s({ id: "session_kimi", numMessages: 0, agentId: "kimi", updatedAt: recent });
+    const disk = s({ id: "session_disk", numMessages: 0, dir: "/tmp/s", updatedAt: recent });
+    const list = visibleSessions([kimi, disk], {
+      pinned: [],
+      archived: [],
+      view: "active",
+      autoArchiveDays: 0,
+      now,
+    });
+    expect(list.map((x) => x.id)).toEqual(["session_kimi", "session_disk"]);
   });
 
   it("hides archived ids from active view", () => {
@@ -127,15 +141,52 @@ describe("partitionPinned", () => {
   });
 });
 
-describe("shouldAutoExpand", () => {
-  it("does not expand when only the parent is active", () => {
-    expect(shouldAutoExpand("p", "p", ["c"])).toBe(false);
+describe("isEmptyDraft", () => {
+  it("keeps live subagent rows with zero-looking drafts out of the trash filter", () => {
+    expect(
+      isEmptyDraft(
+        s({
+          id: "live:claude:c1",
+          numMessages: 1,
+          sessionKind: "subagent",
+          parentSessionId: "p",
+          agentId: "claude",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isEmptyDraft(
+        s({
+          id: "live:claude:c1",
+          numMessages: 0,
+          dir: undefined,
+          sessionKind: "subagent",
+          agentId: "claude",
+        }),
+      ),
+    ).toBe(false);
   });
-  it("expands when active is a descendant", () => {
-    expect(shouldAutoExpand("p", "gc", ["c", "gc"])).toBe(true);
+});
+
+describe("sessionKidsOpen", () => {
+  it("stays collapsed until the count circle expands the parent", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: false, collapsed: false }),
+    ).toBe(false);
   });
-  it("stays collapsed otherwise", () => {
-    expect(shouldAutoExpand("p", "other", ["c"])).toBe(false);
-    expect(shouldAutoExpand("p", null, ["c"])).toBe(false);
+  it("opens after an explicit expand", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: true, collapsed: false }),
+    ).toBe(true);
+  });
+  it("keeps an explicit collapse", () => {
+    expect(
+      sessionKidsOpen({ hasKids: true, expanded: true, collapsed: true }),
+    ).toBe(false);
+  });
+  it("does not invent kids on a leaf", () => {
+    expect(
+      sessionKidsOpen({ hasKids: false, expanded: true, collapsed: false }),
+    ).toBe(false);
   });
 });

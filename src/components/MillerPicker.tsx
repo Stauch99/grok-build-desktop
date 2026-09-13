@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listWorkspaceEntries, type WorkspaceEntry } from "../api";
-import { millerPath, millerPush, millerRoot, type MillerColumn } from "../lib/miller";
+import { millerPath, millerPop, millerPush, millerRoot, type MillerColumn } from "../lib/miller";
+import { focusables, trapFocus } from "../lib/trap-focus";
+import { IconClose } from "../icons";
+import { useT } from "../lib/locale-context";
 
 export type MillerPickerProps = {
   root: string;
@@ -9,8 +12,10 @@ export type MillerPickerProps = {
 };
 
 export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
+  const t = useT();
   const [stack, setStack] = useState<MillerColumn[]>(() => millerRoot(root));
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const path = millerPath(stack);
 
@@ -18,19 +23,73 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
     void listWorkspaceEntries(path).then(setEntries).catch(() => setEntries([]));
   }, [path]);
 
+  // Modal: trap Tab inside and hand focus back to whatever had it before.
+  useEffect(() => {
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const first = dialog ? focusables(dialog)[0] : null;
+    (first ?? dialog)?.focus();
+    return () => {
+      if (prev?.isConnected) prev.focus();
+    };
+  }, []);
+
   return (
     <div className="settings-layer" role="presentation">
       <div className="settings-backdrop" onClick={onClose} />
-      <div className="settings-dialog extra-dialog" role="dialog" aria-modal="true" aria-label="选择工作区">
+      <div
+        ref={dialogRef}
+        className="settings-dialog extra-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("miller.title")}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+            return;
+          }
+          if (e.key === "Tab") {
+            trapFocus(e.currentTarget, e.nativeEvent);
+            return;
+          }
+          if (e.key !== "Backspace") return;
+          const target = e.target as HTMLElement | null;
+          if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+          e.preventDefault();
+          setStack((s) => millerPop(s));
+        }}
+      >
         <header className="settings-head">
-          <strong>选择工作区</strong>
-          <button type="button" className="btn ghost" onClick={onClose} aria-label="关闭">
-            关闭
+          <strong>{t("miller.title")}</strong>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
+            <IconClose size={16} />
           </button>
         </header>
         <div className="settings-body">
-          <p className="hub-meta">{path}</p>
-          <ul className="hub-rows">
+          <p className="hub-meta" aria-label={t("miller.title")}>
+            {stack.map((col, i) => (
+              <span key={`${col.path}-${i}`}>
+                {i > 0 ? " / " : null}
+                <button
+                  type="button"
+                  className="session-title-btn"
+                  onClick={() => setStack((s) => s.slice(0, i + 1))}
+                >
+                  {col.name}
+                </button>
+              </span>
+            ))}
+          </p>
+          <ul
+            className="hub-rows"
+            onKeyDown={(e) => {
+              if (e.key !== "Backspace") return;
+              e.preventDefault();
+              setStack((s) => millerPop(s));
+            }}
+          >
             {entries.map((e) => (
               <li key={e.path} className="hub-row">
                 <button
@@ -42,14 +101,19 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
                   }}
                 >
                   <strong>{e.name}</strong>
-                  <span className="hub-meta">{e.kind === "dir" ? "文件夹" : "文件"}</span>
+                  <span className="hub-meta">{e.kind === "dir" ? t("file.folders") : t("file.files")}</span>
                 </button>
               </li>
             ))}
           </ul>
           <div className="set-actions">
+            {stack.length > 1 ? (
+              <button type="button" className="btn ghost" onClick={() => setStack((s) => millerPop(s))}>
+                {t("miller.back")}
+              </button>
+            ) : null}
             <button type="button" className="btn primary" onClick={() => onPick(path)}>
-              使用此目录
+              {t("miller.use")}
             </button>
           </div>
         </div>

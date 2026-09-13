@@ -1,6 +1,18 @@
-import { useState, type MouseEventHandler } from "react";
-import { IconCopy, IconEdit, IconResend, IconUndo } from "../icons";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { useRef, useState, type MouseEventHandler } from "react";
+import { IconGrokCopy, IconGrokEdit, IconGrokRegenerate } from "../grok-icons";
+import { IconChevron, IconGitFork, IconUndo } from "../icons";
+import { assetRoots, safeFileSrc } from "../lib/asset-src";
+import {
+  applyImeComposition,
+  emptyImeEnterState,
+  imeBlocksEnter,
+  imeEnterShouldPreventDefault,
+} from "../lib/ime-enter";
+import { splitInjectedMemory } from "../lib/memory-inject";
+import { rewriteLocalMediaHtml } from "../lib/media";
 import { escapeText, linkifyLocalPaths } from "../lib/text";
+import { useT } from "../lib/locale-context";
 
 export type UserTurnProps = {
   text: string;
@@ -35,10 +47,23 @@ export function UserTurn({
   clock,
   sessionModel,
 }: UserTurnProps) {
+  const t = useT();
+  const { visible, injected } = splitInjectedMemory(text);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(text);
+  const [draft, setDraft] = useState(visible);
+  const imeRef = useRef(emptyImeEnterState());
   const showModelChip = !!(model && sessionModel && model !== sessionModel);
   const showMeta = !!(clock || showModelChip);
+
+  const submitEdit = () => {
+    const next = draft;
+    setEditing(false);
+    onEditResend?.(next);
+  };
+  const cancelEdit = () => {
+    setDraft(visible);
+    setEditing(false);
+  };
 
   if (editing) {
     return (
@@ -49,28 +74,43 @@ export function UserTurn({
           rows={Math.min(12, Math.max(3, draft.split("\n").length + 1))}
           onChange={(e) => setDraft(e.target.value)}
           autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              cancelEdit();
+              return;
+            }
+            if (e.key !== "Enter") return;
+            const keyLike = {
+              key: e.key,
+              isComposing: e.nativeEvent.isComposing,
+              keyCode: e.nativeEvent.keyCode,
+            };
+            if (imeBlocksEnter(keyLike, imeRef.current, Date.now())) {
+              if (imeEnterShouldPreventDefault(keyLike, imeRef.current, Date.now())) {
+                e.preventDefault();
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey) {
+              e.preventDefault();
+              submitEdit();
+            }
+          }}
+          onCompositionStart={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
+          }}
+          onCompositionEnd={() => {
+            imeRef.current = applyImeComposition(imeRef.current, "end", Date.now());
+          }}
         />
         <div className="msg-actions">
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => {
-              const next = draft;
-              setEditing(false);
-              onEditResend?.(next);
-            }}
-          >
-            发送
+          <button type="button" className="btn primary" onClick={submitEdit}>
+            {t("composer.send")}
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              setDraft(text);
-              setEditing(false);
-            }}
-          >
-            取消
+          <button type="button" className="btn" onClick={cancelEdit}>
+            {t("sidebar.cancel")}
           </button>
         </div>
       </article>
@@ -79,13 +119,30 @@ export function UserTurn({
 
   return (
     <article className="msg user" data-cwd={cwd || undefined}>
-      <div
-        className="md"
-        onClick={onClick}
-        dangerouslySetInnerHTML={{
-          __html: linkifyLocalPaths(escapeText(text).replace(/\n/g, "<br/>")),
-        }}
-      />
+      {injected ? (
+        <details className="user-memory-fold">
+          <summary>
+            <span className="fold-chev" aria-hidden>
+              <IconChevron size={12} />
+            </span>
+            {t("memory.loadedChip")}
+          </summary>
+          <div className="user-memory-fold-body">{injected}</div>
+        </details>
+      ) : null}
+      {visible ? (
+        <div
+          className="md"
+          onClick={onClick}
+          dangerouslySetInnerHTML={{
+            __html: rewriteLocalMediaHtml(
+              linkifyLocalPaths(escapeText(visible).replace(/\n/g, "<br/>")),
+              cwd,
+              (path) => safeFileSrc(path, assetRoots(cwd, ""), convertFileSrc) ?? "",
+            ),
+          }}
+        />
+      ) : null}
       {showMeta ? (
         <div className="turn-meta">
           {clock ? <span>{clock}</span> : null}
@@ -93,42 +150,36 @@ export function UserTurn({
         </div>
       ) : null}
       <div className="msg-actions">
-        <button type="button" onClick={onCopy} aria-label="复制" title="复制">
-          <IconCopy size={14} />
-          复制
+        <button type="button" onClick={onCopy} aria-label={t("thread.copy")}>
+          <IconGrokCopy />
         </button>
-        <button type="button" onClick={onResend} aria-label="重发" title="重发">
-          <IconResend size={14} />
-          重发
+        <button type="button" onClick={onResend} aria-label={t("thread.resend")}>
+          <IconGrokRegenerate />
         </button>
         {onEditResend ? (
           <button
             type="button"
-            aria-label="编辑后重发"
-            title="编辑后重发"
+            aria-label={t("thread.editResend")}
             onClick={() => {
-              setDraft(text);
+              setDraft(visible);
               setEditing(true);
             }}
           >
-            <IconEdit size={14} />
-            编辑后重发
+            <IconGrokEdit />
           </button>
         ) : null}
         {onRewind ? (
           <button
             type="button"
-            title="把这一轮之后的文件改动还原"
-            aria-label="回到这里"
+            aria-label={t("thread.rewindHere")}
             onClick={onRewind}
           >
             <IconUndo size={14} />
-            回到这里
           </button>
         ) : null}
         {onFork ? (
-          <button type="button" title="从此处分叉" aria-label="从此处分叉" onClick={onFork}>
-            从此处分叉
+          <button type="button" aria-label={t("thread.forkHere")} onClick={onFork}>
+            <IconGitFork size={16} />
           </button>
         ) : null}
       </div>

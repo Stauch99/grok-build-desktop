@@ -6,6 +6,7 @@
  * notification delivery is measurably lossy, a badge on the row is not.
  * So `unread` is persisted and only cleared when you actually open the session.
  */
+import { tr } from "./i18n-bridge";
 export type SessionStatus = "working" | "needs-you" | "done" | "error" | "idle";
 
 /** Persisted in `~/.grok/webui.json`. Only terminal states are stored. */
@@ -29,16 +30,58 @@ export function deriveStatus({ id, busyIds, awaitingId, unread }: DeriveInput): 
   return "idle";
 }
 
+/** Sessions this window is driving. Falls back to the bound id before runningSessionId lands. */
+export function busySessionIds(opts: {
+  busy: boolean;
+  sessionId: string | null;
+  runningSessionId: string | null;
+  runningIds?: readonly string[];
+  extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
+}): string[] {
+  const ids: string[] = [];
+  if (opts.busy) {
+    const id = opts.runningSessionId || opts.sessionId;
+    if (id) ids.push(id);
+  } else if (opts.runningSessionId) {
+    ids.push(opts.runningSessionId);
+  }
+  if (opts.runningIds) {
+    for (const id of opts.runningIds) {
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+  }
+  for (const pane of opts.extraPanes ?? []) {
+    if (pane.busy && pane.sessionId) ids.push(pane.sessionId);
+  }
+  return ids;
+}
+
+/** Live roster / child rows stay working only while this window is still driving. */
+export function sidebarWorkingIds(opts: {
+  busy: boolean;
+  sessionId: string | null;
+  runningSessionId: string | null;
+  runningIds?: readonly string[];
+  extraPanes?: Array<{ busy: boolean; sessionId?: string | null }>;
+  liveRosterIds?: string[];
+  runningChildIds?: string[];
+}): string[] {
+  const ids = busySessionIds(opts);
+  if (!opts.busy) return ids;
+  return [...ids, ...(opts.liveRosterIds ?? []), ...(opts.runningChildIds ?? [])];
+}
+
 const LABELS: Record<SessionStatus, string> = {
-  working: "运行中",
-  "needs-you": "等你确认",
-  done: "已完成，未查看",
-  error: "出错，未查看",
+  working: "status.working",
+  "needs-you": "status.needsYou",
+  done: "status.doneUnread",
+  error: "status.errorUnread",
   idle: "",
 };
 
 export function statusLabel(status: SessionStatus): string {
-  return LABELS[status];
+  const key = LABELS[status];
+  return key ? tr(key) : "";
 }
 
 /** Sort weight: what costs you most by waiting comes first. */
@@ -91,8 +134,3 @@ export function loadUnread(raw: unknown): UnreadMap {
   return out;
 }
 
-/** How many sessions are actively asking for the user. Drives the dock badge. */
-export function attentionCount(unread: UnreadMap, awaitingId: string | null): number {
-  const errors = Object.values(unread).filter((k) => k === "error").length;
-  return errors + (awaitingId ? 1 : 0);
-}
