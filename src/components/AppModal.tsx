@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../lib/locale-context";
 import { usePresence } from "../lib/motion";
+import { trapFocus } from "../lib/trap-focus";
 
 export type AppModalProps = {
   open: boolean;
@@ -21,10 +22,14 @@ export function AppModal({ open, title, body, confirmLabel, danger, onConfirm, o
   const t = useT();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
   const { shown, leaving } = usePresence(open);
 
   useEffect(() => {
     if (!shown) return;
+    previousActive.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     (danger ? cancelRef : confirmRef).current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -33,13 +38,34 @@ export function AppModal({ open, title, body, confirmLabel, danger, onConfirm, o
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const prev = previousActive.current;
+      previousActive.current = null;
+      // Give focus back to whatever was focused before the modal opened.
+      const active = document.activeElement;
+      const inside = !!(
+        layerRef.current &&
+        active instanceof Node &&
+        layerRef.current.contains(active)
+      );
+      if ((inside || active === document.body || active == null) && prev?.isConnected) {
+        prev.focus();
+      }
+    };
   }, [shown, danger, onCancel]);
 
   if (!shown) return null;
 
   return (
-    <div className={`palette-layer${leaving ? " layer-out" : ""}`} role="presentation">
+    <div
+      ref={layerRef}
+      className={`palette-layer${leaving ? " layer-out" : ""}`}
+      role="presentation"
+      onKeyDown={(e) => {
+        if (e.key === "Tab" && layerRef.current) trapFocus(layerRef.current, e.nativeEvent);
+      }}
+    >
       <div className="palette-backdrop" onClick={onCancel} />
       <div className="palette" role="dialog" aria-modal="true" aria-labelledby="app-modal-title">
         <div className="palette-group" id="app-modal-title">

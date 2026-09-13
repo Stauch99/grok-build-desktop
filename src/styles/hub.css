@@ -462,3 +462,100 @@
 .dock-capsule-ok { border-color: color-mix(in srgb, var(--ok) 28%, var(--line)); }
 .dock-capsule-warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
 .dock-capsule-danger { border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); }
+
+/* ---- kanban card hover preview ---- */
+.kanban-peek {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+.kanban-peek-title {
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.35;
+}
+.kanban-peek-cwd {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.kanban-peek-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.kanban-peek-rows span {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.kanban-peek-rows em {
+  font-style: normal;
+  color: var(--faint);
+  flex: none;
+}
+
+/* ---- growth memory search ---- */
+.growth-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0 10px;
+  color: var(--faint);
+}
+.growth-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.growth-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--text-md);
+  color: var(--text);
+  padding: 7px 0;
+}
+.growth-search input::placeholder {
+  color: var(--faint);
+}
+.growth-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.growth-search-count {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.growth-paper-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+mark,
+.hit-mark {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  border-radius: var(--radius-xs);
+  padding: 0 1px;
+}

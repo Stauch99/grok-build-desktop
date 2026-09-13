@@ -1,3 +1,5 @@
+import { tr } from "./i18n-bridge";
+
 export type StateAuthorityKind = "desktop-preferences" | "cli-defaults" | "session-runtime";
 export type StateAuthority = { kind: StateAuthorityKind; location: "webui.json" | "config.toml" | "ACP/session files" };
 
@@ -14,9 +16,9 @@ export function authorityForState(key: string): StateAuthority {
 
 export function stateAuthorityExplanation(key: string): string {
   const authority = authorityForState(key);
-  if (authority.kind === "desktop-preferences") return `桌面偏好保存到 ${authority.location}`;
-  if (authority.kind === "cli-defaults") return `CLI 默认值保存到 ~/.grok/${authority.location}`;
-  return `当前会话状态由 ${authority.location} 提供`;
+  if (authority.kind === "desktop-preferences") return tr("authority.desktop", { location: authority.location });
+  if (authority.kind === "cli-defaults") return tr("authority.cli", { location: authority.location });
+  return tr("authority.session", { location: authority.location });
 }
 
 export function normalizeShowThinking(input: { cli: boolean | null | undefined; legacyDesktop?: boolean }): boolean {

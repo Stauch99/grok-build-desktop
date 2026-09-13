@@ -17,7 +17,15 @@ export type AgentDoctor = {
 export function defaultAgentHome(home: string, id: AgentId): string {
   const root = home.replace(/\/$/, "");
   const folder =
-    id === "grok" ? ".grok" : id === "kimi" ? ".kimi-code" : id === "claude" ? ".claude" : ".codex";
+    id === "grok"
+      ? ".grok"
+      : id === "kimi"
+        ? ".kimi-code"
+        : id === "claude"
+          ? ".claude"
+          : id === "codex"
+            ? ".codex"
+            : ".config/devin";
   return `${root}/${folder}`;
 }
 
@@ -25,6 +33,7 @@ export function defaultLoginHint(id: AgentId): string[] {
   if (id === "grok") return ["grok auth login"];
   if (id === "kimi") return ["kimi login"];
   if (id === "claude") return ["claude auth login"];
+  if (id === "devin") return ["devin auth login"];
   return ["codex login"];
 }
 
@@ -32,6 +41,7 @@ export function defaultInstallHint(id: AgentId): string[] {
   if (id === "grok") return ["Install Grok CLI to ~/.grok/bin/grok"];
   if (id === "kimi") return ["Install Kimi Code CLI and put kimi on PATH"];
   if (id === "claude") return ["npm i -g @anthropic-ai/claude-code"];
+  if (id === "devin") return ["Install Devin CLI (bundled with the Devin app) and put devin on PATH"];
   return ["npm i -g @openai/codex"];
 }
 
@@ -51,6 +61,8 @@ export function agentSendBlockReason(
   const row = doctors.find((d) => d.agentId === agentId);
   if (!row) return null;
   if (!row.binary) return tr("doctor.notInstalled", { agent: agentChipLabel(agentId) });
+  // Devin's ACP host ignores CLI file creds — the in-app auth card is the gate.
+  if (agentId === "devin") return null;
   if (!row.authPresent) return tr("doctor.notLoggedIn", { agent: agentChipLabel(agentId) });
   return null;
 }

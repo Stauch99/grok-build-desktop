@@ -84,7 +84,7 @@ describe("workbench-api", () => {
     expect(invoke).toHaveBeenCalledWith("remove_toml_mcp", { kind: "codex-toml", name: "git" });
   });
 
-  it("syncHubMcpServer writes mcp-json, claude-json, kimi-mcp, then upserts toml twice", async () => {
+  it("syncHubMcpServer writes mcp-json and the three JSON lives, then upserts toml twice", async () => {
     const { syncHubMcpServer } = await import("./workbench-api");
     invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
       if (cmd === "read_agents_file") {
@@ -102,7 +102,7 @@ describe("workbench-api", () => {
     const written = invoke.mock.calls
       .filter((c) => c[0] === "write_agents_file")
       .map((c) => (c[1] as { kind: string }).kind);
-    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp", "devin-mcp"]);
     const tomls = invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp");
     expect(tomls).toHaveLength(2);
     expect(tomls[0]![1]).toEqual({
@@ -136,14 +136,14 @@ describe("workbench-api", () => {
     const written = invoke.mock.calls
       .filter((c) => c[0] === "write_agents_file")
       .map((c) => (c[1] as { kind: string }).kind);
-    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp", "devin-mcp"]);
     const tomls = invoke.mock.calls.filter((c) => c[0] === "remove_toml_mcp");
     expect(tomls).toHaveLength(2);
     expect(tomls[0]![1]).toEqual({ kind: "grok-toml", name: "git" });
     expect(tomls[1]![1]).toEqual({ kind: "codex-toml", name: "git" });
   });
 
-  it("disableHubMcpServer strips four lives and keeps catalog", async () => {
+  it("disableHubMcpServer strips five lives and keeps catalog", async () => {
     const { disableHubMcpServer } = await import("./workbench-api");
     invoke.mockImplementation((cmd: string) => {
       if (cmd === "read_agents_file") return Promise.resolve("{}");
@@ -153,14 +153,14 @@ describe("workbench-api", () => {
     const written = invoke.mock.calls
       .filter((c) => c[0] === "write_agents_file")
       .map((c) => (c[1] as { kind: string }).kind);
-    expect(written).toEqual(["claude-json", "kimi-mcp"]);
+    expect(written).toEqual(["claude-json", "kimi-mcp", "devin-mcp"]);
     expect(invoke.mock.calls.some((c) => c[0] === "write_agents_file" && (c[1] as { kind: string }).kind === "mcp-json")).toBe(
       false,
     );
     expect(invoke.mock.calls.filter((c) => c[0] === "remove_toml_mcp")).toHaveLength(2);
   });
 
-  it("enableHubMcpServer re-syncs a catalog server into four lives", async () => {
+  it("enableHubMcpServer re-syncs a catalog server into five lives", async () => {
     const { enableHubMcpServer } = await import("./workbench-api");
     invoke.mockImplementation((cmd: string, args?: { kind?: string }) => {
       if (cmd === "read_agents_file") {
@@ -177,7 +177,7 @@ describe("workbench-api", () => {
     const written = invoke.mock.calls
       .filter((c) => c[0] === "write_agents_file")
       .map((c) => (c[1] as { kind: string }).kind);
-    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp"]);
+    expect(written).toEqual(["mcp-json", "claude-json", "kimi-mcp", "devin-mcp"]);
     expect(invoke.mock.calls.filter((c) => c[0] === "upsert_toml_mcp")).toHaveLength(2);
   });
 

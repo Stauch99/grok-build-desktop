@@ -16,6 +16,7 @@ describe("defaultAgentHome", () => {
     expect(defaultAgentHome("/Users/me", "kimi")).toBe("/Users/me/.kimi-code");
     expect(defaultAgentHome("/Users/me", "claude")).toBe("/Users/me/.claude");
     expect(defaultAgentHome("/Users/me", "codex")).toBe("/Users/me/.codex");
+    expect(defaultAgentHome("/Users/me", "devin")).toBe("/Users/me/.config/devin");
   });
 });
 
@@ -33,6 +34,10 @@ describe("emptyDoctor", () => {
     expect(defaultLoginHint("grok")).toEqual(["grok auth login"]);
     expect(defaultLoginHint("claude")).toEqual(["claude auth login"]);
     expect(defaultLoginHint("codex")).toEqual(["codex login"]);
+    expect(defaultLoginHint("devin")).toEqual(["devin auth login"]);
+    expect(defaultInstallHint("devin")).toEqual([
+      "Install Devin CLI (bundled with the Devin app) and put devin on PATH",
+    ]);
   });
 });
 
@@ -45,6 +50,20 @@ describe("agentSendBlockReason", () => {
     expect(
       agentSendBlockReason("kimi", [{ agentId: "kimi", authPresent: false, binary: "/usr/bin/kimi" }]),
     ).toBe("Kimi 未登录");
+  });
+
+  it("blocks devin only when the binary is missing — ACP auth is the in-app card", () => {
+    expect(agentSendBlockReason("devin", [emptyDoctor("devin", "/Users/me")])).toBe("Devin 未安装");
+    expect(
+      agentSendBlockReason("devin", [
+        { agentId: "devin", authPresent: false, binary: "/usr/bin/devin" },
+      ]),
+    ).toBeNull();
+    expect(
+      agentSendBlockReason("devin", [
+        { agentId: "devin", authPresent: true, binary: "/usr/bin/devin" },
+      ]),
+    ).toBeNull();
   });
 
   it("does not block a logged-in CLI or an unknown doctor", () => {

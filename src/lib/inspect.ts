@@ -1,4 +1,5 @@
 /** Normalize `grok inspect --json` into the shapes the Extensions hub consumes. */
+import { tr } from "./i18n-bridge";
 
 export type InspectSource = {
   type: string;
@@ -177,7 +178,7 @@ export function skillSlashCommands(skills: InspectSkill[]): { name: string; hint
     .filter((skill) => skill.name.trim() && skill.disabled !== true && skill.userInvocable !== false)
     .map((skill) => ({
       name: qualifySkillName(skill, skills),
-      hint: skill.description?.trim() || "技能",
+      hint: skill.description?.trim() || tr("hub.skill"),
     }));
 }
 

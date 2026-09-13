@@ -1071,6 +1071,32 @@ pub async fn git_discard(cwd: String, path: String) -> AppResult<Value> {
     }
 }
 
+/// `git add -- rel`: stage one path inside the repo.
+#[tauri::command]
+pub async fn git_stage(cwd: String, path: String) -> AppResult<Value> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let Some(rel) = blame_rel_path(&root, &path) else {
+        return Ok(git_cmd_result(false, 1, "invalid path".into()));
+    };
+    let (ok, code, _, stderr) = git_run(&root, &["add", "--", &rel], 30).await;
+    Ok(git_cmd_result(ok, code, stderr))
+}
+
+/// `git restore --staged -- rel`: move one path back out of the index.
+#[tauri::command]
+pub async fn git_unstage(cwd: String, path: String) -> AppResult<Value> {
+    let Some(root) = guard_repo_cwd(&cwd) else {
+        return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
+    };
+    let Some(rel) = blame_rel_path(&root, &path) else {
+        return Ok(git_cmd_result(false, 1, "invalid path".into()));
+    };
+    let (ok, code, _, stderr) = git_run(&root, &["restore", "--staged", "--", &rel], 30).await;
+    Ok(git_cmd_result(ok, code, stderr))
+}
+
 #[tauri::command]
 pub async fn git_commit(cwd: String, message: String) -> AppResult<Value> {
     if !commit_message_ok(&message) {
@@ -1079,9 +1105,15 @@ pub async fn git_commit(cwd: String, message: String) -> AppResult<Value> {
     let Some(root) = guard_repo_cwd(&cwd) else {
         return Ok(git_cmd_result(false, 1, "invalid cwd".into()));
     };
-    let (add_ok, add_code, _, add_err) = git_run(&root, &["add", "-A"], 30).await;
-    if !add_ok {
-        return Ok(git_cmd_result(false, add_code, add_err));
+    // `git diff --cached --quiet` exits 1 when the index holds staged content.
+    // In that case commit exactly what the user staged; an empty index (or a
+    // failed probe) keeps the legacy `add -A` catch-all.
+    let (_, staged_code, _, _) = git_run(&root, &["diff", "--cached", "--quiet"], 30).await;
+    if staged_code != 1 {
+        let (add_ok, add_code, _, add_err) = git_run(&root, &["add", "-A"], 30).await;
+        if !add_ok {
+            return Ok(git_cmd_result(false, add_code, add_err));
+        }
     }
     let (ok, code, _, stderr) = git_run(&root, &["commit", "-m", message.trim()], 30).await;
     Ok(git_cmd_result(ok, code, stderr))
@@ -1374,6 +1406,7 @@ Write the procedure here.
                 ("kimi", true),
                 ("claude", true),
                 ("codex", true),
+                ("devin", true),
             ];
             let _ = crate::skill_sync::sync_skill_to_agents(canonical, &home, &name, &flags);
         }
@@ -1430,11 +1463,11 @@ pub async fn delete_skill(
     let mut allowed =
         skills_root == canonical_root || vendor_roots.iter().any(|r| skills_root == *r);
     if !allowed {
-        if let (Some(cwd), Some(trusted)) = (input.cwd.as_deref(), state.workspace.lock().await.clone()) {
+        if let (Some(cwd), Some(trusted)) =
+            (input.cwd.as_deref(), state.workspace.lock().await.clone())
+        {
             let raw_dir = PathBuf::from(cwd.trim());
-            if let (Ok(dir), Ok(trusted_dir)) =
-                (raw_dir.canonicalize(), trusted.canonicalize())
-            {
+            if let (Ok(dir), Ok(trusted_dir)) = (raw_dir.canonicalize(), trusted.canonicalize()) {
                 if dir == trusted_dir && dir != Path::new("/") {
                     allowed = skills_root == dir.join(".agents/skills")
                         || skills_root == dir.join(".grok/skills");
@@ -1453,6 +1486,7 @@ pub async fn delete_skill(
                 ("kimi", false),
                 ("claude", false),
                 ("codex", false),
+                ("devin", false),
             ];
             let _ = crate::skill_sync::sync_skill_to_agents(skill_dir, &home, name, &flags);
         }
@@ -1676,10 +1710,7 @@ fn terminal_launch_argv(_dir: &Path) -> Vec<(String, Vec<String>)> {
 
 async fn spawn_project_terminal(dir: &Path) -> bool {
     for (program, args) in terminal_launch_argv(dir) {
-        let spawned = Command::new(&program)
-            .args(&args)
-            .current_dir(dir)
-            .spawn();
+        let spawned = Command::new(&program).args(&args).current_dir(dir).spawn();
         if spawned.is_ok() {
             return true;
         }
@@ -2718,6 +2749,88 @@ mod security_tests {
         assert_eq!(pull["ok"], false);
         let push = super::git_push("/".into()).await.unwrap();
         assert_eq!(push["ok"], false);
+    }
+
+    #[tokio::test]
+    async fn git_stage_and_unstage_reject_bad_paths() {
+        let root = temp_dir("stage-escape").canonicalize().unwrap();
+        init_git_repo_with_commit(&root);
+        let staged = super::git_stage(root.to_string_lossy().into_owned(), "../Secrets".into())
+            .await
+            .unwrap();
+        assert_eq!(staged["ok"], false);
+        let unstaged = super::git_unstage(root.to_string_lossy().into_owned(), "".into())
+            .await
+            .unwrap();
+        assert_eq!(unstaged["ok"], false);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn git_stage_then_unstage_roundtrip() {
+        let root = temp_dir("stage-roundtrip").canonicalize().unwrap();
+        init_git_repo_with_commit(&root);
+        std::fs::write(root.join("readme.txt"), "hi\nmore").unwrap();
+
+        let staged = super::git_stage(root.to_string_lossy().into_owned(), "readme.txt".into())
+            .await
+            .unwrap();
+        assert_eq!(staged["ok"], true, "{staged}");
+        let cached = git_at(&root, &["diff", "--cached", "--name-only"]);
+        assert!(
+            String::from_utf8_lossy(&cached.stdout).contains("readme.txt"),
+            "{}",
+            String::from_utf8_lossy(&cached.stdout)
+        );
+
+        let unstaged = super::git_unstage(root.to_string_lossy().into_owned(), "readme.txt".into())
+            .await
+            .unwrap();
+        assert_eq!(unstaged["ok"], true, "{unstaged}");
+        let cached = git_at(&root, &["diff", "--cached", "--name-only"]);
+        assert!(
+            !String::from_utf8_lossy(&cached.stdout).contains("readme.txt"),
+            "{}",
+            String::from_utf8_lossy(&cached.stdout)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn git_commit_with_staged_content_skips_add_all() {
+        let root = temp_dir("commit-staged").canonicalize().unwrap();
+        init_git_repo_with_commit(&root);
+        std::fs::write(root.join("staged.txt"), "staged\n").unwrap();
+        std::fs::write(root.join("other.txt"), "unstaged\n").unwrap();
+        assert!(git_at(&root, &["add", "staged.txt"]).status.success());
+
+        let res = super::git_commit(root.to_string_lossy().into_owned(), "staged only".into())
+            .await
+            .unwrap();
+        assert_eq!(res["ok"], true, "{res}");
+
+        let show = git_at(&root, &["show", "HEAD:staged.txt"]);
+        assert_eq!(String::from_utf8_lossy(&show.stdout).trim(), "staged");
+        let status = git_at(&root, &["status", "--porcelain"]);
+        let out = String::from_utf8_lossy(&status.stdout);
+        assert!(out.contains("?? other.txt"), "{out}");
+        assert!(!out.contains("staged.txt"), "{out}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn git_commit_with_empty_index_still_adds_all() {
+        let root = temp_dir("commit-all").canonicalize().unwrap();
+        init_git_repo_with_commit(&root);
+        std::fs::write(root.join("readme.txt"), "hi\nmore").unwrap();
+
+        let res = super::git_commit(root.to_string_lossy().into_owned(), "auto add".into())
+            .await
+            .unwrap();
+        assert_eq!(res["ok"], true, "{res}");
+        let status = git_at(&root, &["status", "--porcelain"]);
+        assert_eq!(String::from_utf8_lossy(&status.stdout).trim(), "");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

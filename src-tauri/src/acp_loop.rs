@@ -254,8 +254,7 @@ pub(crate) fn spawn_reader(
         let mut reader = BufReader::new(stderr);
         let app_err = app;
         let mut pending: Vec<String> = Vec::new();
-        let mut flush =
-            tokio::time::interval(std::time::Duration::from_millis(STDERR_MERGE_MS));
+        let mut flush = tokio::time::interval(std::time::Duration::from_millis(STDERR_MERGE_MS));
         flush.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
@@ -356,7 +355,10 @@ pub(crate) fn spawn_exit_watcher(
                 break;
             }
             if let Some(payload) = exit_payload {
-                let _ = app.emit("agent-exit", tagged_acp_event(agent_id, generation, payload));
+                let _ = app.emit(
+                    "agent-exit",
+                    tagged_acp_event(agent_id, generation, payload),
+                );
                 break;
             }
         }

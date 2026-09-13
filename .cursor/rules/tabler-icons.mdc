@@ -1,0 +1,18 @@
+---
+description: UI chrome icons must come from Tabler Icons via src/icons.tsx
+alwaysApply: true
+---
+
+# Tabler Icons
+
+All UI chrome icons are [Tabler Icons](https://github.com/tabler/tabler-icons), consumed as `@tabler/icons-react`.
+
+- Add or swap icons only in `src/icons.tsx` by wrapping a Tabler export. Pick the closest name from that catalog.
+- Components import from `../icons` or `../grok-icons` (aliases). Do not import `@tabler/icons-react` in feature files.
+- Do not add Lucide, IconPark, Heroicons, Phosphor, or inline generic SVG icons.
+
+Leave these non-catalog marks alone:
+
+- `GrokBotIcon` — animated live-status robot
+- `AgentIcon` — vendor brand marks (Grok / Claude / Kimi / Codex)
+- `UsageRing` — usage meter, not a glyph

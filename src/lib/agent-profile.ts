@@ -30,6 +30,8 @@ export function defaultProfile(id: AgentId): AgentProfile {
         args: ["-y", "@agentclientprotocol/codex-acp@1.7.0"],
         loginArgs: ["login"],
       };
+    case "devin":
+      return { id, label: "Devin", command: "devin", args: ["acp"], loginArgs: ["auth", "login"] };
   }
 }
 
@@ -39,5 +41,6 @@ export function defaultProfiles(): Record<AgentId, AgentProfile> {
     kimi: defaultProfile("kimi"),
     claude: defaultProfile("claude"),
     codex: defaultProfile("codex"),
+    devin: defaultProfile("devin"),
   };
 }

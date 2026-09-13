@@ -237,14 +237,17 @@ describe("Sidebar project groups", () => {
 describe("Sidebar global nav", () => {
   it("renders quiet rows for the extra pages when onOpenExtra is wired", () => {
     const html = render(2, { onOpenExtra: () => {} });
-    for (const label of ["会话总览", "记忆", "代理", "用量", "图片"]) {
+    for (const label of ["会话总览", "记忆", "用量", "图片"]) {
       expect(html).toContain(label);
     }
-    expect((html.match(/class="side-link"/g) ?? []).length).toBe(5);
-    // Each row routes through a palette action id so imagine/agents preload.
-    for (const act of ["act:dashboard", "act:memory", "act:agents", "act:usage", "act:imagine"]) {
+    // Agents management is demoted to Settings → extensions; keep it off the rail.
+    expect(html).not.toContain("代理");
+    expect((html.match(/class="side-link"/g) ?? []).length).toBe(4);
+    // Each row routes through a palette action id so imagine preload stays uniform.
+    for (const act of ["act:dashboard", "act:memory", "act:usage", "act:imagine"]) {
       expect(sidebarSrc).toContain(`"${act}"`);
     }
+    expect(sidebarSrc).not.toContain('"act:agents"');
   });
 
   it("stays hidden without the callback or in rail mode", () => {

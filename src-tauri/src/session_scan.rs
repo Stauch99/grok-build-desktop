@@ -30,6 +30,7 @@ pub fn scan_agent_sessions(root: &Path, agent_id: &str, mode: ScanMode) -> Vec<S
 }
 
 pub fn scan_vendor_homes(user_home: &Path) -> Vec<ScannedSession> {
+    // devin stores sessions in SQLite; its history comes from ACP session/list, not a disk scan.
     let mut out = Vec::new();
     out.extend(scan_agent_sessions(
         &user_home.join(".kimi-code").join("sessions"),

@@ -87,11 +87,14 @@ type Props = {
   onAccentId?: (id: AccentId) => void;
   hideToTray?: boolean;
   onHideToTray?: (v: boolean) => void;
+  reopenLastSession?: boolean;
+  onReopenLastSession?: (v: boolean) => void;
   defaultRail?: "tasks" | "changes" | "context";
   onDefaultRail?: (v: "tasks" | "changes" | "context") => void;
   inspect?: InspectReport | null;
   doctorNote?: string | null;
   onOpenHub?: (tab: HubTab) => void;
+  onOpenAgents?: () => void;
   onRefreshHealth?: () => void;
   shortcuts?: Record<string, string>;
   onShortcut?: (id: string, binding: string) => void;
@@ -101,7 +104,7 @@ type Props = {
   agentConnecting?: boolean;
   agentDisconnected?: boolean;
   onRestartAgent?: () => void;
-  focusSection?: "shortcuts" | "memory" | null;
+  focusSection?: "shortcuts" | "memory" | "usage" | null;
   onConsumedFocus?: () => void;
   sounds?: boolean;
   onSounds?: (v: boolean) => void;
@@ -188,11 +191,14 @@ export function SettingsPanel({
   onAccentId,
   hideToTray = true,
   onHideToTray,
+  reopenLastSession = false,
+  onReopenLastSession,
   defaultRail = "tasks",
   onDefaultRail,
   inspect,
   doctorNote,
   onOpenHub,
+  onOpenAgents,
   onRefreshHealth,
   shortcuts,
   onShortcut,
@@ -234,6 +240,11 @@ export function SettingsPanel({
   useEffect(() => {
     if (focusSection === "memory") {
       setTab("memory");
+      onConsumedFocus?.();
+      return;
+    }
+    if (focusSection === "usage") {
+      setTab("usage");
       onConsumedFocus?.();
       return;
     }
@@ -310,10 +321,11 @@ export function SettingsPanel({
   const appearanceFont = show(hay("settings.fontSize"), "较小 中 常规 Smaller Medium Regular 14 15 17");
   const appearanceRail = show(hay("settings.defaultRail"), "Dashboard 审阅");
   const appearanceTray = show(hay("settings.hideToTray"));
+  const appearanceReopen = show(hay("settings.reopenLast"), "启动 launch startup reopen restore");
   const appearanceTheme = appearanceDark || appearanceFamily || appearanceAccent;
   const appearanceLayout = appearanceWidth || appearanceFont;
   const appearanceHas =
-    appearanceTheme || appearanceLayout || appearanceLocale || appearanceRail || appearanceTray;
+    appearanceTheme || appearanceLayout || appearanceLocale || appearanceRail || appearanceTray || appearanceReopen;
 
   const sendDesc = hay("settings.sendKey", "Enter 发送或 ⌘Enter Enter send");
   const steerDesc = hay("settings.steer", "排队到轮末或不打断正在跑的这一轮 立即改向 Queue steer");
@@ -360,6 +372,7 @@ export function SettingsPanel({
     chatComposer || chatSession || chatTelemetry || chatModelCard || chatPerms || chatShortcuts;
 
   const extensionsHub = show(hay("hub.title"), "技能、MCP、插件、市场和 Hooks Skills plugins marketplace");
+  const extensionsAgents = show("Agents", "代理 人格 角色 personas prompts 指令文件");
 
   const usageHas = show(hay("settings.usage"), "token tokens 消耗 缓存 请求 成本 命中 统计");
 
@@ -698,14 +711,29 @@ export function SettingsPanel({
                       </div>
                     </div>
                   ) : null}
-                  {appearanceTray ? (
+                  {appearanceTray || appearanceReopen ? (
                     <div className="set-card">
-                      <div className="set-row">
-                        <label>{t(locale, "settings.hideToTray")}</label>
-                        <button type="button" className={`toggle ${hideToTray ? "on" : ""}`} onClick={() => onHideToTray?.(!hideToTray)}>
-                          <i />
-                        </button>
-                      </div>
+                      {appearanceTray ? (
+                        <div className="set-row">
+                          <label>{t(locale, "settings.hideToTray")}</label>
+                          <button type="button" className={`toggle ${hideToTray ? "on" : ""}`} onClick={() => onHideToTray?.(!hideToTray)}>
+                            <i />
+                          </button>
+                        </div>
+                      ) : null}
+                      {appearanceReopen ? (
+                        <div className="set-row">
+                          <label>{t(locale, "settings.reopenLast")}</label>
+                          <button
+                            type="button"
+                            className={`toggle ${reopenLastSession ? "on" : ""}`}
+                            onClick={() => onReopenLastSession?.(!reopenLastSession)}
+                            aria-pressed={reopenLastSession}
+                          >
+                            <i />
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </>
@@ -1061,12 +1089,22 @@ export function SettingsPanel({
           {tab === "extensions" && (
             <section className="set-block">
               <h3>{t(locale, "settings.extensions")}</h3>
-              {searching && !extensionsHub ? emptyCopy : extensionsHub ? (
+              {searching && !extensionsHub && !extensionsAgents ? emptyCopy : extensionsHub ? (
                 <div className="set-card">
                   <p className="hub-meta">{t(locale, "settings.hubHint")}</p>
                   <div className="set-actions">
                     <button type="button" className="btn primary" onClick={() => onOpenHub?.("skills")}>
                       {t(locale, "settings.openHub")}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {extensionsAgents ? (
+                <div className="set-card">
+                  <p className="hub-meta">{t(locale, "settings.agentsHint")}</p>
+                  <div className="set-actions">
+                    <button type="button" className="btn ghost" onClick={() => onOpenAgents?.()}>
+                      {t(locale, "settings.openAgents")}
                     </button>
                   </div>
                 </div>

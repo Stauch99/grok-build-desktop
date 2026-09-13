@@ -1,3 +1,13 @@
+import { onBridgeLocaleChange, tr } from "./i18n-bridge";
+
 export const APP_VERSION = "0.6.3";
 
-export const UPDATE_INSTALLATION_COPY = "当前版本不提供应用内更新；新版本请通过外部发布渠道获取并手动安装。";
+/**
+ * A module-level export cannot call tr() at read time, so keep a live `let`
+ * binding refreshed whenever the bridge locale flips.
+ */
+export let UPDATE_INSTALLATION_COPY = tr("about.updateCopy");
+
+onBridgeLocaleChange(() => {
+  UPDATE_INSTALLATION_COPY = tr("about.updateCopy");
+});

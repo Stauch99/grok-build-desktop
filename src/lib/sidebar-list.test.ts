@@ -508,7 +508,8 @@ describe("sessionAgentPill", () => {
       "sess-agent sess-agent-kimi",
       "sess-agent sess-agent-claude",
       "sess-agent sess-agent-codex",
+      "sess-agent sess-agent-devin",
     ]);
-    expect(new Set(classes).size).toBe(4);
+    expect(new Set(classes).size).toBe(5);
   });
 });

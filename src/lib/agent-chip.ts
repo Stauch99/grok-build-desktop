@@ -7,7 +7,7 @@ export function agentChipDisabled(hasOpenSession: boolean): boolean {
 }
 
 export function agentChipLabel(id: AgentId): string {
-  return id === "grok" ? "Grok" : id === "kimi" ? "Kimi" : id === "claude" ? "Claude" : "Codex";
+  return id === "grok" ? "Grok" : id === "kimi" ? "Kimi" : id === "claude" ? "Claude" : id === "codex" ? "Codex" : "Devin";
 }
 
 export function agentChipClassName(id: AgentId, value: AgentId): string {

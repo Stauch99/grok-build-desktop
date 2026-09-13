@@ -1,3 +1,5 @@
+import { tr } from "./i18n-bridge";
+
 /** Reject empty or whitespace-only commit subjects before calling git. */
 export function commitMessageOk(msg: string): boolean {
   return msg.trim().length > 0;
@@ -11,5 +13,5 @@ export function branchMismatchToast(
   const bound = sessionBranch?.trim() ?? "";
   const next = nextBranch.trim();
   if (!bound || !next || bound === next) return null;
-  return "当前会话绑定另一条分支";
+  return tr("git.branchMismatch");
 }

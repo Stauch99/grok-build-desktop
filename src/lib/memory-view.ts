@@ -1,4 +1,5 @@
 import { AGENT_IDS, type AgentId } from "./agent-id";
+import { tr } from "./i18n-bridge";
 import type { DailyLine } from "./memory-ingest";
 import type { MemoryState } from "./memory-state";
 
@@ -9,6 +10,7 @@ const LABELS: Record<AgentId, string> = {
   kimi: "Kimi",
   claude: "Claude",
   codex: "Codex",
+  devin: "Devin",
 };
 
 function headingDate(heading: string): string | null {
@@ -40,7 +42,7 @@ export function corpusLine(lines: DailyLine[]): string | null {
   const counts = new Map<AgentId, number>();
   for (const line of lines) counts.set(line.agentId, (counts.get(line.agentId) ?? 0) + 1);
   const parts = AGENT_IDS.filter((id) => (counts.get(id) ?? 0) > 0).map((id) => `${LABELS[id]} ${counts.get(id)}`);
-  return parts.length ? `今日语料：${parts.join(" · ")}` : null;
+  return parts.length ? tr("memory.corpus", { parts: parts.join(" · ") }) : null;
 }
 
 export type OverlayStatus =

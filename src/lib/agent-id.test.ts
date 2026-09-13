@@ -7,12 +7,13 @@ import {
 } from "./agent-id";
 
 describe("AgentId", () => {
-  it("accepts the four closed ids", () => {
-    expect([...AGENT_IDS]).toEqual(["grok", "kimi", "claude", "codex"]);
+  it("accepts the five closed ids", () => {
+    expect([...AGENT_IDS]).toEqual(["grok", "kimi", "claude", "codex", "devin"]);
     expect(isAgentId("grok")).toBe(true);
     expect(isAgentId("kimi")).toBe(true);
     expect(isAgentId("claude")).toBe(true);
     expect(isAgentId("codex")).toBe(true);
+    expect(isAgentId("devin")).toBe(true);
     expect(isAgentId("gemini")).toBe(false);
     expect(isAgentId("Grok")).toBe(false);
   });
@@ -29,6 +30,7 @@ describe("SessionRef", () => {
       agentId: "kimi",
       sessionId: "wd_a/sess",
     });
+    expect(parseSessionRefKey("devin/sess-9")).toEqual({ agentId: "devin", sessionId: "sess-9" });
   });
 
   it("treats legacy bare grok ids as grok/<id>", () => {

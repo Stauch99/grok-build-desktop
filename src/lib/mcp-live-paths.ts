@@ -6,6 +6,7 @@ const LIVE_MCP_PATHS: Record<AgentId, string> = {
   kimi: "/.kimi-code/mcp.json",
   claude: "/.claude.json",
   codex: "/.codex/config.toml",
+  devin: "/.config/devin/mcp_config.json",
 };
 
 export function liveMcpPath(home: string, id: AgentId): string {

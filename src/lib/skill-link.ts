@@ -20,7 +20,9 @@ export function skillLinkDest(home: string, agentId: AgentId, name: string): str
         ? ".kimi-code/skills"
         : agentId === "claude"
           ? ".claude/skills"
-          : ".codex/skills";
+          : agentId === "devin"
+            ? ".config/devin/skills"
+            : ".codex/skills";
   return `${root}/${folder}/${name}`;
 }
 

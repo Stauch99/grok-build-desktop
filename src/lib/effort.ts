@@ -1,18 +1,21 @@
+import { tr } from "./i18n-bridge";
+
 export type Effort = "low" | "medium" | "high" | "xhigh";
 
 export const DEFAULT_EFFORT: Effort = "medium";
 
+/** `hint` is a getter so callers that read the option directly still get the live locale. */
 export const EFFORT_OPTIONS: { id: Effort; label: string; hint: string }[] = [
-  { id: "low", label: "Low", hint: "更快、更省" },
-  { id: "medium", label: "Medium", hint: "默认" },
-  { id: "high", label: "High", hint: "多想一会儿" },
-  { id: "xhigh", label: "xHigh", hint: "尽量想透" },
+  { id: "low", label: "Low", get hint() { return tr("effort.hint.low"); } },
+  { id: "medium", label: "Medium", get hint() { return tr("effort.hint.medium"); } },
+  { id: "high", label: "High", get hint() { return tr("effort.hint.high"); } },
+  { id: "xhigh", label: "xHigh", get hint() { return tr("effort.hint.xhigh"); } },
 ];
 
 const EXTRA_EFFORT: Record<string, { label: string; hint: string }> = {
-  max: { label: "Max", hint: "最高档" },
-  none: { label: "Off", hint: "不思考" },
-  ultracode: { label: "Ultracode", hint: "工作流 + 最深思考" },
+  max: { label: "Max", get hint() { return tr("effort.hint.max"); } },
+  none: { label: "Off", get hint() { return tr("effort.hint.none"); } },
+  ultracode: { label: "Ultracode", get hint() { return tr("effort.hint.ultracode"); } },
 };
 
 function titleCase(id: string): string {

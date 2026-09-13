@@ -1,6 +1,8 @@
 import type { SessionSummary } from "../api";
 import { compareByUpdatedAtDesc } from "./session-time";
-import { UNTITLED_SESSION_LABEL, clipSessionTitle, isUntitledSessionTitle } from "./session-title";
+import { clipSessionTitle, isUntitledSessionTitle } from "./session-title";
+import { t } from "./i18n";
+import { bridgeLocale } from "./i18n-bridge";
 import { basename } from "./text";
 
 export type ProjectNode = {
@@ -98,7 +100,7 @@ export function displayTitle(
   if (o) return o;
   if (!isUntitledSessionTitle(s.id, s.title)) return s.title.trim();
   const clip = clipSessionTitle(preview?.[s.id] ?? "");
-  return clip || s.title.trim() || UNTITLED_SESSION_LABEL;
+  return clip || s.title.trim() || t(bridgeLocale(), "dashboard.untitled");
 }
 
 export function setTitleOverride(

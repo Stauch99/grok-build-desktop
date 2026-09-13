@@ -3,11 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  HTML_CONSOLE_PROBE_SHA256,
+  HTML_CONSOLE_PROBE_SRC,
   HTML_FRAME_SANDBOX,
   HTML_PREVIEW_CSP,
+  HTML_PREVIEW_PROBE_CSP,
   buildSrcDoc,
   htmlFrameProps,
 } from "./HtmlArtifactPreview";
+import { createHash } from "node:crypto";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const previewSrc = readFileSync(join(here, "HtmlArtifactPreview.tsx"), "utf8");
@@ -98,6 +102,32 @@ describe("htmlFrameProps", () => {
     });
     expect(props.srcDoc).not.toContain("//evil.example");
     expect(props.srcDoc).not.toMatch(/javascript:/i);
+  });
+});
+
+describe("console probe", () => {
+  it("keeps the sha256 CSP in sync with the probe source", () => {
+    const digest = createHash("sha256").update(HTML_CONSOLE_PROBE_SRC, "utf8").digest("base64");
+    expect(digest).toBe(HTML_CONSOLE_PROBE_SHA256);
+    expect(HTML_PREVIEW_PROBE_CSP).toContain(`script-src 'sha256-${digest}'`);
+    expect(HTML_PREVIEW_PROBE_CSP).not.toContain("script-src 'none'");
+    expect(HTML_PREVIEW_PROBE_CSP).not.toContain("unsafe-eval");
+  });
+
+  it("injects the probe only when asked, posting grok-console messages", () => {
+    const plain = buildSrcDoc("<p>x</p>");
+    expect(plain).toContain(HTML_PREVIEW_CSP);
+    expect(plain).not.toContain("grok-console");
+    const probed = buildSrcDoc("<p>x</p>", true);
+    expect(probed).toContain(HTML_PREVIEW_PROBE_CSP);
+    expect(probed).toContain("grok-console");
+    const viaProps = htmlFrameProps({
+      html: "<p>x</p>",
+      roots: ["/work"],
+      convert: (p) => p,
+      consoleProbe: true,
+    });
+    expect(viaProps.srcDoc).toContain("grok-console");
   });
 });
 

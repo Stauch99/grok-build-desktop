@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   claudeAuthEvidence,
   codexAuthEvidence,
+  devinAuthEvidence,
   doctorFromEvidence,
   grokAuthEvidence,
   kimiAuthEvidence,
@@ -24,6 +25,14 @@ describe("auth evidence", () => {
     expect(codexAuthEvidence({ chatgptLogin: true, openaiApiKey: null, codexApiKey: "c" })).toEqual({
       hasSubscriptionSession: true,
       hasApiKey: true,
+    });
+    expect(devinAuthEvidence({ credentialsToml: true, windsurfApiKey: "w" })).toEqual({
+      hasSubscriptionSession: true,
+      hasApiKey: true,
+    });
+    expect(devinAuthEvidence({ credentialsToml: false, windsurfApiKey: "  " })).toEqual({
+      hasSubscriptionSession: false,
+      hasApiKey: false,
     });
   });
 });

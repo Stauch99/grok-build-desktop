@@ -90,7 +90,10 @@ pub(crate) fn resolve_delete_path(
 }
 
 /// Hydrate only from a caller-supplied path that already lives under a session home.
-pub(crate) fn resolve_hydrate_dir(dir: Option<&str>, roots: &[(String, PathBuf)]) -> Option<PathBuf> {
+pub(crate) fn resolve_hydrate_dir(
+    dir: Option<&str>,
+    roots: &[(String, PathBuf)],
+) -> Option<PathBuf> {
     let raw = dir.map(str::trim).filter(|s| !s.is_empty())?;
     let path = PathBuf::from(raw);
     if path_under_roots(&path, roots) && path.exists() {

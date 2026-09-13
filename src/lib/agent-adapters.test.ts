@@ -16,6 +16,7 @@ describe("adapterSessions", () => {
     expect(adapterSessions("kimi", [row])).toEqual([]);
     expect(adapterSessions("claude", [row])).toEqual([]);
     expect(adapterSessions("codex", [row])).toEqual([]);
+    expect(adapterSessions("devin", [row])).toEqual([]);
     expect(allAdapterSessions([row]).map((s) => s.agentId)).toEqual(["grok"]);
   });
 });

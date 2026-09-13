@@ -1,7 +1,7 @@
 use crate::agents_paths;
 use serde_json::{json, Map, Value};
 
-const AGENTS: &[&str] = &["grok", "kimi", "claude", "codex"];
+const AGENTS: &[&str] = &["grok", "kimi", "claude", "codex", "devin"];
 
 pub(crate) fn migrate_session_key(key: &str) -> Option<String> {
     if key.is_empty() {
@@ -90,6 +90,7 @@ mod tests {
     fn migrates_bare_keys_and_keeps_branded() {
         assert_eq!(migrate_session_key("abc").as_deref(), Some("grok/abc"));
         assert_eq!(migrate_session_key("claude/x").as_deref(), Some("claude/x"));
+        assert_eq!(migrate_session_key("devin/x").as_deref(), Some("devin/x"));
         assert_eq!(migrate_session_key(""), None);
         assert_eq!(migrate_session_key("nope/x"), None);
         let doc = migrate_workbench_doc(json!({

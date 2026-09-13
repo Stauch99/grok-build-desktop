@@ -686,3 +686,366 @@ button, .session, .icon-btn, .new-task, .fold, .toggle, .wait-pill, .jump-bottom
   font-size: var(--text-xs);
   color: var(--faint);
 }
+
+/* ---- pane header session meta (duration + tokens) ---- */
+.pane-meta {
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  align-self: center;
+}
+
+/* ---- zen / focus mode ---- */
+.app[data-zen] .sidebar,
+.app[data-zen] .sidebar-resizer,
+.app[data-zen] .review-rail,
+.app[data-zen] .workspace-stage > .resizer:has(+ .review-rail),
+.app[data-zen] .composer-meta-stats {
+  display: none;
+}
+
+/* ---- notification center ---- */
+.notify-bell { position: relative; }
+.notify-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  pointer-events: none;
+}
+.notify-menu {
+  min-width: 300px;
+  max-width: 360px;
+}
+.notify-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.notify-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+.notify-item.read { opacity: 0.62; }
+.notify-item-icon {
+  flex: none;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.notify-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.notify-item-title {
+  color: var(--text);
+  font-size: var(--ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notify-item-body {
+  color: var(--muted);
+  font-size: var(--ui-smaller);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notify-item-time {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+.notify-empty {
+  margin: 10px;
+  padding: 12px;
+  text-align: center;
+  color: var(--faint);
+  font-size: var(--ui-small);
+}
+.notify-foot {
+  border-top: 1px solid var(--line);
+  padding: 4px;
+}
+.notify-foot button {
+  color: var(--faint);
+}
+.notify-foot button:hover { color: var(--text); }
+
+/* ---- shortcuts cheatsheet ---- */
+.shortcuts-card {
+  max-height: min(70vh, 560px);
+}
+.shortcuts-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 0;
+}
+.shortcuts-head .palette-group { padding-top: 4px; }
+.shortcuts-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-lg);
+  font-size: var(--ui-small);
+  color: var(--text);
+}
+.shortcuts-row:nth-of-type(odd) { background: var(--bg-alt); }
+.shortcuts-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shortcuts-keys {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.shortcuts-keys kbd,
+.whatsnew-version {
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+.shortcuts-keys kbd {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 1px 5px;
+  background: var(--bg-alt);
+  font-family: inherit;
+}
+
+/* ---- what's new ---- */
+.whatsnew-card {
+  max-height: min(70vh, 520px);
+  padding-bottom: 8px;
+}
+.whatsnew-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 4px 0 0;
+  padding: 8px 20px 8px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--ui-small);
+  color: var(--text);
+}
+.whatsnew-list li::marker { color: var(--accent, var(--faint)); }
+.whatsnew-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 4px;
+}
+
+/* ---- preview console popover ---- */
+.preview-console-wrap { position: relative; display: inline-flex; }
+.preview-console-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.preview-console-count { font-size: var(--text-xs); color: var(--danger); }
+.preview-console-menu {
+  top: calc(100% + 6px);
+  bottom: auto;
+  right: 0;
+  min-width: 320px;
+  max-width: 420px;
+  padding: 6px;
+}
+.preview-console-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.preview-console-item {
+  display: flex;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-md);
+  font-size: var(--ui-smaller);
+  align-items: baseline;
+}
+.preview-console-item.error .preview-console-level { color: var(--danger); }
+.preview-console-item.warn .preview-console-level { color: var(--warn, #e0a63c); }
+.preview-console-level {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.preview-console-text {
+  font-family: var(--mono);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  min-width: 0;
+}
+.preview-console-actions {
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.preview-console-actions button {
+  flex: 1;
+}
+
+/* Session menu: per-session entries (unread / mute / note). */
+.menu .menu-note {
+  margin: 0;
+  padding: 4px 10px 6px;
+  max-width: 240px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* SessionNoteModal: multi-line note editor on the palette surface. */
+.note-modal {
+  width: min(440px, calc(100vw - 32px));
+}
+.note-modal .note-text {
+  display: block;
+  width: auto;
+  min-height: 120px;
+  margin: 4px 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-alt);
+  color: var(--text);
+  font-size: var(--ui-small);
+  line-height: 1.5;
+  resize: vertical;
+}
+.note-modal .note-text:focus,
+.note-modal .note-text:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+.note-modal .note-text::placeholder { color: var(--faint); }
+
+/* RewindDialog: per-file checkboxes (skipped rows stay checked + disabled). */
+.rewind-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: var(--ui-small);
+  color: var(--muted);
+  cursor: pointer;
+}
+.rewind-check input { accent-color: var(--accent, currentColor); margin: 0; }
+.rewind-check input:disabled { cursor: default; }
+.rewind-check-path {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rewind-check-skip { color: var(--danger); flex: none; }
+
+/* DevinAuthCard: per-process ACP sign-in, centered over the thread. */
+.devin-auth-card {
+  width: min(360px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  animation: rise-in var(--dur) var(--ease);
+}
+.devin-auth-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.devin-auth-icon { flex: none; color: var(--text); }
+.devin-auth-head h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+.devin-auth-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+.devin-auth-keyrow { display: flex; gap: 8px; }
+.devin-auth-keyrow input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: var(--ui-small);
+}
+.devin-auth-keyrow input:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+.devin-auth-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+.devin-auth-remember input { accent-color: var(--accent, currentColor); margin: 0; }
+.devin-auth-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+.devin-auth-status {
+  margin: 0;
+  min-height: 15px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.devin-auth-status.is-error { color: var(--danger); }
+.devin-auth-dismiss {
+  align-self: flex-start;
+  min-height: 0;
+  padding: 2px 0;
+}

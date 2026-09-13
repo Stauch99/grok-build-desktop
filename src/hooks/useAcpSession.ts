@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentEnvSecret,
   copyPasteIntoWorkspace,
   ensureInbox,
+  loadWebuiState,
   nextRpcId,
   onAcpMessage,
   onAcpStderr,
@@ -84,6 +86,7 @@ import {
 
 import { classifyAgentExit } from "../lib/agent-exit";
 import { friendlyError } from "../lib/error-copy";
+import { buildDevinAuthenticate, isAcpAuthRequiredError, type DevinAuthStatus } from "../lib/devin-auth";
 import { chatShellKey, createPaneChatStore, extraPaneShouldRender, type PaneChatStore } from "../lib/pane-chat-store";
 import type { ExtraPaneState, PaneDest } from "./acp-session-extra";
 import {
@@ -246,6 +249,7 @@ export type AcpSessionDeps = {
   setExtraPanes: React.Dispatch<React.SetStateAction<Record<string, ExtraPaneState>>>;
   onOpenSplit: () => void;
   onSessionsNeedRefresh: (inbox?: string) => Promise<void>;
+  onSessionConfigOptions?: (agentId: AgentId, result: unknown) => void;
   onSessionCreated: (row: SessionSummary) => void;
   onAcpSessionList: (agentId: AgentId, rows: SessionSummary[]) => void;
   setSawExit: (value: boolean) => void;
@@ -275,6 +279,10 @@ export type AcpSession = {
   ready: boolean;
   connecting: boolean;
   loadingSession: boolean;
+  devinAuthStatus: DevinAuthStatus;
+  devinAuthError: string | null;
+  authenticateDevin: (opts?: { apiKey?: string; remember?: boolean }) => Promise<void>;
+  dismissDevinAuth: () => void;
   runningSessionId: string | null;
   setRunningSessionId: React.Dispatch<React.SetStateAction<string | null>>;
   runningSessionIdRef: React.MutableRefObject<string | null>;
@@ -305,6 +313,8 @@ export type AcpSession = {
   altSubmit: (text: string, dest?: PaneDest) => void;
   cancelTurn: (target?: PaneDest) => Promise<void>;
   onDraftChange: (value: string) => void;
+  /** Write a draft programmatically — no stale-send echo guard. */
+  setComposerDraft: (value: string) => void;
   injectedSessions: Set<string>;
   dismissInjectedSession: (sessionId: string) => void;
   mainAgentIdRef: React.MutableRefObject<AgentId>;
@@ -323,6 +333,8 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   const [ready, setReady] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [devinAuthStatus, setDevinAuthStatus] = useState<DevinAuthStatus>("idle");
+  const [devinAuthError, setDevinAuthError] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string | null>(null);
   const runningSessionIdRef = useRef<string | null>(null);
@@ -350,6 +362,11 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   injectedRef.current = injectedSessions;
   const startedRef = useRef(new Set<string>());
   const pendingDest = useRef(new Map<number, PaneDest>());
+  // Devin ACP auth is per child-process lifetime — keyed by spawn generation so
+  // a respawn can never inherit the previous process's authed flag.
+  const devinAuthedRef = useRef(new Map<number, boolean>());
+  const devinPostAuthRef = useRef<(() => Promise<unknown>) | null>(null);
+  const devinApiKeyRef = useRef<string | null>(null);
   const updateCursors = useRef(new Map<string, SessionUpdateCursor>());
   const pendingByPane = useRef<Record<string, Record<string, unknown>[]>>({});
   const extraActivityRef = useRef<Record<string, number>>({});
@@ -828,6 +845,101 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
+  function devinAuthFailed(e: unknown, agentId: AgentId): boolean {
+    return agentId === "devin" && isAcpAuthRequiredError(e);
+  }
+
+  /** Surface the auth card; `retry` re-runs the blocked call after sign-in. */
+  function noteDevinAuthNeeded(retry?: () => Promise<unknown>) {
+    devinPostAuthRef.current = retry ?? null;
+    setDevinAuthError(null);
+    setDevinAuthStatus("needed");
+  }
+
+  /**
+   * Best-effort authenticate right after initialize, before the agent turns
+   * ready: in-memory key (fresh user input this app run) → WINDSURF_API_KEY →
+   * remembered webui key. Failure only raises the card — never breaks warmup.
+   */
+  async function silentDevinAuth(gen: number): Promise<void> {
+    const stillLive = () => liveGeneration.devin === gen;
+    if (devinAuthedRef.current.get(gen)) {
+      setDevinAuthStatus("ok");
+      return;
+    }
+    setDevinAuthStatus("checking");
+    setDevinAuthError(null);
+    try {
+      let key = devinApiKeyRef.current;
+      let fromEnv = false;
+      if (!key) {
+        key = (await agentEnvSecret("devin").catch(() => null))?.trim() || null;
+        fromEnv = !!key;
+      }
+      if (!key) {
+        const state = await loadWebuiState().catch(() => null);
+        const stored = typeof state?.devinApiKey === "string" ? state.devinApiKey.trim() : "";
+        key = stored || null;
+      }
+      if (!key) {
+        if (stillLive()) setDevinAuthStatus("needed");
+        return;
+      }
+      if (fromEnv) {
+        depsRef.current.showToast(t(depsRef.current.locale ?? "zh", "devin.auth.envFound"));
+      }
+      await rpc("authenticate", buildDevinAuthenticate(key).params, {
+        agentId: "devin",
+        timeoutMs: 30000,
+      });
+      devinAuthedRef.current.set(gen, true);
+      devinApiKeyRef.current = key;
+      if (stillLive()) {
+        setDevinAuthStatus("ok");
+        setDevinAuthError(null);
+      }
+    } catch (e) {
+      if (stillLive()) {
+        setDevinAuthStatus("needed");
+        setDevinAuthError(friendlyError(e));
+      }
+    }
+  }
+
+  async function authenticateDevin(opts: { apiKey?: string; remember?: boolean } = {}): Promise<void> {
+    const d = depsRef.current;
+    setDevinAuthStatus("busy");
+    setDevinAuthError(null);
+    try {
+      await ensureAgent("devin");
+      const gen = liveGeneration.devin;
+      const key = opts.apiKey?.trim() || undefined;
+      await rpc("authenticate", buildDevinAuthenticate(key).params, {
+        agentId: "devin",
+        timeoutMs: key ? 30000 : 0,
+      });
+      if (typeof gen === "number") devinAuthedRef.current.set(gen, true);
+      if (key) {
+        devinApiKeyRef.current = key;
+        d.persist({ devinApiKey: opts.remember ? key : undefined });
+      }
+      setDevinAuthStatus("ok");
+      d.showToast(t(d.locale ?? "zh", "devin.auth.success"));
+      const retry = devinPostAuthRef.current;
+      devinPostAuthRef.current = null;
+      if (retry) await retry().catch((e) => d.showToast(friendlyError(e)));
+    } catch (e) {
+      setDevinAuthStatus("failed");
+      setDevinAuthError(friendlyError(e));
+    }
+  }
+
+  function dismissDevinAuth() {
+    devinPostAuthRef.current = null;
+    setDevinAuthStatus("idle");
+    setDevinAuthError(null);
+  }
+
   async function ensureAgent(agentId?: AgentId): Promise<void> {
     const id = targetAgentId(agentId, selectedAgentIdRef.current);
     if (isAgentReady(readyByAgentRef.current, id)) return;
@@ -858,6 +970,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false },
       }, { agentId: id, timeoutMs: initializeTimeoutMs(id) });
       promptCapsByAgent[id] = promptCapabilitiesFromInitialize(initializeResult);
+      if (id === "devin") await silentDevinAuth(gen);
       applyWarmupFlags(id, true);
       setConnecting(false);
       await afterInitializeFetchSessionList(async () => {
@@ -1067,6 +1180,12 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         readyByAgentRef.current[eventAgent] = false;
         delete agentBoots[eventAgent];
         spawning[eventAgent] = false;
+        if (eventAgent === "devin") {
+          devinAuthedRef.current.delete(generation);
+          devinPostAuthRef.current = null;
+          setDevinAuthStatus("idle");
+          setDevinAuthError(null);
+        }
         const d = depsRef.current;
         const hitMain = mainAgentIdRef.current === eventAgent;
         const hitExtra = extraPanesHitAgent(d.extraPanes, eventAgent);
@@ -1147,16 +1266,27 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     const chip = selectedAgentIdRef.current;
     const work = resumeWorkspaceCwd(s.cwd);
     if (work) await setWorkspace(work, s.id);
-    return resumeOnSessionAgent({
-      session: s,
-      chip,
-      startAgent: (id) => ensureAgent(id),
-      sendRaw: async (payload, id) => {
-        const rec = asRecord(payload);
-        return rpc(String(rec.method ?? ""), rec.params, { agentId: id });
-      },
-      alreadyReady: (id) => isAgentReady(readyByAgentRef.current, id),
-    });
+    try {
+      return await resumeOnSessionAgent({
+        session: s,
+        chip,
+        startAgent: (id) => ensureAgent(id),
+        sendRaw: async (payload, id) => {
+          const rec = asRecord(payload);
+          const out = await rpc(String(rec.method ?? ""), rec.params, { agentId: id });
+          depsRef.current.onSessionConfigOptions?.(id, out);
+          return out;
+        },
+        alreadyReady: (id) => isAgentReady(readyByAgentRef.current, id),
+      });
+    } catch (e) {
+      if (devinAuthFailed(e, openSessionAgent(s, chip).agentId)) {
+        noteDevinAuthNeeded(async () => {
+          await resumeBoundSession(s);
+        });
+      }
+      throw e;
+    }
   }
 
   function announceCreatedSession(args: { id: string; cwd: string; agentId: AgentId; title?: string }) {
@@ -1176,7 +1306,18 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
   async function createAcpSession(work: string, title?: string): Promise<string> {
     const agentId = paneAgent(MAIN_PANE);
     const meta = sessionNewMeta(agentId, depsRef.current.mode === "yolo", depsRef.current.model);
-    const result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }, { agentId }));
+    let result: Record<string, unknown>;
+    try {
+      result = asRecord(await rpc("session/new", { cwd: work || ".", mcpServers: [], _meta: meta }, { agentId }));
+    } catch (e) {
+      if (devinAuthFailed(e, agentId)) {
+        noteDevinAuthNeeded(async () => {
+          await createAcpSession(work, title);
+        });
+      }
+      throw e;
+    }
+    depsRef.current.onSessionConfigOptions?.(agentId, result);
     const sid = sessionIdFromNewResult(result);
     if (sessionIdRef.current && sessionIdRef.current !== sid) {
       announceCreatedSession({ id: sid, cwd: work || ".", agentId, title });
@@ -1212,7 +1353,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       d.setSettingsOpen(false);
     } catch (e) {
-      d.showToast(friendlyError(e));
+      if (!devinAuthFailed(e, paneAgent(MAIN_PANE))) d.showToast(friendlyError(e));
     }
   }
 
@@ -1238,7 +1379,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       }
       d.setSettingsOpen(false);
     } catch (e) {
-      d.showToast(friendlyError(e));
+      if (!devinAuthFailed(e, paneAgent(MAIN_PANE))) d.showToast(friendlyError(e));
     }
   }
 
@@ -1281,6 +1422,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       await setWorkspace(dir);
       const meta = sessionNewMeta(agentId, d.mode === "yolo", d.model);
       const result = asRecord(await rpc("session/new", { cwd: dir || ".", mcpServers: [], _meta: meta }, { dest: paneId, agentId }));
+      d.onSessionConfigOptions?.(agentId, result);
       const sid = sessionIdFromNewResult(result);
       echoedExtra.current[paneId] = false;
       clearQueuedEchoes(queuedEchoRef.current, echoQueueKey(paneId));
@@ -1300,6 +1442,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       });
       announceCreatedSession({ id: sid, cwd: dir, agentId });
     } catch (e) {
+      if (devinAuthFailed(e, selectedAgentIdRef.current)) {
+        noteDevinAuthNeeded(() => startNewInPane(paneId));
+        return;
+      }
       d.showToast(friendlyError(e));
     }
   }
@@ -1371,13 +1517,17 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         await resumeBoundSession(s);
       } catch (e) {
         if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
-        d.showToast(friendlyError(e));
+        if (!devinAuthFailed(e, openSessionAgent(s, selectedAgentIdRef.current).agentId)) {
+          d.showToast(friendlyError(e));
+        }
       } finally {
         ignoreReplay.current = false;
       }
     } catch (e) {
       if (token !== loadGen.current) return;
-      d.showToast(friendlyError(e));
+      if (!devinAuthFailed(e, openSessionAgent(s, selectedAgentIdRef.current).agentId)) {
+        d.showToast(friendlyError(e));
+      }
     } finally {
       if (token === loadGen.current) {
         loadingSessionRef.current = false;
@@ -1470,12 +1620,16 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         await resumeBoundSession(s);
       } catch (e) {
         if (!chatHasPromptHistory(next.items) && next.items.length === 0) throw e;
-        d.showToast(friendlyError(e));
+        if (!devinAuthFailed(e, openSessionAgent(s, selectedAgentIdRef.current).agentId)) {
+          d.showToast(friendlyError(e));
+        }
       } finally {
         ignoreExtraReplay.current[paneId] = false;
       }
     } catch (e) {
-      d.showToast(friendlyError(e));
+      if (!devinAuthFailed(e, openSessionAgent(s, selectedAgentIdRef.current).agentId)) {
+        d.showToast(friendlyError(e));
+      }
     }
   }
 
@@ -1500,6 +1654,9 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
           { dest, agentId },
         );
       } catch (e) {
+        if (devinAuthFailed(e, agentId)) {
+          noteDevinAuthNeeded(() => sendSlashToAgent(text, dest));
+        }
         if (shouldKeepBusyForNewerPrompt(extraGen, promptGen.current[dest] ?? 0)) return;
         if (!shouldClearBusyAfterPromptCatch(e)) return;
         turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId, pane: dest });
@@ -1509,17 +1666,31 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
     let sid = sessionIdRef.current;
     if (!sid) {
-      sid = await createAcpSession(
-        depsRef.current.cwd || depsRef.current.inboxCwd || ".",
-        titleFromUserText(text),
-      );
+      try {
+        sid = await createAcpSession(
+          depsRef.current.cwd || depsRef.current.inboxCwd || ".",
+          titleFromUserText(text),
+        );
+      } catch (e) {
+        if (devinAuthFailed(e, paneAgent(MAIN_PANE))) {
+          noteDevinAuthNeeded(() => sendSlashToAgent(text, dest));
+        }
+        throw e;
+      }
     }
     beginMainRun(sid);
-    await rpc(
-      "session/prompt",
-      { sessionId: sid, prompt: [{ type: "text", text }] },
-      { dest: "main", agentId: paneAgent(MAIN_PANE) },
-    );
+    try {
+      await rpc(
+        "session/prompt",
+        { sessionId: sid, prompt: [{ type: "text", text }] },
+        { dest: "main", agentId: paneAgent(MAIN_PANE) },
+      );
+    } catch (e) {
+      if (devinAuthFailed(e, paneAgent(MAIN_PANE))) {
+        noteDevinAuthNeeded(() => sendSlashToAgent(text, dest));
+      }
+      throw e;
+    }
   }
 
   /**
@@ -1561,6 +1732,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       const blocks = await acpPromptBlocks(text, cwd, agentId);
       await rpc("session/prompt", { sessionId: sid, prompt: blocks }, { dest, agentId });
     } catch (e) {
+      if (devinAuthFailed(e, paneAgent(dest))) {
+        noteDevinAuthNeeded(() => steerPrompt(text, dest));
+        return;
+      }
       d.showToast(t(d.locale ?? "zh", "toast.steerQueued", { error: friendlyError(e) }));
       queuePrompt(text, dest);
     }
@@ -1771,6 +1946,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
         if (!shouldClearBusyAfterPromptCatch(e)) return;
         turnsRef.current = endTurn(turnsRef.current, { sessionId: pane.sessionId, pane: dest });
         patchExtra(dest, (prev) => ({ ...prev, busy: false, draft: text }));
+        if (devinAuthFailed(e, extraAgent)) {
+          noteDevinAuthNeeded(() => sendPrompt(text, dest));
+          return;
+        }
         d.showToast(friendlyError(e));
       }
       return;
@@ -1865,6 +2044,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
       if (sendSid) turnsRef.current = endTurn(turnsRef.current, { sessionId: sendSid });
       else turnsRef.current = endCatchUpTurn(turnsRef.current, MAIN_PANE);
       syncMainBusyFromTurns();
+      if (devinAuthFailed(e, agentId)) {
+        noteDevinAuthNeeded(() => sendPrompt(text, dest));
+        return;
+      }
       d.showToast(friendlyError(e));
       if (sessionIdRef.current === sendSid || (!sendSid && !sessionIdRef.current)) {
         setChat((prev) => withPromptFail(prev, friendlyError(e), Date.now()));
@@ -1905,17 +2088,22 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     }
   }
 
-  function onDraftChange(value: string) {
+  /** Persist `value` as the focused session's draft and show it in the composer. */
+  function setComposerDraft(value: string) {
     const d = depsRef.current;
-    if (isStaleSentDraftChange({ next: value, lastSent: lastSentRef.current, current: "" })) {
-      lastSentRef.current = "";
-      return;
-    }
     lastSentRef.current = "";
     d.setDraft(value);
     const next = writeDraft(d.sessionDrafts, sessionIdRef.current, value);
     d.setSessionDrafts(next);
     draftsPersist.push(next);
+  }
+
+  function onDraftChange(value: string) {
+    if (isStaleSentDraftChange({ next: value, lastSent: lastSentRef.current, current: "" })) {
+      lastSentRef.current = "";
+      return;
+    }
+    setComposerDraft(value);
   }
 
   return {
@@ -1928,6 +2116,10 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     ready,
     connecting,
     loadingSession,
+    devinAuthStatus,
+    devinAuthError,
+    authenticateDevin,
+    dismissDevinAuth,
     runningSessionId,
     setRunningSessionId,
     runningSessionIdRef,
@@ -1958,6 +2150,7 @@ export function useAcpSession(deps: AcpSessionDeps): AcpSession {
     altSubmit,
     cancelTurn,
     onDraftChange,
+    setComposerDraft,
     injectedSessions,
     dismissInjectedSession,
     mainAgentIdRef,

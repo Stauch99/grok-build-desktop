@@ -1,4 +1,5 @@
 import { isAgentId, type AgentId } from "./agent-id";
+import { bridgeLocale, tr } from "./i18n-bridge";
 
 export const USD_TICKS = 10_000_000_000;
 
@@ -38,12 +39,14 @@ export type TurnFilter = {
 
 export type UsageBrandFilter = AgentId | "all";
 
+/** `label` is a getter so components reading the option directly get the live locale. */
 export const USAGE_BRAND_OPTIONS: { value: UsageBrandFilter; label: string }[] = [
-  { value: "all", label: "全部" },
+  { value: "all", get label() { return tr("usage.all"); } },
   { value: "grok", label: "Grok" },
   { value: "kimi", label: "Kimi" },
   { value: "claude", label: "Claude" },
   { value: "codex", label: "Codex" },
+  { value: "devin", label: "Devin" },
 ];
 
 export function mapTokenTurnRow(row: {
@@ -202,8 +205,15 @@ export function modelCostRows(
   return rows.map((row) => ({ ...row, share: sharePct(row.ticks, total) }));
 }
 
+/** Compact token count: zh uses 万/亿, en uses k/M/B. */
 export function formatTokenZh(n: number): string {
   const v = Math.max(0, n);
+  if (bridgeLocale() === "en") {
+    if (v < 1_000) return String(Math.round(v));
+    if (v < 1_000_000) return `${trimDecimal(v / 1_000, 1)}k`;
+    if (v < 1_000_000_000) return `${trimDecimal(v / 1_000_000, 2)}M`;
+    return `${trimDecimal(v / 1_000_000_000, 2)}B`;
+  }
   if (v < 10_000) return String(Math.round(v));
   if (v < 100_000_000) return `${trimDecimal(v / 10_000, 1)} 万`;
   return `${trimDecimal(v / 100_000_000, 2)} 亿`;
@@ -290,9 +300,12 @@ export function formatChartTick(index: number, count: number, at: number): strin
 
 export function dayBarTip(bar: DailyUsageBar): string {
   const d = new Date(bar.at);
-  const parts = [`${d.getMonth() + 1}月${d.getDate()}日`, formatTokenZh(bar.used)];
+  const parts = [
+    tr("usage.tipDate", { m: d.getMonth() + 1, d: d.getDate() }),
+    formatTokenZh(bar.used),
+  ];
   if (bar.costTicks > 0) parts.push(formatUsdFromTicks(bar.costTicks));
-  if (bar.requests > 0) parts.push(`${bar.requests} 次`);
+  if (bar.requests > 0) parts.push(tr("usage.tipRequests", { n: bar.requests }));
   return parts.join(" · ");
 }
 

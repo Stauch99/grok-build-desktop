@@ -43,7 +43,8 @@ describe("corpusLine", () => {
       { agentId: "grok", sessionId: "a", cwd: "/p", kind: "user_utterance", text: "1" },
       { agentId: "grok", sessionId: "b", cwd: "/p", kind: "user_utterance", text: "2" },
       { agentId: "claude", sessionId: "c", cwd: "/p", kind: "user_utterance", text: "3" },
-    ])).toBe("今日语料：Grok 2 · Claude 1");
+      { agentId: "devin", sessionId: "d", cwd: "/p", kind: "user_utterance", text: "4" },
+    ])).toBe("今日语料：Grok 2 · Claude 1 · Devin 1");
     expect(corpusLine([])).toBe(null);
   });
 });

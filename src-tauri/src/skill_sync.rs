@@ -74,6 +74,7 @@ pub(crate) fn skill_dest(user_home: &Path, agent: &str, name: &str) -> Option<Pa
         "kimi" => ".kimi-code/skills",
         "claude" => ".claude/skills",
         "codex" => ".codex/skills",
+        "devin" => ".config/devin/skills",
         _ => return None,
     };
     Some(user_home.join(subdir).join(name))
@@ -219,6 +220,10 @@ mod tests {
         assert_eq!(
             skill_dest(&home, "codex", "pdf"),
             Some(home.join(".codex/skills/pdf"))
+        );
+        assert_eq!(
+            skill_dest(&home, "devin", "pdf"),
+            Some(home.join(".config/devin/skills/pdf"))
         );
         assert_eq!(skill_dest(&home, "unknown", "pdf"), None);
     }

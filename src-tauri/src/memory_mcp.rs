@@ -21,7 +21,9 @@ pub struct McpCtx {
 
 impl McpCtx {
     pub fn live() -> Self {
-        Self { root: memory_root() }
+        Self {
+            root: memory_root(),
+        }
     }
 }
 
@@ -104,7 +106,11 @@ pub fn compact_user_md(text: &str, limit: usize) -> String {
         let bytes = src.as_bytes();
         let mut i = 0;
         while i + 1 < bytes.len() {
-            if bytes[i] == b'\n' && bytes[i + 1] == b'#' && i + 2 < bytes.len() && bytes[i + 2] == b' ' {
+            if bytes[i] == b'\n'
+                && bytes[i + 1] == b'#'
+                && i + 2 < bytes.len()
+                && bytes[i + 2] == b' '
+            {
                 out.push(&src[start..i]);
                 start = i + 1;
             }
@@ -134,7 +140,7 @@ pub fn compact_user_md(text: &str, limit: usize) -> String {
 
 fn map_agent(raw: &str) -> String {
     match raw.trim() {
-        "grok" | "kimi" | "claude" | "codex" => raw.trim().to_string(),
+        "grok" | "kimi" | "claude" | "codex" | "devin" => raw.trim().to_string(),
         _ => "external".into(),
     }
 }
@@ -189,7 +195,10 @@ fn tool_text(value: Value) -> Value {
 }
 
 fn tool_error(id: &Value, message: &str) -> Value {
-    ok_result(id, json!({"content":[{"type":"text","text": message}],"isError":true}))
+    ok_result(
+        id,
+        json!({"content":[{"type":"text","text": message}],"isError":true}),
+    )
 }
 
 pub fn handle_rpc(ctx: &McpCtx, req: &Value) -> Option<Value> {
@@ -278,11 +287,19 @@ fn score_text(query: &[String], text: &str) -> i64 {
 }
 
 fn memory_recall(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
-    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if query.is_empty() {
         return Ok(json!([]));
     }
-    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(8).min(20) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8)
+        .min(20) as usize;
     let tokens = tokenize(query);
     let mut hits: Vec<(i64, &'static str, String)> = Vec::new();
     let user = read_capped(&resolve_under(&ctx.root, Path::new("USER.md"))?)?;
@@ -324,8 +341,16 @@ fn memory_recall(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
 }
 
 fn memory_append(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
-    let agent = map_agent(args.get("agent").and_then(|v| v.as_str()).unwrap_or("external"));
-    let lines = args.get("lines").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let agent = map_agent(
+        args.get("agent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("external"),
+    );
+    let lines = args
+        .get("lines")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if lines.is_empty() {
         return Err("no lines".into());
     }
@@ -344,8 +369,15 @@ fn memory_append(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
         }
         let mut appended = 0i64;
         for row in &lines {
-            let text = row.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
-            let kind = row.get("kind").and_then(|v| v.as_str()).unwrap_or("user_utterance");
+            let text = row
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let kind = row
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("user_utterance");
             if text.is_empty() {
                 continue;
             }
@@ -413,7 +445,11 @@ fn bump_pending_mcp(root: &Path) -> Result<(), String> {
 }
 
 fn memory_timeline(ctx: &McpCtx, args: &Value) -> Result<Value, String> {
-    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(40).min(200) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(40)
+        .min(200) as usize;
     let mut events = read_events(&ctx.root)?;
     events.reverse();
     events.truncate(limit);
@@ -513,7 +549,9 @@ pub fn install_sidecar() -> Result<PathBuf, String> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&dest).map_err(|e| e.to_string())?.permissions();
+            let mut perms = std::fs::metadata(&dest)
+                .map_err(|e| e.to_string())?
+                .permissions();
             perms.set_mode(0o755);
             std::fs::set_permissions(&dest, perms).map_err(|e| e.to_string())?;
         }
@@ -530,11 +568,10 @@ pub struct MemoryMcpStatus {
 }
 
 pub fn status_snapshot() -> MemoryMcpStatus {
-    let path = resolve_sidecar_source()
-        .or_else(|| {
-            let p = installed_bin_path();
-            p.is_file().then_some(p)
-        });
+    let path = resolve_sidecar_source().or_else(|| {
+        let p = installed_bin_path();
+        p.is_file().then_some(p)
+    });
     let catalog = crate::agents_paths::agents_home_from(
         &crate::dirs_home(),
         std::env::var("ACP_AGENTS_HOME").ok().as_deref(),
@@ -657,7 +694,12 @@ mod tests {
             json!({"agent":"codex","lines":[{"text":"prefer pnpm","kind":"user_pref"}]}),
         ));
         assert_eq!(out["appended"], 1);
-        let daily = std::fs::read_to_string(ctx.root.join("daily").join(format!("{}.md", out["day"].as_str().unwrap()))).unwrap();
+        let daily = std::fs::read_to_string(
+            ctx.root
+                .join("daily")
+                .join(format!("{}.md", out["day"].as_str().unwrap())),
+        )
+        .unwrap();
         assert!(daily.contains("- [codex | mcp | . | user_pref] prefer pnpm"));
         let events = read_events(&ctx.root).unwrap();
         assert_eq!(events[0].kind, "mcp_append");
@@ -677,7 +719,11 @@ mod tests {
         let too_many: Vec<Value> = (0..21)
             .map(|i| json!({"text": format!("line {i}"), "kind":"user_utterance"}))
             .collect();
-        let resp = call(&ctx, "memory_append", json!({"agent":"grok","lines": too_many}));
+        let resp = call(
+            &ctx,
+            "memory_append",
+            json!({"agent":"grok","lines": too_many}),
+        );
         assert_eq!(resp["result"]["isError"], true);
     }
 
@@ -699,7 +745,10 @@ mod tests {
         let ctx = temp_ctx();
         std::fs::write(ctx.root.join("USER.md"), "# You\n- loves rust tests\n").unwrap();
         let hits = parse_tool(&call(&ctx, "memory_recall", json!({"query":"rust"})));
-        assert!(hits.as_array().unwrap()[0]["text"].as_str().unwrap().contains("rust"));
+        assert!(hits.as_array().unwrap()[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("rust"));
         let out = parse_tool(&call(&ctx, "memory_forget", json!({"session_id":"s1"})));
         assert_eq!(out["ok"], true);
         let state = std::fs::read_to_string(ctx.root.join(".dreams").join("state.json")).unwrap();
@@ -723,7 +772,8 @@ mod tests {
             }
         });
         let day = today_stamp();
-        let body = std::fs::read_to_string(ctx.root.join("daily").join(format!("{day}.md"))).unwrap();
+        let body =
+            std::fs::read_to_string(ctx.root.join("daily").join(format!("{day}.md"))).unwrap();
         let n = body.lines().filter(|l| l.starts_with("- [")).count();
         assert_eq!(n, 100);
     }

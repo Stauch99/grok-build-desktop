@@ -1,4 +1,5 @@
 import { IconCheck, IconChevron, IconListDetails, IconRobot, IconShieldCheck } from "../icons";
+import type { AgentModelRow } from "../lib/agent-models";
 import { effortLabel, effortMenuOptions } from "../lib/effort";
 import { modeLabel, modeNeedsConfirm, modeOptions, type Mode } from "../lib/mode";
 import { useLocale, useT } from "../lib/locale-context";
@@ -21,6 +22,7 @@ export type ComposerChipsProps = {
   sessionModel?: string | null;
   modelOptions: string[];
   modelLabels?: Record<string, string>;
+  modelRows?: AgentModelRow[];
   modelOpen: boolean;
   onToggleModel: () => void;
   onPickModel: (next: string) => void;
@@ -50,6 +52,7 @@ export function ComposerChips({
   sessionModel,
   modelOptions,
   modelLabels,
+  modelRows,
   modelOpen,
   onToggleModel,
   onPickModel,
@@ -118,18 +121,28 @@ export function ComposerChips({
         </button>
         {modelOpen && (
           <div className="chip-menu model-menu" role="menu">
-            {options.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => onPickModel(m)}
-              >
-                <span className="mode-row">
-                  <span>{modelLabels?.[m] || m}</span>
-                  <span>{m === model ? <IconCheck size={12} /> : null}</span>
+            {options.map((m, i) => {
+              const meta = modelRows?.find((r) => r.id === m);
+              const prevMeta = i > 0 ? modelRows?.find((r) => r.id === options[i - 1]) : undefined;
+              const groupHead = meta?.group && meta.group !== prevMeta?.group ? meta.group : null;
+              return (
+                <span key={m} className="model-item">
+                  {groupHead ? <div className="model-group">{groupHead}</div> : null}
+                  <button
+                    type="button"
+                    onClick={() => onPickModel(m)}
+                  >
+                    <span className="mode-row">
+                      <span className="model-main">
+                        <span>{modelLabels?.[m] || m}</span>
+                        {meta?.description ? <span className="model-desc">{meta.description}</span> : null}
+                      </span>
+                      <span>{m === model ? <IconCheck size={12} /> : null}</span>
+                    </span>
+                  </button>
                 </span>
-              </button>
-            ))}
+              );
+            })}
             <div className="sep" />
             <button type="button" onClick={onOpenSettings}>
               {t("composer.manageInSettings")}

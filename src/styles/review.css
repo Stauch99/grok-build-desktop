@@ -514,3 +514,91 @@
   }
   .workspace-stage > .resizer:has(+ .review-rail) { display: none; }
 }
+
+/* ---- diff view toggle, ask-line affordance, split layout ---- */
+.diff-view {
+  flex: none;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+.diff-view .file-open {
+  border-radius: 0;
+  min-width: 24px;
+}
+.diff-view .file-open[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Rows become positioning contexts for the hover ask button. */
+.diff-row { position: relative; }
+.diff-ask {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  bottom: 0;
+  margin: auto 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--faint);
+  line-height: 0;
+  padding: 0;
+  opacity: 0;
+}
+.diff-row:hover .diff-ask,
+.diff-row:focus-within .diff-ask,
+.diff-half:hover .diff-ask,
+.diff-half:focus-within .diff-ask,
+.diff-ask:focus-visible {
+  opacity: 1;
+}
+.diff-ask:hover { color: var(--accent); }
+/* Keep wrapped text clear of the floating ask button. */
+.diff-row .diff-text { padding-right: 26px; }
+
+.diff-split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+.diff-half {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: baseline;
+  min-width: 0;
+}
+.diff-half + .diff-half { border-left: 1px solid var(--line); }
+.diff-half.del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.diff-half.add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.diff-half.empty { background: var(--bg-alt); }
+.diff-half .diff-text { padding-right: 24px; }
+
+/* ---- per-file staging in the changes list ---- */
+.change-mark.staged { position: relative; }
+.change-mark.staged::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ok);
+  transform: translateX(-50%);
+}
+.file-entry .change-stage { opacity: 0; }
+.file-entry:hover .change-stage,
+.file-entry:focus-within .change-stage,
+.change-stage:focus-visible { opacity: 1; }
+/* A staged row keeps its unstage button visible so the state stays readable. */
+.change-stage.is-staged { color: var(--ok); }
+.file-entry .change-stage.is-staged { opacity: 1; }

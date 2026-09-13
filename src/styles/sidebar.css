@@ -47,10 +47,14 @@
 .sidebar.is-hiding .session-list,
 .sidebar.is-hiding .ws-head,
 .sidebar.is-hiding .section-label,
-.sidebar.is-hiding .ws-hits {
+.sidebar.is-hiding .ws-hits,
+.sidebar.is-hiding .side-account {
   opacity: 0;
   transform: translateX(-8px);
   pointer-events: none;
+}
+.sidebar .side-account {
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .sidebar.rail .side-account {
   display: flex;
@@ -109,6 +113,11 @@
 .side-content {
   flex: none;
   padding: 2px 8px 4px;
+}
+.side-content[data-nav="extra"] {
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
 }
 .side-actions {
   display: flex;
@@ -581,6 +590,28 @@
   top: auto;
   min-width: 168px;
 }
+.account-peek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin: 2px 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.account-peek-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.account-peek-text strong { font-size: var(--ui-small); }
+.account-peek-text span {
+  color: var(--faint);
+  font-size: var(--ui-smaller);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-head-row { display: flex; align-items: center; gap: 2px; }
 .ws-band {
   margin: 0 0 4px;
@@ -647,6 +678,7 @@
 .sess-agent-kimi { color: #1783ff; }
 .sess-agent-claude { color: #d97757; }
 .sess-agent-codex { color: var(--text); }
+.sess-agent-devin { color: #6e56cf; }
 .sess-sub {
   display: block;
   font-size: var(--text-xs);
@@ -711,4 +743,71 @@
 .side-link.on {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+/* ---- status quick-filter: a quiet 3-way segmented chip above the list ---- */
+.ws-filter {
+  flex: none;
+  padding: 0 16px 6px;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.ws-filter .choice-switch {
+  width: 100%;
+}
+.ws-filter .choice-switch button {
+  padding: 3px 8px;
+  font-size: var(--ui-smaller);
+}
+.sidebar.rail .ws-filter {
+  display: none;
+}
+.sidebar.is-hiding .ws-filter {
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+}
+.side-actions .icon-btn.on {
+  color: var(--text);
+  background: var(--bg-active);
+}
+
+/* ---- project drag-reorder: 2px insert line on the hovered row ---- */
+.project.drop-before {
+  box-shadow: 0 -2px 0 var(--accent);
+}
+.project.drop-after {
+  box-shadow: 0 2px 0 var(--accent);
+}
+
+/* ---- compact density: tighter rows, smaller meta ---- */
+.sidebar[data-density="compact"] .session {
+  padding: 2px 6px;
+}
+.sidebar[data-density="compact"] .sess-title {
+  line-height: 15px;
+}
+.sidebar[data-density="compact"] .sess-sub {
+  font-size: var(--text-2xs);
+}
+.sidebar[data-density="compact"] .sess-token {
+  line-height: 15px;
+}
+.sidebar[data-density="compact"] .project {
+  margin-bottom: 4px;
+}
+.sidebar[data-density="compact"] .project-head {
+  padding: 5px 10px;
+}
+.sidebar[data-density="compact"] .project-sessions-inner {
+  margin-left: 8px;
+  padding-left: 12px;
+}
+.sidebar[data-density="compact"] .ws-band-label {
+  padding: 8px 10px 4px;
+}
+.sidebar[data-density="compact"] .group-head {
+  padding: 8px 10px 4px;
+}
+.sidebar[data-density="compact"] .session-list {
+  --session-list-end-pad: 24px;
 }

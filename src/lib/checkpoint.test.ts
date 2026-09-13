@@ -3,6 +3,7 @@ import type { ChatItem } from "./chat";
 import {
   checkpointIndexes,
   describePlan,
+  filterPlan,
   planRevert,
   previewRevert,
   rewindSkipReason,
@@ -141,6 +142,35 @@ describe("planRevert binary skip", () => {
     ];
     expect(planRevert(items, 1).steps).toEqual([{ kind: "restore", path: "ok.ts", text: "fine" }]);
     expect(previewRevert(items, 1).map((r) => r.path)).toEqual(["ok.ts", "blob.bin", "huge.txt"]);
+  });
+});
+
+describe("filterPlan", () => {
+  const plan = {
+    steps: [
+      { kind: "restore" as const, path: "a.ts", text: "v1" },
+      { kind: "delete" as const, path: "b.ts" },
+      { kind: "restore" as const, path: "c.ts", text: "w1" },
+    ],
+    unknown: ["tool call"],
+  };
+
+  it("keeps only the selected paths", () => {
+    expect(filterPlan(plan, ["a.ts", "c.ts"]).steps).toEqual([
+      { kind: "restore", path: "a.ts", text: "v1" },
+      { kind: "restore", path: "c.ts", text: "w1" },
+    ]);
+  });
+
+  it("accepts a Set and keeps unknown entries", () => {
+    const out = filterPlan(plan, new Set(["b.ts"]));
+    expect(out.steps).toEqual([{ kind: "delete", path: "b.ts" }]);
+    expect(out.unknown).toEqual(["tool call"]);
+  });
+
+  it("drops every step when nothing is selected", () => {
+    expect(filterPlan(plan, []).steps).toEqual([]);
+    expect(filterPlan(plan, []).unknown).toEqual(["tool call"]);
   });
 });
 

@@ -30,11 +30,16 @@ describe("shortcuts table", () => {
     });
   });
 
-  it("includes review as Mod+.", () => {
+  it("includes review as Mod+E and focus-composer as Mod+L", () => {
     expect(DEFAULT_SHORTCUTS.find((r) => r.id === "review")).toEqual({
       id: "review",
       action: "shortcut.review",
-      defaultBinding: "Mod+.",
+      defaultBinding: "Mod+E",
+    });
+    expect(DEFAULT_SHORTCUTS.find((r) => r.id === "focus-composer")).toEqual({
+      id: "focus-composer",
+      action: "shortcut.focusComposer",
+      defaultBinding: "Mod+L",
     });
     expect(matchBinding("Mod+.", { key: ".", metaKey: true, ctrlKey: false, shiftKey: false })).toBe(true);
     expect(matchBinding("Mod+,", { key: ",", metaKey: true, ctrlKey: false, shiftKey: false })).toBe(true);

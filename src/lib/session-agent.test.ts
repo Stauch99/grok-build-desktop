@@ -158,6 +158,7 @@ describe("sessionNewMeta", () => {
     expect(sessionNewMeta("claude", true)).toEqual({});
     expect(sessionNewMeta("codex", true)).toEqual({});
     expect(sessionNewMeta("kimi", true)).toEqual({});
+    expect(sessionNewMeta("devin", true)).toEqual({});
   });
 
   it("stamps the picked Grok model onto session/new so a warmed 4.5 process does not keep it", () => {

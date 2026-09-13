@@ -87,6 +87,8 @@ export type WebuiState = {
   memoryMcpEnabled?: boolean;
   memoryDisplayName?: string;
   lastAgent?: AgentId;
+  /** Devin API key kept only when the user asked to remember it. Never logged. */
+  devinApiKey?: string;
   /** After this flag is set, the project list is only folders the user added. */
   manualProjects?: boolean;
   sounds?: boolean;
@@ -129,6 +131,8 @@ export type GitChange = {
   added: number;
   removed: number;
   status: GitChangeStatus;
+  /** Porcelain X column: the index already holds a version of this path. */
+  staged: boolean;
 };
 
 export type InspectBrief = {
@@ -168,6 +172,9 @@ export const stopAgent = (agentId?: AgentId | null) =>
   invoke<void>("stop_agent", { agentId: agentId ?? null });
 export const sendRaw = (payload: JsonRpc, agentId?: AgentId) =>
   invoke<void>("send_raw", { payload, agentId: resolveStartAgentId(agentId) });
+/** Agent-scoped env credential (devin → WINDSURF_API_KEY). null when unset. */
+export const agentEnvSecret = (agentId: AgentId) =>
+  invoke<string | null>("agent_env_secret", { agentId });
 export const nextRpcId = () => invoke<number>("next_rpc_id");
 export const listSessions = (cwd?: string | null) =>
   invoke<SessionSummary[]>("list_sessions", { cwd: cwd ?? null });
@@ -366,6 +373,12 @@ export const gitRemoteAdd = (cwd: string, url: string) =>
   invoke<GitCommandResult>("git_remote_add", { cwd, url });
 export const gitDiscard = (cwd: string, path: string) =>
   invoke<GitCommandResult>("git_discard", { cwd, path });
+/** `git add -- path`: stage one working-tree path. */
+export const gitStage = (cwd: string, path: string) =>
+  invoke<GitCommandResult>("git_stage", { cwd, path });
+/** `git restore --staged -- path`: move one path back out of the index. */
+export const gitUnstage = (cwd: string, path: string) =>
+  invoke<GitCommandResult>("git_unstage", { cwd, path });
 
 export type GitBlame = { ok: boolean; text: string; stderr: string };
 export const gitBlame = (cwd: string, path: string, line: number) =>

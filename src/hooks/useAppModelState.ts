@@ -143,7 +143,7 @@ export function useAppModelState() {
   const [projectGroups, setProjectGroups] = useState<ProjectGroupState>(EMPTY_PROJECT_GROUPS);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [sessionTokens, setSessionTokens] = useState<Record<string, number>>({});
-  const [settingsFocus, setSettingsFocus] = useState<"shortcuts" | "memory" | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<"shortcuts" | "memory" | "usage" | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [allowedTools, setAllowedTools] = useState<Set<string>>(() => new Set());

@@ -79,6 +79,9 @@ export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) 
   const timer = useRef<number | null>(null);
   const snapRef = useRef(snapshot);
   const pendingRef = useRef<WebuiState>({});
+  // Secrets like devinApiKey never enter the React snapshot; without this carry
+  // the next unrelated full-file rewrite of webui.json would erase them.
+  const stickyRef = useRef<WebuiState>({});
   snapRef.current = snapshot;
 
   const flushNow = useCallback(() => {
@@ -86,7 +89,10 @@ export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) 
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    const next = drainPendingWebuiPersist(snapRef.current, pendingRef.current);
+    const next = drainPendingWebuiPersist(snapRef.current, {
+      ...stickyRef.current,
+      ...pendingRef.current,
+    });
     if (!next) return;
     pendingRef.current = {};
     void saveWebuiState(next);
@@ -106,11 +112,17 @@ export function useWebuiPersist(snapshot: WebuiSnapshot): (partial: WebuiState) 
   }, [flushNow]);
 
   return useCallback((partial: WebuiState) => {
+    if ("devinApiKey" in partial) {
+      stickyRef.current = { ...stickyRef.current, devinApiKey: partial.devinApiKey };
+    }
     pendingRef.current = accumulatePersistPartial(pendingRef.current, partial);
     if (timer.current != null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = null;
-      const next = drainPendingWebuiPersist(snapRef.current, pendingRef.current);
+      const next = drainPendingWebuiPersist(snapRef.current, {
+        ...stickyRef.current,
+        ...pendingRef.current,
+      });
       pendingRef.current = {};
       if (next) void saveWebuiState(next);
     }, WEBUI_PERSIST_MS);

@@ -23,6 +23,14 @@ describe("mode helpers", () => {
     expect(slashForMode("yolo")).toBe("/always-approve");
   });
 
+  it("maps devin mode slashes to its own commands", () => {
+    expect(slashForMode("agent", "devin")).toBe("/normal");
+    expect(slashForMode("plan", "devin")).toBe("/plan");
+    expect(slashForMode("yolo", "devin")).toBe("/bypass");
+    expect(slashForMode("agent", "grok")).toBe("/auto");
+    expect(slashForMode("yolo", "kimi")).toBe("/always-approve");
+  });
+
   it("cycles Agent → Plan → 始终批准 → Agent", () => {
     expect(nextMode("agent")).toBe("plan");
     expect(nextMode("plan")).toBe("yolo");

@@ -31,6 +31,7 @@ const change = (over: Partial<GitChange> = {}): GitChange => ({
   added: 3,
   removed: 1,
   status: "modified",
+  staged: false,
   ...over,
 });
 

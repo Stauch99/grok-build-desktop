@@ -39,7 +39,7 @@ describe("tauri CSP and asset protocol", () => {
     expect(assetProtocol.scope.allow).not.toContain("$HOME/**");
   });
 
-  it("allows only temp dirs and grok sessions", () => {
+  it("allows only temp dirs and grok/imagine artifact dirs", () => {
     expect(assetProtocol.scope.allow).toEqual([
       "$TEMP/**",
       "/tmp/**",
@@ -47,6 +47,8 @@ describe("tauri CSP and asset protocol", () => {
       "/var/folders/**",
       "/private/var/folders/**",
       "$HOME/.grok/sessions/**",
+      "$HOME/.grok/downloads/**",
+      "$HOME/Downloads/**",
     ]);
   });
 

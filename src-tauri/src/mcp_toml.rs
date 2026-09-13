@@ -68,16 +68,15 @@ mod tests {
 
     #[test]
     fn upserts_http_url_as_url_not_stdio_command() {
-        let next =
-            upsert_mcp_servers_toml("", "paper", "http://127.0.0.1:29979/mcp", &[]).unwrap();
+        let next = upsert_mcp_servers_toml("", "paper", "http://127.0.0.1:29979/mcp", &[]).unwrap();
         assert!(next.contains("url"));
         assert!(next.contains("http://127.0.0.1:29979/mcp"));
         assert!(!next.contains("command"));
         let mixed = upsert_mcp_servers_toml(&next, "git", "uvx", &["mcp-git".into()]).unwrap();
         assert!(mixed.contains("uvx"));
         assert!(mixed.contains("http://127.0.0.1:29979/mcp"));
-        let flipped = upsert_mcp_servers_toml(&mixed, "paper", "uvx", &["paper-mcp".into()])
-            .unwrap();
+        let flipped =
+            upsert_mcp_servers_toml(&mixed, "paper", "uvx", &["paper-mcp".into()]).unwrap();
         assert!(flipped.contains("command"));
         let paper = flipped.split("[mcp_servers.paper]").nth(1).unwrap_or("");
         assert!(paper.contains("command"));

@@ -1,5 +1,7 @@
+import { tr } from "./i18n-bridge";
+
 export function marketplaceJsonHelp(): string {
-  return "自建市场放 marketplace.json，再用 grok plugin marketplace add 加源。桌面不另开商店。";
+  return tr("hub.marketplaceHelp");
 }
 
 export function serveStatusLines(): string[] {

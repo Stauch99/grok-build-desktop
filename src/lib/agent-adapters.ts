@@ -26,5 +26,6 @@ export function allAdapterSessions(grokRows: GrokSessionRow[]): AdminSession[] {
     adapterSessions("kimi", grokRows),
     adapterSessions("claude", grokRows),
     adapterSessions("codex", grokRows),
+    adapterSessions("devin", grokRows),
   ]);
 }

@@ -6,9 +6,13 @@ import {
   deleteProjectGroup,
   groupIdFor,
   loadProjectGroups,
+  loadProjectOrder,
   nextGroupName,
+  orderProjectPaths,
+  orderProjectSections,
   pruneProjectGroups,
   renameProjectGroup,
+  reorderProjectOrder,
   ungroupProject,
 } from "./project-groups";
 
@@ -72,5 +76,70 @@ describe("loadProjectGroups", () => {
       groups: [{ id: "g1", name: "工作" }],
       membership: { "/a": "g1" },
     });
+  });
+});
+
+describe("loadProjectOrder", () => {
+  it("parses a string array, normalizes, dedupes, rejects junk", () => {
+    expect(loadProjectOrder(null)).toEqual([]);
+    expect(loadProjectOrder("nope")).toEqual([]);
+    expect(loadProjectOrder(["/a/", 1, "/b", "/a"])).toEqual(["/a", "/b"]);
+  });
+});
+
+describe("orderProjectPaths", () => {
+  it("puts stored order first and keeps unranked relative order", () => {
+    expect(orderProjectPaths(["/a", "/b", "/c"], ["/c", "/a"])).toEqual(["/c", "/a", "/b"]);
+    expect(orderProjectPaths(["/a", "/b"], [])).toEqual(["/a", "/b"]);
+  });
+});
+
+describe("orderProjectSections", () => {
+  const proj = (path: string, band = "projects") => ({
+    id: path,
+    kind: "project" as const,
+    band,
+    projectPath: path,
+    label: path,
+    rows: [],
+  });
+
+  it("reorders only inside the same band", () => {
+    const sections = [
+      proj("/pin", "pin"),
+      proj("/a"),
+      proj("/b"),
+      { id: "inbox", kind: "inbox" as const, band: "inbox", label: "inbox", rows: [] },
+    ];
+    const out = orderProjectSections(sections, ["/b", "/a", "/pin"]);
+    expect(out.map((s) => s.id)).toEqual(["/pin", "/b", "/a", "inbox"]);
+  });
+
+  it("no-ops on an empty stored order", () => {
+    const sections = [proj("/a"), proj("/b")];
+    expect(orderProjectSections(sections, []).map((s) => s.id)).toEqual(["/a", "/b"]);
+  });
+});
+
+describe("reorderProjectOrder", () => {
+  it("inserts before/after the target inside the band", () => {
+    expect(reorderProjectOrder([], ["/a", "/b", "/c"], "/c", "/a", true)).toEqual(["/c", "/a", "/b"]);
+    expect(reorderProjectOrder([], ["/a", "/b", "/c"], "/a", "/b", false)).toEqual(["/b", "/a", "/c"]);
+    expect(reorderProjectOrder([], ["/a", "/b"], "/a", null, true)).toEqual(["/b", "/a"]);
+  });
+
+  it("merges the band sequence back into the global order", () => {
+    const order = ["/pin", "/a", "/b", "/c", "/other"];
+    expect(reorderProjectOrder(order, ["/a", "/b", "/c"], "/a", "/c", false)).toEqual([
+      "/pin",
+      "/b",
+      "/c",
+      "/a",
+      "/other",
+    ]);
+  });
+
+  it("ignores a drag outside its own band", () => {
+    expect(reorderProjectOrder(["/x"], ["/a"], "/z", "/a", true)).toEqual(["/x"]);
   });
 });

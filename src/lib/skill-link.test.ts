@@ -31,6 +31,7 @@ describe("skillLinkDest", () => {
     expect(skillLinkDest(home, "kimi", "pdf")).toBe("/Users/me/.kimi-code/skills/pdf");
     expect(skillLinkDest(home, "claude", "pdf")).toBe("/Users/me/.claude/skills/pdf");
     expect(skillLinkDest(home, "codex", "pdf")).toBe("/Users/me/.codex/skills/pdf");
+    expect(skillLinkDest(home, "devin", "pdf")).toBe("/Users/me/.config/devin/skills/pdf");
   });
 });
 

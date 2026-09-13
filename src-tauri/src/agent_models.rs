@@ -50,6 +50,8 @@ pub struct AgentModelSourceDto {
     pub claude: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex: Option<SlimBundle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub devin: Option<SlimBundle>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -305,6 +307,35 @@ fn patch_claude_json(text: &str, model: Option<&str>, effort: Option<&str>) -> A
     serde_json::to_string_pretty(&v).map_err(|e| AppError::Message(e.to_string()))
 }
 
+fn patch_devin_json(text: &str, model: Option<&str>, effort: Option<&str>) -> AppResult<String> {
+    let mut v: Value = if text.trim().is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(text).map_err(|e| AppError::Message(e.to_string()))?
+    };
+    let obj = v
+        .as_object_mut()
+        .ok_or_else(|| AppError::Message("不支持的设置字段".into()))?;
+    if model.is_some() || effort.is_some() {
+        // Devin reads `agent.model` / `agent.thought_level`; top-level `model`
+        // is ignored. Remove any stale key our earlier builds may have written.
+        if model.is_some() {
+            obj.remove("model");
+        }
+        let agent = obj.entry("agent").or_insert_with(|| json!({}));
+        let agent_obj = agent
+            .as_object_mut()
+            .ok_or_else(|| AppError::Message("不支持的设置字段".into()))?;
+        if let Some(model) = model {
+            agent_obj.insert("model".into(), json!(model));
+        }
+        if let Some(effort) = effort {
+            agent_obj.insert("thought_level".into(), json!(effort));
+        }
+    }
+    serde_json::to_string_pretty(&v).map_err(|e| AppError::Message(e.to_string()))
+}
+
 fn kimi_config_path(home: &Path) -> PathBuf {
     home.join(".kimi-code").join("config.toml")
 }
@@ -315,6 +346,10 @@ fn claude_settings_path(home: &Path) -> PathBuf {
 
 fn codex_config_path(home: &Path) -> PathBuf {
     home.join(".codex").join("config.toml")
+}
+
+fn devin_config_path(home: &Path) -> PathBuf {
+    home.join(".config").join("devin").join("config.json")
 }
 
 fn grok_source() -> AgentModelSourceDto {
@@ -339,6 +374,7 @@ fn grok_source() -> AgentModelSourceDto {
         kimi: None,
         claude: None,
         codex: None,
+        devin: None,
     }
 }
 
@@ -351,6 +387,7 @@ fn kimi_source(home: &Path) -> AgentModelSourceDto {
         kimi: Some(kimi_bundle_from_toml(&read_text(&kimi_config_path(home)))),
         claude: None,
         codex: None,
+        devin: None,
     }
 }
 
@@ -363,6 +400,7 @@ fn claude_source(home: &Path) -> AgentModelSourceDto {
         kimi: None,
         claude: Some(claude_excerpt(&read_text(&claude_settings_path(home)))),
         codex: None,
+        devin: None,
     }
 }
 
@@ -388,6 +426,41 @@ fn codex_source(home: &Path) -> AgentModelSourceDto {
             current_effort,
             models,
         }),
+        devin: None,
+    }
+}
+
+pub(crate) fn devin_bundle_from_json(text: &str) -> SlimBundle {
+    let v: Value = serde_json::from_str(text).unwrap_or_else(|_| json!({}));
+    let agent = v.get("agent");
+    let current_model = agent
+        .and_then(|a| a.get("model"))
+        .or_else(|| v.get("model"))
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let current_effort = agent
+        .and_then(|a| a.get("thought_level"))
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    SlimBundle {
+        current_model,
+        current_effort,
+        models: Vec::new(),
+    }
+}
+
+fn devin_source(home: &Path) -> AgentModelSourceDto {
+    AgentModelSourceDto {
+        agent_id: "devin".into(),
+        grok_list: None,
+        grok_cache: None,
+        grok_prefs: None,
+        kimi: None,
+        claude: None,
+        codex: None,
+        devin: Some(devin_bundle_from_json(&read_text(&devin_config_path(home)))),
     }
 }
 
@@ -400,6 +473,7 @@ pub async fn read_agent_model_source(agent_id: Option<String>) -> AppResult<Agen
         AgentId::Kimi => kimi_source(&home),
         AgentId::Claude => claude_source(&home),
         AgentId::Codex => codex_source(&home),
+        AgentId::Devin => devin_source(&home),
     };
     if id == AgentId::Grok {
         source.grok_list = crate::cli_bridge::list_models_text().await.ok();
@@ -453,6 +527,12 @@ pub async fn patch_agent_model_settings(
                 let path = codex_config_path(&home);
                 let next =
                     patch_codex_toml(&read_text(&path), model.as_deref(), effort.as_deref())?;
+                write_text(&path, &next)?;
+            }
+            AgentId::Devin => {
+                let path = devin_config_path(&home);
+                let next =
+                    patch_devin_json(&read_text(&path), model.as_deref(), effort.as_deref())?;
                 write_text(&path, &next)?;
             }
         }
@@ -560,6 +640,52 @@ token = "leak-me"
         let doc = next.parse::<DocumentMut>().unwrap();
         assert_eq!(doc["model"].as_str(), Some("gpt-5.4"));
         assert_eq!(doc["model_reasoning_effort"].as_str(), Some("high"));
+    }
+
+    #[test]
+    fn devin_bundle_reads_model_key_only() {
+        let bundle = devin_bundle_from_json(
+            r#"{"agent":{"model":"devin-fast"},"apiKey":"sk-leak","version":1}"#,
+        );
+        assert_eq!(bundle.current_model.as_deref(), Some("devin-fast"));
+        assert!(bundle.current_effort.is_none());
+        assert!(bundle.models.is_empty());
+        let dumped = serde_json::to_string(&bundle).unwrap();
+        assert!(!dumped.contains("sk-leak"));
+        assert!(!dumped.contains("apiKey"));
+        // Legacy top-level `model` still reads for migration.
+        let legacy = devin_bundle_from_json(r#"{"model":"devin-fast"}"#);
+        assert_eq!(legacy.current_model.as_deref(), Some("devin-fast"));
+        assert!(devin_bundle_from_json("").current_model.is_none());
+        assert!(devin_bundle_from_json("{}").current_model.is_none());
+    }
+
+    #[test]
+    fn patch_devin_writes_model_and_keeps_keys() {
+        let next =
+            patch_devin_json(r#"{"version":1,"theme":"dark"}"#, Some("devin-2"), None).unwrap();
+        let v: Value = serde_json::from_str(&next).unwrap();
+        assert_eq!(v["agent"]["model"], "devin-2");
+        assert!(v.get("model").is_none());
+        assert_eq!(v["theme"], "dark");
+        assert_eq!(v["version"], 1);
+        assert!(v.get("effortLevel").is_none());
+        // Preserves existing agent keys and evicts the stale top-level key.
+        let merged = patch_devin_json(
+            r#"{"model":"stale","agent":{"mode":"smart"},"other":true}"#,
+            Some("opus"),
+            Some("high"),
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(v["agent"]["model"], "opus");
+        assert_eq!(v["agent"]["thought_level"], "high");
+        assert_eq!(v["agent"]["mode"], "smart");
+        assert!(v.get("model").is_none());
+        assert_eq!(v["other"], true);
+        let created = patch_devin_json("", Some("devin-2"), None).unwrap();
+        let v: Value = serde_json::from_str(&created).unwrap();
+        assert_eq!(v["agent"]["model"], "devin-2");
     }
 
     #[test]

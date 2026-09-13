@@ -6,10 +6,31 @@ export const GROK_FALLBACK_MODELS = ["grok-4.6", "grok-4.5", "grok-build"];
 export const GROK_EFFORTS = ["low", "medium", "high", "xhigh"];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultracode"];
 export const CLAUDE_FALLBACK_MODELS = ["opus", "sonnet", "haiku", "fable"];
+// Static fallback for the Devin picker before a session is live. Once a
+// session opens, session/new configOptions replace this with the real
+// account-scoped catalog (same data as the CLI `/model` picker). Ids are the
+// canonical model_uids; fuzzy family slugs also resolve server-side.
+export const DEVIN_MODELS: SlimModel[] = [
+  { id: "adaptive", label: "Adaptive", group: "Recommended", description: "按任务自动路由到最优模型", isDefault: true },
+  { id: "fusion", label: "Fusion", group: "Recommended", description: "前沿主模型 + 低成本副模型配对" },
+  { id: "swe-1-6-fast", label: "SWE 1.6 Fast", group: "Cognition", description: "快且省，适合常规修改与问答" },
+  { id: "swe-1-6", label: "SWE 1.6", group: "Cognition" },
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8", group: "Anthropic", description: "深度推理与多文件重构" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", group: "Anthropic" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", group: "Anthropic", description: "轻量快速" },
+  { id: "gpt-5.4", label: "GPT-5.4", group: "OpenAI" },
+  { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", group: "OpenAI", description: "面向代码任务" },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", group: "Google" },
+  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", group: "Google", description: "轻量快速" },
+  { id: "kimi-k3", label: "Kimi K3", group: "Open models" },
+  { id: "glm-5-3", label: "GLM 5.3", group: "Open models" },
+];
 
 export type SlimModel = {
   id: string;
   label?: string;
+  description?: string;
+  group?: string;
   efforts?: string[];
   defaultEffort?: string;
   isDefault?: boolean;
@@ -23,11 +44,14 @@ export type AgentModelSource = {
   kimi?: { currentModel?: string; currentEffort?: string; models?: SlimModel[] } | null;
   claude?: { model?: string; effortLevel?: string } | null;
   codex?: { currentModel?: string; currentEffort?: string; models?: SlimModel[] } | null;
+  devin?: { currentModel?: string; currentEffort?: string; models?: SlimModel[] } | null;
 };
 
 export type AgentModelRow = {
   id: string;
   label?: string;
+  description?: string;
+  group?: string;
   efforts: string[];
   defaultEffort?: string;
   isDefault?: boolean;
@@ -64,6 +88,9 @@ export function emptyCatalog(agentId: AgentId): AgentModelCatalog {
       currentModel: CLAUDE_FALLBACK_MODELS[0] ?? "opus",
       currentEffort: "medium",
     };
+  }
+  if (agentId === "devin") {
+    return devinCatalog({ agentId });
   }
   return { agentId, models: [], currentModel: "", currentEffort: "" };
 }
@@ -115,6 +142,8 @@ function fromSlim(rows: SlimModel[] | undefined, fallbackEfforts: string[]): Age
     out.push({
       id,
       label: row.label?.trim() || undefined,
+      description: row.description?.trim() || undefined,
+      group: row.group?.trim() || undefined,
       efforts: efforts.length ? efforts : [...fallbackEfforts],
       defaultEffort: row.defaultEffort?.trim() || undefined,
       isDefault: !!row.isDefault,
@@ -181,9 +210,23 @@ function slimCatalog(
   };
 }
 
+function devinCatalog(source: AgentModelSource): AgentModelCatalog {
+  const live = source.devin?.models;
+  const currentModel = source.devin?.currentModel?.trim() || "adaptive";
+  const models = withCurrent(fromSlim(live?.length ? live : DEVIN_MODELS, []), currentModel, []);
+  const efforts = effortsForModel(models, currentModel);
+  return {
+    agentId: "devin",
+    models,
+    currentModel,
+    currentEffort: coerceEffort(source.devin?.currentEffort, efforts, undefined) || "",
+  };
+}
+
 export function catalogFromSource(source: AgentModelSource): AgentModelCatalog {
   if (source.agentId === "grok") return grokCatalog(source);
   if (source.agentId === "claude") return claudeCatalog(source);
   if (source.agentId === "kimi") return slimCatalog("kimi", source.kimi, []);
+  if (source.agentId === "devin") return devinCatalog(source);
   return slimCatalog("codex", source.codex, []);
 }

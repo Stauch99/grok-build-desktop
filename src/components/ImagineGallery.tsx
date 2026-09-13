@@ -1,7 +1,9 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { assetRoots, safeFileSrc } from "../lib/asset-src";
+import { useMemo, useState } from "react";
+import { assetRoots, parentDir, safeFileSrc } from "../lib/asset-src";
 import { basename } from "../lib/text";
 import { useT } from "../lib/locale-context";
+import { IconPhoto, IconPlayerPlay } from "../icons";
 
 export type ImagineGalleryProps = {
   images: string[];
@@ -12,6 +14,28 @@ export type ImagineGalleryProps = {
   cwd?: string;
   grokHome?: string;
 };
+
+function GalleryTile({ path, video, roots, onOpen }: { path: string; video: boolean; roots: string[]; onOpen: (p: string) => void }) {
+  const [broken, setBroken] = useState(false);
+  const src = broken ? null : safeFileSrc(path, roots, convertFileSrc);
+  const name = basename(path);
+  return (
+    <button key={path} type="button" onClick={() => onOpen(path)} aria-label={name}>
+      {src ? (
+        video ? (
+          <video src={src} muted preload="metadata" playsInline onError={() => setBroken(true)} />
+        ) : (
+          <img src={src} alt={name} loading="lazy" onError={() => setBroken(true)} />
+        )
+      ) : (
+        <span className="gallery-fallback" aria-hidden>
+          {video ? <IconPlayerPlay size={22} /> : <IconPhoto size={22} />}
+        </span>
+      )}
+      <span className="gallery-cap">{name}</span>
+    </button>
+  );
+}
 
 /**
  * Local /imagine artifacts. Generation stays on the slash — this is not a
@@ -30,7 +54,12 @@ export function ImagineGallery({
   const showVideo = mode === "video";
   const paths = showVideo ? videos : images;
   const empty = paths.length === 0;
-  const roots = assetRoots(cwd, grokHome);
+  const roots = useMemo(() => {
+    // Artifacts can live outside cwd/grok-sessions roots (~/Downloads,
+    // ~/.grok/downloads) — allow each returned file's own directory.
+    const dirs = new Set(paths.map(parentDir));
+    return [...assetRoots(cwd, grokHome), ...dirs];
+  }, [cwd, grokHome, paths]);
 
   return (
     <div>
@@ -45,20 +74,9 @@ export function ImagineGallery({
         </p>
       ) : null}
       <div className="gallery-grid">
-        {paths.map((path) => {
-          const src = safeFileSrc(path, roots, convertFileSrc);
-          return (
-            <button key={path} type="button" onClick={() => onOpen(path)}>
-              {src ? (
-                showVideo ? (
-                  <video src={src} muted preload="metadata" playsInline />
-                ) : (
-                  <img src={src} alt={basename(path)} />
-                )
-              ) : null}
-            </button>
-          );
-        })}
+        {paths.map((path) => (
+          <GalleryTile key={path} path={path} video={showVideo} roots={roots} onOpen={onOpen} />
+        ))}
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import { friendlyError } from "../lib/error-copy";
 import { t, type Locale } from "../lib/i18n";
 import type { Mode } from "../lib/mode";
 import { modeLabel, shouldSendModeSlash, slashForMode } from "../lib/mode";
+import { isAcpAuthRequiredError } from "../lib/devin-auth";
 import { formatSessionInfo, exportTranscript, lastAssistantText } from "../lib/session-local";
 import { setTitleOverride } from "../lib/projects";
 import type { ChatState } from "../lib/chat";
@@ -43,7 +44,7 @@ export type SlashCommandDeps = {
   chat: ChatState;
   sessions: SessionSummary[];
   sessionId: string | null;
-  extraPanes: Record<string, { sessionId: string; busy: boolean; draft: string }>;
+  extraPanes: Record<string, { sessionId: string; busy: boolean; draft: string; agentId?: AgentId }>;
   mainPaneBusy: boolean;
   loadingSession: boolean;
   readyRef: React.MutableRefObject<boolean>;
@@ -75,6 +76,8 @@ export type SlashCommandDeps = {
   setRewindTarget: (index: number | null) => void;
   sendSlashToAgent: (text: string, dest?: string) => Promise<void>;
   sendPrompt: (text: string, dest?: string) => Promise<void>;
+  /** session/set_config_option — devin model/thinking switches without a user message. */
+  setSessionConfigOption?: (configId: string, value: string) => Promise<boolean>;
   startSession: () => Promise<void>;
   openSettings: () => void;
   openHub: (tab?: HubTab) => void;
@@ -113,8 +116,9 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     }
     if (live) {
       if (!shouldSendModeSlash(next, d.cli)) return;
+      const destAgent = extra ? (d.extraPanes[dest]?.agentId ?? d.selectedAgentId) : d.selectedAgentId;
       try {
-        await d.sendSlashToAgent(slashForMode(next), dest);
+        await d.sendSlashToAgent(slashForMode(next, destAgent), dest);
       } catch (e) {
         if (extra) {
           d.setExtraPanes((prev) => {
@@ -123,7 +127,10 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
             return { ...prev, [dest]: { ...cur, busy: false } };
           });
         } else d.setBusy(false);
-        d.showToast(friendlyError(e));
+        // Devin's auth card is the feedback — a toast would double-report it.
+        if (!(destAgent === "devin" && isAcpAuthRequiredError(e))) {
+          d.showToast(friendlyError(e));
+        }
       }
       return;
     }
@@ -157,6 +164,17 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
     });
     applyModel(next, { skipSessionToast: live });
     if (!live) return;
+    if (d.selectedAgentId === "devin" && d.setSessionConfigOption) {
+      void d.setSessionConfigOption("model", next).then((ok) => {
+        if (ok) {
+          d.showToast(t(d.locale, "toast.modelSent", { model: next }));
+          return;
+        }
+        void d.sendPrompt(`/model ${next}`);
+        d.showToast(t(d.locale, "toast.modelSent", { model: next }));
+      });
+      return;
+    }
     void d.sendPrompt(`/model ${next}`);
     d.showToast(t(d.locale, "toast.modelSent", { model: next }));
   }
@@ -164,6 +182,13 @@ export function useSlashCommands(deps: SlashCommandDeps): SlashCommands {
   function applyEffort(next: string) {
     const d = depsRef.current;
     d.setEffort(next);
+    if (d.selectedAgentId === "devin" && d.sessionIdRef.current && d.readyRef.current && d.setSessionConfigOption) {
+      void d.setSessionConfigOption("thought_level", next).then((ok) => {
+        if (ok) return;
+        void patchAgentModelSettings(d.selectedAgentId, { effort: next }).catch(() => {});
+      });
+      return;
+    }
     void patchAgentModelSettings(d.selectedAgentId, { effort: next })
       .then(() => {
         if (d.selectedAgentId === "grok") {

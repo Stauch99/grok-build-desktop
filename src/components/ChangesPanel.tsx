@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { GitChange } from "../api";
 import { canDiscardChange, changePreviewTarget, discardConfirm, statusMark, totalChanges } from "../lib/git";
 import { fileListEntry } from "../lib/file-row";
-import { IconRefresh } from "../icons";
+import { IconMinus, IconPlus, IconRefresh } from "../icons";
 import { FileListRow } from "./FileListRow";
 import { AppModal } from "./AppModal";
 import { useT } from "../lib/locale-context";
@@ -15,6 +15,8 @@ export type ChangesPanelProps = {
   onReveal: (abs: string) => void;
   onRefresh: () => void;
   onDiscard?: (path: string) => void;
+  /** `git add` / `git restore --staged` for one row; parent owns the refresh. */
+  onToggleStage?: (change: GitChange) => void;
 };
 
 /**
@@ -29,6 +31,7 @@ export function ChangesPanel({
   onReveal,
   onRefresh,
   onDiscard,
+  onToggleStage,
 }: ChangesPanelProps) {
   const t = useT();
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null);
@@ -73,12 +76,30 @@ export function ChangesPanel({
                 onOpen={() => onPreview(target)}
                 onReveal={() => onReveal(revealAt)}
                 leading={
-                  <span className={`change-mark ${c.status}`}>
+                  <span
+                    className={`change-mark ${c.status}${c.staged ? " staged" : ""}`}
+                    data-tip={c.staged ? t("git.staged") : undefined}
+                  >
                     {statusMark(c.status)}
                   </span>
                 }
                 trailing={
                   <>
+                    {onToggleStage ? (
+                      <button
+                        type="button"
+                        className={`file-open change-stage${c.staged ? " is-staged" : ""}`}
+                        aria-label={
+                          c.staged
+                            ? t("git.unstagePath", { path: c.path })
+                            : t("git.stagePath", { path: c.path })
+                        }
+                        data-tip={c.staged ? t("git.unstage") : t("git.stage")}
+                        onClick={() => onToggleStage(c)}
+                      >
+                        {c.staged ? <IconMinus size={12} /> : <IconPlus size={12} />}
+                      </button>
+                    ) : null}
                     <span className="change-stat">
                       {c.added > 0 && <span className="stat-add">+{c.added}</span>}
                       {c.removed > 0 && <span className="stat-del">−{c.removed}</span>}

@@ -19,7 +19,7 @@ import type { AgentId } from "../lib/agent-id";
 import { MentionMenu } from "./MentionMenu";
 import { QueueStrip } from "./QueueStrip";
 import { SlashMenu } from "./SlashMenu";
-import { IconChevron, IconUp } from "../icons";
+import { IconBookmark, IconChevron, IconUp } from "../icons";
 import { useShortcutState } from "./ShortcutHint";
 import {
   addAttachments,
@@ -27,6 +27,7 @@ import {
   clipboardAttachHits,
   claimComposerDrop,
   formatAttachmentsPrompt,
+  invokeErrorMessage,
   isFileDrag,
   pasteFileExt,
   pathsFromTauriDrop,
@@ -67,6 +68,17 @@ import {
 } from "../lib/composer-meta";
 import { growArea } from "../lib/composer-grow";
 import { scheduleFrameValue } from "../lib/scroll-frame";
+import { registerComposerInbox } from "../lib/composer-inbox";
+import { pasteGuard } from "../lib/paste-guard";
+import { estimateTokens, showTokenChip } from "../lib/token-estimate";
+import {
+  SNIPPET_CAP,
+  deleteSnippet,
+  listSnippets,
+  saveSnippet,
+  type PromptSnippet,
+} from "../lib/prompt-snippets";
+import { grokFileDragPath, hasGrokFileDrag } from "../lib/tree-drag";
 
 export type ComposerHandle = {
   focus: () => void;
@@ -121,6 +133,7 @@ export type ComposerProps = {
   sessionModel?: string | null;
   modelOptions: string[];
   modelLabels?: Record<string, string>;
+  modelRows?: import("../lib/agent-models").AgentModelRow[];
   onModel: (next: string) => void;
   onOpenSettings: () => void;
   /** Session-level /model. Falls back to onModel when omitted. */
@@ -190,6 +203,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     sessionModel,
     modelOptions,
     modelLabels,
+    modelRows,
     onModel,
     onOpenSettings,
     onSessionModel,
@@ -243,6 +257,12 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
   const [effortOpen, setEffortOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
+  const [snipOpen, setSnipOpen] = useState(false);
+  const [snips, setSnips] = useState<PromptSnippet[]>([]);
+  const [snipNaming, setSnipNaming] = useState(false);
+  const [snipTitle, setSnipTitle] = useState("");
+  const [bigPaste, setBigPaste] = useState<{ text: string; lines: number } | null>(null);
+  const unregInboxRef = useRef<(() => void) | null>(null);
   const metaRowRef = useRef<HTMLDivElement>(null);
   const [metaHide, setMetaHide] = useState<ComposerMetaHide>({
     cwd: false,
@@ -383,6 +403,8 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
   ingestPathsRef.current = ingestPaths;
   const ingestClipboardHitsRef = useRef(ingestClipboardHits);
   ingestClipboardHitsRef.current = ingestClipboardHits;
+  const insertDraftRef = useRef<(text: string) => void>(() => {});
+  insertDraftRef.current = insertDraft;
 
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
@@ -449,7 +471,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
 
     const onEnter = (e: Event) => {
       const ev = e as DragEvent;
-      if (!isFileDrag(ev.dataTransfer)) return;
+      if (!isFileDrag(ev.dataTransfer) && !hasGrokFileDrag(ev.dataTransfer)) return;
       ev.preventDefault();
       fileDragDepthRef.current += 1;
       setFileDragOver(true);
@@ -461,13 +483,28 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     };
     const onOver = (e: Event) => {
       const ev = e as DragEvent;
-      if (!isFileDrag(ev.dataTransfer)) return;
+      if (!isFileDrag(ev.dataTransfer) && !hasGrokFileDrag(ev.dataTransfer)) return;
       ev.preventDefault();
       if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
       setFileDragOver(true);
     };
     const onDrop = (e: Event) => {
       const ev = e as DragEvent;
+      const treePath = grokFileDragPath(ev.dataTransfer);
+      if (treePath) {
+        // File-tree drag: the payload is an absolute path, attach it directly.
+        ev.preventDefault();
+        ev.stopPropagation();
+        fileDragDepthRef.current = 0;
+        setFileDragOver(false);
+        if (html5DropRef.current) return;
+        if (!claimComposerDrop([treePath])) return;
+        html5DropRef.current = true;
+        void ingestPathsRef.current([
+          { path: treePath, kind: treePath.endsWith("/") ? "dir" : "file" },
+        ]);
+        return;
+      }
       if (!isFileDrag(ev.dataTransfer)) return;
       ev.preventDefault();
       ev.stopPropagation();
@@ -497,7 +534,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
   }, [dropZoneEl]);
 
   useEffect(() => {
-    if (!modeOpen && !effortOpen && !modelOpen && !wsOpen && !agentOpen) return;
+    if (!modeOpen && !effortOpen && !modelOpen && !wsOpen && !agentOpen && !snipOpen) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target;
       if (t instanceof Element && t.closest(".chip-wrap")) return;
@@ -506,6 +543,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
       setModelOpen(false);
       setWsOpen(false);
       setAgentOpen(false);
+      setSnipOpen(false);
     };
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -515,6 +553,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
       setModelOpen(false);
       setWsOpen(false);
       setAgentOpen(false);
+      setSnipOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -522,7 +561,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [modeOpen, effortOpen, modelOpen, wsOpen, agentOpen]);
+  }, [modeOpen, effortOpen, modelOpen, wsOpen, agentOpen, snipOpen]);
 
   useLayoutEffect(() => {
     const row = metaRowRef.current;
@@ -614,9 +653,18 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
 
   function onPasteFiles(e: ClipboardEvent<HTMLDivElement>) {
     const hits = clipboardAttachHits(e.clipboardData);
-    if (hits.length === 0) return;
+    if (hits.length > 0) {
+      e.preventDefault();
+      void ingestClipboardHits(hits);
+      return;
+    }
+    // Large text paste into the textarea: stage it and offer attachment instead.
+    if (e.target !== taRef.current) return;
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    const info = pasteGuard(text);
+    if (!info.large) return;
     e.preventDefault();
-    void ingestClipboardHits(hits);
+    setBigPaste({ text, lines: info.lines });
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -781,6 +829,55 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     taRef.current?.focus();
   }
 
+  /** Insert text at the caret (or over the selection) and refocus the textarea. */
+  function insertDraft(text: string) {
+    const ta = taRef.current;
+    const cur = localRef.current;
+    const start = ta ? Math.min(ta.selectionStart, cur.length) : cur.length;
+    const end = ta ? Math.min(ta.selectionEnd, cur.length) : start;
+    const next = cur.slice(0, start) + text + cur.slice(Math.max(start, end));
+    const caret = start + text.length;
+    void handleChange(next);
+    // Restore the caret after React has flushed the new value into the DOM.
+    window.requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  }
+
+  /** Send the staged big paste through the existing blob→file attach pipeline. */
+  async function attachBigPaste() {
+    const pending = bigPaste;
+    setBigPaste(null);
+    if (!pending) return;
+    try {
+      const bytes = new TextEncoder().encode(pending.text);
+      const saved = await savePasteBytes(Array.from(bytes), "txt", "paste.txt");
+      await ingestPaths([
+        { path: saved.path, kind: "file", bytes: saved.bytes, name: saved.name || "paste.txt" },
+      ]);
+    } catch (err) {
+      onOverflow?.(invokeErrorMessage(err) || t("composer.pasteFail"));
+    }
+  }
+
+  function saveSnip() {
+    const title = snipTitle.trim();
+    if (!title) return;
+    const saved = saveSnippet(title, localRef.current);
+    if (!saved) {
+      onOverflow?.(t("snip.full", { cap: SNIPPET_CAP }));
+      return;
+    }
+    setSnips(listSnippets());
+    setSnipNaming(false);
+    setSnipTitle("");
+  }
+
+  useEffect(() => () => unregInboxRef.current?.(), []);
+
   const modGlyph = mac ? "⌘" : "Ctrl+";
   const sendKbd = enterSends ? "↩" : `${modGlyph}↩`;
   const altKbd = enterSends ? `${modGlyph}↩` : "↩";
@@ -790,6 +887,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
     : t("composer.steerNow", { k: sendKbd });
 
   const canSend = (!!localValue.trim() || attachments.length > 0) && !blocked;
+  const promptChars = promptText().length;
   const overlayHost = fileDragOver ? dropZoneEl() : null;
 
   return (
@@ -855,6 +953,30 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
       {takeover === "bar" ? (
       <div className="composer">
         <AttachStrip items={attachments} onRemove={removeAttachment} cwd={cwd} grokHome={grokHome} />
+        {bigPaste ? (
+          <div className="paste-guard">
+            <span className="paste-guard-label">
+              {t("composer.pasteLarge", { n: bigPaste.lines })}
+            </span>
+            <button type="button" className="btn ghost" onClick={() => void attachBigPaste()}>
+              {t("composer.pasteAttach")}
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                const pending = bigPaste;
+                setBigPaste(null);
+                insertDraft(pending.text);
+              }}
+            >
+              {t("composer.pasteInto")}
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setBigPaste(null)}>
+              {t("composer.dismiss")}
+            </button>
+          </div>
+        ) : null}
         <div className="composer-main">
           <textarea
             ref={taRef}
@@ -862,6 +984,13 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
             value={localValue}
             aria-label={t("composer.input")}
             onChange={(e) => void handleChange(e.target.value)}
+            onFocus={() => {
+              // Most recently focused composer becomes the draft-drop target.
+              unregInboxRef.current?.();
+              unregInboxRef.current = registerComposerInbox((text) =>
+                insertDraftRef.current(text),
+              );
+            }}
             onKeyDown={onKeyDown}
             onCompositionStart={() => {
               imeRef.current = applyImeComposition(imeRef.current, "start", Date.now());
@@ -871,6 +1000,98 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
             }}
           />
           <div className="composer-actions">
+            <div className="chip-wrap snip-wrap">
+              <button
+                type="button"
+                className="snip-btn"
+                aria-label={t("snip.open")}
+                aria-haspopup="menu"
+                aria-expanded={snipOpen}
+                onClick={() => {
+                  setModeOpen(false);
+                  setEffortOpen(false);
+                  setModelOpen(false);
+                  setWsOpen(false);
+                  setAgentOpen(false);
+                  if (!snipOpen) {
+                    setSnips(listSnippets());
+                    setSnipNaming(false);
+                    setSnipTitle("");
+                  }
+                  setSnipOpen((o) => !o);
+                }}
+              >
+                <IconBookmark size={14} />
+              </button>
+              {snipOpen ? (
+                <div className="chip-menu snip-menu" role="menu" aria-label={t("snip.open")}>
+                  {snips.length === 0 ? <div className="snip-empty">{t("snip.empty")}</div> : null}
+                  {snips.map((s) => (
+                    <div className="snip-row" key={s.id}>
+                      <button
+                        type="button"
+                        className="snip-pick"
+                        onClick={() => {
+                          setSnipOpen(false);
+                          insertDraft(s.body);
+                        }}
+                      >
+                        <span className="snip-title">{s.title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="snip-x"
+                        aria-label={t("snip.delete", { title: s.title })}
+                        onClick={() => setSnips(deleteSnippet(s.id))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <div className="snip-foot">
+                    {snipNaming ? (
+                      <>
+                        <input
+                          className="snip-title-input"
+                          value={snipTitle}
+                          aria-label={t("snip.title")}
+                          autoFocus
+                          onChange={(e) => setSnipTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.nativeEvent.isComposing) return;
+                            if (e.key !== "Enter") return;
+                            e.preventDefault();
+                            saveSnip();
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          disabled={!snipTitle.trim()}
+                          onClick={saveSnip}
+                        >
+                          {t("snip.confirm")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="snip-save"
+                        disabled={!localValue.trim() || snips.length >= SNIPPET_CAP}
+                        onClick={() => setSnipNaming(true)}
+                      >
+                        {t("snip.save")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {showTokenChip(promptChars) ? (
+              <span className="token-chip">
+                {t("composer.tokens", { n: estimateTokens(promptChars, attachments.length) })}
+              </span>
+            ) : null}
             {busy && onAlt && altLabel && (
               <button
                 type="button"
@@ -917,6 +1138,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
                     setEffortOpen(false);
                     setModelOpen(false);
                     setAgentOpen(false);
+                    setSnipOpen(false);
                     setWsOpen((o) => !o);
                   }}
                 >
@@ -959,6 +1181,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
                     setEffortOpen(false);
                     setModelOpen(false);
                     setWsOpen(false);
+                    setSnipOpen(false);
                     setAgentOpen((o) => !o);
                   }}
                 />
@@ -975,6 +1198,7 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
                     setModelOpen(false);
                     setWsOpen(false);
                     setAgentOpen(false);
+                    setSnipOpen(false);
                     setModeOpen((o) => !o);
                   }}
                   onArmMode={(next) => {
@@ -995,18 +1219,21 @@ export const Composer = memo(forwardRef<ComposerHandle, ComposerProps>(function 
                     setModelOpen(false);
                     setWsOpen(false);
                     setAgentOpen(false);
+                    setSnipOpen(false);
                     setEffortOpen((o) => !o);
                   }}
                   model={model}
                   sessionModel={sessionModel}
                   modelOptions={modelOptions}
                   modelLabels={modelLabels}
+                  modelRows={modelRows}
                   modelOpen={modelOpen}
                   onToggleModel={() => {
                     setModeOpen(false);
                     setEffortOpen(false);
                     setWsOpen(false);
                     setAgentOpen(false);
+                    setSnipOpen(false);
                     setModelOpen((o) => !o);
                   }}
                   onPickModel={(m) => {

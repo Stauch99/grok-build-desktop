@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   gitChanges,
   gitStatus,
@@ -29,7 +29,8 @@ import { paneTurnIsLive, runningSessionIds } from "../lib/acp-turn";
 import { paneNeedsCloseConfirm } from "../lib/app-hotkeys";
 import { tapDanger } from "../lib/confirm";
 import { dequeue, putSessionQueue } from "../lib/prompt-queue";
-import { isSessionFocused, notifyText, shouldMarkUnread, shouldNotify } from "../lib/notify";
+import { freshPermissionEvents, isSessionFocused, notifyText, shouldMarkUnread, shouldNotify } from "../lib/notify";
+import { pushNotifyEntry } from "../lib/notify-center";
 import { countAttention } from "../lib/session-badge";
 import { playTurnDone } from "../lib/sound";
 import { persistReviewOpen } from "../lib/review-rail";
@@ -45,6 +46,8 @@ import { activityKey } from "../lib/stall";
 import { firstHitIndex } from "../lib/search-highlight";
 import { nextGoalView } from "../lib/goal-bar";
 import { markUnread, clearUnread, pruneUnread } from "../lib/session-status";
+import { isSessionMuted, onSessionMuteChange } from "../lib/session-mute";
+import { saveLastSessionId } from "../lib/session-launch";
 import { BILLING_POLL_MS, scheduleIdle, shouldRunChipWarmup } from "../lib/agent-warmup";
 import { shouldWarmupOnChipSelect } from "../lib/session-agent";
 import type { CommandDef } from "../lib/commands";
@@ -268,7 +271,10 @@ export function useAppModelEffects(d: EffectsDeps) {
           return next;
         });
       }
-      if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+      if (
+        shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs }) &&
+        !isSessionMuted(finishedId)
+      ) {
         if (s.soundsRef.current) playTurnDone();
         void setNotifyTarget(finishedId);
         const { title, body } = notifyText(
@@ -277,6 +283,7 @@ export function useAppModelEffects(d: EffectsDeps) {
           formatElapsed(elapsedMs),
         );
         void notify(title, body);
+        pushNotifyEntry({ kind: "done", title, body, sessionId: finishedId });
       }
     }
     if (acp.busy) {
@@ -306,7 +313,10 @@ export function useAppModelEffects(d: EffectsDeps) {
           return next;
         });
       }
-      if (shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs })) {
+      if (
+        shouldNotify({ reason: "turn-done", windowFocused, sessionFocused, elapsedMs }) &&
+        !isSessionMuted(pane.sessionId)
+      ) {
         if (s.soundsRef.current) playTurnDone();
         if (pane.sessionId) void setNotifyTarget(pane.sessionId);
         const { title, body } = notifyText(
@@ -315,6 +325,7 @@ export function useAppModelEffects(d: EffectsDeps) {
           formatElapsed(elapsedMs),
         );
         void notify(title, body);
+        pushNotifyEntry({ kind: "done", title, body, sessionId: pane.sessionId ?? null });
       }
       const { next, rest } = dequeue(pane.queue);
       if (!next) continue;
@@ -577,25 +588,60 @@ export function useAppModelEffects(d: EffectsDeps) {
     s.currentTitleRef.current = view.currentTitle;
   }, [view.currentTitle]);
 
+  // Mute flags live in localStorage; bumping this tick re-runs the badge count
+  // and any other mute-sensitive reads without routing state through context.
+  const [muteTick, setMuteTick] = useState(0);
+  useEffect(() => onSessionMuteChange(() => setMuteTick((v) => v + 1)), []);
+
+  // Persist which session holds focus so "reopen last session on launch" can
+  // find it again. Empty never overwrites — last means last real session.
+  useEffect(() => {
+    saveLastSessionId(view.focusedSessionId);
+  }, [view.focusedSessionId]);
+
   const lastBadge = useRef<number | null>(null);
   useEffect(() => {
-    const count = countAttention(d.allSessions.map((row) => view.statusFor(row.id)));
+    const count = countAttention(
+      d.allSessions.filter((row) => !isSessionMuted(row.id)).map((row) => view.statusFor(row.id)),
+    );
     if (lastBadge.current === count) return;
     lastBadge.current = count;
     void setBadge(count);
-  }, [d.allSessions, view.statusFor]);
+  }, [d.allSessions, view.statusFor, muteTick]);
+
+  // Mirror permission requests into the notification center. usePermissionQueue
+  // owns the OS notification; this watcher keys off the same "fresh request"
+  // signal so a needs-you ping survives in the bell dropdown.
+  const seenPermCenterRef = useRef(new Set<string>());
+  useEffect(() => {
+    const visible = Object.values(view.panePermissions).filter(
+      (p): p is QueuedPermission => p != null,
+    );
+    const fresh = freshPermissionEvents(seenPermCenterRef.current, visible);
+    for (const request of fresh) {
+      const sessionFocused = isSessionFocused(s.focusedSessionIdRef.current, request.sessionId);
+      const windowFocused = s.focusedRef.current;
+      if (!shouldNotify({ reason: "permission", windowFocused, sessionFocused })) continue;
+      if (isSessionMuted(request.sessionId)) continue;
+      const sessionTitle = s.titleForSessionRef.current(request.sessionId ?? null);
+      const { title, body } = notifyText("permission", sessionTitle, request.title);
+      pushNotifyEntry({ kind: "needs-you", title, body, sessionId: request.sessionId ?? null });
+    }
+  }, [view.panePermissions]);
+
+  const hotkeyOverlayOpen =
+    s.settingsOpen ||
+    s.hubOpen ||
+    d.palette.open ||
+    s.millerOpen ||
+    !!s.appConfirm ||
+    !!s.menu ||
+    s.extraPage != null ||
+    s.rewindTarget != null;
 
   useAppHotkeys({
     shortcuts: s.shortcuts,
-    overlayOpen:
-      s.settingsOpen ||
-      s.hubOpen ||
-      d.palette.open ||
-      s.millerOpen ||
-      !!s.appConfirm ||
-      !!s.menu ||
-      s.extraPage != null ||
-      s.rewindTarget != null,
+    overlayOpen: hotkeyOverlayOpen,
     canClosePane: leafIds(s.paneTree).length > 1,
     allowCancel:
       s.focusedPaneId === MAIN_PANE
@@ -614,7 +660,12 @@ export function useAppModelEffects(d: EffectsDeps) {
         s.setHubOpen(true);
         s.setSettingsOpen(false);
       },
-      "focus-composer": () => s.composerRef.current?.focus(),
+      "focus-composer": () => {
+        if (hotkeyOverlayOpen) return;
+        const paneId = s.focusedPaneIdRef.current;
+        const handle = paneId === MAIN_PANE ? s.composerRef.current : s.extraComposerRefs.current[paneId];
+        (handle ?? s.composerRef.current)?.focus();
+      },
       review: () => {
         const next = !review.open;
         review.toggle(s.defaultRail);

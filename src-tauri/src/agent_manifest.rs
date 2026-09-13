@@ -8,6 +8,7 @@ pub enum CatalogKind {
     KimiSessions,
     ClaudeJsonl,
     CodexRollouts,
+    DevinAcp,
 }
 
 pub struct AgentManifest {
@@ -52,6 +53,13 @@ pub fn manifest(id: AgentId) -> AgentManifest {
             subagent_aliases: DEFAULT_ALIASES,
             initialize_timeout_ms: 20_000,
         },
+        AgentId::Devin => AgentManifest {
+            id: AgentId::Devin,
+            catalog: CatalogKind::DevinAcp,
+            home_rel: ".config/devin",
+            subagent_aliases: DEFAULT_ALIASES,
+            initialize_timeout_ms: 20_000,
+        },
     }
 }
 
@@ -79,5 +87,10 @@ mod tests {
         ));
         assert_eq!(manifest(AgentId::Kimi).home_rel, ".kimi-code");
         assert_eq!(manifest(AgentId::Codex).home_rel, ".codex");
+        assert_eq!(manifest(AgentId::Devin).home_rel, ".config/devin");
+        assert!(matches!(
+            manifest(AgentId::Devin).catalog,
+            CatalogKind::DevinAcp
+        ));
     }
 }

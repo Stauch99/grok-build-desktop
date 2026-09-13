@@ -1,4 +1,5 @@
 import { basename } from "./text";
+import { tr } from "./i18n-bridge";
 
 export type Attachment = { path: string; name: string; kind: "file" | "dir"; bytes?: number };
 
@@ -265,7 +266,7 @@ export function attachmentIconLabel(name: string, kind: Attachment["kind"]): str
 
 /** Muted subtitle under the filename. */
 export function attachmentMeta(item: Attachment): string {
-  if (item.kind === "dir") return "文件夹";
+  if (item.kind === "dir") return tr("attach.dir");
   const ext = fileExt(item.name).toUpperCase() || "FILE";
   if (item.bytes != null) return `${ext} ${formatBytes(item.bytes)}`;
   return ext;
@@ -402,9 +403,9 @@ export function claimComposerDrop(parts: string[], now = Date.now()): boolean {
 
 /** Human reason to toast, or null when the file is fine. */
 export function rejectAttachment(file: { name: string; bytes?: number }): string | null {
-  if (!file.name.trim()) return "无法添加没有名字的附件";
+  if (!file.name.trim()) return tr("attach.noName");
   if (file.bytes != null && file.bytes > ATTACHMENT_BYTE_CAP) {
-    return `文件太大：${file.name}（上限 20 MB）`;
+    return tr("attach.tooLarge", { name: file.name });
   }
   return null;
 }
@@ -431,7 +432,7 @@ export function invokeErrorMessage(err: unknown): string {
 function attachFailReason(name: string, err: unknown): string {
   const named = rejectAttachment({ name });
   if (named) return named;
-  return invokeErrorMessage(err) || `无法添加这个附件：${name}`;
+  return invokeErrorMessage(err) || tr("attach.fail", { name });
 }
 
 function isOutsideWorkspaceReason(reason: string): boolean {
@@ -449,7 +450,7 @@ export async function resolveAttachPath(
   if (early) return { reason: early };
 
   const importCopied = async (): Promise<{ attachment: Attachment } | { reason: string }> => {
-    if (!importFile) return { reason: "附件不在工作区" };
+    if (!importFile) return { reason: tr("attach.outside") };
     try {
       const copied = await importFile(entry.path);
       const copiedReason = rejectAttachment({ name: copied.name, bytes: copied.bytes });

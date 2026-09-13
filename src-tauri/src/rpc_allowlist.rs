@@ -5,6 +5,7 @@ use serde_json::Value;
 pub(crate) struct AgentRpcCaps {
     pub load_session: bool,
     pub list_sessions: bool,
+    pub session_delete: bool,
     pub set_mode: bool,
     pub set_config_option: bool,
     pub authenticate: bool,
@@ -16,6 +17,7 @@ impl AgentRpcCaps {
         Self {
             load_session: true,
             list_sessions: false,
+            session_delete: false,
             set_mode: false,
             set_config_option: false,
             authenticate: false,
@@ -27,6 +29,7 @@ impl AgentRpcCaps {
         Self {
             load_session: true,
             list_sessions: true,
+            session_delete: false,
             set_mode: true,
             set_config_option: true,
             authenticate: true,
@@ -39,6 +42,10 @@ pub(crate) fn caps_for_agent(id: AgentId) -> AgentRpcCaps {
     match id {
         AgentId::Grok => AgentRpcCaps::grok_legacy(),
         AgentId::Kimi | AgentId::Claude | AgentId::Codex => AgentRpcCaps::acp_common(),
+        AgentId::Devin => AgentRpcCaps {
+            session_delete: true,
+            ..AgentRpcCaps::acp_common()
+        },
     }
 }
 
@@ -73,6 +80,9 @@ pub(crate) fn rpc_payload_allowed_for(payload: &Value, caps: &AgentRpcCaps) -> b
         return true;
     }
     if caps.list_sessions && name == "session/list" {
+        return true;
+    }
+    if caps.session_delete && name == "session/delete" {
         return true;
     }
     if caps.set_mode && name == "session/set_mode" {
@@ -167,6 +177,7 @@ mod rpc_allowlist_tests {
         let caps = AgentRpcCaps {
             load_session: true,
             list_sessions: true,
+            session_delete: false,
             set_mode: true,
             set_config_option: true,
             authenticate: true,
@@ -229,6 +240,27 @@ mod rpc_allowlist_tests {
         assert!(rpc_payload_allowed_for(
             &json!({ "method": "session/set_mode" }),
             &caps_for_agent(AgentId::Codex)
+        ));
+    }
+
+    #[test]
+    fn devin_caps_allow_session_delete_only() {
+        use crate::agent_host::AgentId;
+        assert!(rpc_payload_allowed_for(
+            &json!({ "method": "session/delete" }),
+            &caps_for_agent(AgentId::Devin)
+        ));
+        assert!(rpc_payload_allowed_for(
+            &json!({ "method": "session/list" }),
+            &caps_for_agent(AgentId::Devin)
+        ));
+        assert!(!rpc_payload_allowed_for(
+            &json!({ "method": "session/delete" }),
+            &caps_for_agent(AgentId::Kimi)
+        ));
+        assert!(!rpc_payload_allowed_for(
+            &json!({ "method": "session/delete" }),
+            &caps_for_agent(AgentId::Grok)
         ));
     }
 }

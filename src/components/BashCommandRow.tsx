@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconCopy } from "../icons";
 import { bashCommandPreview } from "../lib/tool-render";
+import { collapseToolOutput } from "../lib/output-collapse";
 import { useT } from "../lib/locale-context";
+import { OutputTail } from "./OutputTail";
 
 export type BashCommandRowProps = {
   title: string;
@@ -12,6 +14,7 @@ export type BashCommandRowProps = {
 export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
   const t = useT();
   const { full, preview } = bashCommandPreview(title);
+  const collapse = collapseToolOutput(full, false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<DOMRect | null>(null);
   const closeTimer = useRef(0);
@@ -66,7 +69,8 @@ export function BashCommandRow({ title, onInspect }: BashCommandRowProps) {
               <IconCopy size={14} />
             </button>
           </div>
-          <pre className="bash-cmd-full">{full}</pre>
+          <pre className="bash-cmd-full">{collapse ? collapse.head : full}</pre>
+          {collapse ? <OutputTail collapse={collapse} className="bash-cmd-full" /> : null}
         </div>,
         document.body,
       )

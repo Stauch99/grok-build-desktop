@@ -48,7 +48,10 @@ describe("mcp catalog", () => {
 
   it("defaults a missing sync flag to enabled", () => {
     const catalog = [stdio, http];
-    const sync = { skills: {}, mcp: { git: { grok: true, kimi: false, claude: true, codex: true } } };
+    const sync = {
+      skills: {},
+      mcp: { git: { grok: true, kimi: false, claude: true, codex: true, devin: true } },
+    };
     expect(mcpServersForAgent(catalog, sync, "kimi").map((s) => s.name)).toEqual(["docs"]);
     expect(mcpServersForAgent(catalog, sync, "grok").map((s) => s.name)).toEqual(["git", "docs"]);
   });
@@ -76,7 +79,7 @@ describe("mcp catalog", () => {
 
 describe("defaultSyncFlags", () => {
   it("enables every AgentId", () => {
-    expect(defaultSyncFlags()).toEqual({ grok: true, kimi: true, claude: true, codex: true });
+    expect(defaultSyncFlags()).toEqual({ grok: true, kimi: true, claude: true, codex: true, devin: true });
   });
 });
 
@@ -100,7 +103,7 @@ describe("stringify catalog files", () => {
     const servers = [{ name: "git", transport: "stdio" as const, commandOrUrl: "uvx" }];
     expect(stringifyMcpJson(servers)).toBe(`${JSON.stringify({ servers }, null, 2)}\n`);
     const sync = {
-      skills: { pdf: { grok: true, kimi: false, claude: true, codex: true } },
+      skills: { pdf: { grok: true, kimi: false, claude: true, codex: true, devin: true } },
       mcp: {},
     };
     expect(stringifySyncJson(sync)).toBe(`${JSON.stringify(sync, null, 2)}\n`);
@@ -121,8 +124,8 @@ describe("parseSyncJson", () => {
         mcp: { git: { grok: true } },
       }),
     ).toEqual({
-      skills: { pdf: { grok: true, kimi: false, claude: false, codex: false } },
-      mcp: { git: { grok: true, kimi: false, claude: false, codex: false } },
+      skills: { pdf: { grok: true, kimi: false, claude: false, codex: false, devin: false } },
+      mcp: { git: { grok: true, kimi: false, claude: false, codex: false, devin: false } },
     });
   });
 });

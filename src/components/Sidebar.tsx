@@ -3,11 +3,34 @@ import { List, useDynamicRowHeight, useListRef, type RowComponentProps } from "r
 import { beginWindowDrag, type SessionSearchHit, type SessionSummary } from "../api";
 import { ProjectMenu, GroupMenu, menuPosition } from "../SessionMenu";
 import { IconGrokMore, IconGrokPlus, IconGrokSearch, IconGrokSidebar } from "../grok-icons";
-import { IconBook, IconChart, IconClose, IconDashboard, IconFolder, IconFolderOpen, IconFolderPlus, IconPhoto, IconRobot } from "../icons";
+import { IconBook, IconChart, IconClose, IconDashboard, IconDensity, IconFolder, IconFolderOpen, IconFolderPlus, IconPhoto } from "../icons";
 import { nestByParent } from "../lib/projects";
 import { clipSessionTitle, isUntitledSessionTitle } from "../lib/session-title";
 import { windowedProjectNodes } from "../lib/project-session-window";
-import { dropTargetFromAttr, groupIdFor, parseGroupBandId, type ProjectGroup } from "../lib/project-groups";
+import { normalizeCwd } from "../lib/inbox";
+import {
+  PROJECT_ORDER_KEY,
+  dropTargetFromAttr,
+  groupIdFor,
+  loadProjectOrder,
+  orderProjectSections,
+  parseGroupBandId,
+  reorderProjectOrder,
+  type ProjectGroup,
+} from "../lib/project-groups";
+import {
+  QUICK_FILTER_ORDER,
+  SIDEBAR_DENSITY_KEY,
+  SIDEBAR_QUICK_FILTER_KEY,
+  filterSidebarSections,
+  loadSidebarDensity,
+  loadSidebarQuickFilter,
+  nextSidebarDensity,
+  storageGet,
+  storageGetJson,
+  storageSet,
+  type SidebarQuickFilter,
+} from "../lib/sidebar-local";
 import { dragStarted } from "../lib/pane-tree";
 import { useT } from "../lib/locale-context";
 import type { SessionStatus } from "../lib/session-status";
@@ -75,6 +98,7 @@ export type SidebarProps = {
   onSettings: () => void;
   onExtensions: () => void;
   onShortcuts: () => void;
+  onUsage?: () => void;
   /** Open a global page (dashboard/memory/agents/usage/imagine) via the palette action id. */
   onOpenExtra?: (id: string) => void;
   /** Currently open extra page — highlights the matching nav link. */
@@ -160,6 +184,7 @@ export const Sidebar = memo(function Sidebar({
   onSettings,
   onExtensions,
   onShortcuts,
+  onUsage,
   onOpenExtra,
   activeExtra,
   onCollapseAll,
@@ -186,10 +211,29 @@ export const Sidebar = memo(function Sidebar({
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const [dropOver, setDropOver] = useState<string | null>(null);
+  const [reorderHint, setReorderHint] = useState<{ path: string; before: boolean } | null>(null);
   const skipProjectToggle = useRef<string | null>(null);
   const [sessionPages, setSessionPages] = useState<Record<string, number>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const listItems = useMemo(() => flattenSidebarListItems(sections, openGroups), [sections, openGroups]);
+  const [quickFilter, setQuickFilter] = useState<SidebarQuickFilter>(() =>
+    loadSidebarQuickFilter(storageGet(SIDEBAR_QUICK_FILTER_KEY)),
+  );
+  const [density, setDensity] = useState(() => loadSidebarDensity(storageGet(SIDEBAR_DENSITY_KEY)));
+  const [projectOrder, setProjectOrder] = useState<string[]>(() =>
+    loadProjectOrder(storageGetJson(PROJECT_ORDER_KEY)),
+  );
+  const orderedSections = useMemo(
+    () => orderProjectSections(sections, projectOrder),
+    [sections, projectOrder],
+  );
+  const visibleSections = useMemo(
+    () => filterSidebarSections(orderedSections, quickFilter, statusFor),
+    [orderedSections, quickFilter, statusFor],
+  );
+  const listItems = useMemo(
+    () => flattenSidebarListItems(visibleSections, openGroups),
+    [visibleSections, openGroups],
+  );
   const virtualize = shouldVirtualizeSidebar(listItems);
   const listRef = useListRef(null);
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: 88 });
@@ -246,36 +290,71 @@ export const Sidebar = memo(function Sidebar({
     setEditingGroupId(null);
   }
 
-  function beginProjectDrag(e: { button: number; clientX: number; clientY: number }, path: string) {
-    if (e.button !== 0 || !onMoveProjectToGroup) return;
+  /**
+   * Project head drag: inside the same band it reorders (insert line on the
+   * hovered row); over a group band or the ungrouped label it still moves the
+   * project between groups via `data-project-drop`.
+   */
+  function beginProjectDrag(
+    e: { button: number; clientX: number; clientY: number },
+    path: string,
+    band: string | undefined,
+  ) {
+    if (e.button !== 0) return;
     const startX = e.clientX;
     const startY = e.clientY;
     let started = false;
+    let hint: { path: string; before: boolean } | null = null;
     const onMove = (ev: PointerEvent) => {
       if (!started && !dragStarted(ev.clientX - startX, ev.clientY - startY)) return;
       started = true;
       skipProjectToggle.current = path;
-      const hit = ev.target instanceof Element ? ev.target.closest("[data-project-drop]") : null;
-      setDropOver(hit?.getAttribute("data-project-drop") ?? null);
+      const el = ev.target instanceof Element ? ev.target : null;
+      const row = el?.closest("[data-project-reorder]");
+      hint = null;
+      if (row instanceof HTMLElement && band) {
+        const target = row.getAttribute("data-project-reorder") ?? "";
+        if (row.getAttribute("data-project-band") === band && normalizeCwd(target) !== normalizeCwd(path)) {
+          const r = row.getBoundingClientRect();
+          hint = { path: target, before: ev.clientY < r.top + r.height / 2 };
+        }
+      }
+      setReorderHint(hint);
+      if (hint) {
+        setDropOver(null);
+      } else {
+        const hit = el?.closest("[data-project-drop]");
+        setDropOver(hit?.getAttribute("data-project-drop") ?? null);
+      }
     };
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       if (started) {
-        const hit = ev.target instanceof Element ? ev.target.closest("[data-project-drop]") : null;
-        const dest = dropTargetFromAttr(hit?.getAttribute("data-project-drop") ?? null);
-        if (dest?.kind === "ungrouped") onMoveProjectToGroup(path, null);
-        else if (dest?.kind === "group") onMoveProjectToGroup(path, dest.id);
+        if (hint && band) {
+          const bandPaths = orderedSections
+            .filter((s) => s.kind === "project" && s.band === band && s.projectPath)
+            .map((s) => s.projectPath!);
+          const next = reorderProjectOrder(projectOrder, bandPaths, path, hint.path, hint.before);
+          setProjectOrder(next);
+          storageSet(PROJECT_ORDER_KEY, JSON.stringify(next));
+        } else {
+          const hit = ev.target instanceof Element ? ev.target.closest("[data-project-drop]") : null;
+          const dest = dropTargetFromAttr(hit?.getAttribute("data-project-drop") ?? null);
+          if (dest?.kind === "ungrouped") onMoveProjectToGroup?.(path, null);
+          else if (dest?.kind === "group") onMoveProjectToGroup?.(path, dest.id);
+        }
       }
       setDropOver(null);
+      setReorderHint(null);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   }
 
   const orderedIds = useMemo(
-    () => sections.flatMap((section) => section.rows.map((row) => row.session.id)),
-    [sections],
+    () => visibleSections.flatMap((section) => section.rows.map((row) => row.session.id)),
+    [visibleSections],
   );
 
   const displayTitles = useMemo(() => {
@@ -438,20 +517,29 @@ export const Sidebar = memo(function Sidebar({
       sessionPages[path] ?? 0,
       sessionId,
     );
+    const dropCls = reorderHint && normalizeCwd(reorderHint.path) === normalizeCwd(path)
+      ? reorderHint.before
+        ? " drop-before"
+        : " drop-after"
+      : "";
     return (
       <div
         key={section.id}
-        className={`project ${open ? "open" : ""}`}
+        className={`project ${open ? "open" : ""}${dropCls}`}
         role="listitem"
         aria-label={section.label}
         data-session-group
       >
-        <div className="project-head-row">
+        <div
+          className="project-head-row"
+          data-project-reorder={section.projectPath}
+          data-project-band={section.band}
+        >
           <button
             type="button"
             className="project-head"
             aria-expanded={open}
-            onPointerDown={(e) => beginProjectDrag(e, path)}
+            onPointerDown={(e) => beginProjectDrag(e, path, section.band)}
             onClick={() => {
               if (skipProjectToggle.current === path) {
                 skipProjectToggle.current = null;
@@ -597,11 +685,14 @@ export const Sidebar = memo(function Sidebar({
 
   const virtualRowProps = useMemo(
     () => ({ items: listItems, renderItem: renderListItem }),
-    [listItems, openProjects, sessionPages, sessionId, displayTitles, expandedIds, collapsedIds, dropOver, leaving, fresh],
+    [listItems, openProjects, sessionPages, sessionId, displayTitles, expandedIds, collapsedIds, dropOver, reorderHint, leaving, fresh],
   );
 
   return (
-    <aside className={`sidebar${collapsed ? " rail" : ""}${hiding ? " is-hiding" : ""}`}>
+    <aside
+      className={`sidebar${collapsed ? " rail" : ""}${hiding ? " is-hiding" : ""}`}
+      data-density={density === "compact" ? "compact" : undefined}
+    >
       <div className="side-traffic">
         <div
           className="side-traffic-drag"
@@ -620,6 +711,19 @@ export const Sidebar = memo(function Sidebar({
           >
             <IconGrokSearch size={18} />
             <ShortcutKbd id="palette" />
+          </button>
+          <button
+            type="button"
+            className={`icon-btn${density === "compact" ? " on" : ""}`}
+            aria-label={t("sidebar.density")}
+            aria-pressed={density === "compact"}
+            onClick={() => {
+              const next = nextSidebarDensity(density);
+              setDensity(next);
+              storageSet(SIDEBAR_DENSITY_KEY, next);
+            }}
+          >
+            <IconDensity size={16} />
           </button>
           {onToggleCollapsed ? (
             <button
@@ -662,6 +766,29 @@ export const Sidebar = memo(function Sidebar({
           <ShortcutKbd id="new-chat" />
         </button>
       </div>
+      {onOpenExtra && !collapsed ? (
+        <div className="side-content" data-nav="extra">
+          {(
+            [
+              ["act:dashboard", "dashboard", "extra.dashboard", <IconDashboard size={16} key="i" />],
+              ["act:memory", "memory", "extra.memory", <IconBook size={16} key="i" />],
+              ["act:usage", "usage", "extra.usage", <IconChart size={16} key="i" />],
+              ["act:imagine", "imagine", "extra.imagine", <IconPhoto size={16} key="i" />],
+            ] as const
+          ).map(([act, page, key, icon]) => (
+            <button
+              key={act}
+              type="button"
+              className={`side-link${activeExtra === page ? " on" : ""}`}
+              aria-current={activeExtra === page ? "page" : undefined}
+              onClick={() => onOpenExtra(act)}
+            >
+              {icon}
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {searchHits !== null ? (
         <div
@@ -718,6 +845,37 @@ export const Sidebar = memo(function Sidebar({
             }
           />
         </span>
+      </div>
+
+      <div className="ws-filter" role="radiogroup" aria-label={t("sidebar.filter")}>
+        <div
+          className="choice-switch"
+          style={{
+            ["--choice-n" as string]: QUICK_FILTER_ORDER.length,
+            ["--choice-i" as string]: QUICK_FILTER_ORDER.indexOf(quickFilter),
+          }}
+        >
+          <span className="choice-switch-thumb" aria-hidden />
+          {QUICK_FILTER_ORDER.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="radio"
+              aria-checked={quickFilter === f}
+              className={quickFilter === f ? "on" : undefined}
+              onClick={() => {
+                setQuickFilter(f);
+                storageSet(SIDEBAR_QUICK_FILTER_KEY, f);
+              }}
+            >
+              {f === "all"
+                ? t("sidebar.filterAll")
+                : f === "needs-you"
+                  ? t("sidebar.needsYou")
+                  : t("sidebar.working")}
+            </button>
+          ))}
+        </div>
       </div>
 
       {selectedIds.length > 0 ? (
@@ -778,7 +936,7 @@ export const Sidebar = memo(function Sidebar({
         }}
       >
         <span className="session-glide" aria-hidden="true" />
-        {sections.length === 0 ? (
+        {visibleSections.length === 0 ? (
           <p className="footnote">{t("sidebar.empty")}</p>
         ) : virtualize ? (
           <List
@@ -792,7 +950,7 @@ export const Sidebar = memo(function Sidebar({
           />
         ) : (
           <>
-        {groupSidebarBands(sections).map((band) => {
+        {groupSidebarBands(visibleSections).map((band) => {
           const labeled = isSidebarBandId(band.id);
           const groupId = parseGroupBandId(band.id);
           const groupOpen = groupId ? openGroups[groupId] !== false : true;
@@ -934,30 +1092,6 @@ export const Sidebar = memo(function Sidebar({
         )}
       </div>
 
-      {onOpenExtra && !collapsed ? (
-        <div className="side-content" data-nav="extra">
-          {(
-            [
-              ["act:dashboard", "dashboard", "extra.dashboard", <IconDashboard size={16} key="i" />],
-              ["act:memory", "memory", "extra.memory", <IconBook size={16} key="i" />],
-              ["act:agents", "agents", "extra.agents", <IconRobot size={16} key="i" />],
-              ["act:usage", "usage", "extra.usage", <IconChart size={16} key="i" />],
-              ["act:imagine", "imagine", "extra.imagine", <IconPhoto size={16} key="i" />],
-            ] as const
-          ).map(([act, page, key, icon]) => (
-            <button
-              key={act}
-              type="button"
-              className={`side-link${activeExtra === page ? " on" : ""}`}
-              aria-current={activeExtra === page ? "page" : undefined}
-              onClick={() => onOpenExtra(act)}
-            >
-              {icon}
-              {t(key)}
-            </button>
-          ))}
-        </div>
-      ) : null}
       <AccountMenu
         signedIn={signedIn}
         weeklyUsage={weeklyUsage}
@@ -965,6 +1099,7 @@ export const Sidebar = memo(function Sidebar({
         onSettings={onSettings}
         onExtensions={onExtensions}
         onShortcuts={onShortcuts}
+        onUsage={onUsage}
       />
       {projectMenu ? (
         <ProjectMenu

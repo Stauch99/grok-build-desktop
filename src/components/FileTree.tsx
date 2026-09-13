@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { List, useDynamicRowHeight, type RowComponentProps } from "react-window";
 import { useT } from "../lib/locale-context";
+import { setGrokFileDrag } from "../lib/tree-drag";
 import {
   flattenFileTreeRows,
   shouldVirtualizeFileTree,
@@ -39,7 +40,11 @@ function FileTreeNodeRow({
   onAddToChat: (path: string) => void;
 }) {
   return (
-    <div className="file-row">
+    <div
+      className="file-row"
+      draggable
+      onDragStart={(e) => setGrokFileDrag(e.dataTransfer, node.path)}
+    >
       <button type="button" className="file-item" onClick={() => onPreview(node.path)}>
         {node.name}
       </button>

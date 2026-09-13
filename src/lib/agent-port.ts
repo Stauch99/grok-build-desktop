@@ -1,4 +1,5 @@
 import { startAgent, stopAgent, sendRaw } from "../api";
+import { tr } from "./i18n-bridge";
 import type { AgentDoctor } from "./agent-doctor";
 import type { AgentId } from "./agent-id";
 import type { AuthKind } from "./auth-kind";
@@ -34,10 +35,10 @@ export function billingKindFromDoctors(
 export function doctorOverviewLine(
   d: Pick<AgentDoctor, "agentId" | "authKind" | "binary" | "version" | "spawnRejected">,
 ): string {
-  if (d.spawnRejected) return `${d.agentId} · 启动命令被拒绝`;
-  if (!d.binary) return `${d.agentId} · 未安装`;
+  if (d.spawnRejected) return `${d.agentId} · ${tr("doctor.rejected")}`;
+  if (!d.binary) return `${d.agentId} · ${tr("doctor.missing")}`;
   const suffix =
-    d.authKind === "none" ? "未登录" : d.authKind === "api" ? "API" : "已登录";
+    d.authKind === "none" ? tr("doctor.signedOut") : d.authKind === "api" ? "API" : tr("doctor.signedIn");
   const bits = [`${d.agentId} · ${suffix}`];
   if (d.version) bits.push(d.version);
   bits.push(d.binary);

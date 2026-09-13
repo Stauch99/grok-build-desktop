@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { gitBlame } from "../api";
+import { gitBlame, openPath } from "../api";
+import { pushComposerDraft } from "../lib/composer-inbox";
 import { assetRoots, safeFileSrc } from "../lib/asset-src";
 import { highlightLang, highlightWindow, tokensToLines, type HighlightToken } from "../lib/highlight";
 import {
@@ -25,9 +26,9 @@ import {
 import { findNext, findPrev, previewFind, type PreviewFindState } from "../lib/preview-find";
 import { basename } from "../lib/text";
 import { IconGrokClose } from "../grok-icons";
-import { IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconPaperclip, IconSave, IconSearch } from "../icons";
+import { IconAlert, IconCode, IconCopy, IconEdit, IconFinder, IconMarkdown, IconPaperclip, IconSave, IconSearch, IconWorld } from "../icons";
 import { Markdown } from "./Markdown";
-import { HtmlArtifactPreview } from "./HtmlArtifactPreview";
+import { HtmlArtifactPreview, type HtmlConsoleEntry } from "./HtmlArtifactPreview";
 import { PreviewTabs } from "./PreviewTabs";
 import { useT } from "../lib/locale-context";
 import { friendlyError } from "../lib/error-copy";
@@ -101,6 +102,10 @@ export function PreviewPane({
   const [blameOn, setBlameOn] = useState(false);
   const [blameLine, setBlameLine] = useState<number | null>(null);
   const [blameText, setBlameText] = useState<string | null>(null);
+  const [consoleEntries, setConsoleEntries] = useState<HtmlConsoleEntry[]>([]);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [actionNote, setActionNote] = useState<string | null>(null);
+  const consoleWrapRef = useRef<HTMLSpanElement>(null);
   const draftRef = useRef(draft);
   const editingRef = useRef(editing);
   const pathForDraftRef = useRef<string | null>(null);
@@ -132,6 +137,9 @@ export function PreviewPane({
     setPan({ x: 0, y: 0 });
     setBlameLine(null);
     setBlameText(null);
+    setConsoleEntries([]);
+    setConsoleOpen(false);
+    setActionNote(null);
   }, [displayPath, displayText]);
 
   useEffect(() => {
@@ -153,6 +161,44 @@ export function PreviewPane({
     setFind(previewFind(displayText ?? "", ""));
   }, [displayText]);
 
+  const selectTab = useCallback(
+    (next: string) => {
+      if (onSelectTab) onSelectTab(next);
+      else setOwnActive(next);
+    },
+    [onSelectTab],
+  );
+
+  const closeTab = useCallback(
+    (closed: string) => {
+      dropPreviewDraft(draftsRef.current, closed);
+      cacheRef.current.delete(closed);
+      if (onCloseTab) {
+        onCloseTab(closed);
+        return;
+      }
+      const next = activeTabAfterClose(ownTabs, closed, displayPath);
+      setOwnTabs((tabs) => removePreviewTab(tabs, closed, draftsRef.current));
+      if (next) setOwnActive(next);
+      else onClose?.();
+    },
+    [onCloseTab, ownTabs, displayPath, onClose],
+  );
+
+  const pushConsoleEntry = useCallback((entry: HtmlConsoleEntry) => {
+    setConsoleEntries((prev) => [...prev, entry].slice(-50));
+  }, []);
+
+  // Click-away for the console popover.
+  useEffect(() => {
+    if (!consoleOpen) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (!consoleWrapRef.current?.contains(e.target as Node)) setConsoleOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [consoleOpen]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const inPane = !!rootRef.current?.contains(document.activeElement) || !!rootRef.current?.contains(e.target as Node);
@@ -161,10 +207,22 @@ export function PreviewPane({
         setFindOpen(true);
         return;
       }
-      if (e.key === "Escape") {
+      // Escape peels the innermost layer first: console popover, then find,
+      // then the current tab, then (last resort) the whole pane.
+      if (e.key === "Escape" && inPane) {
+        if (consoleOpen) {
+          e.preventDefault();
+          setConsoleOpen(false);
+          return;
+        }
         if (findOpen) {
           e.preventDefault();
           closeFind();
+          return;
+        }
+        if (tabs.length > 1 && displayPath) {
+          e.preventDefault();
+          closeTab(displayPath);
           return;
         }
         onClose?.();
@@ -172,7 +230,7 @@ export function PreviewPane({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeFind, findOpen, onClose]);
+  }, [closeFind, findOpen, onClose, consoleOpen, tabs.length, displayPath, closeTab]);
 
   useEffect(() => {
     const el = mediaRef.current;
@@ -184,24 +242,6 @@ export function PreviewPane({
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [displayPath]);
-
-  const selectTab = (next: string) => {
-    if (onSelectTab) onSelectTab(next);
-    else setOwnActive(next);
-  };
-
-  const closeTab = (closed: string) => {
-    dropPreviewDraft(draftsRef.current, closed);
-    cacheRef.current.delete(closed);
-    if (onCloseTab) {
-      onCloseTab(closed);
-      return;
-    }
-    const next = activeTabAfterClose(ownTabs, closed, displayPath);
-    setOwnTabs((tabs) => removePreviewTab(tabs, closed, draftsRef.current));
-    if (next) setOwnActive(next);
-    else onClose?.();
-  };
 
   const saveDraft = async () => {
     if (!onSave || !displayPath || saving) return;
@@ -220,6 +260,32 @@ export function PreviewPane({
     } finally {
       setSaving(false);
     }
+  };
+
+  const consoleLines = () => consoleEntries.map((e) => `[${e.level}] ${e.text}`).join("\n");
+
+  const copyConsole = () => {
+    void navigator.clipboard.writeText(consoleLines()).then(
+      () => setActionNote(t("toast.copied")),
+      (e) => setActionNote(friendlyError(e)),
+    );
+  };
+
+  const sendConsole = () => {
+    if (!displayPath) return;
+    const draft = t("preview.consoleDraft", { path: displayPath, errors: consoleLines() });
+    if (pushComposerDraft(draft)) {
+      setConsoleOpen(false);
+      setActionNote(t("preview.consoleSent"));
+    } else {
+      setActionNote(t("preview.consoleNoComposer"));
+    }
+  };
+
+  const openInBrowser = () => {
+    if (!displayPath) return;
+    setActionNote(null);
+    void openPath(displayPath).catch((e) => setActionNote(friendlyError(e)));
   };
 
   if (!displayPath) return null;
@@ -285,6 +351,50 @@ export function PreviewPane({
             >
               {t("preview.history")}
             </button>
+          ) : null}
+          {kind === "html" && !raw ? (
+            <button
+              type="button"
+              className="file-open"
+              aria-label={t("preview.openBrowser")}
+              onClick={openInBrowser}
+            >
+              <IconWorld size={14} />
+            </button>
+          ) : null}
+          {consoleEntries.length > 0 ? (
+            <span className="preview-console-wrap" ref={consoleWrapRef}>
+              <button
+                type="button"
+                className="file-open preview-console-btn"
+                aria-label={t("preview.consoleErrors", { n: consoleEntries.length })}
+                aria-expanded={consoleOpen}
+                onClick={() => setConsoleOpen((v) => !v)}
+              >
+                <IconAlert size={14} />
+                <span className="preview-console-count">{consoleEntries.length}</span>
+              </button>
+              {consoleOpen ? (
+                <div className="chip-menu preview-console-menu" role="dialog" aria-label={t("preview.consoleTitle")}>
+                  <ul className="preview-console-list">
+                    {consoleEntries.map((entry, i) => (
+                      <li key={`${entry.at}-${i}`} className={`preview-console-item ${entry.level}`}>
+                        <span className="preview-console-level">{entry.level}</span>
+                        <span className="preview-console-text">{entry.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="preview-console-actions">
+                    <button type="button" onClick={copyConsole}>
+                      {t("preview.consoleCopy")}
+                    </button>
+                    <button type="button" onClick={sendConsole}>
+                      {t("preview.consoleSend")}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </span>
           ) : null}
           {displayText !== null && !media ? (
             <button
@@ -364,6 +474,11 @@ export function PreviewPane({
       ) : null}
 
       {truncated && !media && displayPath === path ? <p className="preview-note">{t("preview.truncated")}</p> : null}
+      {actionNote ? (
+        <p className="preview-note" role="status">
+          {actionNote}
+        </p>
+      ) : null}
       {blameOn && blameText ? (
         <p className="preview-note" role="status">
           {blameLine != null ? `L${blameLine} ${blameText}` : blameText}
@@ -433,6 +548,7 @@ export function PreviewPane({
             cwd={cwd}
             convertFileSrc={convertFileSrc}
             title={t("preview.sandbox", { name: basename(displayPath) })}
+            onConsoleEntry={pushConsoleEntry}
           />
         </div>
       ) : kind === "markdown" && !raw ? (

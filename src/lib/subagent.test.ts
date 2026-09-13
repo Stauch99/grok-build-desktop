@@ -52,6 +52,12 @@ describe("subagentStatusFromTool", () => {
     expect(subagentStatusFromTool("swarm", "in_progress", "kimi")).toBe("running");
   });
 
+  it("maps Devin default spawn aliases but not kimi's swarm", () => {
+    expect(subagentStatusFromTool("spawn_subagent", "in_progress", "devin")).toBe("running");
+    expect(subagentStatusFromTool("Task: research", "pending", "devin")).toBe("running");
+    expect(subagentStatusFromTool("swarm", "in_progress", "devin")).toBeNull();
+  });
+
   it("still matches after Grok overwrites spawn_subagent with the task description", () => {
     expect(
       subagentStatusFromItem(

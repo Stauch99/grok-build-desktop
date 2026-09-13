@@ -16,6 +16,7 @@ import {
 import { onTaggedAcpRequest } from "../lib/workbench-api";
 import { requestPermissionKind, type PermissionPane } from "../lib/permission-view";
 import { freshPermissionEvents, isSessionFocused, notifyText, shouldNotify } from "../lib/notify";
+import { isSessionMuted } from "../lib/session-mute";
 import { isEditableShortcutTarget } from "../lib/shortcut-target";
 import { recordLocalEvent } from "../lib/telemetry";
 import { playNeedsYou } from "../lib/sound";
@@ -132,6 +133,7 @@ export function usePermissionQueue(opts: {
       if (shouldAutoApprovePermission(opts.yolo === true, requestPermissionKind(request))) continue;
       const sessionFocused = isSessionFocused(opts.focusedSessionIdRef.current, request.sessionId);
       if (!shouldNotify({ reason: "permission", windowFocused: opts.focusedRef.current, sessionFocused })) continue;
+      if (isSessionMuted(request.sessionId ?? opts.sessionId)) continue;
       if (request.sessionId) void setNotifyTarget(request.sessionId);
       const sessionTitle = opts.titleForSessionRef.current(request.sessionId ?? null) || opts.currentTitleRef.current;
       const { title, body } = notifyText("permission", sessionTitle, request.title);

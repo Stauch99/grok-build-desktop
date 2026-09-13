@@ -12,6 +12,12 @@ pub(crate) fn agents_file_path(
         "kimi-mcp" => Some(user_home.join(".kimi-code").join("mcp.json")),
         "grok-toml" => Some(user_home.join(".grok").join("config.toml")),
         "codex-toml" => Some(user_home.join(".codex").join("config.toml")),
+        "devin-mcp" => Some(
+            user_home
+                .join(".config")
+                .join("devin")
+                .join("mcp_config.json"),
+        ),
         _ => None,
     }
 }
@@ -46,6 +52,10 @@ mod tests {
         assert_eq!(
             agents_file_path(home, agents, "codex-toml"),
             Some(PathBuf::from("/Users/me/.codex/config.toml"))
+        );
+        assert_eq!(
+            agents_file_path(home, agents, "devin-mcp"),
+            Some(PathBuf::from("/Users/me/.config/devin/mcp_config.json"))
         );
         assert_eq!(agents_file_path(home, agents, "nope"), None);
     }

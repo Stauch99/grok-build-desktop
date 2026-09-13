@@ -1,6 +1,6 @@
-export type AgentId = "grok" | "kimi" | "claude" | "codex";
+export type AgentId = "grok" | "kimi" | "claude" | "codex" | "devin";
 
-export const AGENT_IDS = ["grok", "kimi", "claude", "codex"] as const;
+export const AGENT_IDS = ["grok", "kimi", "claude", "codex", "devin"] as const;
 
 export function isAgentId(value: string): value is AgentId {
   return (AGENT_IDS as readonly string[]).includes(value);

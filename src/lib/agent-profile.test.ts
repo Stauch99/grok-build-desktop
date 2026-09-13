@@ -32,6 +32,13 @@ describe("defaultProfile", () => {
       args: ["-y", "@agentclientprotocol/codex-acp@1.7.0"],
       loginArgs: ["login"],
     });
+    expect(defaultProfile("devin")).toEqual({
+      id: "devin",
+      label: "Devin",
+      command: "devin",
+      args: ["acp"],
+      loginArgs: ["auth", "login"],
+    });
   });
 });
 

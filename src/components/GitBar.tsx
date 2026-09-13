@@ -13,8 +13,9 @@ import {
   type GitWorktree,
 } from "../lib/git";
 import { IconGrokPlus } from "../grok-icons";
-import { IconBranch, IconCheck, IconChevron, IconGitFork } from "../icons";
+import { IconBranch, IconCheck, IconChevron, IconGitFork, IconWand } from "../icons";
 import { basename } from "../lib/text";
+import { pushComposerDraft } from "../lib/composer-inbox";
 import { sameCwd } from "../lib/inbox";
 import { useT, useLocale } from "../lib/locale-context";
 import { friendlyError } from "../lib/error-copy";
@@ -261,6 +262,12 @@ export function GitBar({
     });
   };
 
+  /** Hand the composer a prompt asking the agent to write the commit message. */
+  const draftMessage = () => {
+    const ok = pushComposerDraft(t("git.draftPrompt", { cwd: currentPath }));
+    onToast?.(t(ok ? "git.draftSent" : "git.draftNoComposer"));
+  };
+
   const branchTrigger = (
     <>
       <IconBranch size={13} />
@@ -297,6 +304,18 @@ export function GitBar({
           }
         }}
       />
+      <button
+        type="button"
+        className="git-chip ghost"
+        disabled={blocked || status.dirty === 0}
+        aria-label={t("git.draftMsg")}
+        data-tip={t("git.draftMsg")}
+        onClick={draftMessage}
+      >
+        <span className="git-chip-inner">
+          <IconWand size={14} />
+        </span>
+      </button>
       <button
         type="button"
         className="git-chip"

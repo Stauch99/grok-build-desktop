@@ -14,9 +14,10 @@ describe("matchAppShortcut", () => {
     expect(matchAppShortcut(chord("k"), {})).toBe("palette");
     expect(matchAppShortcut(chord("n"), {})).toBe("new-chat");
     expect(matchAppShortcut(chord(","), {})).toBe("settings");
-    expect(matchAppShortcut(chord("l"), {})).toBe("hub");
-    expect(matchAppShortcut(chord("j"), {})).toBe("focus-composer");
-    expect(matchAppShortcut(chord("."), {})).toBe("review");
+    expect(matchAppShortcut(chord("l"), {})).toBe("focus-composer");
+    expect(matchAppShortcut(chord("j"), {})).toBe("hub");
+    expect(matchAppShortcut(chord("e"), {})).toBe("review");
+    expect(matchAppShortcut(chord("."), {})).toBeNull();
     expect(matchAppShortcut(chord("w"), {}, { canClosePane: true })).toBe("close-pane");
     expect(matchAppShortcut(chord("w"), {}, { canClosePane: false })).toBeNull();
   });

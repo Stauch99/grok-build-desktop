@@ -10,7 +10,7 @@ The desktop is a **workbench**, not an agent.
 
 - Chat, sessions, permissions, settings, Git, and review stay on `AgentPort`.
 - Skills and MCP are a **single** catalog at `~/.agents`, then synced into each CLI. Do not build four hub UIs.
-- `AgentId` is a closed enum today: `"grok" | "kimi" | "claude" | "codex"`.
+- `AgentId` is a closed enum today: `"grok" | "kimi" | "claude" | "codex" | "devin"`.
 - Grok chat is the regression fixture. Extract, do not rewrite, its ACP/session loop.
 - Imagine / video, plugin marketplaces, and in-app PTY are out of scope unless a later spec says otherwise.
 
@@ -59,6 +59,7 @@ Spawn defaults (overridable via registry TOML):
 | kimi | `kimi acp` |
 | claude | `npx -y @agentclientprotocol/claude-agent-acp@0.70.0` |
 | codex | `npx -y @agentclientprotocol/codex-acp@1.7.0` |
+| devin | `devin acp` |
 
 ## State authority
 

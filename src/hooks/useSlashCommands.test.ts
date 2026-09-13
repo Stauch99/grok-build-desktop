@@ -28,4 +28,12 @@ describe("applySessionModel", () => {
     expect(src).toMatch(/applyModel\(next, \{ skipSessionToast: live \}\)/);
     expect(src).toMatch(/sendPrompt\(`\/model \$\{next\}`\)/);
   });
+
+  it("uses session/set_config_option for devin with a /model prompt fallback", () => {
+    const src = readFileSync(new URL("./useSlashCommands.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/selectedAgentId === "devin" && d\.setSessionConfigOption/);
+    expect(src).toMatch(/setSessionConfigOption\("model", next\)/);
+    const model = readFileSync(new URL("./useAppModel.ts", import.meta.url), "utf8");
+    expect(model).toContain('await acp.rpc("session/set_config_option"');
+  });
 });

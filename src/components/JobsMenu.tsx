@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { HeaderJob } from "../lib/jobs-header";
 import { useT } from "../lib/locale-context";
+import { trapFocus } from "../lib/trap-focus";
 import { IconChecklist, IconStop } from "../icons";
 
 export type JobsMenuProps = {
@@ -26,15 +27,34 @@ export function JobsMenu({
 }: JobsMenuProps) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    previousActive.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menuRef.current?.querySelector<HTMLElement>("button")?.focus();
     const onDown = (e: MouseEvent) => {
       if (e.target instanceof Node && wrapRef.current?.contains(e.target)) return;
       onClose();
     };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      const prev = previousActive.current;
+      previousActive.current = null;
+      const active = document.activeElement;
+      const inside = !!(
+        wrapRef.current &&
+        active instanceof Node &&
+        wrapRef.current.contains(active)
+      );
+      if (!inside && active !== document.body) return;
+      const target = prev?.isConnected ? prev : triggerRef.current;
+      target?.focus();
+    };
   }, [open, onClose]);
 
   if (jobs.length === 0) return null;
@@ -43,6 +63,7 @@ export function JobsMenu({
     <div className="chip-wrap" ref={wrapRef}>
       <button
         type="button"
+        ref={triggerRef}
         className="icon-btn head-count-btn"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -53,7 +74,20 @@ export function JobsMenu({
         <span className="head-count">{jobs.length}</span>
       </button>
       {open ? (
-        <div className="chip-menu jobs-menu" role="menu">
+        <div
+          className="chip-menu jobs-menu"
+          role="menu"
+          ref={menuRef}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+              return;
+            }
+            if (e.key === "Tab" && wrapRef.current) trapFocus(wrapRef.current, e.nativeEvent);
+          }}
+        >
           {jobs.map((job) => {
             const hint =
               job.sessionId && job.sessionId !== currentSessionId ? sessionHint?.[job.sessionId] : undefined;

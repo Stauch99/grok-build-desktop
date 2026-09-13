@@ -1,4 +1,5 @@
 import { mediaKind } from "./media";
+import { tr } from "./i18n-bridge";
 
 const TEXT_EXT = new Set([
   "md",
@@ -98,13 +99,13 @@ export function previewKind(path: string): PreviewKind {
   return isMarkdown(path) ? "markdown" : "code";
 }
 
-/** Desktop invoke errors are English; the chrome is Chinese. */
+/** Desktop invoke errors are English; the chrome copy is localized. */
 export function previewErrorCopy(err: unknown): string {
   const raw = String(err ?? "").replace(/^Error:\s*/i, "").trim();
-  if (/path not allowed/i.test(raw)) return "无法预览这个文件";
-  if (/caller workspace does not match/i.test(raw)) return "工作区不一致，无法预览";
-  if (/trusted workspace is not set/i.test(raw)) return "还没有工作区，无法预览";
-  return raw || "无法预览这个文件";
+  if (/path not allowed/i.test(raw)) return tr("preview.errCannot");
+  if (/caller workspace does not match/i.test(raw)) return tr("preview.errWorkspace");
+  if (/trusted workspace is not set/i.test(raw)) return tr("preview.errNoWorkspace");
+  return raw || tr("preview.errCannot");
 }
 
 /** Shorten an absolute path for the preview header. */
@@ -186,9 +187,9 @@ export function lineGutter(text: string): number[] {
 }
 
 export function previewSaveToast(ok: boolean, err?: unknown): string {
-  if (ok) return "已保存";
+  if (ok) return tr("toast.saved");
   const raw = err instanceof Error ? err.message : err != null ? String(err) : "";
-  return raw.trim() || "保存失败";
+  return raw.trim() || tr("preview.saveFail");
 }
 
 export function afterPreviewSave(ok: boolean, refresh?: () => void): void {

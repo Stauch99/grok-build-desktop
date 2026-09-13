@@ -4,19 +4,21 @@ import {
   listProjectFiles,
   openInTerminal,
   openPath,
+  readSessionUpdates,
   searchSessionText,
   setWorkspace,
   writeAllowedText,
   trustFolder,
   runGrokStream,
   beginWindowDrag,
+  type SessionSummary,
 } from "./api";
 import { sameCwd } from "./lib/inbox";
 import { agentChipLabel, connectingBannerText, restartAgentBannerText } from "./lib/agent-chip";
 import { isAgentId } from "./lib/agent-id";
 import { t } from "./lib/i18n";
 import { LocaleProvider } from "./lib/locale-context";
-import { normalizeChatFontSize } from "./lib/chat-font";
+import { CHAT_FONT_PRESETS, DEFAULT_CHAT_FONT_SIZE, normalizeChatFontSize } from "./lib/chat-font";
 import { chatWidthCss } from "./lib/chat-width";
 import { permissionTimeoutNotice } from "./lib/permission-copy";
 import { editQueued, removeQueued, reorderQueue } from "./lib/prompt-queue";
@@ -30,10 +32,10 @@ import { StatsLineView } from "./components/StatsLineView";
 import { Resizer } from "./components/Resizer";
 import { persistReviewOpen } from "./lib/review-rail";
 import { usePresence } from "./lib/motion";
-import { useSidebarMotion, sidebarSlotPx } from "./lib/sidebar-motion";
+import { useSidebarMotion } from "./lib/sidebar-motion";
 import { markScrolling, scheduleFrameValue } from "./lib/scroll-frame";
 import { displayTitle } from "./lib/projects";
-import { emptyChat } from "./lib/chat";
+import { emptyChat, formatElapsed, hydrateFromUpdates, type ChatItem } from "./lib/chat";
 import { MAIN_PANE } from "./lib/pane-tree";
 import { selectPaneMentionSource } from "./lib/pane-mentions";
 import { derivePermissionView } from "./lib/permission-view";
@@ -42,13 +44,24 @@ import { PaneLayout } from "./components/PaneLayout";
 import { DashboardPage } from "./components/DashboardPage";
 import { PaneDropOverlay } from "./components/PaneDropOverlay";
 import { isArchived, isPinned, toggleId } from "./lib/session-chrome";
-import { clearUnread } from "./lib/session-status";
+import { clearUnread, markUnread } from "./lib/session-status";
+import { isSessionMuted, toggleSessionMuted } from "./lib/session-mute";
+import { getSessionNote, setSessionNote } from "./lib/session-notes";
+import { reopenLastSessionEnabled, setReopenLastSessionEnabled } from "./lib/session-launch";
+import { stripInjectedMemory } from "./lib/memory-inject";
 import { applyImeComposition, emptyImeEnterState, imeBlocksEnter } from "./lib/ime-enter";
-import { INBOX_PIN } from "./lib/sidebar-list";
+import { INBOX_PIN, formatTokenCount } from "./lib/sidebar-list";
+import { isEditableShortcutTarget } from "./lib/shortcut-target";
+import { isMod } from "./lib/shortcuts";
+import { formatBinding } from "./lib/shortcuts-table";
+import { storageGet, storageSet } from "./lib/sidebar-local";
+import { currentAppVersion, markWhatsNewSeen, shouldShowWhatsNew, whatsNewSeenVersion } from "./lib/whats-new";
 import { allowForGrant, allowForSession, findAlwaysOption, isHighRiskTool, parseToolName, pickAllowOption } from "./lib/permission-allow";
 import type { QueuedPermission } from "./lib/permission-queue";
 import { subagentChips } from "./lib/subagent-tree";
 import { friendlyError } from "./lib/error-copy";
+import { shouldShowDevinAuthCard } from "./lib/devin-auth";
+import { DevinAuthCard } from "./components/DevinAuthCard";
 import { JobsMenu } from "./components/JobsMenu";
 import { WorkPane } from "./components/WorkPane";
 import { SessionMenu } from "./SessionMenu";
@@ -70,6 +83,7 @@ import { SelectionActions } from "./components/SelectionActions";
 import { EmptyState } from "./components/EmptyState";
 import { Skeleton } from "./components/Skeleton";
 import { AppModal } from "./components/AppModal";
+import { NotificationCenter } from "./components/NotificationCenter";
 import { basename } from "./lib/text";
 import { IconGrokClose, IconGrokCopy, IconGrokMore, IconGrokSidebar } from "./grok-icons";
 import { IconGitFork, IconHierarchy2 } from "./icons";
@@ -88,6 +102,12 @@ const FilePanel = lazy(() => import("./components/FilePanel").then((m) => ({ def
 const MillerPicker = lazy(() => import("./components/MillerPicker").then((m) => ({ default: m.MillerPicker })));
 const CommandPalette = lazy(() => import("./components/CommandPalette").then((m) => ({ default: m.CommandPalette })));
 const RewindDialog = lazy(() => import("./components/RewindDialog").then((m) => ({ default: m.RewindDialog })));
+const SessionNoteModal = lazy(() => import("./components/SessionNoteModal").then((m) => ({ default: m.SessionNoteModal })));
+const ShortcutsOverlay = lazy(() => import("./components/ShortcutsOverlay").then((m) => ({ default: m.ShortcutsOverlay })));
+const WhatsNew = lazy(() => import("./components/WhatsNew").then((m) => ({ default: m.WhatsNew })));
+
+/** Per-window chrome pref (localStorage, like sidebar density) — zen is not webui state. */
+const ZEN_KEY = "grok.zen";
 
 export function App() {
   const {
@@ -117,6 +137,7 @@ export function App() {
     modelCatalog,
     effortOptions,
     modelLabels,
+    modelRows,
     extraPage,
     setExtraPage,
     imagineImages,
@@ -152,6 +173,7 @@ export function App() {
     openProjects,
     setOpenProjects,
     sessions,
+    sessionTokens,
     draft,
     weeklyUsage,
     mode,
@@ -265,6 +287,7 @@ export function App() {
     memoryDisplayName,
     setMemoryDisplayName,
     doctors,
+    unread,
     setUnread,
     sidebarWidth,
     setSidebarWidth,
@@ -285,6 +308,10 @@ export function App() {
     ready,
     connecting,
     loadingSession,
+    devinAuthStatus,
+    devinAuthError,
+    authenticateDevin,
+    dismissDevinAuth,
     ensureAgent,
     startInboxSession,
     newChatInFocus,
@@ -344,6 +371,7 @@ export function App() {
     sendPrompt,
     cancelTurn,
     onDraftChange,
+    setComposerDraft,
     newWorktreeSession,
     switchWorktree,
     checkoutBranch,
@@ -403,7 +431,7 @@ export function App() {
   const settingsPresence = usePresence(settingsOpen);
   const toastPresence = usePresence(!!toast);
   const palettePresence = usePresence(palette.open);
-  const sidebarMotion = useSidebarMotion(sidebarCollapsed);
+  const sidebarMotion = useSidebarMotion(sidebarCollapsed, sidebarWidth);
   const appRef = useRef<HTMLDivElement>(null);
   const toastHold = useRef(toast);
   if (toast) toastHold.current = toast;
@@ -414,6 +442,112 @@ export function App() {
     setPlanMarkedComplete(false);
   }, [sessionId]);
   const showPlanComplete = planComplete || planMarkedComplete;
+
+  // Zen mode + cheatsheet + what's-new overlay state (chrome, not session state).
+  const [zen, setZen] = useState(() => storageGet(ZEN_KEY) === "1");
+  // Session-note editor + launch-restore toggle (localStorage chrome prefs).
+  const [noteTarget, setNoteTarget] = useState<string | null>(null);
+  const [reopenLast, setReopenLast] = useState(() => reopenLastSessionEnabled());
+  const [cheatOpen, setCheatOpen] = useState(false);
+  const [whatsNewVersion, setWhatsNewVersion] = useState<string | null>(null);
+  const cheatPresence = usePresence(cheatOpen);
+  const whatsNewPresence = usePresence(whatsNewVersion != null);
+  const whatsNewHold = useRef(whatsNewVersion);
+  if (whatsNewVersion) whatsNewHold.current = whatsNewVersion;
+
+  // First launch on a new version: show the what's-new card once, recording
+  // the version as soon as it is displayed.
+  useEffect(() => {
+    let cancelled = false;
+    void currentAppVersion().then((version) => {
+      if (cancelled) return;
+      if (!shouldShowWhatsNew(version, whatsNewSeenVersion())) return;
+      markWhatsNewSeen(version);
+      setWhatsNewVersion(version);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  const zenChord = formatBinding("Mod+.", isMac);
+
+  // Global keys that don't live in the rebindable table: capture phase so they
+  // win over bubble-phase hotkeys regardless of listener registration order.
+  useEffect(() => {
+    const overlayUp = cheatOpen || whatsNewVersion != null;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.repeat) return;
+      const mod = isMod(e);
+      // Cheatsheet: ⌘/ (or ⌘⇧/ = ⌘?) toggles it, even while open.
+      if (mod && (e.key === "/" || e.key === "?")) {
+        e.preventDefault();
+        setCheatOpen((v) => !v);
+        return;
+      }
+      // While a sheet/modal we own is up, swallow mod chords so app hotkeys
+      // (focus composer, panes) don't fire behind it.
+      if (overlayUp && mod) {
+        e.preventDefault();
+        return;
+      }
+      if (overlayUp) return;
+      // Plain ? opens the cheatsheet when the user isn't typing.
+      if (e.key === "?" && !e.altKey && !isEditableShortcutTarget(e.target as Element | null)) {
+        e.preventDefault();
+        setCheatOpen(true);
+        return;
+      }
+      if (!mod) return;
+      // Zen toggle: ⌘.
+      if (e.key === ".") {
+        e.preventDefault();
+        const next = !zen;
+        setZen(next);
+        storageSet(ZEN_KEY, next ? "1" : "0");
+        showToast(next ? t(locale, "zen.on", { key: zenChord }) : t(locale, "zen.off"));
+        return;
+      }
+      // Chat font size: ⌘= / ⌘- step presets, ⌘0 resets. These chords are safe
+      // while typing — the composer never consumes them.
+      if (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0") {
+        e.preventDefault();
+        const px = CHAT_FONT_PRESETS.map((p) => p.px);
+        const cur = normalizeChatFontSize(chatFontSize);
+        const next =
+          e.key === "0"
+            ? DEFAULT_CHAT_FONT_SIZE
+            : px[Math.min(px.length - 1, Math.max(0, px.indexOf(cur) + (e.key === "-" ? -1 : 1)))];
+        if (next !== cur) {
+          setChatFontSize(next);
+          persist({ chatFontSize: next });
+        }
+        showToast(t(locale, "toast.fontSize", { n: next }));
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [cheatOpen, whatsNewVersion, zen, chatFontSize, locale, zenChord, showToast, persist, setChatFontSize]);
+
+  /** Small muted "5m · 1.2k" meta for a pane header. */
+  function sessionMetaSpan(sess: SessionSummary | null | undefined, sid: string | null) {
+    if (!sess || !sid) return null;
+    const tokens = sessionTokens[sid] ?? 0;
+    const elapsedMs = Math.max(0, Date.parse(sess.updatedAt) - Date.parse(sess.createdAt));
+    if (elapsedMs <= 0 && tokens <= 0) return null;
+    const elapsed = formatElapsed(elapsedMs);
+    const label =
+      tokens > 0
+        ? t(locale, "pane.meta", { elapsed, tokens: formatTokenCount(tokens) })
+        : t(locale, "pane.metaElapsed", { elapsed });
+    const compact = tokens > 0 ? `${elapsed} · ${formatTokenCount(tokens)}` : elapsed;
+    return (
+      <span className="pane-meta" data-tip={label}>
+        {compact}
+      </span>
+    );
+  }
 
   function startRenameSession(id: string) {
     setMenu(null);
@@ -479,6 +613,46 @@ export function App() {
       else onExtraDraftChange(paneId, text);
       showToast(t(locale, "toast.wedgedRetry"));
     });
+  }
+
+  /** First user message of `target`, from a live pane when open or disk when not. */
+  async function firstUserText(target: SessionSummary): Promise<string> {
+    let items: ChatItem[] | null = null;
+    if (target.id === sessionIdRef.current) {
+      items = chat.items;
+    } else {
+      const paneId = Object.keys(extraPanes).find((id) => extraPanes[id].sessionId === target.id);
+      if (paneId) items = paneChatStore.getExtra(paneId).chat.items;
+    }
+    if (!items) {
+      try {
+        const page = await readSessionUpdates(target.id, null, target.dir);
+        items = hydrateFromUpdates(page.rows).items;
+      } catch {
+        return "";
+      }
+    }
+    const first = items.find((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user");
+    if (!first) return "";
+    // Drafts hold what the user typed — drop the transcript wrappers.
+    return stripInjectedMemory(first.text)
+      .replace(/^\s*<user_query>\s*/i, "")
+      .replace(/\s*<\/user_query>\s*$/i, "")
+      .trim();
+  }
+
+  /** Duplicate `target`: new session in the same cwd, first prompt prefilled as a draft. */
+  async function duplicateSession(target: SessionSummary) {
+    const text = await firstUserText(target);
+    const prevSid = sessionIdRef.current;
+    if (inboxCwd && sameCwd(target.cwd, inboxCwd)) await startInboxSession();
+    else await startSession(target.cwd);
+    if (!text) return;
+    const sid = sessionIdRef.current;
+    // Session creation refused (e.g. no workspace): the composer still belongs
+    // to the previously focused session — don't clobber its draft.
+    if (sid === prevSid && sid !== null) return;
+    setComposerDraft(text);
   }
 
   function jobsMenu() {
@@ -571,6 +745,20 @@ export function App() {
           />
         )}
       </>
+    );
+  }
+
+  function devinAuthCard(agent: string | null | undefined) {
+    if (!shouldShowDevinAuthCard(agent, devinAuthStatus)) return null;
+    return (
+      <div className="overlay">
+        <DevinAuthCard
+          status={devinAuthStatus}
+          error={devinAuthError}
+          onAuthenticate={(opts) => void authenticateDevin(opts)}
+          onDismiss={dismissDevinAuth}
+        />
+      </div>
     );
   }
 
@@ -707,6 +895,7 @@ export function App() {
             ) : (
               <span className="title-static">{t(locale, "chrome.newSession")}</span>
             )}
+            {sessionMetaSpan(paneSession, sid)}
             <div
               className="workspace-head-drag"
               data-tauri-drag-region
@@ -722,6 +911,12 @@ export function App() {
               <GitChip status={git} onClick={() => openReview("changed-file")} />
             ) : null}
             {jobsMenu()}
+            <NotificationCenter
+              onOpenSession={(id) => {
+                const s = findSessionById(id);
+                if (s) void openSession(s);
+              }}
+            />
             {paneCatalog.length > 0 && (
               <div className="chip-wrap">
                 <button
@@ -843,6 +1038,7 @@ export function App() {
               )
             }
           />
+          {unbound ? null : devinAuthCard(extra?.agentId ?? selectedAgentId)}
         </div>
         {unbound ? null : (
         <Composer
@@ -878,6 +1074,7 @@ export function App() {
           sessionModel={paneSession?.model ?? null}
           modelOptions={modelCatalog}
           modelLabels={modelLabels}
+          modelRows={modelRows}
           onModel={applyModel}
           onSessionModel={applySessionModel}
           onOpenSettings={openSettings}
@@ -988,10 +1185,11 @@ return (
       ref={appRef}
       className="app"
       lang={locale === "en" ? "en" : "zh-CN"}
-      data-sidebar-motion={sidebarMotion.motion ? "" : undefined}
+      data-sidebar-motion={sidebarMotion.moving ? "" : undefined}
+      data-zen={zen ? "" : undefined}
       style={{
         ["--md-size" as string]: `${normalizeChatFontSize(chatFontSize)}px`,
-        ["--sidebar-w" as string]: `${sidebarSlotPx(sidebarMotion.slotCollapsed, sidebarWidth)}px`,
+        ["--sidebar-w" as string]: `${sidebarMotion.slotPx}px`,
         ["--review-w" as string]: `${previewWidth}px`,
       }}
     >
@@ -1064,14 +1262,18 @@ return (
         onRemoveProject={(path) => requestRemoveProject(path)}
         picking={picking}
         statusFor={statusFor}
-        width={sidebarSlotPx(sidebarMotion.slotCollapsed, sidebarWidth)}
-        collapsed={sidebarMotion.contentHidden}
-        hiding={sidebarMotion.motion && sidebarCollapsed}
+        width={sidebarMotion.slotPx}
+        collapsed={sidebarMotion.slotCollapsed}
+        hiding={sidebarMotion.moving && sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         signedIn={!!info?.authPresent}
         weeklyUsage={weeklyUsage}
         onSettings={() => setSettingsOpen(true)}
         onExtensions={() => openHub()}
+        onUsage={() => {
+          setSettingsOpen(true);
+          setSettingsFocus("usage");
+        }}
         onOpenExtra={(id) => {
           if (id === "act:dashboard" && extraPage === "dashboard") {
             setExtraPage(null);
@@ -1283,6 +1485,7 @@ return (
               ) : (
                 <span className="title-static">{t(locale, "chrome.newSession")}</span>
               )}
+              {sessionMetaSpan(sessionId ? findSessionById(sessionId) : undefined, sessionId)}
               <div
                 className="workspace-head-drag"
                 data-tauri-drag-region
@@ -1297,6 +1500,12 @@ return (
                 <GitChip status={git} onClick={() => openReview("changed-file")} />
               ) : null}
               {jobsMenu()}
+              <NotificationCenter
+                onOpenSession={(id) => {
+                  const s = findSessionById(id);
+                  if (s) void openSession(s);
+                }}
+              />
               {catalog.length > 0 && (
                 <div className="chip-wrap">
                   <button
@@ -1401,6 +1610,7 @@ return (
                 if (chatEl.current) chatEl.current.scrollTop = chatEl.current.scrollHeight;
               }}
             />
+            {devinAuthCard(selectedAgentId)}
           </div>
           {loadingSession && (
             <div className="overlay">
@@ -1437,6 +1647,7 @@ return (
             sessionModel={sessionModel}
             modelOptions={modelCatalog}
             modelLabels={modelLabels}
+            modelRows={modelRows}
             onModel={applyModel}
             onSessionModel={applySessionModel}
             onOpenSettings={openSettings}
@@ -1653,6 +1864,31 @@ return (
           hasOverride={!!titles[menuSession.id]?.trim()}
           top={menu.top}
           left={menu.left}
+          trigger={menu.trigger}
+          isUnread={!!unread[menuSession.id]}
+          muted={isSessionMuted(menuSession.id)}
+          note={getSessionNote(menuSession.id)}
+          onMarkUnread={() => {
+            const next = markUnread(unread, menuSession.id, "done");
+            if (next !== unread) {
+              setUnread(next);
+              persist({ unread: next });
+            }
+            setMenu(null);
+          }}
+          onToggleMute={() => {
+            toggleSessionMuted(menuSession.id);
+            setMenu(null);
+          }}
+          onEditNote={() => {
+            setNoteTarget(menuSession.id);
+            setMenu(null);
+          }}
+          onDuplicate={() => {
+            const target = menuSession;
+            setMenu(null);
+            void duplicateSession(target);
+          }}
           onRename={() => startRenameSession(menuSession.id)}
           onRestore={() => restoreGenerated(menuSession.id)}
           onNew={() => {
@@ -1742,11 +1978,20 @@ return (
               onAccentId={(id) => { setAccentId(id); persist({ accentId: id }); }}
               hideToTray={hideToTray}
               onHideToTray={(v) => { setHideToTray(v); persist({ hideToTray: v }); }}
+              reopenLastSession={reopenLast}
+              onReopenLastSession={(v) => {
+                setReopenLast(v);
+                setReopenLastSessionEnabled(v);
+              }}
               defaultRail={defaultRail}
               onDefaultRail={(v) => { setDefaultRail(v); persist({ defaultRail: v }); review.hydrateLegacy({ defaultTab: v }); }}
               inspect={inspect}
               doctorNote={doctorNote}
               onOpenHub={openHub}
+              onOpenAgents={() => {
+                setSettingsOpen(false);
+                setExtraPage("agents");
+              }}
               onRefreshHealth={() => {
                 void refreshInspect();
                 void doctor().then(setInfo);
@@ -1943,10 +2188,25 @@ return (
             plan={rewindPreview.plan}
             rows={rewindPreview.rows}
             onCancel={() => setRewindTarget(null)}
-            onConfirm={() => {
+            onConfirm={(paths) => {
               const index = rewindTarget;
               setRewindTarget(null);
-              void applyRewind(index);
+              void applyRewind(index, paths);
+            }}
+          />
+        </Suspense>
+      )}
+      {noteTarget && (
+        <Suspense fallback={null}>
+          <SessionNoteModal
+            key={noteTarget}
+            open
+            note={getSessionNote(noteTarget)}
+            onClose={() => setNoteTarget(null)}
+            onSave={(text) => {
+              setSessionNote(noteTarget, text);
+              setNoteTarget(null);
+              showToast(t(locale, "toast.saved"));
             }}
           />
         </Suspense>
@@ -1985,6 +2245,20 @@ return (
               void selectProject(path);
             }}
             onClose={() => setMillerOpen(false)}
+          />
+        </Suspense>
+      )}
+      {cheatPresence.shown && (
+        <Suspense fallback={null}>
+          <ShortcutsOverlay leaving={cheatPresence.leaving} onClose={() => setCheatOpen(false)} />
+        </Suspense>
+      )}
+      {whatsNewPresence.shown && whatsNewHold.current && (
+        <Suspense fallback={null}>
+          <WhatsNew
+            version={whatsNewHold.current}
+            leaving={whatsNewPresence.leaving}
+            onClose={() => setWhatsNewVersion(null)}
           />
         </Suspense>
       )}

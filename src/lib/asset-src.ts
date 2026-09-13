@@ -94,7 +94,7 @@ export function safeHtmlSrc(
   return assetPageSrc(path, convert);
 }
 
-function parentDir(path: string): string {
+export function parentDir(path: string): string {
   const resolved = resolvePath(path);
   if (!resolved) return "";
   const i = resolved.lastIndexOf("/");

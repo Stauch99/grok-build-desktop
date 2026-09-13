@@ -40,29 +40,28 @@ use acp_loop::{spawn_reader, spawn_writer};
 use agent_host::{extra_spawn_env, parse_agent_id_arg, which_on_path, AgentId, AgentPool};
 use agent_models::{patch_agent_model_settings, read_agent_model_source};
 use cli_bridge::{
-    create_skill, delete_skill, git_blame, git_branches, git_commit, git_discard, git_log,
-    git_pull, git_push, git_remote_add, git_status_untracked, hide_window, import_dropped_file,
-    list_agents_dir,
-    list_file_tree, list_imagine_artifacts, list_models_text, list_session_spills,
-    open_in_terminal, patch_compat, patch_skills_disabled, read_config_text, read_managed_config,
+    copy_paste_into_workspace, create_skill, delete_skill, git_blame, git_branches, git_commit,
+    git_discard, git_log, git_pull, git_push, git_remote_add, git_stage, git_status_untracked,
+    git_unstage, hide_window, import_dropped_file, list_agents_dir, list_file_tree,
+    list_imagine_artifacts, list_models_text, list_session_spills, open_in_terminal, patch_compat,
+    patch_skills_disabled, read_attachment_b64, read_config_text, read_managed_config,
     read_models_cache, read_token_turns, read_usage_history, run_grok, run_grok_stream,
-    copy_paste_into_workspace, read_attachment_b64, save_paste_bytes, set_hide_on_close,
-    set_notify_target, stat_attachment, trust_folder, watch_workspace, workspace_mtime,
-    write_allowed_text, write_config_text, write_hook_file,
+    save_paste_bytes, set_hide_on_close, set_notify_target, stat_attachment, trust_folder,
+    watch_workspace, workspace_mtime, write_allowed_text, write_config_text, write_hook_file,
 };
 use memory_events::{append_memory_event, memory_activity, read_memory_events};
 use memory_host::{read_memory_host, write_memory_host};
 use memory_mcp::{install_memory_mcp, memory_mcp_status};
-use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 pub(crate) use path_policy::{
     allow_text_read, open_path_arg_rejected, open_path_local_rejected, resolve_allowed_path,
     trusted_desktop_root, trusted_workspace_for_hint, validate_review_open_target, PathAccess,
 };
-pub(crate) use path_policy::{is_blocked_path, is_under};
 #[cfg(test)]
 pub(crate) use path_policy::{
     allow_text_read_candidate, explorer_slash_switch, extra_skill_read_root, ASSET_SECRET_DENY,
 };
+pub(crate) use path_policy::{is_blocked_path, is_under};
+use rpc_allowlist::{caps_for_agent, rpc_payload_allowed_for};
 
 pub(crate) const MAX_FS_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const CONFIG_TEXT_MAX: usize = 512 * 1024;
@@ -315,7 +314,10 @@ mod grok_asset_tests {
         let parent_dir = root.join("parent-1");
         std::fs::create_dir_all(parent_dir.join("subagents").join("child-1")).unwrap();
         std::fs::write(
-            parent_dir.join("subagents").join("child-1").join("meta.json"),
+            parent_dir
+                .join("subagents")
+                .join("child-1")
+                .join("meta.json"),
             r#"{
               "child_session_id": "child-1",
               "subagent_id": "child-1",
@@ -344,7 +346,10 @@ mod grok_asset_tests {
         }];
         attach_subagent_parents(&mut rows);
         assert_eq!(rows.len(), 2);
-        let child = rows.iter().find(|r| r.id == "child-1").expect("synthesized child");
+        let child = rows
+            .iter()
+            .find(|r| r.id == "child-1")
+            .expect("synthesized child");
         assert_eq!(child.parent_session_id.as_deref(), Some("parent-1"));
         assert_eq!(child.session_kind.as_deref(), Some("subagent"));
         assert_eq!(child.title, "Write lectures 6 and 7");
@@ -470,12 +475,14 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
     let kimi_h = &homes[1].1;
     let claude_h = &homes[2].1;
     let codex_h = &homes[3].1;
+    let devin_h = &homes[4].1;
     let claude_json = home.join(".claude.json");
-    let (grok_bin, kimi_bin, claude_bin, codex_bin) = tokio::join!(
+    let (grok_bin, kimi_bin, claude_bin, codex_bin, devin_bin) = tokio::join!(
         probe_agent_binary("grok"),
         probe_agent_binary("kimi"),
         probe_agent_binary("claude"),
         probe_agent_binary("codex"),
+        probe_agent_binary("devin"),
     );
     let mut rows = vec![
         crate::agent_doctor::doctor_from_evidence(
@@ -510,6 +517,16 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
             codex_bin.0,
             codex_bin.1,
         ),
+        crate::agent_doctor::doctor_from_evidence(
+            "devin",
+            devin_h.display().to_string(),
+            crate::agent_doctor::devin_subscription_present(
+                &home.join(".local").join("share").join("devin"),
+            ),
+            env_nonempty("WINDSURF_API_KEY"),
+            devin_bin.0,
+            devin_bin.1,
+        ),
     ];
     let registry =
         std::fs::read_to_string(crate::agent_registry::agents_toml_path(&workbench_home())).ok();
@@ -520,6 +537,7 @@ async fn doctor_all() -> Vec<crate::agent_doctor::AgentDoctorDto> {
         AgentId::Kimi,
         AgentId::Claude,
         AgentId::Codex,
+        AgentId::Devin,
     ];
     for (row, id) in rows.iter_mut().zip(ids) {
         row.spawn_rejected = crate::adapters::toml_spawn_rejected(
@@ -682,6 +700,17 @@ async fn stop_agent(state: State<'_, Arc<AppState>>, agent_id: Option<String>) -
         stop_one(&state, id).await;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn agent_env_secret(agent_id: Option<String>) -> AppResult<Option<String>> {
+    let id = parse_agent_id_arg(agent_id.as_deref()).map_err(AppError::Message)?;
+    if id == AgentId::Devin {
+        return Ok(std::env::var("WINDSURF_API_KEY")
+            .ok()
+            .filter(|s| !s.trim().is_empty()));
+    }
+    Ok(None)
 }
 
 #[tauri::command]
@@ -942,8 +971,10 @@ fn grok_subagent_links(summaries: &[SessionSummary]) -> Vec<GrokSubagentLink> {
 
 fn attach_subagent_parents(summaries: &mut Vec<SessionSummary>) {
     let links = grok_subagent_links(summaries);
-    let by_child: HashMap<String, &GrokSubagentLink> =
-        links.iter().map(|link| (link.child_id.clone(), link)).collect();
+    let by_child: HashMap<String, &GrokSubagentLink> = links
+        .iter()
+        .map(|link| (link.child_id.clone(), link))
+        .collect();
     for s in summaries.iter_mut() {
         let Some(link) = by_child.get(&s.id) else {
             continue;
@@ -979,10 +1010,7 @@ fn attach_subagent_parents(summaries: &mut Vec<SessionSummary>) {
             id: link.child_id.clone(),
             agent_id: parent.agent_id.clone(),
             cwd: parent.cwd.clone(),
-            title: link
-                .title
-                .clone()
-                .unwrap_or_else(|| "未命名会话".into()),
+            title: link.title.clone().unwrap_or_else(|| "未命名会话".into()),
             model: parent.model.clone(),
             agent_name: parent.agent_name.clone(),
             updated_at: parent.updated_at.clone(),
@@ -1417,12 +1445,14 @@ async fn import_agents_mcp_first_open() -> AppResult<Vec<String>> {
     let mcp_path = agents.join("mcp.json");
     let claude = home.join(".claude.json");
     let kimi = home.join(".kimi-code").join("mcp.json");
+    let devin = home.join(".config").join("devin").join("mcp_config.json");
     tokio::task::spawn_blocking(move || {
         let canon = std::fs::read_to_string(&mcp_path).unwrap_or_default();
         let live_c = std::fs::read_to_string(&claude).unwrap_or_default();
         let live_k = std::fs::read_to_string(&kimi).unwrap_or_default();
+        let live_d = std::fs::read_to_string(&devin).unwrap_or_default();
         let (out, conflicts) =
-            crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k]);
+            crate::mcp_import::apply_first_open_file(&canon, &[&live_c, &live_k, &live_d]);
         if let Some(p) = mcp_path.parent() {
             let _ = std::fs::create_dir_all(p);
         }
@@ -1504,7 +1534,8 @@ async fn remove_toml_mcp(kind: String, name: String) -> AppResult<()> {
         .ok_or_else(|| AppError::Message("unknown kind".into()))?;
     tokio::task::spawn_blocking(move || {
         let text = crate::agents_files::read_agents_file_text(&path);
-        let next = crate::mcp_toml::remove_mcp_servers_toml(&text, &name).map_err(AppError::Message)?;
+        let next =
+            crate::mcp_toml::remove_mcp_servers_toml(&text, &name).map_err(AppError::Message)?;
         crate::agents_files::write_agents_file_text(&path, &next).map_err(AppError::Message)
     })
     .await
@@ -1665,7 +1696,11 @@ async fn inspect_brief(state: State<'_, Arc<AppState>>, cwd: Option<String>) -> 
     {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => return Err(AppError::Message(e.to_string())),
-        Err(_) => return Err(AppError::Message("grok inspect 超时（20s），请稍后重试".into())),
+        Err(_) => {
+            return Err(AppError::Message(
+                "grok inspect 超时（20s），请稍后重试".into(),
+            ))
+        }
     };
     let parsed: Value = serde_json::from_slice(&output.stdout).unwrap_or(json!({}));
     Ok(parsed)
@@ -2353,9 +2388,9 @@ pub(crate) fn ensure_table<'a>(
     if !doc.contains_key(key) {
         doc[key] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-    doc[key].as_table_mut().ok_or_else(|| {
-        AppError::Message(format!("配置里 {key} 不是表，请先修正 config.toml 再试"))
-    })
+    doc[key]
+        .as_table_mut()
+        .ok_or_else(|| AppError::Message(format!("配置里 {key} 不是表，请先修正 config.toml 再试")))
 }
 
 pub(crate) fn reject_oversized_config_text(text: &str) -> AppResult<()> {
@@ -2484,6 +2519,8 @@ struct GitChange {
     added: u32,
     removed: u32,
     status: String,
+    /// Porcelain X column: true when the index already holds this path.
+    staged: bool,
 }
 
 fn is_noise_path(rel: &str) -> bool {
@@ -2692,6 +2729,7 @@ async fn git_changes(cwd: String) -> AppResult<Vec<GitChange>> {
                     added: added.parse::<u32>().unwrap_or(0),
                     removed: removed.parse::<u32>().unwrap_or(0),
                     status: "modified".into(),
+                    staged: false,
                 },
             );
         }
@@ -2701,6 +2739,8 @@ async fn git_changes(cwd: String) -> AppResult<Vec<GitChange>> {
                 continue;
             }
             let code = &line[..2];
+            // X is the index column: blank or '?' means nothing is staged yet.
+            let staged = !matches!(code.as_bytes()[0], b' ' | b'?');
             let rest = &line[3..];
             // Renames are reported as "old -> new"; the new path is what the user sees.
             let rel = unquote_porcelain_path(rest.rsplit(" -> ").next().unwrap_or(rest));
@@ -2710,7 +2750,10 @@ async fn git_changes(cwd: String) -> AppResult<Vec<GitChange>> {
             let status = porcelain_status(code);
             let abs = root.join(&rel);
             match rows.get_mut(&rel) {
-                Some(row) => row.status = status.into(),
+                Some(row) => {
+                    row.status = status.into();
+                    row.staged = staged;
+                }
                 None => {
                     let added = if status == "untracked" {
                         untracked_added_lines(&abs)
@@ -2725,6 +2768,7 @@ async fn git_changes(cwd: String) -> AppResult<Vec<GitChange>> {
                             added,
                             removed: 0,
                             status: status.into(),
+                            staged,
                         },
                     );
                 }
@@ -2920,6 +2964,23 @@ mod git_status_sync_tests {
         let _ = std::fs::remove_dir_all(&origin);
         let _ = std::fs::remove_dir_all(&work);
     }
+
+    #[tokio::test]
+    async fn git_changes_marks_staged_rows_from_porcelain_x() {
+        let work = temp_dir("changes-staged");
+        init_repo(&work);
+        std::fs::write(work.join("staged.txt"), "new\n").unwrap();
+        std::fs::write(work.join("readme.txt"), "hi\nmore\n").unwrap();
+        assert!(git_at(&work, &["add", "staged.txt"]).status.success());
+        let rows = git_changes(work.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        let staged_row = rows.iter().find(|r| r.path == "staged.txt");
+        assert!(staged_row.is_some_and(|r| r.staged), "{rows:?}");
+        let readme = rows.iter().find(|r| r.path == "readme.txt");
+        assert!(readme.is_some_and(|r| !r.staged), "{rows:?}");
+        let _ = std::fs::remove_dir_all(&work);
+    }
 }
 
 #[tauri::command]
@@ -3113,6 +3174,7 @@ pub fn run() {
             stop_agent,
             send_raw,
             next_rpc_id,
+            agent_env_secret,
             list_sessions,
             read_session_updates,
             read_session_usage,
@@ -3159,6 +3221,8 @@ pub fn run() {
             git_push,
             git_remote_add,
             git_discard,
+            git_stage,
+            git_unstage,
             git_blame,
             git_status_untracked,
             list_file_tree,
@@ -3415,7 +3479,10 @@ mod final_review_tests {
             true
         ));
         assert!(!allow_text_read_candidate(
-            &home.join(".kimi-code").join("credentials").join("kimi-code.json"),
+            &home
+                .join(".kimi-code")
+                .join("credentials")
+                .join("kimi-code.json"),
             Some(&root),
             true
         ));

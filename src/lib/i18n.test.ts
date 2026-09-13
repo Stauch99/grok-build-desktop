@@ -33,6 +33,13 @@ describe("i18n", () => {
     expect(Object.keys(ZH).sort()).toEqual(Object.keys(EN).sort());
   });
 
+  it("covers the devin auth flow copy", () => {
+    expect(t("zh", "devin.auth.title")).toBe("登录 Devin");
+    expect(t("en", "devin.auth.title")).toBe("Sign in to Devin");
+    expect(t("zh", "devin.auth.envFound")).toContain("WINDSURF_API_KEY");
+    expect(t("en", "devin.auth.whereKey")).toContain("Devin Cloud");
+  });
+
   it("has user-memory settings copy", () => {
     expect(t("zh", "settings.accent")).toBe("强调色");
     expect(t("en", "settings.accent")).toBe("Accent");

@@ -38,6 +38,7 @@ pub(crate) fn blocked_secret_paths(home: &Path) -> Vec<PathBuf> {
         home.join(".codex").join("auth.json"),
         home.join(".claude.json"),
         home.join(".kimi-code").join("credentials"),
+        home.join(".local").join("share").join("devin"),
         home.join(".git-credentials"),
         home.join(".docker").join("config.json"),
     ]
@@ -252,7 +253,11 @@ fn is_transient_path(canon: &Path) -> bool {
     .any(|root| is_under(canon, Path::new(root)))
 }
 
-pub(crate) fn allow_text_read_candidate(canon: &Path, allow_root: Option<&Path>, is_file: bool) -> bool {
+pub(crate) fn allow_text_read_candidate(
+    canon: &Path,
+    allow_root: Option<&Path>,
+    is_file: bool,
+) -> bool {
     if !is_file {
         return false;
     }

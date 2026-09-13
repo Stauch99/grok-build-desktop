@@ -4,6 +4,7 @@ import {
   GROK_EFFORTS,
   catalogFromSource,
   effortsForModel,
+  emptyCatalog,
   modelLabelMap,
   snapModelChange,
 } from "./agent-models";
@@ -77,6 +78,44 @@ describe("catalogFromSource claude", () => {
     expect(catalog.models.map((m) => m.id)).toEqual(["opus[1m]", "opus", "sonnet", "haiku", "fable"]);
     expect(effortsForModel(catalog.models, "opus[1m]")).toEqual(CLAUDE_EFFORTS);
     expect(CLAUDE_EFFORTS).toContain("ultracode");
+  });
+});
+
+describe("catalogFromSource devin", () => {
+  it("ships the static model list with adaptive as default and no effort ladder", () => {
+    const catalog = catalogFromSource({ agentId: "devin" });
+    const ids = catalog.models.map((m) => m.id);
+    expect(ids).toContain("adaptive");
+    expect(ids).toContain("fusion");
+    expect(ids).toContain("swe-1-6-fast");
+    expect(ids).toContain("claude-opus-4-8");
+    expect(ids).toContain("gpt-5.4");
+    expect(ids).toContain("gemini-3.1-pro-preview");
+    expect(catalog.models[0].label).toBe("Adaptive");
+    expect(catalog.models.find((m) => m.id === "adaptive")?.isDefault).toBe(true);
+    expect(catalog.currentModel).toBe("adaptive");
+    expect(catalog.currentEffort).toBe("");
+    expect(effortsForModel(catalog.models, "adaptive")).toEqual([]);
+  });
+
+  it("reads the current model from config.json and keeps unknown ids", () => {
+    const catalog = catalogFromSource({
+      agentId: "devin",
+      devin: { currentModel: " swe " },
+    });
+    expect(catalog.currentModel).toBe("swe");
+    const custom = catalogFromSource({
+      agentId: "devin",
+      devin: { currentModel: "swe-1.6" },
+    });
+    expect(custom.currentModel).toBe("swe-1.6");
+    expect(custom.models[0]?.id).toBe("swe-1.6");
+  });
+
+  it("emptyCatalog falls back to adaptive for devin", () => {
+    const catalog = emptyCatalog("devin");
+    expect(catalog.currentModel).toBe("adaptive");
+    expect(catalog.models.map((m) => m.id)).toContain("adaptive");
   });
 });
 

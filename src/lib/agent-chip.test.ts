@@ -15,10 +15,11 @@ describe("agentChipLabel", () => {
     expect(agentChipLabel("kimi")).toBe("Kimi");
     expect(agentChipLabel("claude")).toBe("Claude");
     expect(agentChipLabel("codex")).toBe("Codex");
+    expect(agentChipLabel("devin")).toBe("Devin");
   });
 
   it("covers all AGENT_IDS", () => {
-    expect(AGENT_IDS.map(agentChipLabel)).toEqual(["Grok", "Kimi", "Claude", "Codex"]);
+    expect(AGENT_IDS.map(agentChipLabel)).toEqual(["Grok", "Kimi", "Claude", "Codex", "Devin"]);
   });
 });
 

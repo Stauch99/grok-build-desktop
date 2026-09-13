@@ -35,6 +35,13 @@ command = "npx"
 args = ["-y", "{codex}"]
 home = ""
 login = ["login"]
+
+[agents.devin]
+enabled = true
+command = "devin"
+args = ["acp"]
+home = ""
+login = ["auth", "login"]
 "#,
         claude = CLAUDE_ACP_PKG,
         codex = CODEX_ACP_PKG,
@@ -49,7 +56,7 @@ pub(crate) fn pinned_npx_pkg(id: AgentId) -> Option<&'static str> {
     match id {
         AgentId::Claude => Some(CLAUDE_ACP_PKG),
         AgentId::Codex => Some(CODEX_ACP_PKG),
-        AgentId::Grok | AgentId::Kimi => None,
+        AgentId::Grok | AgentId::Kimi | AgentId::Devin => None,
     }
 }
 
@@ -89,6 +96,8 @@ mod tests {
         assert_eq!(claude.1, vec!["-y".to_string(), CLAUDE_ACP_PKG.to_string()]);
         let kimi = spawn_args_from_toml(&text, AgentId::Kimi).unwrap();
         assert_eq!(kimi, ("kimi".into(), vec!["acp".into()]));
+        let devin = spawn_args_from_toml(&text, AgentId::Devin).unwrap();
+        assert_eq!(devin, ("devin".into(), vec!["acp".into()]));
     }
 
     #[test]
@@ -101,5 +110,6 @@ mod tests {
         assert!(!should_write_default_registry(true));
         assert_eq!(pinned_npx_pkg(AgentId::Claude), Some(CLAUDE_ACP_PKG));
         assert_eq!(pinned_npx_pkg(AgentId::Grok), None);
+        assert_eq!(pinned_npx_pkg(AgentId::Devin), None);
     }
 }

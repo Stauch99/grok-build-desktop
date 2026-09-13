@@ -1,3 +1,5 @@
+import { tr } from "./i18n-bridge";
+
 export type MentionGroup = "special" | "dir" | "change" | "file";
 
 export type MentionHit = {
@@ -32,7 +34,7 @@ export function filterMentions(input: {
   if (changes.length > 0 && CHANGES_ALIASES.some((a) => matches(q, a))) {
     hits.push({
       id: "special:changes",
-      label: `本次改动（${changes.length}）`,
+      label: tr("mention.changes", { n: changes.length }),
       insert: changes.map((p) => `@${p}`).join(" "),
       group: "special",
     });

@@ -1,7 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { diffLines, rowMark } from "../lib/diff";
+import {
+  readDiffViewMode,
+  splitRows,
+  writeDiffViewMode,
+  type DiffViewMode,
+  type SplitCell,
+} from "../lib/diff-split";
+import { pushComposerDraft } from "../lib/composer-inbox";
 import { basename } from "../lib/text";
-import { IconCheck, IconClose, IconCopy, IconFinder, IconMaximize, IconMinimize } from "../icons";
+import {
+  IconAsk,
+  IconCheck,
+  IconClose,
+  IconColumns,
+  IconCopy,
+  IconFinder,
+  IconList,
+  IconMaximize,
+  IconMinimize,
+} from "../icons";
 import { useT } from "../lib/locale-context";
 
 export type DiffViewProps = {
@@ -17,15 +35,23 @@ export type DiffViewProps = {
  *
  * Increase and decrease carry a `+` / `−` glyph as well as a background tint,
  * so the diff stays readable without color. Untouched stretches collapse to a
- * clickable row rather than scrolling the interesting part off screen.
+ * clickable row rather than scrolling the interesting part off screen. The
+ * header toggle switches between the classic unified layout and a side-by-side
+ * split (persisted under `grok.diff.view`); either way, hovering a line offers
+ * an "ask the agent" affordance that quotes it into the composer.
  */
 export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [view, setView] = useState<DiffViewMode>(() => readDiffViewMode());
   const result = useMemo(
     () => diffLines(oldText, newText ?? "", { context: expanded ? 999 : 3 }),
     [oldText, newText, expanded],
+  );
+  const split = useMemo(
+    () => (view === "split" ? splitRows(result.rows) : null),
+    [view, result.rows],
   );
 
   useEffect(() => {
@@ -43,6 +69,38 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
     );
   };
 
+  const pickView = (mode: DiffViewMode) => {
+    setView(mode);
+    writeDiffViewMode(mode);
+  };
+
+  /** Quote one real diff line into the composer for the agent to look at. */
+  const askAbout = (line: number, text: string) => {
+    pushComposerDraft(`> ${path}:${line}\n> ${text}\n\n`);
+  };
+
+  /** Hover affordance; only renders on lines that carry real text. */
+  const askButton = (line: number | undefined, text: string) =>
+    line !== undefined && text !== "" ? (
+      <button
+        type="button"
+        className="diff-ask"
+        aria-label={t("diff.askAbout")}
+        data-tip={t("diff.askAbout")}
+        onClick={() => askAbout(line, text)}
+      >
+        <IconAsk size={12} />
+      </button>
+    ) : null;
+
+  const splitHalf = (cell: SplitCell, side: "old" | "new") => (
+    <div className={`diff-half ${cell.tone}`} key={side}>
+      <span className="diff-ln">{cell.line ?? ""}</span>
+      <span className="diff-text">{cell.text || " "}</span>
+      {askButton(cell.line, cell.text)}
+    </div>
+  );
+
   return (
     <div className="diff">
       <div className="diff-head">
@@ -55,6 +113,28 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
           {created && <span className="diff-tag">{t("diff.new")}</span>}
         </span>
         <span className="diff-actions">
+          <span className="diff-view" role="group" aria-label={t("diff.viewMode")}>
+            <button
+              type="button"
+              className="file-open"
+              aria-pressed={view === "unified"}
+              aria-label={t("diff.viewUnified")}
+              data-tip={t("diff.viewUnified")}
+              onClick={() => pickView("unified")}
+            >
+              <IconList size={14} />
+            </button>
+            <button
+              type="button"
+              className="file-open"
+              aria-pressed={view === "split"}
+              aria-label={t("diff.viewSplit")}
+              data-tip={t("diff.viewSplit")}
+              onClick={() => pickView("split")}
+            >
+              <IconColumns size={14} />
+            </button>
+          </span>
           {result.rows.some((r) => r.kind === "gap") || expanded ? (
             <button
               type="button"
@@ -100,30 +180,52 @@ export function DiffView({ path, oldText, newText, onOpen }: DiffViewProps) {
       </div>
 
       <div className="diff-body">
-        {result.rows.map((row, i) => {
-          if (row.kind === "gap") {
-            return (
-              <button
-                key={`gap-${i}`}
-                type="button"
-                className="diff-gap"
-                onClick={() => setExpanded(true)}
-              >
-                {t("diff.unchanged", { n: row.count })}
-              </button>
-            );
-          }
-          return (
-            <div className={`diff-row ${row.kind}`} key={`${row.kind}-${i}`}>
-              <span className="diff-ln old">{row.kind === "add" ? "" : row.oldLine}</span>
-              <span className="diff-ln new">{row.kind === "del" ? "" : row.newLine}</span>
-              <span className="diff-mark" aria-hidden>
-                {rowMark(row.kind)}
-              </span>
-              <span className="diff-text">{row.text || " "}</span>
-            </div>
-          );
-        })}
+        {split
+          ? split.map((row, i) => {
+              if (row.kind === "gap") {
+                return (
+                  <button
+                    key={`gap-${i}`}
+                    type="button"
+                    className="diff-gap"
+                    onClick={() => setExpanded(true)}
+                  >
+                    {t("diff.unchanged", { n: row.count })}
+                  </button>
+                );
+              }
+              return (
+                <div className="diff-split-row" key={`split-${i}`}>
+                  {splitHalf(row.left, "old")}
+                  {splitHalf(row.right, "new")}
+                </div>
+              );
+            })
+          : result.rows.map((row, i) => {
+              if (row.kind === "gap") {
+                return (
+                  <button
+                    key={`gap-${i}`}
+                    type="button"
+                    className="diff-gap"
+                    onClick={() => setExpanded(true)}
+                  >
+                    {t("diff.unchanged", { n: row.count })}
+                  </button>
+                );
+              }
+              return (
+                <div className={`diff-row ${row.kind}`} key={`${row.kind}-${i}`}>
+                  <span className="diff-ln old">{row.kind === "add" ? "" : row.oldLine}</span>
+                  <span className="diff-ln new">{row.kind === "del" ? "" : row.newLine}</span>
+                  <span className="diff-mark" aria-hidden>
+                    {rowMark(row.kind)}
+                  </span>
+                  <span className="diff-text">{row.text || " "}</span>
+                  {askButton(row.kind === "del" ? row.oldLine : row.newLine, row.text)}
+                </div>
+              );
+            })}
         {result.truncated && (
           <div className="diff-more">{t("diff.tooLarge", { n: result.rows.length })}</div>
         )}

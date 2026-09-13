@@ -11,6 +11,7 @@ const EXTRA: Record<AgentId, readonly string[]> = {
   kimi: ["swarm"],
   claude: [],
   codex: [],
+  devin: [],
 };
 
 function norm(s: string): string {

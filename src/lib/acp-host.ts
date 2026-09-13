@@ -1,10 +1,11 @@
 import { isAgentId, type AgentId } from "./agent-id";
 import { unwrapAcpEvent } from "./acp-event-tag";
+import { tr } from "./i18n-bridge";
 
 export function resolveStartAgentId(agentId?: string | null): AgentId {
   const trimmed = (agentId ?? "").trim();
   if (!trimmed) return "grok";
-  if (!isAgentId(trimmed)) throw new Error(`未知 agent: ${trimmed}`);
+  if (!isAgentId(trimmed)) throw new Error(tr("acp.unknownAgent", { id: trimmed }));
   return trimmed;
 }
 

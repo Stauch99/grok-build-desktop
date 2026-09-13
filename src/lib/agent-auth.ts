@@ -29,6 +29,13 @@ export function codexAuthEvidence(input: {
   };
 }
 
+export function devinAuthEvidence(input: {
+  credentialsToml: boolean;
+  windsurfApiKey?: string | null;
+}): AuthEvidence {
+  return { hasSubscriptionSession: input.credentialsToml, hasApiKey: keyOn(input.windsurfApiKey) };
+}
+
 export function doctorFromEvidence(
   id: AgentId,
   userHome: string,

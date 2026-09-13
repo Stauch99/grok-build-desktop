@@ -283,8 +283,15 @@ describe("parseTurnUsage agentId meta", () => {
 });
 
 describe("USAGE_BRAND_OPTIONS", () => {
-  it("lists 全部 then the four CLIs", () => {
-    expect(USAGE_BRAND_OPTIONS.map((o) => o.value)).toEqual(["all", "grok", "kimi", "claude", "codex"]);
+  it("lists 全部 then the five CLIs", () => {
+    expect(USAGE_BRAND_OPTIONS.map((o) => o.value)).toEqual([
+      "all",
+      "grok",
+      "kimi",
+      "claude",
+      "codex",
+      "devin",
+    ]);
     expect(USAGE_BRAND_OPTIONS[0]?.label).toBe("全部");
   });
 });

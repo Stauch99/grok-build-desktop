@@ -124,6 +124,16 @@ export function previewRevert(items: ChatItem[], afterIndex: number): RevertPrev
   }));
 }
 
+/**
+ * Keep only the steps whose paths are in `paths` — the rows the user left
+ * checked in the rewind dialog. `unknown` entries survive untouched so the
+ * summary can still report edits that were never undoable.
+ */
+export function filterPlan(plan: RevertPlan, paths: Iterable<string>): RevertPlan {
+  const keep = new Set(paths);
+  return { steps: plan.steps.filter((step) => keep.has(step.path)), unknown: plan.unknown };
+}
+
 /** Human summary for the confirmation dialog. */
 export function describePlan(plan: RevertPlan): string {
   const restore = plan.steps.filter((s) => s.kind === "restore").length;

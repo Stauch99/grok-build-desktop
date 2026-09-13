@@ -29,7 +29,8 @@ import {
   type PaneNode,
   type ResolvedDrop,
 } from "../lib/pane-tree";
-import { describePlan, planRevert } from "../lib/checkpoint";
+import { describePlan, filterPlan, planRevert } from "../lib/checkpoint";
+import { loadLastSessionId, reopenLastSessionEnabled } from "../lib/session-launch";
 import { worktreeName } from "../lib/git";
 import { displayTitle, mergeProjectPaths, setTitleOverride } from "../lib/projects";
 import { INBOX_PIN, sessionInLibrary } from "../lib/sidebar-list";
@@ -192,6 +193,11 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   // Deferred delete commits keyed by their timer so unmount can flush them.
   const sessionLeaveRef = useRef<Map<ReturnType<typeof setTimeout>, () => void>>(new Map());
   const freshTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Launch restore: the target is captured before any focus churn can overwrite
+  // the stored id; `done` guarantees it only ever fires once per app start.
+  const paneRestorePendingRef = useRef(false);
+  const launchRestoreDoneRef = useRef(false);
+  const [launchTargetId] = useState(() => loadLastSessionId());
 
   function flagIds(setter: Dispatch<SetStateAction<ReadonlySet<string>>>, ids: string[], on: boolean) {
     setter((prev) => {
@@ -652,7 +658,7 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
 
   function openMenu(kind: "header" | "row", id: string, el: HTMLElement, point?: { clientX: number; clientY: number }) {
     const pos = menuPosition(el, point);
-    depsRef.current.setMenu({ kind, id, ...pos });
+    depsRef.current.setMenu({ kind, id, trigger: el, ...pos });
   }
 
   function beginEditTitle(id?: string | null) {
@@ -830,11 +836,12 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     }
   }
 
-  async function applyRewind(index: number) {
+  async function applyRewind(index: number, paths?: readonly string[]) {
     const d = depsRef.current;
     const root = d.cwd || d.inboxCwd;
     if (!root) return;
-    const plan = planRevert(d.chat.items, index);
+    const full = planRevert(d.chat.items, index);
+    const plan = paths ? filterPlan(full, paths) : full;
     if (plan.steps.length === 0) {
       d.showToast(describePlan(plan));
       return;
@@ -965,7 +972,9 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
   /**
    * Rebind a persisted pane layout after the session list lands. Dead leaves are
    * closed by planPaneRestore; live extras re-open via openInPane, and the main
-   * leaf resumes its session when nothing newer claimed it.
+   * leaf resumes its session when nothing newer claimed it. The launch-time
+   * "reopen last session" check runs at the end so it can just focus the pane
+   * that already holds the session instead of reopening it.
    */
   async function restorePaneSessions(
     tree: PaneNode,
@@ -973,25 +982,73 @@ export function useAppWorkspace(deps: AppWorkspaceDeps) {
     sessions: SessionSummary[],
   ): Promise<void> {
     const d = depsRef.current;
+    paneRestorePendingRef.current = true;
     const byId = new Map(sessions.map((s) => [s.id, s]));
-    const plan = planPaneRestore(tree, bindings, new Set(byId.keys()));
-    d.setPaneTree(plan.tree);
-    const keep = new Set(leafIds(plan.tree));
-    d.setExtraPanes((prev) => {
-      const next = Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id)));
-      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
-    });
-    if (plan.mainSessionId && plan.mainSessionId !== d.sessionIdRef.current) {
-      const s = byId.get(plan.mainSessionId);
-      if (s) await d.resumeSession(s);
-    }
-    for (const { paneId, sessionId } of plan.open) {
-      if (!keep.has(paneId) || d.extraPanesRef.current[paneId]) continue;
-      if (sessionId === d.sessionIdRef.current) continue;
-      const s = byId.get(sessionId);
-      if (s) await d.openInPane(paneId, s);
+    const bound = new Map<string, string>();
+    try {
+      const plan = planPaneRestore(tree, bindings, new Set(byId.keys()));
+      d.setPaneTree(plan.tree);
+      const keep = new Set(leafIds(plan.tree));
+      d.setExtraPanes((prev) => {
+        const next = Object.fromEntries(Object.entries(prev).filter(([id]) => keep.has(id)));
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+      if (plan.mainSessionId) bound.set(plan.mainSessionId, MAIN_PANE);
+      for (const { paneId, sessionId } of plan.open) {
+        if (keep.has(paneId)) bound.set(sessionId, paneId);
+      }
+      for (const [paneId, pane] of Object.entries(d.extraPanesRef.current)) {
+        if (keep.has(paneId) && pane.sessionId) bound.set(pane.sessionId, paneId);
+      }
+      if (plan.mainSessionId && plan.mainSessionId !== d.sessionIdRef.current) {
+        const s = byId.get(plan.mainSessionId);
+        if (s) await d.resumeSession(s);
+      }
+      for (const { paneId, sessionId } of plan.open) {
+        if (!keep.has(paneId) || d.extraPanesRef.current[paneId]) continue;
+        if (sessionId === d.sessionIdRef.current) continue;
+        const s = byId.get(sessionId);
+        if (s) await d.openInPane(paneId, s);
+      }
+    } finally {
+      paneRestorePendingRef.current = false;
+      maybeReopenLastSession(byId, bound);
     }
   }
+
+  /**
+   * One-shot "reopen last session on launch". When the pane layout already
+   * re-bound the session we only move focus to its pane; otherwise the session
+   * opens in the focused pane. Sessions deleted since quit are skipped.
+   */
+  function maybeReopenLastSession(
+    byId?: Map<string, SessionSummary>,
+    bound?: Map<string, string>,
+  ) {
+    if (launchRestoreDoneRef.current) return;
+    launchRestoreDoneRef.current = true;
+    if (!reopenLastSessionEnabled()) return;
+    const id = launchTargetId;
+    if (!id) return;
+    const s = byId?.get(id) ?? findSessionById(id);
+    if (!s) return;
+    const pane = bound?.get(id) ?? paneOfSession(liveBindings(), id);
+    if (pane) {
+      focusPane(pane);
+      return;
+    }
+    void openSession(s);
+  }
+
+  // When no persisted pane layout exists, restorePaneSessions never runs; the
+  // first non-empty session list is the signal to try the launch restore once.
+  useEffect(() => {
+    if (launchRestoreDoneRef.current) return;
+    if (paneRestorePendingRef.current) return;
+    const d = depsRef.current;
+    if (d.sessions.length === 0 && d.inboxSessions.length === 0) return;
+    maybeReopenLastSession();
+  }, [deps.sessions, deps.inboxSessions]);
 
   function confirmAppModal(pending: AppConfirm | null) {
     if (!pending) return;

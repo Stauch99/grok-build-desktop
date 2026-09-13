@@ -56,9 +56,7 @@ pub fn events_path(root: &Path) -> PathBuf {
 fn valid_kind(kind: &str) -> bool {
     !kind.is_empty()
         && kind.len() <= MAX_EVENT_KIND_CHARS
-        && kind
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && kind.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub fn sanitize_event(mut event: MemoryEvent) -> MemoryEvent {
@@ -149,7 +147,11 @@ pub fn read_events(root: &Path) -> Result<Vec<MemoryEvent>, String> {
 }
 
 #[allow(dead_code)]
-pub fn events_since<'a>(events: &'a [MemoryEvent], since_ms: i64, kind: &str) -> Vec<&'a MemoryEvent> {
+pub fn events_since<'a>(
+    events: &'a [MemoryEvent],
+    since_ms: i64,
+    kind: &str,
+) -> Vec<&'a MemoryEvent> {
     events
         .iter()
         .filter(|e| e.kind == kind && e.at >= since_ms)
@@ -176,10 +178,7 @@ fn day_from_daily_name(name: &str) -> Option<String> {
 
 fn count_daily_lines(path: &Path) -> i64 {
     match std::fs::read_to_string(path) {
-        Ok(raw) => raw
-            .lines()
-            .filter(|l| l.starts_with("- ["))
-            .count() as i64,
+        Ok(raw) => raw.lines().filter(|l| l.starts_with("- [")).count() as i64,
         Err(_) => 0,
     }
 }
@@ -219,7 +218,9 @@ pub fn activity(root: &Path) -> Result<ActivitySnapshot, String> {
                     mem_bytes: 0,
                 });
                 days.sort_by(|a, b| a.day.cmp(&b.day));
-                days.iter_mut().find(|d| d.day == day).expect("just inserted")
+                days.iter_mut()
+                    .find(|d| d.day == day)
+                    .expect("just inserted")
             }
         };
         match event.kind.as_str() {
@@ -335,7 +336,9 @@ mod tests {
         append_event(&root, &event(100, "promote")).unwrap();
         let path = events_path(&root);
         let mut raw = std::fs::read_to_string(&path).unwrap();
-        raw.push_str("not json\n{\"at\":300,\"kind\":\"bad kind!\"}\n{\"at\":200,\"kind\":\"promote\"}\n");
+        raw.push_str(
+            "not json\n{\"at\":300,\"kind\":\"bad kind!\"}\n{\"at\":200,\"kind\":\"promote\"}\n",
+        );
         std::fs::write(&path, raw).unwrap();
         let events = read_events(&root).unwrap();
         assert_eq!(events.len(), 2);
@@ -386,7 +389,11 @@ mod tests {
         let daily = root.join("daily");
         std::fs::create_dir_all(&daily).unwrap();
         std::fs::write(daily.join("2026-09-01.md"), "# 2026-09-01\n- [grok | s1 | /p | user_pref] a\n- [grok | s2 | /p | user_utterance] b\n").unwrap();
-        std::fs::write(daily.join("2026-09-02.md"), "# 2026-09-02\n- [claude | s3 | /p | user_pref] c\n").unwrap();
+        std::fs::write(
+            daily.join("2026-09-02.md"),
+            "# 2026-09-02\n- [claude | s3 | /p | user_pref] c\n",
+        )
+        .unwrap();
         std::fs::write(daily.join("not-a-day.md"), "junk").unwrap();
         append_event(&root, &event(1_788_220_800_000, "session_new")).unwrap(); // 2026-09-01
         append_event(&root, &event(1_788_307_200_000, "mcp_append")).unwrap(); // 2026-09-02

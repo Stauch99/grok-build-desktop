@@ -26,7 +26,15 @@ export function modeOptions(locale: Locale = "zh"): { id: Mode; label: string; h
   }));
 }
 
-export function slashForMode(mode: Mode): "/plan" | "/always-approve" | "/auto" {
+export function slashForMode(
+  mode: Mode,
+  agentId?: string,
+): "/plan" | "/always-approve" | "/auto" | "/normal" | "/bypass" {
+  if (agentId === "devin") {
+    if (mode === "plan") return "/plan";
+    if (mode === "yolo") return "/bypass";
+    return "/normal";
+  }
   if (mode === "plan") return "/plan";
   if (mode === "yolo") return "/always-approve";
   return "/auto";

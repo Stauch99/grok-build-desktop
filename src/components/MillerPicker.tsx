@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listWorkspaceEntries, type WorkspaceEntry } from "../api";
 import { millerPath, millerPop, millerPush, millerRoot, type MillerColumn } from "../lib/miller";
+import { focusables, trapFocus } from "../lib/trap-focus";
 import { IconClose } from "../icons";
 import { useT } from "../lib/locale-context";
 
@@ -14,6 +15,7 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
   const t = useT();
   const [stack, setStack] = useState<MillerColumn[]>(() => millerRoot(root));
   const [entries, setEntries] = useState<WorkspaceEntry[]>([]);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const path = millerPath(stack);
 
@@ -21,15 +23,37 @@ export function MillerPicker({ root, onPick, onClose }: MillerPickerProps) {
     void listWorkspaceEntries(path).then(setEntries).catch(() => setEntries([]));
   }, [path]);
 
+  // Modal: trap Tab inside and hand focus back to whatever had it before.
+  useEffect(() => {
+    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const first = dialog ? focusables(dialog)[0] : null;
+    (first ?? dialog)?.focus();
+    return () => {
+      if (prev?.isConnected) prev.focus();
+    };
+  }, []);
+
   return (
     <div className="settings-layer" role="presentation">
       <div className="settings-backdrop" onClick={onClose} />
       <div
+        ref={dialogRef}
         className="settings-dialog extra-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={t("miller.title")}
         onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+            return;
+          }
+          if (e.key === "Tab") {
+            trapFocus(e.currentTarget, e.nativeEvent);
+            return;
+          }
           if (e.key !== "Backspace") return;
           const target = e.target as HTMLElement | null;
           if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;

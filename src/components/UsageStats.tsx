@@ -211,11 +211,11 @@ export function UsageStats() {
             </dl>
           </div>
 
-          {bars.some((b) => b.used > 0) ? (
+          {bars.length > 0 ? (
             <figure className="usage-chart">
               <figcaption>
                 <span>{chartLabel}</span>
-                <span>{t("usage.peak", { n: formatTokenZh(barMax) })}</span>
+                <span>{barMax > 0 ? t("usage.peak", { n: formatTokenZh(barMax) }) : t("usage.noDaily")}</span>
               </figcaption>
               <div
                 className="usage-chart-plot"

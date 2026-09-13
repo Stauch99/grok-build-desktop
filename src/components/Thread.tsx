@@ -30,12 +30,17 @@ import {
   turnSeparatorLabel,
   usageTone,
 } from "../lib/time";
+import { usageRingDash } from "../lib/usage-split";
 import { diffStatLabel } from "../lib/tool-render";
 import { resolveOpenTarget } from "../lib/text";
-import { IconChevron, IconStop } from "../icons";
+import { IconCheck, IconChevron, IconMarkdown, IconSearch, IconStop } from "../icons";
 import { IconGrokCopy } from "../grok-icons";
 import { DotMatrix } from "./DotMatrix";
+import { ImageLightbox, type LightboxImage } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { MessageContextMenu, type MsgMenuItem } from "./MessageContextMenu";
+import { OutputTail } from "./OutputTail";
+import { ThreadFindBar } from "./ThreadFindBar";
 import { ToolResult } from "./ToolResult";
 import { UserTurn } from "./UserTurn";
 import { WorkLiveRow } from "./WorkTimeline";
@@ -47,6 +52,11 @@ import { splitInjectedMemory } from "../lib/memory-inject";
 import { tocActiveId } from "../lib/toc-active";
 import { latestThreadRowIndex, readyTranscriptPinKey, restoreVirtualScrollIndex, shouldPinReadyTranscript } from "../lib/virtual-scroll-anchor";
 import { useT } from "../lib/locale-context";
+import { findThreadHits, stepFindIndex } from "../lib/thread-find";
+import { nextTurnIndex } from "../lib/turn-nav";
+import { collapseToolOutput } from "../lib/output-collapse";
+import { formatQuote } from "../lib/selection-actions";
+import { MAIN_PANE } from "../lib/pane-tree";
 
 /**
  * Clicking a local file opens the preview pane; ⌘/Ctrl-click reveals it in the
@@ -73,6 +83,9 @@ export function handleMdClick(
   void openPath(target);
 }
 
+const USAGE_MARK_SIZE = 14;
+const USAGE_MARK_R = 5;
+
 export function UsageMark({
   usage,
   pct,
@@ -90,11 +103,22 @@ export function UsageMark({
     pct != null && size
       ? t("thread.usagePct", { pct, used, size })
       : t("thread.usageIdle");
+  const { circumference, dash } = usageRingDash(pct ?? 0, USAGE_MARK_R);
   return (
     <span className={`usage-chip usage-chip-${tone}`} aria-label={title}>
-      <span className="usage-bar" aria-hidden>
-        <span className="usage-bar-fill" style={{ width: `${pct ?? 0}%` }} />
-      </span>
+      <svg className="usage-ring" width={USAGE_MARK_SIZE} height={USAGE_MARK_SIZE} viewBox={`0 0 ${USAGE_MARK_SIZE} ${USAGE_MARK_SIZE}`} aria-hidden>
+        <circle className="usage-ring-track" cx={USAGE_MARK_SIZE / 2} cy={USAGE_MARK_SIZE / 2} r={USAGE_MARK_R} />
+        {dash > 0 ? (
+          <circle
+            className="usage-ring-fill"
+            cx={USAGE_MARK_SIZE / 2}
+            cy={USAGE_MARK_SIZE / 2}
+            r={USAGE_MARK_R}
+            strokeDasharray={`${dash} ${circumference}`}
+            transform={`rotate(-90 ${USAGE_MARK_SIZE / 2} ${USAGE_MARK_SIZE / 2})`}
+          />
+        ) : null}
+      </svg>
       {pct != null ? `${pct}%` : "—"}
     </span>
   );
@@ -177,6 +201,50 @@ export function Fold({
   );
 }
 
+/** Icon button with a ~1s "copied" check swap, used on assistant hover actions. */
+function ActionCopy({ label, text, icon }: { label: string; text: string; icon: ReactNode }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1200);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? t("toast.copied") : label}
+      onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true))}
+    >
+      {copied ? <IconCheck size={15} /> : icon}
+    </button>
+  );
+}
+
+/**
+ * Rendered text of a message row for context-menu "Copy text". The .md clone
+ * drops UI chrome (code-block headers, action buttons) so only prose copies.
+ */
+export function messagePlainText(row: HTMLElement | null): string {
+  const md = row?.querySelector(".md");
+  if (!md) return "";
+  const clone = md.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(".code-head, .actions, .msg-actions").forEach((n) => n.remove());
+  return clone.textContent?.trim() ?? "";
+}
+
+/** Lightbox caption: the img alt, else the filename tail of a file/asset URL. */
+function imageCaption(img: HTMLImageElement): string {
+  const alt = img.alt?.trim();
+  if (alt) return alt;
+  try {
+    const path = decodeURIComponent(new URL(img.src).pathname);
+    return path.split("/").filter(Boolean).pop() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export const ChatRow = memo(function ChatRow({
   item,
   dark,
@@ -191,6 +259,8 @@ export const ChatRow = memo(function ChatRow({
   highlightQuery,
   retryText,
   onDraftUser,
+  findActive = false,
+  onMsgContext,
 }: {
   item: ChatItem;
   dark: boolean;
@@ -207,6 +277,9 @@ export const ChatRow = memo(function ChatRow({
   highlightQuery?: string;
   retryText?: string | null;
   onDraftUser?: (text: string) => void;
+  /** Current in-thread find hit — a persistent ring, not the timed flash. */
+  findActive?: boolean;
+  onMsgContext?: (e: ReactMouseEvent<HTMLElement>, item: ChatItem) => void;
 }) {
   const t = useT();
   const openPathAbs = (p: string) => {
@@ -220,7 +293,8 @@ export const ChatRow = memo(function ChatRow({
       <div
         id={`turn-${paneId}-${item.id}`}
         data-turn-id={item.id}
-        className={`turn-user${highlightQuery && visible.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}`}
+        className={`turn-user${highlightQuery && visible.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}${findActive ? " find-current" : ""}`}
+        onContextMenu={onMsgContext ? (e) => onMsgContext(e, item) : undefined}
       >
         <UserTurn
           text={item.text}
@@ -242,7 +316,8 @@ export const ChatRow = memo(function ChatRow({
     return (
       <article
         id={`msg-${paneId}-${item.id}`}
-        className={`msg assistant${highlightQuery && item.text.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}`}
+        className={`msg assistant${highlightQuery && item.text.toLowerCase().includes(highlightQuery.toLowerCase()) ? " search-hit" : ""}${findActive ? " find-current" : ""}`}
+        onContextMenu={onMsgContext ? (e) => onMsgContext(e, item) : undefined}
       >
         <Markdown
           text={item.text}
@@ -252,13 +327,8 @@ export const ChatRow = memo(function ChatRow({
           onClick={(e) => handleMdClick(e, cwd, onPreviewPath)}
         />
         <div className="actions">
-          <button
-            type="button"
-            onClick={() => void navigator.clipboard.writeText(item.text)}
-            aria-label={t("thread.copy")}
-          >
-            <IconGrokCopy />
-          </button>
+          <ActionCopy label={t("thread.copy")} text={item.text} icon={<IconGrokCopy />} />
+          <ActionCopy label={t("thread.copyMarkdown")} text={item.text} icon={<IconMarkdown size={15} />} />
         </div>
       </article>
     );
@@ -331,6 +401,14 @@ export const ChatRow = memo(function ChatRow({
   const stat = diffStatLabel(item.diff);
   const toolLabel = `${item.title || item.toolKind || t("tool.call")}${stat ? ` ${stat}` : ""}`;
   const isFail = item.status === "failed";
+  // Long finished output clamps to a head + "… N more lines" tail; running
+  // calls (pending/in_progress) keep streaming without a collapse.
+  const outCollapse = item.diff
+    ? null
+    : collapseToolOutput(
+        item.detail,
+        item.status === "pending" || item.status === "in_progress",
+      );
   return (
     <Fold
       label={toolLabel}
@@ -340,7 +418,7 @@ export const ChatRow = memo(function ChatRow({
         title={item.title}
         toolKind={item.toolKind}
         status={item.status}
-        detail={item.detail}
+        detail={outCollapse ? outCollapse.head : item.detail}
         diff={item.diff}
         onOpenPath={openPathAbs}
         onRetry={
@@ -354,6 +432,7 @@ export const ChatRow = memo(function ChatRow({
             : undefined
         }
       />
+      {outCollapse ? <OutputTail collapse={outCollapse} /> : null}
     </Fold>
   );
 });
@@ -381,6 +460,9 @@ type ThreadRowCtx = {
   onInspectTool?: (item: Extract<ChatItem, { kind: "tool" }>) => void;
   onPreviewPath?: (path: string) => void;
   highlightQuery?: string;
+  /** In-thread find: item id of the current hit, or null. */
+  findHitId?: string | null;
+  onMsgContext?: (e: ReactMouseEvent<HTMLElement>, item: ChatItem) => void;
   onCancel: () => void;
   onDraftUser?: (text: string) => void;
   onStopAndRetry?: () => void;
@@ -427,6 +509,8 @@ function ThreadBlockView({
     onInspectTool,
     onPreviewPath,
     highlightQuery,
+    findHitId,
+    onMsgContext,
     onCancel,
     onDraftUser,
     onStopAndRetry,
@@ -478,6 +562,8 @@ function ThreadBlockView({
           onInspectTool={onInspectTool}
           onPreviewPath={onPreviewPath}
           highlightQuery={highlightQuery}
+          findActive={findHitId === item.id}
+          onMsgContext={onMsgContext}
         />
       </Fragment>
     );
@@ -496,6 +582,8 @@ function ThreadBlockView({
       onInspectTool={onInspectTool}
       onPreviewPath={onPreviewPath}
           highlightQuery={highlightQuery}
+          findActive={findHitId === item.id}
+          onMsgContext={onMsgContext}
           retryText={item.kind === "tool" ? lastUser(item.id) : null}
           onDraftUser={onDraftUser}
     />
@@ -610,6 +698,167 @@ export function ThreadColumn({
     [busy],
   );
   const lastUser = useCallback((id: string) => lastUserTextBefore(itemsRef.current, id), []);
+
+  // ---- in-thread find (⌘/Ctrl+F) ----
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findIdx, setFindIdx] = useState(0);
+  // ---- image lightbox + right-click menu ----
+  const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    item: ChatItem;
+    plain: string;
+  } | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+
+  const findHits = useMemo(
+    () => (findOpen ? findThreadHits(blocks, findQuery) : []),
+    [findOpen, blocks, findQuery],
+  );
+  const findCur = findHits.length ? Math.min(Math.max(findIdx, 0), findHits.length - 1) : -1;
+  const findHitId = findCur >= 0 ? findHits[findCur].id : null;
+
+  /** Scroll a row into view (virtual or plain) and flash the search-hit ring. */
+  const flashAndScroll = useCallback(
+    (itemId: string, smooth: boolean) => {
+      const hitId = `${paneId}-${itemId}`;
+      const sel = `#turn-${hitId}, #msg-${hitId}`;
+      const listEl = listRef.current?.element;
+      if (listEl?.isConnected) {
+        const idx = blocksRef.current.findIndex(
+          (b) => b.kind === "item" && b.item.id === itemId,
+        );
+        if (idx >= 0) {
+          listRef.current?.scrollToRow({ index: idx, align: "center", behavior: "instant" });
+        }
+        void waitForSelector(listEl, sel, 500).then((node) => {
+          if (node) applySearchHit(listEl, hitId);
+        });
+        return;
+      }
+      const el = chatRef.current?.querySelector(sel);
+      el?.scrollIntoView({ behavior: smooth ? "smooth" : "instant", block: "center" });
+      applySearchHit(chatRef.current, hitId);
+    },
+    [paneId, chatRef, listRef],
+  );
+
+  /** True when this pane should answer scoped hotkeys (focus inside or hovered). */
+  const paneActive = useCallback(() => {
+    // .chat-shell wraps the scroller, the TOC, and the find bar — the pane.
+    const pane = shellRef.current?.parentElement ?? shellRef.current;
+    if (!pane) return false;
+    const ae = document.activeElement;
+    if (ae && ae !== document.body && pane.contains(ae)) return true;
+    if (ae instanceof HTMLElement && ae.closest("input, textarea, [contenteditable=true]")) {
+      return false;
+    }
+    if (pane.matches(":hover")) return true;
+    return (ae == null || ae === document.body || ae === document.documentElement) && paneId === MAIN_PANE;
+  }, [paneId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.defaultPrevented) return;
+      // ⌘/Ctrl+F opens the in-thread find bar for this pane.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+        if (!paneActive()) return;
+        e.preventDefault();
+        setFindOpen(true);
+        requestAnimationFrame(() => {
+          shellRef.current?.parentElement
+            ?.querySelector<HTMLInputElement>(".thread-find input")
+            ?.focus();
+        });
+        return;
+      }
+      // Esc closes the find bar when it or this pane holds focus; modal/menu
+      // Esc handling elsewhere is left alone.
+      if (e.key === "Escape" && findOpen) {
+        const inFind = e.target instanceof Element && !!e.target.closest(".thread-find");
+        if (!inFind && !paneActive()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setFindOpen(false);
+        return;
+      }
+      // Alt+↑/↓ jump between user turns.
+      if (
+        e.altKey && !e.metaKey && !e.ctrlKey &&
+        (e.key === "ArrowUp" || e.key === "ArrowDown")
+      ) {
+        if (!paneActive()) return;
+        const ids = turns.map((u) => u.id);
+        const next = nextTurnIndex(ids, tocActive, e.key === "ArrowDown" ? 1 : -1);
+        if (next < 0) return;
+        e.preventDefault();
+        setTocActive(ids[next]);
+        flashAndScroll(ids[next], false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [paneActive, findOpen, turns, tocActive, flashAndScroll]);
+
+  // Keep the current find hit scrolled into view + ringed.
+  useEffect(() => {
+    if (!findOpen || !findHitId) return;
+    flashAndScroll(findHitId, true);
+  }, [findOpen, findHitId, flashAndScroll]);
+
+  // Right-click on a user/assistant row → message menu at the cursor.
+  const onMsgContext = useCallback((e: ReactMouseEvent<HTMLElement>, item: ChatItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      item,
+      plain: messagePlainText(e.currentTarget),
+    });
+  }, []);
+
+  const ctxMenuItems = useMemo((): MsgMenuItem[] => {
+    if (!ctxMenu) return [];
+    const { item, plain } = ctxMenu;
+    // The menu only attaches to user/assistant rows; keep the fallback total.
+    const raw =
+      item.kind === "user" ? splitInjectedMemory(item.text).visible
+      : "text" in item ? item.text
+      : "";
+    // User text is already plain; DOM textContent would drop <br> newlines.
+    const copyText = item.kind === "user" ? raw : plain || raw;
+    const items: MsgMenuItem[] = [
+      {
+        id: "copy-text",
+        label: t("thread.copyText"),
+        onSelect: () => void navigator.clipboard.writeText(copyText),
+      },
+      {
+        id: "copy-md",
+        label: t("thread.copyMarkdown"),
+        onSelect: () => void navigator.clipboard.writeText(raw),
+      },
+    ];
+    if (onDraftUser) {
+      items.push({
+        id: "quote",
+        label: t("selection.quote"),
+        onSelect: () => onDraftUser(`${formatQuote(raw)}\n\n`),
+      });
+    }
+    if (item.kind === "user") {
+      const rewind = rewindFor?.(item.id);
+      if (rewind) items.push({ id: "rewind", label: t("thread.rewindHere"), onSelect: rewind });
+      if (onForkTurn) {
+        items.push({ id: "fork", label: t("thread.forkHere"), onSelect: () => onForkTurn(item.id) });
+      }
+    }
+    return items;
+  }, [ctxMenu, onDraftUser, rewindFor, onForkTurn, t]);
+
   const rowCtx = useMemo(
     (): ThreadRowCtx => ({
       paneId,
@@ -631,6 +880,8 @@ export function ThreadColumn({
       onInspectTool,
       onPreviewPath,
       highlightQuery,
+      findHitId,
+      onMsgContext,
       onCancel,
       onDraftUser,
       onStopAndRetry,
@@ -655,6 +906,8 @@ export function ThreadColumn({
       onInspectTool,
       onPreviewPath,
       highlightQuery,
+      findHitId,
+      onMsgContext,
       onCancel,
       onDraftUser,
       onStopAndRetry,
@@ -820,8 +1073,29 @@ export function ThreadColumn({
     </div>
     <div
       className={`chat${listActive ? " virtualized" : ""}`}
-      ref={listActive ? undefined : chatRef}
+      ref={(el) => {
+        shellRef.current = el;
+        if (!listActive) chatRef.current = el;
+      }}
       onScroll={listActive ? undefined : (e) => reportScroll(e.currentTarget)}
+      onClickCapture={(e) => {
+        // Images inside message markdown open the lightbox before the
+        // row-level link handler can claim the click.
+        const el = e.target;
+        if (!(el instanceof HTMLImageElement) || !el.closest(".md")) return;
+        const scope = el.closest(".msg") ?? el.closest(".thread");
+        const imgs = scope
+          ? [...scope.querySelectorAll<HTMLImageElement>(".md img")]
+          : [el];
+        const images: LightboxImage[] = imgs.map((img) => ({
+          src: img.currentSrc || img.src,
+          name: imageCaption(img),
+        }));
+        if (!images.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setLightbox({ images, index: Math.max(0, imgs.indexOf(el)) });
+      }}
     >
       <div
         className="thread"
@@ -885,6 +1159,47 @@ export function ThreadColumn({
         )}
         </div>
       </div>
+
+      {/* Find bar + trigger sit outside the scroller so they stay pinned. */}
+      {!empty && !findOpen ? (
+        <button
+          type="button"
+          className="thread-find-btn"
+          aria-label={t("thread.find")}
+          onClick={() => setFindOpen(true)}
+        >
+          <IconSearch size={14} />
+        </button>
+      ) : null}
+      {findOpen ? (
+        <ThreadFindBar
+          query={findQuery}
+          index={findCur}
+          total={findHits.length}
+          onQuery={(q) => {
+            setFindQuery(q);
+            setFindIdx(0);
+          }}
+          onStep={(dir) => setFindIdx((i) => stepFindIndex(i, dir, findHits.length))}
+          onClose={() => setFindOpen(false)}
+        />
+      ) : null}
+      {lightbox ? (
+        <ImageLightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          onIndex={(i) => setLightbox((s) => (s ? { ...s, index: i } : s))}
+          onClose={() => setLightbox(null)}
+        />
+      ) : null}
+      {ctxMenu ? (
+        <MessageContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxMenuItems}
+          onClose={() => setCtxMenu(null)}
+        />
+      ) : null}
 
       {!pinToLatest && newSinceScroll > 0 ? (
         <span className="jump-count" aria-hidden="true">

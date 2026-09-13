@@ -1,7 +1,9 @@
 import { t, type Locale } from "../../lib/i18n";
+import { filterTimeline } from "../../lib/memory-search";
 import type { TimelineDay, TimelineEvent } from "../../lib/memory-growth";
+import { HighlightText } from "../HighlightText";
 
-function eventLabel(locale: Locale, ev: TimelineEvent): string {
+export function eventLabel(locale: Locale, ev: TimelineEvent): string {
   if (ev.kind === "promote") return t(locale, "memory.growth.eventPromote", { n: ev.count ?? 0 });
   if (ev.kind === "dream_sweep") {
     const k = ev.inChars != null ? Math.round(ev.inChars / 100) / 10 : 0;
@@ -20,22 +22,28 @@ export function GrowthTimeline({
   days,
   selectedDay,
   onSelect,
+  query = "",
 }: {
   locale: Locale;
   days: TimelineDay[];
   selectedDay: string | null;
   onSelect: (day: string) => void;
+  query?: string;
 }) {
-  const ordered = [...days].reverse();
+  const ordered = filterTimeline([...days].reverse(), query, (ev) => eventLabel(locale, ev));
   if (!ordered.length) {
-    return <p className="growth-timeline-empty">{t(locale, "memory.growth.timelineEmpty")}</p>;
+    return (
+      <p className="growth-timeline-empty">
+        {t(locale, query.trim() ? "memory.growth.searchEmpty" : "memory.growth.timelineEmpty")}
+      </p>
+    );
   }
   return (
     <ol className="growth-timeline">
       {ordered.map((row) => (
         <li key={row.day} className={selectedDay === row.day ? "active" : undefined}>
           <button type="button" className="growth-timeline-day" onClick={() => onSelect(row.day)}>
-            {row.day}
+            <HighlightText text={row.day} query={query} />
           </button>
           <ul>
             {row.events.length === 0 ? (
@@ -43,7 +51,7 @@ export function GrowthTimeline({
             ) : (
               row.events.map((ev, i) => (
                 <li key={`${ev.at}-${i}`} className="growth-timeline-chip">
-                  {eventLabel(locale, ev)}
+                  <HighlightText text={eventLabel(locale, ev)} query={query} />
                 </li>
               ))
             )}

@@ -3,15 +3,17 @@ import { openPath, readMemoryHost, readTextFile, writeAllowedText } from "../../
 import { t, type Locale } from "../../lib/i18n";
 import { friendlyError } from "../../lib/error-copy";
 import { parseMemoryState } from "../../lib/memory-state";
+import { countHits, memorySearchHits } from "../../lib/memory-search";
 import type { DiaryEntry, OverlayStatus } from "../../lib/memory-view";
 import type { AgentId } from "../../lib/agent-id";
 import { useMemoryGrowth } from "../../hooks/useMemoryGrowth";
-import { IconEdit, IconFinder } from "../../icons";
+import { IconEdit, IconFinder, IconSearch } from "../../icons";
+import { HighlightText } from "../HighlightText";
 import { MemoryEditor } from "../MemoryEditor";
 import { GrowthDiaryPaper } from "./GrowthDiaryPaper";
 import { GrowthHeader } from "./GrowthHeader";
 import { GrowthHeatmap } from "./GrowthHeatmap";
-import { GrowthTimeline } from "./GrowthTimeline";
+import { GrowthTimeline, eventLabel } from "./GrowthTimeline";
 import { GrowthToggle } from "./GrowthToggle";
 
 export type SkillProposalRow = { id: string; title: string; evidence: string };
@@ -44,6 +46,7 @@ const AGENT_LABEL: Record<AgentId, string> = {
   kimi: "Kimi",
   claude: "Claude",
   codex: "Codex",
+  devin: "Devin",
 };
 
 function statusLine(status: OverlayStatus, locale: Locale): string {
@@ -93,6 +96,7 @@ export function MemoryGrowthPage({
   const g = useMemoryGrowth({ diary, extraOpen });
   const [menuOpen, setMenuOpen] = useState(false);
   const [hostFoundingAt, setHostFoundingAt] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (!extraOpen || foundingAt !== undefined) return;
@@ -111,12 +115,23 @@ export function MemoryGrowthPage({
   const resolvedFoundingAt = foundingAt !== undefined ? foundingAt : hostFoundingAt;
   const busy = status.kind === "running" || status.kind === "founding";
   const pending = proposals ?? [];
+  const q = query.trim();
   const fileRows = [
     { heading: "MEMORY.md", path: memoryPath, editable: true },
     { heading: "AGENTS.md", path: agentsPath, editable: true },
     { heading: "USER.md", path: userMdPath, editable: false },
     { heading: "DREAMS.md", path: dreamsMdPath, editable: false },
   ].filter((r): r is { heading: string; path: string; editable: boolean } => Boolean(r.path));
+  const visibleFiles = q
+    ? fileRows.filter((r) => countHits(`${r.heading} ${r.path}`, q) > 0)
+    : fileRows;
+  const hitCount = memorySearchHits({
+    diary,
+    days: g.timeline,
+    files: fileRows,
+    query: q,
+    labelFor: (ev) => eventLabel(locale, ev),
+  });
 
   return (
     <div className="memory-growth">
@@ -156,6 +171,28 @@ export function MemoryGrowthPage({
         {corpus ? ` · ${corpus}` : ""}
       </p>
 
+      <div className="growth-search">
+        <IconSearch size={14} />
+        <input
+          type="search"
+          value={query}
+          placeholder={t(locale, "memory.growth.searchPh")}
+          aria-label={t(locale, "memory.growth.searchAria")}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setQuery("");
+            }
+          }}
+        />
+        {q ? (
+          <span className="growth-search-count">
+            {t(locale, "memory.growth.searchCount", { n: hitCount })}
+          </span>
+        ) : null}
+      </div>
+
       <GrowthToggle locale={locale} metric={g.metric} onChange={g.setMetric} />
       <GrowthHeatmap
         locale={locale}
@@ -175,12 +212,13 @@ export function MemoryGrowthPage({
             <span>{t(locale, "memory.growth.logHint")}</span>
           </header>
           <div className="growth-log-body">
-            <GrowthDiaryPaper locale={locale} entries={diary} selectedDay={g.selectedDay} />
+            <GrowthDiaryPaper locale={locale} entries={diary} selectedDay={g.selectedDay} query={q} />
             <GrowthTimeline
               locale={locale}
               days={g.timeline}
               selectedDay={g.selectedDay}
               onSelect={g.setSelectedDay}
+              query={q}
             />
           </div>
         </section>
@@ -217,7 +255,7 @@ export function MemoryGrowthPage({
           <strong>{t(locale, "memory.projectFiles")}</strong>
         </header>
         <ul className="hub-rows">
-          {fileRows.map((row) =>
+          {visibleFiles.map((row) =>
             row.editable ? (
               <EditableDocRow
                 key={row.path}
@@ -226,12 +264,17 @@ export function MemoryGrowthPage({
                 cwd={cwd}
                 locale={locale}
                 onOpen={onOpenPath}
+                query={q}
               />
             ) : (
               <li key={row.path} className="hub-row">
                 <button type="button" className="hub-row-main" onClick={() => onOpenPath(row.path)}>
-                  <strong>{row.heading}</strong>
-                  <span className="hub-meta">{row.path}</span>
+                  <strong>
+                    <HighlightText text={row.heading} query={q} />
+                  </strong>
+                  <span className="hub-meta">
+                    <HighlightText text={row.path} query={q} />
+                  </span>
                 </button>
                 <div className="hub-row-side">
                   <button
@@ -258,12 +301,14 @@ function EditableDocRow({
   cwd,
   locale,
   onOpen,
+  query = "",
 }: {
   heading: string;
   path: string;
   cwd?: string;
   locale: Locale;
   onOpen: (path: string) => void;
+  query?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -295,8 +340,12 @@ function EditableDocRow({
   return (
     <li className="hub-row growth-file-row">
       <button type="button" className="hub-row-main" onClick={() => onOpen(path)}>
-        <strong>{heading}</strong>
-        <span className="hub-meta">{path}</span>
+        <strong>
+          <HighlightText text={heading} query={query} />
+        </strong>
+        <span className="hub-meta">
+          <HighlightText text={path} query={query} />
+        </span>
       </button>
       <div className="hub-row-side">
         <button

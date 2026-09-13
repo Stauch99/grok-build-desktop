@@ -39,7 +39,7 @@ export function skillNameOk(name: string): boolean {
 }
 
 export function defaultSyncFlags(): SyncFlags {
-  return { grok: true, kimi: true, claude: true, codex: true };
+  return { grok: true, kimi: true, claude: true, codex: true, devin: true };
 }
 
 export function mergeMcpCatalog(canonical: McpServer[], imported: McpServer[]): McpServer[] {
@@ -119,7 +119,7 @@ export function stringifySyncJson(sync: AgentsSync): string {
 }
 
 function parseFlags(raw: unknown): SyncFlags {
-  const out: SyncFlags = { grok: false, kimi: false, claude: false, codex: false };
+  const out: SyncFlags = { grok: false, kimi: false, claude: false, codex: false, devin: false };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   const rec = raw as Record<string, unknown>;
   for (const id of AGENT_IDS) {

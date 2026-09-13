@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   doctorAll,
   inspectBrief,
@@ -10,7 +10,8 @@ import {
   readTextFile,
   setWorkspace,
 } from "../api";
-import { catalogFromSource, emptyCatalog, effortsForModel } from "../lib/agent-models";
+import { catalogFromSource, emptyCatalog, effortsForModel, type SlimModel } from "../lib/agent-models";
+import { modelConfigOption, parseSessionConfigOptions, thoughtLevelConfigOption } from "../lib/session-config-options";
 import { parseInspect } from "../lib/inspect";
 import { MAIN_PANE, type Bindings } from "../lib/pane-tree";
 import { persistReviewOpen } from "../lib/review-rail";
@@ -99,6 +100,36 @@ export function useAppModel() {
     onSessionsNeedRefresh: (inbox) => s.refreshSessionsRef.current(inbox),
     onSessionCreated: (row) => s.onSessionCreatedRef.current(row),
     onAcpSessionList: (agentId, rows) => s.onAcpSessionListRef.current(agentId, rows),
+    onSessionConfigOptions: (agentId, result) => {
+      if (agentId !== "devin") return;
+      const options = parseSessionConfigOptions(result);
+      const option = modelConfigOption(options);
+      if (!option || !option.options.length) return;
+      const rows: SlimModel[] = option.groups?.length
+        ? option.groups.flatMap((g) =>
+            g.options.map((o) => ({ id: o.value, label: o.name, description: o.description, group: g.name })),
+          )
+        : option.options.map((o) => ({ id: o.value, label: o.name, description: o.description }));
+      const thought = thoughtLevelConfigOption(options);
+      devinModelConfigIdRef.current = option.id;
+      devinThoughtConfigIdRef.current = thought?.id ?? null;
+      const effortIds = thought?.options.map((o) => o.value).filter(Boolean) ?? [];
+      if (effortIds.length) {
+        for (const r of rows) {
+          if (!r.efforts?.length) r.efforts = effortIds;
+          if (!r.defaultEffort) r.defaultEffort = thought?.currentValue;
+        }
+      }
+      devinLiveModelsRef.current = rows;
+      const catalog = catalogFromSource({
+        agentId: "devin",
+        devin: { currentModel: option.currentValue, currentEffort: thought?.currentValue, models: rows },
+      });
+      s.setModelRows(catalog.models);
+      if (catalog.currentModel) s.setModel(catalog.currentModel);
+      if (catalog.currentEffort) s.setEffort(catalog.currentEffort);
+      s.setEffortReady(effortIds.length > 0);
+    },
     setSawExit: s.setSawExit,
     lastActivityRef: s.lastActivityRef,
     steerByDefault: s.steerByDefault,
@@ -253,11 +284,17 @@ export function useAppModel() {
     }
   }, [s.cwd]);
 
+  const devinLiveModelsRef = useRef<SlimModel[]>([]);
+  const devinModelConfigIdRef = useRef("model");
+  const devinThoughtConfigIdRef = useRef<string | null>(null);
   const refreshModels = useCallback(async (agentId?: AgentId) => {
     const id = agentId ?? s.selectedAgentIdLiveRef.current;
     try {
       const source = await readAgentModelSource(id);
       if (s.selectedAgentIdLiveRef.current !== id) return;
+      if (id === "devin" && devinLiveModelsRef.current.length) {
+        source.devin = { ...source.devin, models: devinLiveModelsRef.current };
+      }
       const catalog = catalogFromSource(source);
       s.setModelRows(catalog.models);
       const nextModel = keepLiveModelOnCatalog(
@@ -458,7 +495,10 @@ export function useAppModel() {
     sessions: s.sessions,
     sessionId: acp.sessionId,
     extraPanes: Object.fromEntries(
-      Object.entries(s.extraPanes).map(([id, pane]) => [id, { sessionId: pane.sessionId, busy: pane.busy, draft: pane.draft }]),
+      Object.entries(s.extraPanes).map(([id, pane]) => [
+        id,
+        { sessionId: pane.sessionId, busy: pane.busy, draft: pane.draft, agentId: pane.agentId },
+      ]),
     ),
     mainPaneBusy: view.mainPaneBusy,
     loadingSession: acp.loadingSession,
@@ -491,6 +531,18 @@ export function useAppModel() {
     setRewindTarget: s.setRewindTarget,
     sendSlashToAgent: acp.sendSlashToAgent,
     sendPrompt: acp.sendPrompt,
+    setSessionConfigOption: async (configId, value) => {
+      const sid = acp.sessionIdRef.current;
+      if (!sid) return false;
+      const id = configId === "model" ? devinModelConfigIdRef.current : configId === "thought_level" ? devinThoughtConfigIdRef.current : configId;
+      if (!id) return false;
+      try {
+        await acp.rpc("session/set_config_option", { sessionId: sid, configId: id, value });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     startSession: acp.startSession,
     openSettings: () => s.setSettingsOpen(true),
     openHub,

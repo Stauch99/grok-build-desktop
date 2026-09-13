@@ -12,6 +12,10 @@ pub(crate) fn kimi_subscription_present(home: &Path) -> bool {
         || nonempty_auth_file(&home.join("credentials").join("kimi-code.json"))
 }
 
+pub(crate) fn devin_subscription_present(data_home: &Path) -> bool {
+    nonempty_auth_file(&data_home.join("credentials.toml"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthKind {
     Subscription,
@@ -43,6 +47,7 @@ pub(crate) fn login_hint_for(agent_id: &str) -> Vec<String> {
         "kimi" => vec!["kimi login".into()],
         "claude" => vec!["claude auth login".into()],
         "codex" => vec!["codex login".into()],
+        "devin" => vec!["devin auth login".into()],
         _ => vec!["login".into()],
     }
 }
@@ -127,11 +132,22 @@ mod tests {
     }
 
     #[test]
+    fn devin_credentials_toml_counts_as_subscription() {
+        let root = std::env::temp_dir().join(format!("devin-doctor-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(!devin_subscription_present(&root));
+        std::fs::write(root.join("credentials.toml"), "token = \"x\"").unwrap();
+        assert!(devin_subscription_present(&root));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn login_hint_matches_cli() {
         assert_eq!(login_hint_for("grok"), vec!["grok auth login"]);
         assert_eq!(login_hint_for("kimi"), vec!["kimi login"]);
         assert_eq!(login_hint_for("claude"), vec!["claude auth login"]);
         assert_eq!(login_hint_for("codex"), vec!["codex login"]);
+        assert_eq!(login_hint_for("devin"), vec!["devin auth login"]);
     }
 
     #[test]

@@ -101,19 +101,52 @@ describe("collapsed rail affordance", () => {
   });
 });
 
-describe("sidebar account fade", () => {
-  it("fades the session list into the weekly usage row", () => {
+describe("sidebar collapse motion", () => {
+  it("tweens the column width instead of jumping", () => {
+    const app = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../App.tsx"),
+      "utf8",
+    );
+    // The grid column var is driven by the rAF-interpolated slotPx, and the
+    // rail class follows the slot — content fades before the slot shrinks.
+    expect(app).toContain('["--sidebar-w" as string]: `${sidebarMotion.slotPx}px`');
+    expect(app).toContain("collapsed={sidebarMotion.slotCollapsed}");
+    expect(app).toContain('data-sidebar-motion={sidebarMotion.moving ? "" : undefined}');
+    expect(app).toContain("useSidebarMotion(sidebarCollapsed, sidebarWidth)");
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "./sidebar-motion.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/requestAnimationFrame/);
+    expect(src).toMatch(/performance\.now\(\)/);
+  });
+});
+
+describe("sidebar nav placement", () => {
+  it("pins extra nav links under new-chat, list then account at the bottom", () => {
+    const tsx = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../components/Sidebar.tsx"),
+      "utf8",
+    );
+    const chat = tsx.indexOf('className="new-task new-chat');
+    const extra = tsx.indexOf('data-nav="extra"');
+    const list = tsx.indexOf('className={`session-list');
+    const account = tsx.indexOf("<AccountMenu");
+    expect(chat).toBeGreaterThan(-1);
+    expect(extra).toBeGreaterThan(chat);
+    expect(list).toBeGreaterThan(extra);
+    expect(account).toBeGreaterThan(list);
+  });
+
+  it("keeps the account fade + upward popover at the bottom", () => {
     const fade = ruleBlock(".side-account::before");
     expect(fade).toMatch(/pointer-events:\s*none/);
     expect(fade).toMatch(/linear-gradient\(\s*to top,\s*var\(--bg-side\)/);
-    expect(fade).toMatch(/transparent/);
     expect(ruleBlock(".sidebar.rail .side-account::before")).toMatch(/content:\s*none/);
-  });
-
-  it("pads the session list past the account fade so the last row stays visible", () => {
+    const pop = css.match(/^\.account-pop \{([\s\S]*?)\}/m);
+    expect(pop?.[1]).toMatch(/bottom:\s*calc\(100% \+ 4px\)/);
     expect(css).toMatch(/--session-list-end-pad:\s*48px/);
     expect(ruleBlock(".session-list")).toMatch(/padding:\s*0 8px var\(--session-list-end-pad\)/);
-    expect(ruleBlock(".side-account::before")).toMatch(/height:\s*var\(--session-list-end-pad\)/);
     expect(ruleBlock(".session-list.inbox-list")).toMatch(/padding-bottom:\s*0/);
   });
 });

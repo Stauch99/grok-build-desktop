@@ -76,6 +76,7 @@ export async function syncHubMcpServer(server: McpServer): Promise<void> {
   await writeAgentsFile("mcp-json", stringifyMcpJson(catalog));
   await writeAgentsFile("claude-json", nextClaudeLiveText(await readAgentsFile("claude-json"), [server], []));
   await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [server], []));
+  await writeAgentsFile("devin-mcp", nextClaudeLiveText(await readAgentsFile("devin-mcp"), [server], []));
   const cmd = server.commandOrUrl ?? "";
   await upsertTomlMcp("grok-toml", server.name, cmd, server.args ?? []);
   await upsertTomlMcp("codex-toml", server.name, cmd, server.args ?? []);
@@ -101,6 +102,7 @@ export async function enableHubMcpServer(name: string): Promise<void> {
 async function stripHubMcpFromLives(name: string): Promise<void> {
   await writeAgentsFile("claude-json", nextClaudeLiveText(await readAgentsFile("claude-json"), [], [name]));
   await writeAgentsFile("kimi-mcp", nextKimiLiveText(await readAgentsFile("kimi-mcp"), [], [name]));
+  await writeAgentsFile("devin-mcp", nextClaudeLiveText(await readAgentsFile("devin-mcp"), [], [name]));
   await removeTomlMcp("grok-toml", name);
   await removeTomlMcp("codex-toml", name);
 }

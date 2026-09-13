@@ -10,6 +10,7 @@ pub(crate) enum AgentId {
     Kimi,
     Claude,
     Codex,
+    Devin,
 }
 
 impl AgentId {
@@ -19,6 +20,7 @@ impl AgentId {
             AgentId::Kimi => "kimi",
             AgentId::Claude => "claude",
             AgentId::Codex => "codex",
+            AgentId::Devin => "devin",
         }
     }
 
@@ -28,6 +30,7 @@ impl AgentId {
             "kimi" => Some(AgentId::Kimi),
             "claude" => Some(AgentId::Claude),
             "codex" => Some(AgentId::Codex),
+            "devin" => Some(AgentId::Devin),
             _ => None,
         }
     }
@@ -51,7 +54,7 @@ pub(crate) fn extra_spawn_env(
             .into_iter()
             .map(|p| ("CLAUDE_CODE_EXECUTABLE".into(), p))
             .collect(),
-        AgentId::Grok | AgentId::Kimi => Vec::new(),
+        AgentId::Grok | AgentId::Kimi | AgentId::Devin => Vec::new(),
     }
 }
 
@@ -98,6 +101,9 @@ pub(crate) fn which_search_dirs(path: &str, home: Option<&Path>) -> Vec<PathBuf>
     }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs.push(PathBuf::from(
+        "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin",
+    ));
     dirs
 }
 
@@ -205,6 +211,10 @@ pub(crate) fn default_spawn_profile(id: AgentId) -> SpawnProfile {
         AgentId::Codex => SpawnProfile {
             command: "npx".into(),
             args: vec!["-y".into(), CODEX_ACP_PKG.into()],
+        },
+        AgentId::Devin => SpawnProfile {
+            command: "devin".into(),
+            args: vec!["acp".into()],
         },
     }
 }
@@ -330,9 +340,11 @@ mod tests {
         assert_eq!(AgentId::parse("kimi"), Some(AgentId::Kimi));
         assert_eq!(AgentId::parse("claude"), Some(AgentId::Claude));
         assert_eq!(AgentId::parse("codex"), Some(AgentId::Codex));
+        assert_eq!(AgentId::parse("devin"), Some(AgentId::Devin));
         assert_eq!(AgentId::parse("Grok"), None);
         assert_eq!(AgentId::parse("gemini"), None);
         assert_eq!(AgentId::Grok.as_str(), "grok");
+        assert_eq!(AgentId::Devin.as_str(), "devin");
     }
 
     #[test]
@@ -349,6 +361,9 @@ mod tests {
         let codex = default_spawn_profile(AgentId::Codex);
         assert_eq!(codex.command, "npx");
         assert_eq!(codex.args, vec!["-y", CODEX_ACP_PKG]);
+        let devin = default_spawn_profile(AgentId::Devin);
+        assert_eq!(devin.command, "devin");
+        assert_eq!(devin.args, vec!["acp"]);
     }
 
     #[test]
@@ -379,6 +394,9 @@ mod tests {
         assert!(dirs.contains(&PathBuf::from("/usr/bin")));
         assert!(dirs.contains(&PathBuf::from("/Users/me/.local/bin")));
         assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+        assert!(dirs.contains(&PathBuf::from(
+            "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin"
+        )));
     }
 
     #[test]
@@ -425,6 +443,7 @@ mod tests {
         );
         assert!(extra_spawn_env(AgentId::Grok, lookup).is_empty());
         assert!(extra_spawn_env(AgentId::Kimi, lookup).is_empty());
+        assert!(extra_spawn_env(AgentId::Devin, lookup).is_empty());
         assert!(extra_spawn_env(AgentId::Codex, |_| None).is_empty());
     }
 

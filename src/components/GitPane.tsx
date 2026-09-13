@@ -1,11 +1,14 @@
 import type { GitChange, GitCommit, GitStatus } from "../api";
+import { gitStage, gitUnstage } from "../api";
 import { ChangesPanel } from "./ChangesPanel";
 import { GitBar } from "./GitBar";
 import { GitHistory } from "./GitHistory";
 import type { GitWorktree } from "../lib/git";
+import { gitCommandError } from "../lib/git";
 import { sameCwd } from "../lib/inbox";
 import { basename } from "../lib/text";
 import { useT } from "../lib/locale-context";
+import { friendlyError } from "../lib/error-copy";
 import { DiffSummary } from "./DiffSummary";
 import { Skeleton } from "./Skeleton";
 import type { DiffSummaryItem } from "../lib/diff-summary";
@@ -59,6 +62,26 @@ export function GitPane({
 }: GitPaneProps) {
   const t = useT();
   const currentPath = cwd || status?.root || "";
+
+  /** Stage/unstage one row, then resync the changes list via the pane refresh. */
+  const toggleStage = async (change: GitChange) => {
+    const dir = status?.root || cwd || "";
+    if (!dir) return;
+    try {
+      const res = change.staged
+        ? await gitUnstage(dir, change.path)
+        : await gitStage(dir, change.path);
+      if (!res.ok) {
+        onToast?.(gitCommandError(res, t("git.stageFail")) ?? t("git.stageFail"));
+      }
+    } catch (e) {
+      onToast?.(friendlyError(e));
+    } finally {
+      // Refresh either way so the staged flags reflect the real index.
+      onRefresh();
+    }
+  };
+
   return (
     <div className="review-stack git-pane">
       {turnDiffItems ? <DiffSummary items={turnDiffItems} /> : null}
@@ -91,6 +114,7 @@ export function GitPane({
           onReveal={onReveal}
           onRefresh={onRefresh}
           onDiscard={onDiscard}
+          onToggleStage={(c) => void toggleStage(c)}
         />
         {status?.isRepo ? (
           <section>

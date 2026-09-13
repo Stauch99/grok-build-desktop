@@ -1,4 +1,5 @@
 import type { GitChange, GitChangeStatus, GitCommandResult, GitCommit, GitStatus } from "../api";
+import { tr } from "./i18n-bridge";
 
 export type ChangeTotals = { files: number; added: number; removed: number };
 
@@ -63,7 +64,7 @@ export function canDiscardChange(status: GitChangeStatus): boolean {
 }
 
 export function discardConfirm(path: string): string {
-  return `丢弃对 ${path} 的本地改动？`;
+  return tr("git.discardConfirm", { path });
 }
 
 export function changePreviewTarget(change: GitChange): string {
@@ -108,20 +109,20 @@ export function mapGitStderr(stderr: string): string | null {
     lower.includes("no configured push destination") ||
     lower.includes("no remote repository specified")
   ) {
-    return "当前仓库没有远程地址";
+    return tr("git.noRemote");
   }
   if (
     lower.includes("couldn't find remote ref") ||
     lower.includes("could not find remote branch")
   ) {
-    return "当前分支尚未发布到远程，请先推送";
+    return tr("git.notPublished");
   }
   if (
     lower.includes("no tracking information") ||
     lower.includes("has no upstream branch") ||
     lower.includes("no upstream configured")
   ) {
-    return "当前分支还没有远程跟踪，请先推送";
+    return tr("git.noUpstream");
   }
   return null;
 }

@@ -1,11 +1,15 @@
+import { useEffect, useRef } from "react";
 import type { SessionSummary } from "./api";
 import { useT } from "./lib/locale-context";
+import { focusables, trapFocus } from "./lib/trap-focus";
 
 export type SessionMenuState = {
   kind: "header" | "row";
   id: string;
   top: number;
   left: number;
+  /** Element that opened the menu; focus returns here on close. */
+  trigger?: HTMLElement | null;
 };
 
 type Props = {
@@ -13,10 +17,18 @@ type Props = {
   hasOverride: boolean;
   top: number;
   left: number;
+  trigger?: HTMLElement | null;
+  isUnread: boolean;
+  muted: boolean;
+  note: string;
   onRename: () => void;
   onRestore: () => void;
   onNew: () => void;
   onNewLabel: string;
+  onDuplicate: () => void;
+  onEditNote: () => void;
+  onMarkUnread: () => void;
+  onToggleMute: () => void;
   onMoveToProject: (() => void) | null;
   onReveal: (() => void) | null;
   onCopyId: () => void;
@@ -36,10 +48,18 @@ export function SessionMenu({
   hasOverride,
   top,
   left,
+  trigger,
+  isUnread,
+  muted,
+  note,
   onRename,
   onRestore,
   onNew,
   onNewLabel,
+  onDuplicate,
+  onEditNote,
+  onMarkUnread,
+  onToggleMute,
   onMoveToProject,
   onReveal,
   onCopyId,
@@ -55,14 +75,56 @@ export function SessionMenu({
 }: Props) {
   const t = useT();
   const splitLabel = onSplitLabel ?? t("pane.splitRight");
+  const menuRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<HTMLElement | null>(null);
+
+  // Focus the first item so Tab has somewhere to wrap from, then hand focus
+  // back to the trigger (or whatever was focused) when the menu unmounts.
+  useEffect(() => {
+    previousActive.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (menuRef.current) focusables(menuRef.current)[0]?.focus();
+    return () => {
+      const prev = previousActive.current;
+      previousActive.current = null;
+      // Right-click menus pass the row as the trigger; rows are not focusable,
+      // so fall back to whatever held focus when the menu opened.
+      const canFocus = (el: HTMLElement | null | undefined): el is HTMLElement =>
+        !!el && el.isConnected && (el.tabIndex >= 0 || /^(button|a|input|select|textarea)$/i.test(el.tagName));
+      (canFocus(trigger) ? trigger : canFocus(prev) ? prev : null)?.focus();
+    };
+  }, [trigger]);
+
   return (
-    <div className="menu" style={{ top, left }} role="menu">
+    <div
+      ref={menuRef}
+      className="menu"
+      style={{ top, left }}
+      role="menu"
+      onKeyDown={(e) => {
+        if (e.key === "Tab" && menuRef.current) trapFocus(menuRef.current, e.nativeEvent);
+      }}
+    >
       <button type="button" onClick={onRename}>{t("menu.rename")}</button>
       <button type="button" onClick={onRestore} disabled={!hasOverride}>{t("menu.restoreTitle")}</button>
       <button type="button" onClick={onNew}>{onNewLabel}</button>
       {onSplit ? <button type="button" onClick={onSplit}>{splitLabel}</button> : null}
       {onFork ? <button type="button" onClick={onFork}>{t("menu.fork")}</button> : null}
+      <button type="button" onClick={onDuplicate}>{t("menu.duplicate")}</button>
       {onMoveToProject ? <button type="button" onClick={onMoveToProject}>{t("menu.moveToProject")}</button> : null}
+      <div className="sep" />
+      {note ? (
+        <p className="menu-note" data-tip={note}>
+          {note}
+        </p>
+      ) : null}
+      <button type="button" onClick={onEditNote}>{t("menu.note")}</button>
+      {!isUnread ? (
+        <button type="button" onClick={onMarkUnread}>{t("menu.markUnread")}</button>
+      ) : null}
+      <button type="button" onClick={onToggleMute}>
+        {muted ? t("menu.unmute") : t("menu.mute")}
+      </button>
       <div className="sep" />
       <button type="button" onClick={onReveal ?? undefined} disabled={!onReveal}>{t("menu.reveal")}</button>
       <button type="button" onClick={onCopyId}>{t("menu.copyId")}</button>
