@@ -28,7 +28,7 @@ tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-t
 thiserror = "2"
 toml_edit = "0.22"
 walkdir = "2"
-notify = "7"
+notify = "8"
 fs2 = "0.4"
 
 [profile.release]
